@@ -4,6 +4,7 @@ description = "Plugin contract for lowendaff-bench test items"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
+license.workspace = true
 
 [dependencies]
 serde.workspace = true
