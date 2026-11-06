@@ -1,0 +1,24 @@
+# Dependabot proposes dependency updates as PRs. Commit messages follow the Angular convention
+# (`build(deps): ...`, `ci(deps): ...`). A 7-day cooldown keeps releases that are only days old
+# out of the first proposal.
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: build
+      include: scope
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: ci
+      include: scope

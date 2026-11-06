@@ -60,6 +60,8 @@ CI also uses sccache (backed by the GitHub Actions cache) and the mold linker. T
 
 Every Monday, the `latest-deps` workflow updates a scratch checkout to the newest dependency versions that `Cargo.toml` allows. It then runs the tests and the dependency policy. A failure means an upstream release would break the build. The committed `Cargo.lock` is not touched.
 
+Dependabot (`.github/dependabot.yml`) proposes weekly update PRs for cargo and for the pinned GitHub Actions. It waits until a release is at least 7 days old.
+
 ## Code style
 
 Rust code follows the [Google Rust Style Guide](https://google.github.io/styleguide/rustguide.html).
