@@ -1,0 +1,38 @@
+# Weekly check that the code still builds and passes with the newest dependency versions that
+# Cargo.toml allows (Cargo Book, "Verifying latest dependencies"). The committed Cargo.lock is
+# not changed here; Dependabot proposes the actual updates.
+name: latest-deps
+
+on:
+  schedule:
+    - cron: "23 2 * * 1" # Mondays 02:23 UTC
+  workflow_dispatch:
+
+permissions: {}
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  latest:
+    name: test and policy with the latest dependencies
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the pinned toolchain
+        run: rustup toolchain install
+      - uses: taiki-e/install-action@3a3daafd3b7f23b8f65d9f5ba2db203fb59b79e2 # v2.90.2
+        with:
+          tool: cargo-nextest@0.9.151,cargo-deny@0.20.2
+      - name: Update to the latest compatible versions
+        run: cargo update --verbose
+      - name: Test
+        run: cargo nextest run --workspace --no-fail-fast
+      - name: Dependency policy
+        run: cargo deny check
