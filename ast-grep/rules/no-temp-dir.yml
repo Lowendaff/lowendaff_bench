@@ -1,0 +1,23 @@
+id: no-temp-dir
+language: rust
+severity: error
+message: Keep files on the tested disk, under `ctx.work_dir()`, not in /tmp or the system temp directory.
+note: >-
+  Design D-14. /tmp is often tmpfs (Debian 13) or mounted noexec (CIS), so files there measure
+  memory or cannot run. Tests may use temp directories; this rule covers `src/` only.
+files:
+  - crates/*/src/**/*.rs
+rule:
+  any:
+    - kind: string_literal
+      regex: ^"(/tmp|/var/tmp|/dev/shm)(/|")
+    - kind: raw_string_literal
+      regex: ^r#*"(/tmp|/var/tmp|/dev/shm)(/|")
+    - kind: call_expression
+      has:
+        field: function
+        regex: (^|::|\.)(temp_dir|tempdir|tempfile|named_tempfile|spooled_tempfile)$
+    - kind: call_expression
+      has:
+        field: function
+        regex: (^|::)(TempDir|NamedTempFile)::new$

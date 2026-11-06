@@ -1,0 +1,32 @@
+id: use-one-item
+snapshots:
+  "use crate::orchestrator::{self, Planned};":
+    labels:
+    - source: use crate::orchestrator::{self, Planned};
+      style: primary
+      start: 0
+      end: 41
+    - source: "{self, Planned}"
+      style: secondary
+      start: 25
+      end: 40
+  "use std::{fs, io};":
+    labels:
+    - source: use std::{fs, io};
+      style: primary
+      start: 0
+      end: 18
+    - source: "{fs, io}"
+      style: secondary
+      start: 9
+      end: 17
+  "use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};":
+    labels:
+    - source: use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
+      style: primary
+      start: 0
+      end: 60
+    - source: "{UnboundedReceiver, UnboundedSender}"
+      style: secondary
+      start: 23
+      end: 59

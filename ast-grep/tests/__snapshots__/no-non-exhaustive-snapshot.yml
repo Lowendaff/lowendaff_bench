@@ -1,0 +1,14 @@
+id: no-non-exhaustive
+snapshots:
+  "#[non_exhaustive]\npub enum Record { Fact }\n":
+    labels:
+    - source: non_exhaustive
+      style: primary
+      start: 2
+      end: 16
+  "pub enum Missing {\n    #[non_exhaustive]\n    Busy { retry: u8 },\n}\n":
+    labels:
+    - source: non_exhaustive
+      style: primary
+      start: 25
+      end: 39

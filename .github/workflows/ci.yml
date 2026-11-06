@@ -75,6 +75,33 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: zizmor --persona pedantic .
 
+  ast-grep:
+    name: ast-grep rules
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # taiki-e/install-action does not provide ast-grep, so fetch the official release and
+      # check it against the SHA-256 that GitHub lists for the asset.
+      - name: Install ast-grep
+        env:
+          VERSION: 0.51.1
+          SHA256: 42514f77ae0c8a25d7d32154d31d3e7e16f3ab894f8ce76ce417de234ee49157
+        run: |
+          curl --fail --silent --show-error --location --output "$RUNNER_TEMP/ast-grep.zip" \
+            "https://github.com/ast-grep/ast-grep/releases/download/$VERSION/app-x86_64-unknown-linux-gnu.zip"
+          echo "$SHA256  $RUNNER_TEMP/ast-grep.zip" | sha256sum --check --strict
+          unzip -q "$RUNNER_TEMP/ast-grep.zip" ast-grep -d "$RUNNER_TEMP/ast-grep"
+          echo "$RUNNER_TEMP/ast-grep" >> "$GITHUB_PATH"
+      - name: Rule tests
+        run: ast-grep test
+      - name: Rules
+        run: ast-grep scan
+
   linux:
     name: test, static build and smoke (${{ matrix.arch }})
     strategy:

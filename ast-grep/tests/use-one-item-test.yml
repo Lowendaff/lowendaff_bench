@@ -1,0 +1,9 @@
+id: use-one-item
+valid:
+  - use std::io;
+  - use crate::orchestrator::Planned;
+  - use std::fmt::Write as _;
+invalid:
+  - use std::{fs, io};
+  - use crate::orchestrator::{self, Planned};
+  - use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};

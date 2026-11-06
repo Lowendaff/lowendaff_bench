@@ -1,0 +1,10 @@
+id: use-one-item
+language: rust
+severity: error
+message: Write one `use` statement per imported item.
+note: README "Code style". rustfmt's `imports_granularity = "Item"` is nightly-only, so this rule enforces it.
+rule:
+  kind: use_declaration
+  has:
+    kind: use_list
+    stopBy: end

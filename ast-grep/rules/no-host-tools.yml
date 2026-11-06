@@ -1,0 +1,22 @@
+id: no-host-tools
+language: rust
+severity: error
+message: Run pinned tools through `ctx.tool(name)`, not by program name from the host's PATH.
+note: >-
+  Design D-13 and P-11. Host-installed programs differ between servers, so their results are not
+  comparable. Only a literal program name is caught; `Command::new(ctx.tool("fio")?)` is fine.
+files:
+  - crates/*/src/**/*.rs
+rule:
+  kind: call_expression
+  all:
+    - has:
+        field: function
+        regex: (^|::)Command::new$
+    # Direct children only: a literal nested in `ctx.tool("fio")?` must not match.
+    - has:
+        field: arguments
+        has:
+          any:
+            - kind: string_literal
+            - kind: raw_string_literal

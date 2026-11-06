@@ -1,0 +1,9 @@
+id: no-print-in-plugins
+valid:
+  - fn f() { ctx.emit(record); }
+  - fn f() { writeln!(out, "x").ok(); }
+  - fn f() { let text = format!("x"); }
+invalid:
+  - fn f() { println!("x"); }
+  - fn f() { eprintln!("x"); }
+  - fn f() { dbg!(value); }

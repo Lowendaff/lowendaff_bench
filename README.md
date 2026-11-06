@@ -43,6 +43,8 @@ CI (`.github/workflows/ci.yml`) runs exactly these commands. Run them locally be
 | Test | `cargo nextest run --workspace --locked --no-fail-fast` | any host; CI uses Linux x86_64 and aarch64 |
 | Dependencies | `cargo deny check` (policy in `deny.toml`) | any host |
 | Workflows | `zizmor --persona pedantic .` (config in `.github/zizmor.yml`) | any host |
+| Rule tests | `ast-grep test` (cases in `ast-grep/tests/`) | any host |
+| Rules | `ast-grep scan` (rules in `ast-grep/rules/`, config in `sgconfig.yml`) | any host |
 | Static build | `cargo build --release --locked --target <arch>-unknown-linux-musl --bin lowendaff-bench` | Linux |
 | Smoke | `scripts/smoke.sh target/<arch>-unknown-linux-musl/release/lowendaff-bench` | Linux, as root or with sudo |
 
@@ -52,7 +54,8 @@ CI pins these tool versions; install the same versions locally:
 
 - cargo-nextest 0.9.151;
 - cargo-deny 0.20.2;
-- zizmor 1.32.0, for example `uvx zizmor@1.32.0 --persona pedantic .`.
+- zizmor 1.32.0, for example `uvx zizmor@1.32.0 --persona pedantic .`;
+- ast-grep 0.51.1.
 
 The `cargo deny check` and `zizmor` gates need network access: one fetches the RustSec advisory database, the other runs online audits (zizmor needs `GH_TOKEN` for those).
 
@@ -89,6 +92,14 @@ Rust code follows the [Google Rust Style Guide](https://google.github.io/stylegu
 - `missing_docs` (only in `bench-api`)
 
 `unsafe_code` is forbidden.
+
+The ast-grep rules in `ast-grep/rules/` cover what rustc, clippy and rustfmt cannot check:
+
+- one item per `use` statement, and free functions called through their module;
+- no `#[non_exhaustive]` (see below);
+- no files in /tmp or the system temp directory (design D-14);
+- no programs started by name from the host instead of pinned tools (design D-13, P-11);
+- no printing from `bench-api` or plugins, which report through `ctx.emit` (design D-05, D-06).
 
 **Deliberate interpretations:**
 

@@ -1,0 +1,13 @@
+id: no-print-in-plugins
+language: rust
+severity: error
+message: Report results through `ctx.emit`; the terminal renderer owns the output.
+note: Design D-05, D-06 and D-15. Printed text bypasses the renderer and breaks the aligned layout.
+files:
+  - crates/bench-api/src/**/*.rs
+  - crates/plugin-*/src/**/*.rs
+rule:
+  kind: macro_invocation
+  has:
+    field: macro
+    regex: ^(print|println|eprint|eprintln|dbg)$
