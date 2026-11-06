@@ -255,7 +255,7 @@ Exit codes:
 
 Current state:
 
-- macOS: `cargo test --workspace` passes **38 tests**; `cargo clippy --workspace --all-targets -- -D warnings` is clean.
+- macOS: `cargo nextest run --workspace` passes **38 tests**; `cargo clippy --workspace --all-targets -- -D warnings` is clean.
 - Linux (`rust:alpine`, rustc 1.99.1, `aarch64-unknown-linux-musl`): the same 38 tests pass.
 
 | Suite | Tests | Covers |

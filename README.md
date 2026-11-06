@@ -40,11 +40,21 @@ CI (`.github/workflows/ci.yml`) runs exactly these commands. Run them locally be
 |------|---------|---------|
 | Format | `cargo fmt --all --check` | any host |
 | Lint | `cargo clippy --workspace --all-targets --locked -- -D warnings` | any host |
-| Test | `cargo test --workspace --locked` | any host; CI uses Linux x86_64 and aarch64 |
+| Test | `cargo nextest run --workspace --locked --no-fail-fast` | any host; CI uses Linux x86_64 and aarch64 |
+| Dependencies | `cargo deny check` (policy in `deny.toml`) | any host |
+| Workflows | `zizmor --persona pedantic .` (config in `.github/zizmor.yml`) | any host |
 | Static build | `cargo build --release --locked --target <arch>-unknown-linux-musl --bin lowendaff-bench` | Linux |
 | Smoke | `scripts/smoke.sh target/<arch>-unknown-linux-musl/release/lowendaff-bench` | Linux, as root or with sudo |
 
 `<arch>` is `x86_64` or `aarch64`.
+
+CI pins these tool versions; install the same versions locally:
+
+- cargo-nextest 0.9.151;
+- cargo-deny 0.20.2;
+- zizmor 1.32.0, for example `uvx zizmor@1.32.0 --persona pedantic .`.
+
+The `cargo deny check` and `zizmor` gates need network access: one fetches the RustSec advisory database, the other runs online audits (zizmor needs `GH_TOKEN` for those).
 
 ## Code style
 

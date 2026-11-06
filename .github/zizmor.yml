@@ -1,0 +1,6 @@
+# zizmor configuration for the workflow gate (README "Gates").
+rules:
+  # Owner's rule: never cancel CI runs, so every pushed head gets a complete run. The
+  # workflows therefore have no `concurrency` block on purpose.
+  concurrency-limits:
+    disable: true

@@ -1,0 +1,30 @@
+# Dependency policy, checked by `cargo deny check` (README "Gates").
+
+[advisories]
+# Any RustSec advisory for a crate in the graph fails the gate. To accept one, add its id to
+# `ignore` together with the reason.
+yanked = "deny"
+ignore = []
+
+[licenses]
+# The project is MIT; every dependency must offer a permissive license compatible with it.
+allow = [
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-3-Clause",
+    "CDLA-Permissive-2.0", # webpki-roots: Mozilla's root certificate data
+    "ISC",
+    "MIT",
+    "Unicode-3.0",
+]
+confidence-threshold = 0.93
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+# Workspace crates depend on each other by path.
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
