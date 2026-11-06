@@ -128,6 +128,7 @@ impl Plugin for NeedsToolAndIpv6 {
         requires: Requirements {
             tools: &[FIO],
             net: Net::Ipv6,
+            platforms: &[],
         },
         ..descriptor("test.needs", 10_000)
     };

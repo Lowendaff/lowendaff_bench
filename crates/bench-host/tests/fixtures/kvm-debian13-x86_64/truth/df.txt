@@ -1,0 +1,11 @@
+Mounted on                                                                                          1B-blocks        Used      Avail
+/dev                                                                                                465215488           0  465215488
+/run                                                                                                 97423360      954368   96468992
+/                                                                                                 21023531008 11768406016 8272138240
+/dev/shm                                                                                            487104512           0  487104512
+/run/lock                                                                                             5242880           0    5242880
+/tmp                                                                                                487104512           0  487104512
+/run/credentials/systemd-journald.service                                                             1048576           0    1048576
+/run/credentials/getty@tty1.service                                                                   1048576           0    1048576
+/run/credentials/serial-getty@ttyS0.service                                                           1048576           0    1048576
+/run/user/0                                                                                          97419264       12288   97406976

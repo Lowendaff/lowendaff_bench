@@ -63,11 +63,22 @@ impl Cli {
     }
 }
 
-/// Prints every registered plugin with its id, title and pinned tools.
+/// Prints every registered plugin with its id, title, platforms and pinned tools.
 pub fn list(registry: &[Registration], out: &mut impl Write) {
     let _ = writeln!(out, "共 {} 个测试项", registry.len());
     for registration in registry {
         let descriptor = registration.descriptor;
+        let platforms: Vec<String> = descriptor
+            .requires
+            .platforms
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        let platforms = if platforms.is_empty() {
+            String::new()
+        } else {
+            format!("（适用：{}）", platforms.join("、"))
+        };
         let tools: Vec<String> = descriptor
             .requires
             .tools
@@ -79,7 +90,11 @@ pub fn list(registry: &[Registration], out: &mut impl Write) {
         } else {
             format!("（工具：{}）", tools.join("、"))
         };
-        let _ = writeln!(out, "  {}  {}{tools}", descriptor.id, descriptor.title);
+        let _ = writeln!(
+            out,
+            "  {}  {}{platforms}{tools}",
+            descriptor.id, descriptor.title
+        );
     }
 }
 
@@ -164,6 +179,9 @@ pub async fn execute(
         .map_err(|err| format!("无法在 {} 创建运行目录：{err}", work_dir.display()))?;
     let mut terminal = Terminal::new(out);
     terminal.header(env!("CARGO_PKG_VERSION"));
+    terminal.platform(env.platform);
+    let (planned, not_applicable) = orchestrator::for_platform(planned, env.platform);
+    terminal.not_applicable(&not_applicable);
 
     let tools = provision::required_tools(planned.iter().map(Planned::descriptor));
     if !tools.is_empty() {

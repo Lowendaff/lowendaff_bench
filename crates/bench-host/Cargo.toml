@@ -1,0 +1,16 @@
+[package]
+name = "bench-host"
+description = "Host facts for lowendaff-bench, read from /proc, /sys and /etc without running programs"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[dependencies]
+bench-api.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

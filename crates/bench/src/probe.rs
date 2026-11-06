@@ -1,9 +1,11 @@
-//! Host facts for `Env`, probed once before planning runs: architecture and IPv4/IPv6
-//! reachability.
+//! Host facts for `Env`, probed once before anything runs: architecture, platform
+//! (design D-16) and IPv4/IPv6 reachability.
 
 use std::time::Duration;
 
 use bench_api::Env;
+use bench_host::Root;
+use bench_host::platform;
 use tokio::net::TcpStream;
 
 /// Public DNS anycast addresses (Cloudflare, AliDNS) on the HTTPS port; reaching any
@@ -18,6 +20,7 @@ pub async fn probe() -> Env {
         arch: std::env::consts::ARCH.to_owned(),
         ipv4,
         ipv6,
+        platform: platform::detect(&Root::system(), platform::cpuid().as_ref()),
         ..Env::default()
     }
 }

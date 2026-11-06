@@ -1,0 +1,22 @@
+NAME   KNAME TYPE         SIZE ROTA TRAN   MODEL FSTYPE MOUNTPOINTS
+nbd0   nbd0  disk            0    0                     
+nbd1   nbd1  disk            0    0                     
+nbd2   nbd2  disk            0    0                     
+nbd3   nbd3  disk            0    0                     
+nbd4   nbd4  disk            0    0                     
+nbd5   nbd5  disk            0    0                     
+nbd6   nbd6  disk            0    0                     
+nbd7   nbd7  disk            0    0                     
+vda    vda   disk 994609987584    1 virtio              
+`-vda1 vda1  part 994608939008    1 virtio              /etc/resolv.conf
+                                                        /etc/hosts
+                                                        /etc/hostname
+vdb    vdb   disk    590200832    1 virtio              
+nbd8   nbd8  disk            0    0                     
+nbd9   nbd9  disk            0    0                     
+nbd10  nbd10 disk            0    0                     
+nbd11  nbd11 disk            0    0                     
+nbd12  nbd12 disk            0    0                     
+nbd13  nbd13 disk            0    0                     
+nbd14  nbd14 disk            0    0                     
+nbd15  nbd15 disk            0    0                     

@@ -7,12 +7,16 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use bench_api::CancellationToken;
+use bench_api::ContainerKind;
 use bench_api::Context;
 use bench_api::Descriptor;
 use bench_api::Env;
+use bench_api::Hypervisor;
 use bench_api::Measurement;
 use bench_api::Missing;
 use bench_api::Net;
+use bench_api::Platform;
+use bench_api::PlatformKind;
 use bench_api::Plugin;
 use bench_api::PluginError;
 use bench_api::Record;
@@ -44,13 +48,23 @@ const FIO: ToolSpec = ToolSpec {
 };
 
 const fn descriptor(id: &'static str, tools: &'static [ToolSpec]) -> Descriptor {
+    variant(id, id, tools, &[])
+}
+
+const fn variant(
+    id: &'static str,
+    title: &'static str,
+    tools: &'static [ToolSpec],
+    platforms: &'static [PlatformKind],
+) -> Descriptor {
     Descriptor {
         id,
-        title: "测试项",
+        title,
         version: "0.1.0",
         requires: Requirements {
             tools,
             net: Net::None,
+            platforms,
         },
         timeout: Duration::from_secs(10),
     }
@@ -58,12 +72,15 @@ const fn descriptor(id: &'static str, tools: &'static [ToolSpec]) -> Descriptor 
 
 macro_rules! plugin {
     ($name:ident, $id:expr, $tools:expr) => {
+        plugin!($name, descriptor($id, $tools));
+    };
+    ($name:ident, $descriptor:expr) => {
         #[derive(Default, Deserialize)]
         #[serde(default, deny_unknown_fields)]
         struct $name {}
 
         impl Plugin for $name {
-            const DESCRIPTOR: Descriptor = descriptor($id, $tools);
+            const DESCRIPTOR: Descriptor = $descriptor;
 
             async fn run(&self, _ctx: &Context) -> Result<(), PluginError> {
                 Ok(())
@@ -125,6 +142,22 @@ const OTHER_FIO: ToolSpec = ToolSpec {
     ..FIO
 };
 plugin!(ConflictingFio, "disk.fio-old", &[OTHER_FIO]);
+
+plugin!(InfoVm, variant("info.vm", "信息", &[], &[PlatformKind::Vm]));
+plugin!(
+    InfoDedicated,
+    variant("info.dedicated", "信息", &[], &[PlatformKind::Dedicated])
+);
+plugin!(
+    InfoVmOrContainer,
+    variant(
+        "info.shared",
+        "信息",
+        &[],
+        &[PlatformKind::Vm, PlatformKind::Container]
+    )
+);
+plugin!(InfoEverywhere, variant("info.any", "信息", &[], &[]));
 
 #[test]
 fn measurement_displays_a_value_with_unit_or_the_missing_reason() {
@@ -272,4 +305,73 @@ fn registry_checks_catch_bad_tool_pins() {
         );
     }
     assert_eq!(problems.len(), expected.len(), "{problems:#?}");
+}
+
+#[test]
+fn plugins_that_share_a_title_need_disjoint_platforms() {
+    assert_eq!(
+        bench_api::validate_registry(&[
+            bench_api::register::<InfoVm>(),
+            bench_api::register::<InfoDedicated>(),
+        ]),
+        Vec::<String>::new()
+    );
+    let problems = bench_api::validate_registry(&[
+        bench_api::register::<InfoVm>(),
+        bench_api::register::<InfoVmOrContainer>(),
+        bench_api::register::<InfoEverywhere>(),
+    ]);
+    assert_eq!(
+        problems,
+        [
+            "info.shared: shares its title with info.vm, so their platforms must not overlap",
+            "info.any: shares its title with info.vm, so their platforms must not overlap",
+            "info.any: shares its title with info.shared, so their platforms must not overlap",
+        ]
+    );
+}
+
+#[test]
+fn a_plugin_applies_to_the_kinds_it_declares() {
+    let vm = Requirements {
+        platforms: &[PlatformKind::Vm],
+        ..Requirements::NONE
+    };
+    assert!(vm.applies_to(Platform::Vm(Hypervisor::Kvm)));
+    assert!(vm.applies_to(Platform::Vm(Hypervisor::Other)));
+    assert!(!vm.applies_to(Platform::Dedicated));
+    assert!(!vm.applies_to(Platform::Container(ContainerKind::Lxc)));
+    for platform in [
+        Platform::Dedicated,
+        Platform::Vm(Hypervisor::Xen),
+        Platform::Container(ContainerKind::Docker),
+    ] {
+        assert!(
+            Requirements::NONE.applies_to(platform),
+            "an empty list means every platform, including {platform}"
+        );
+    }
+}
+
+#[test]
+fn platforms_are_named_in_chinese() {
+    let names = [
+        (Platform::Dedicated, "未检测到虚拟化"),
+        (Platform::Vm(Hypervisor::Kvm), "KVM 虚拟机"),
+        (Platform::Vm(Hypervisor::Qemu), "QEMU 虚拟机（纯软件模拟）"),
+        (Platform::Vm(Hypervisor::HyperV), "Hyper-V 虚拟机"),
+        (Platform::Vm(Hypervisor::Other), "虚拟机（类型未知）"),
+        (Platform::Container(ContainerKind::Lxc), "LXC 容器"),
+        (Platform::Container(ContainerKind::Openvz), "OpenVZ 容器"),
+        (Platform::Container(ContainerKind::Wsl), "WSL"),
+        (
+            Platform::Container(ContainerKind::Other),
+            "容器（类型未知）",
+        ),
+    ];
+    for (platform, name) in names {
+        assert_eq!(platform.to_string(), name);
+    }
+    assert_eq!(PlatformKind::Dedicated.to_string(), "独立服务器");
+    assert_eq!(Platform::default(), Platform::Dedicated);
 }

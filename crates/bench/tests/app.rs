@@ -12,12 +12,18 @@ use bench_api::CancellationToken;
 use bench_api::Context;
 use bench_api::Descriptor;
 use bench_api::Env;
+use bench_api::Hypervisor;
 use bench_api::Measurement;
+use bench_api::Net;
+use bench_api::Platform;
+use bench_api::PlatformKind;
 use bench_api::Plugin;
 use bench_api::PluginError;
 use bench_api::Record;
 use bench_api::Registration;
 use bench_api::Requirements;
+use bench_api::ToolAsset;
+use bench_api::ToolSpec;
 use serde::Deserialize;
 
 #[derive(Default, Deserialize)]
@@ -174,7 +180,7 @@ async fn a_run_prints_sections_and_summary_then_removes_its_directory() {
     assert_eq!(code, 0);
     assert!(
         text.starts_with(&format!(
-            "lowendaff-bench {}\n\n【示例测试】\n",
+            "lowendaff-bench {}\n运行环境：未检测到虚拟化\n\n【示例测试】\n",
             env!("CARGO_PKG_VERSION")
         )),
         "{text}"
@@ -210,5 +216,154 @@ async fn an_interrupted_run_exits_130_and_still_lists_every_plugin() {
     assert!(
         text.contains("共 2 项：完成 0，跳过 0，失败 0，超时 0，中断 2。"),
         "{text}"
+    );
+}
+
+/// Two variants of one test item, and an item that applies to dedicated servers only.
+#[derive(Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct InfoDedicated {}
+
+impl Plugin for InfoDedicated {
+    const DESCRIPTOR: Descriptor = Descriptor {
+        id: "test.info-dedicated",
+        title: "系统信息",
+        requires: Requirements {
+            platforms: &[PlatformKind::Dedicated],
+            ..Requirements::NONE
+        },
+        ..Good::DESCRIPTOR
+    };
+
+    async fn run(&self, ctx: &Context) -> Result<(), PluginError> {
+        ctx.emit(Record::fact("variant", "版本", "独立服务器版"));
+        Ok(())
+    }
+}
+
+#[derive(Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct InfoVm {}
+
+impl Plugin for InfoVm {
+    const DESCRIPTOR: Descriptor = Descriptor {
+        id: "test.info-vm",
+        title: "系统信息",
+        requires: Requirements {
+            platforms: &[PlatformKind::Vm],
+            ..Requirements::NONE
+        },
+        ..Good::DESCRIPTOR
+    };
+
+    async fn run(&self, ctx: &Context) -> Result<(), PluginError> {
+        ctx.emit(Record::fact("variant", "版本", "虚拟机版"));
+        Ok(())
+    }
+}
+
+const SMARTCTL: ToolSpec = ToolSpec {
+    name: "smartctl",
+    version: "7.4",
+    assets: &[
+        ToolAsset {
+            arch: "x86_64",
+            url: "https://example.invalid/smartctl-x86_64",
+            sha256: "1046784cba2513f64f6ee92655862e88fe249cfbbdb19b5420a08df9cc6540e8",
+            size: 24,
+        },
+        ToolAsset {
+            arch: "aarch64",
+            url: "https://example.invalid/smartctl-aarch64",
+            sha256: "1046784cba2513f64f6ee92655862e88fe249cfbbdb19b5420a08df9cc6540e8",
+            size: 24,
+        },
+    ],
+};
+
+#[derive(Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct DiskHealth {}
+
+impl Plugin for DiskHealth {
+    const DESCRIPTOR: Descriptor = Descriptor {
+        id: "test.disk-health",
+        title: "硬盘健康",
+        requires: Requirements {
+            tools: &[SMARTCTL],
+            net: Net::None,
+            platforms: &[PlatformKind::Dedicated],
+        },
+        ..Good::DESCRIPTOR
+    };
+
+    async fn run(&self, _ctx: &Context) -> Result<(), PluginError> {
+        Ok(())
+    }
+}
+
+const PLATFORM_REGISTRY: &[Registration] = &[
+    bench_api::register::<InfoDedicated>(),
+    bench_api::register::<InfoVm>(),
+    bench_api::register::<DiskHealth>(),
+];
+
+#[tokio::test]
+async fn only_plugins_for_the_detected_platform_run() {
+    assert_eq!(
+        bench_api::validate_registry(PLATFORM_REGISTRY),
+        Vec::<String>::new()
+    );
+    let work = tempfile::tempdir().unwrap();
+    let planned = app::prepare(&cli(&[]), PLATFORM_REGISTRY).unwrap();
+    let env = Env {
+        platform: Platform::Vm(Hypervisor::Kvm),
+        ..Env::default()
+    };
+    let mut out = Vec::new();
+
+    let code = app::execute(
+        planned,
+        env,
+        work.path(),
+        &CancellationToken::new(),
+        &mut out,
+    )
+    .await
+    .unwrap();
+
+    let text = String::from_utf8(out).unwrap();
+    assert_eq!(code, 0);
+    // The other variant of 系统信息 runs instead, so only 硬盘健康 is reported.
+    assert!(
+        text.starts_with(&format!(
+            "lowendaff-bench {}\n运行环境：KVM 虚拟机\n本机不适用：硬盘健康\n\n【系统信息】\n",
+            env!("CARGO_PKG_VERSION")
+        )),
+        "{text}"
+    );
+    assert!(text.contains("虚拟机版"), "{text}");
+    assert!(!text.contains("独立服务器版"), "{text}");
+    assert!(
+        !text.contains("【准备工具】"),
+        "tools of plugins that do not apply must not be downloaded: {text}"
+    );
+    assert!(
+        text.contains("\n共 1 项：完成 1，跳过 0，失败 0，超时 0，中断 0。"),
+        "{text}"
+    );
+}
+
+#[test]
+fn the_list_shows_where_each_plugin_applies() {
+    let mut out = Vec::new();
+    app::list(PLATFORM_REGISTRY, &mut out);
+
+    assert_eq!(
+        String::from_utf8(out).unwrap(),
+        "共 3 个测试项\n\
+         \x20 test.info-dedicated  系统信息（适用：独立服务器）\n\
+         \x20 test.info-vm  系统信息（适用：虚拟机）\n\
+         \x20 test.disk-health  硬盘健康（适用：独立服务器）（工具：smartctl 7.4）\n"
     );
 }
