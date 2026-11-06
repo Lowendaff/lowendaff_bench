@@ -1,0 +1,12 @@
+id: call-functions-through-module
+valid:
+  - use crate::orchestrator;
+  - use bench::app;
+  - use crate::orchestrator::Planned;
+  - use bench::registry::REGISTRY;
+  - use bench_api::Context;
+  - use std::fs;
+invalid:
+  - use crate::orchestrator::plan;
+  - use bench::app::execute;
+  - use bench_api::register;

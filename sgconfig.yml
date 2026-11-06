@@ -1,0 +1,5 @@
+# ast-grep rules for decisions that rustc, clippy and rustfmt cannot check (README "Gates").
+ruleDirs:
+  - ast-grep/rules
+testConfigs:
+  - testDir: ast-grep/tests

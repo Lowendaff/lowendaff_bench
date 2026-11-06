@@ -1,0 +1,56 @@
+id: no-host-tools
+snapshots:
+  "fn f() { let command = std::process::Command::new(\"uname\"); }":
+    labels:
+    - source: std::process::Command::new("uname")
+      style: primary
+      start: 23
+      end: 58
+    - source: std::process::Command::new
+      style: secondary
+      start: 23
+      end: 49
+    - source: "\"uname\""
+      style: secondary
+      start: 50
+      end: 57
+    - source: "\"uname\""
+      style: secondary
+      start: 50
+      end: 57
+  "fn f() { let command = tokio::process::Command::new(r\"/usr/bin/fio\"); }":
+    labels:
+    - source: tokio::process::Command::new(r"/usr/bin/fio")
+      style: primary
+      start: 23
+      end: 68
+    - source: tokio::process::Command::new
+      style: secondary
+      start: 23
+      end: 51
+    - source: r"/usr/bin/fio"
+      style: secondary
+      start: 52
+      end: 67
+    - source: r"/usr/bin/fio"
+      style: secondary
+      start: 52
+      end: 67
+  "fn f() { let out = Command::new(\"fio\").output(); }":
+    labels:
+    - source: Command::new("fio")
+      style: primary
+      start: 19
+      end: 38
+    - source: Command::new
+      style: secondary
+      start: 19
+      end: 31
+    - source: "\"fio\""
+      style: secondary
+      start: 32
+      end: 37
+    - source: "\"fio\""
+      style: secondary
+      start: 32
+      end: 37

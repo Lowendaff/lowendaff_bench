@@ -1,0 +1,150 @@
+# Gates, one-to-one with README "Gates". There is deliberately no `concurrency` block:
+# every pushed head gets its own complete run (`.github/zizmor.yml` explains the exception).
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions: {}
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  lint:
+    name: fmt and clippy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    env:
+      RUSTC_WRAPPER: sccache
+      SCCACHE_GHA_ENABLED: "true"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the pinned toolchain
+        run: rustup toolchain install
+      - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+        with:
+          version: v0.19.0
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - name: Format
+        run: cargo fmt --all --check
+      - name: Lint
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+  deny:
+    name: dependency policy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the pinned toolchain
+        run: rustup toolchain install
+      - uses: taiki-e/install-action@3a3daafd3b7f23b8f65d9f5ba2db203fb59b79e2 # v2.90.2
+        with:
+          tool: cargo-deny@0.20.2
+      - name: Dependency policy
+        run: cargo deny check
+
+  zizmor:
+    name: workflow audit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: taiki-e/install-action@3a3daafd3b7f23b8f65d9f5ba2db203fb59b79e2 # v2.90.2
+        with:
+          tool: zizmor@1.32.0
+      - name: Workflow audit
+        env:
+          # Online audits (impostor commits, known-vulnerable actions) query the GitHub API.
+          GH_TOKEN: ${{ github.token }}
+        run: zizmor --persona pedantic .
+
+  ast-grep:
+    name: ast-grep rules
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # taiki-e/install-action does not provide ast-grep, so fetch the official release and
+      # check it against the SHA-256 that GitHub lists for the asset.
+      - name: Install ast-grep
+        env:
+          VERSION: 0.51.1
+          SHA256: 42514f77ae0c8a25d7d32154d31d3e7e16f3ab894f8ce76ce417de234ee49157
+        run: |
+          curl --fail --silent --show-error --location --output "$RUNNER_TEMP/ast-grep.zip" \
+            "https://github.com/ast-grep/ast-grep/releases/download/$VERSION/app-x86_64-unknown-linux-gnu.zip"
+          echo "$SHA256  $RUNNER_TEMP/ast-grep.zip" | sha256sum --check --strict
+          unzip -q "$RUNNER_TEMP/ast-grep.zip" ast-grep -d "$RUNNER_TEMP/ast-grep"
+          echo "$RUNNER_TEMP/ast-grep" >> "$GITHUB_PATH"
+      - name: Rule tests
+        run: ast-grep test
+      - name: Rules
+        run: ast-grep scan
+
+  linux:
+    name: test, static build and smoke (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-24.04
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      TARGET: ${{ matrix.arch }}-unknown-linux-musl
+      RUSTC_WRAPPER: sccache
+      SCCACHE_GHA_ENABLED: "true"
+      RUSTFLAGS: -C link-arg=-fuse-ld=mold
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the pinned toolchain and the musl target
+        run: |
+          rustup toolchain install
+          rustup target add "$TARGET"
+      # musl-gcc builds ring's C code for the musl target; mold links faster. Both come from
+      # the Ubuntu 24.04 archive, so their versions follow the runner image.
+      - name: Install musl-gcc and mold
+        run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends musl-tools mold
+      - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+        with:
+          version: v0.19.0
+      - uses: taiki-e/install-action@3a3daafd3b7f23b8f65d9f5ba2db203fb59b79e2 # v2.90.2
+        with:
+          tool: cargo-nextest@0.9.151
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - name: Test
+        run: cargo nextest run --workspace --locked --no-fail-fast
+      - name: Static build
+        run: cargo build --release --locked --target "$TARGET" --bin lowendaff-bench
+      - name: Smoke
+        run: scripts/smoke.sh "target/$TARGET/release/lowendaff-bench"
+      - name: Smoke mutants
+        run: scripts/smoke-mutants.sh "$TARGET"

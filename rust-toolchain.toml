@@ -1,0 +1,5 @@
+# Pinned toolchain for development and CI; bump it deliberately in its own commit.
+[toolchain]
+channel = "1.99.1"
+components = ["clippy", "rustfmt"]
+profile = "minimal"

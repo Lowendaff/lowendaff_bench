@@ -1,0 +1,32 @@
+id: call-functions-through-module
+snapshots:
+  "use bench::app::execute;":
+    labels:
+    - source: use bench::app::execute;
+      style: primary
+      start: 0
+      end: 24
+    - source: bench::app::execute
+      style: secondary
+      start: 4
+      end: 23
+  "use bench_api::register;":
+    labels:
+    - source: use bench_api::register;
+      style: primary
+      start: 0
+      end: 24
+    - source: bench_api::register
+      style: secondary
+      start: 4
+      end: 23
+  "use crate::orchestrator::plan;":
+    labels:
+    - source: use crate::orchestrator::plan;
+      style: primary
+      start: 0
+      end: 30
+    - source: crate::orchestrator::plan
+      style: secondary
+      start: 4
+      end: 29

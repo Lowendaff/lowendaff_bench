@@ -1,0 +1,14 @@
+id: no-temp-dir
+valid:
+  - fn f() { let dir = tempfile::Builder::new().prefix("x").tempdir_in(ctx.work_dir()); }
+  - fn f() { let file = ctx.work_dir().join("fio.dat"); }
+  - fn f() { let dir = TempDir::new_in(work_dir); }
+  - fn f() { let name = "/tmpfs"; }
+invalid:
+  - fn f() { let file = "/tmp/fio.dat"; }
+  - fn f() { let dir = r"/var/tmp"; }
+  - fn f() { let shm = "/dev/shm"; }
+  - fn f() { let dir = std::env::temp_dir(); }
+  - fn f() { let dir = tempfile::tempdir(); }
+  - fn f() { let dir = tempfile::Builder::new().prefix("x").tempdir(); }
+  - fn f() { let file = NamedTempFile::new(); }

@@ -1,0 +1,8 @@
+id: no-host-tools
+valid:
+  - fn f() { let out = Command::new(ctx.tool("fio")?).arg("--version").output(); }
+  - fn f() { let command = tokio::process::Command::new(path); }
+invalid:
+  - fn f() { let out = Command::new("fio").output(); }
+  - fn f() { let command = std::process::Command::new("uname"); }
+  - fn f() { let command = tokio::process::Command::new(r"/usr/bin/fio"); }

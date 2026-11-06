@@ -1,0 +1,22 @@
+# Dependabot proposes dependency updates as PRs. Commit messages follow the Angular convention
+# without a scope (`build: bump ...`, `ci: bump ...`): README "Commits" reserves scopes for crate
+# names. A 7-day cooldown keeps releases that are only days old out of the first proposal.
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: build
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: ci

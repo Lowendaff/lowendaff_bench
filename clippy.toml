@@ -1,0 +1,2 @@
+# Tests may panic for assertions (Google Rust style guide), so `unwrap` is allowed there.
+allow-unwrap-in-tests = true

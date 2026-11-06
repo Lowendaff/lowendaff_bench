@@ -1,0 +1,17 @@
+id: no-non-exhaustive
+valid:
+  - |
+    #[derive(Debug)]
+    pub enum Record { Fact }
+  - |
+    #[must_use]
+    pub fn new() -> u8 { 0 }
+invalid:
+  - |
+    #[non_exhaustive]
+    pub enum Record { Fact }
+  - |
+    pub enum Missing {
+        #[non_exhaustive]
+        Busy { retry: u8 },
+    }

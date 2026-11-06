@@ -1,0 +1,32 @@
+id: no-print-in-plugins
+snapshots:
+  "fn f() { dbg!(value); }":
+    labels:
+    - source: dbg!(value)
+      style: primary
+      start: 9
+      end: 20
+    - source: dbg
+      style: secondary
+      start: 9
+      end: 12
+  "fn f() { eprintln!(\"x\"); }":
+    labels:
+    - source: eprintln!("x")
+      style: primary
+      start: 9
+      end: 23
+    - source: eprintln
+      style: secondary
+      start: 9
+      end: 17
+  "fn f() { println!(\"x\"); }":
+    labels:
+    - source: println!("x")
+      style: primary
+      start: 9
+      end: 22
+    - source: println
+      style: secondary
+      start: 9
+      end: 16

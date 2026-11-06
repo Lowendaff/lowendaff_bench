@@ -1,0 +1,60 @@
+id: no-temp-dir
+snapshots:
+  "fn f() { let dir = r\"/var/tmp\"; }":
+    labels:
+    - source: r"/var/tmp"
+      style: primary
+      start: 19
+      end: 30
+  "fn f() { let dir = std::env::temp_dir(); }":
+    labels:
+    - source: std::env::temp_dir()
+      style: primary
+      start: 19
+      end: 39
+    - source: std::env::temp_dir
+      style: secondary
+      start: 19
+      end: 37
+  "fn f() { let dir = tempfile::Builder::new().prefix(\"x\").tempdir(); }":
+    labels:
+    - source: tempfile::Builder::new().prefix("x").tempdir()
+      style: primary
+      start: 19
+      end: 65
+    - source: tempfile::Builder::new().prefix("x").tempdir
+      style: secondary
+      start: 19
+      end: 63
+  "fn f() { let dir = tempfile::tempdir(); }":
+    labels:
+    - source: tempfile::tempdir()
+      style: primary
+      start: 19
+      end: 38
+    - source: tempfile::tempdir
+      style: secondary
+      start: 19
+      end: 36
+  "fn f() { let file = \"/tmp/fio.dat\"; }":
+    labels:
+    - source: "\"/tmp/fio.dat\""
+      style: primary
+      start: 20
+      end: 34
+  "fn f() { let file = NamedTempFile::new(); }":
+    labels:
+    - source: NamedTempFile::new()
+      style: primary
+      start: 20
+      end: 40
+    - source: NamedTempFile::new
+      style: secondary
+      start: 20
+      end: 38
+  "fn f() { let shm = \"/dev/shm\"; }":
+    labels:
+    - source: "\"/dev/shm\""
+      style: primary
+      start: 19
+      end: 29
