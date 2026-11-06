@@ -3,7 +3,8 @@
 # full run that leaves nothing behind. CI runs it; README "Gates" documents it.
 #
 # Usage: scripts/smoke.sh <path to lowendaff-bench>
-# Linux only. Run it as root, or as a user with sudo.
+# Linux only. Run it as root, or as a user with sudo. As root, the non-root check runs as
+# nobody, so nobody must be able to reach the binary.
 set -eu
 
 fail() {
@@ -29,11 +30,17 @@ else
     as_user=""
 fi
 
+# The non-root run must stop at the root check. Exit code 2 alone does not show that: usage
+# errors and an unwritable run directory exit with 2 too.
 set +e
-$as_user "$bin" >/dev/null 2>&1
+refusal=$($as_user "$bin" 2>&1 >/dev/null)
 code=$?
 set -e
 [ "$code" -eq 2 ] || fail "non-root run exited with $code, expected 2"
+case $refusal in
+    *"必须以 root 身份运行"*) ;;
+    *) fail "non-root run exited with 2 but not at the root check: $refusal" ;;
+esac
 
 # Not under /tmp: the run directory must sit on the tested disk (design D-14).
 work=$(mktemp -d "$PWD/smoke.XXXXXX")
