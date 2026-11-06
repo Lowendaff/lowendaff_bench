@@ -125,3 +125,13 @@ Pull requests are merged with **squash merge** only; the repository allows no ot
 - The squash commit body lists the PR's commit messages.
 - A PR is merged only after its exact head commit passed CI, and only with the owner's approval for that PR.
 - The branch is deleted after the merge.
+
+A repository ruleset on `main` enforces this, and nobody can bypass it:
+
+- every change reaches `main` through a pull request, merged by squash;
+- every job of the `ci` workflow must pass, on a branch that is up to date with `main`;
+- `main` cannot be force-pushed or deleted.
+
+When a CI job is added or renamed, update the ruleset's required checks to match.
+
+Dependabot's commit messages contain release-note links longer than 100 characters. When squash-merging a Dependabot PR, replace the commit body with a short reason for the update.
