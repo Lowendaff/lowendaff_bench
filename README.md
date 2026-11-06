@@ -47,6 +47,7 @@ CI (`.github/workflows/ci.yml`) runs exactly these commands. Run them locally be
 | Rules | `ast-grep scan` (rules in `ast-grep/rules/`, config in `sgconfig.yml`) | any host |
 | Static build | `cargo build --release --locked --target <arch>-unknown-linux-musl --bin lowendaff-bench` | Linux |
 | Smoke | `scripts/smoke.sh target/<arch>-unknown-linux-musl/release/lowendaff-bench` | Linux, as root or with sudo |
+| Smoke mutants | `scripts/smoke-mutants.sh <arch>-unknown-linux-musl`: smoke must reject deliberately broken builds | Linux, as root or with sudo |
 
 `<arch>` is `x86_64` or `aarch64`.
 

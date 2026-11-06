@@ -146,3 +146,5 @@ jobs:
         run: cargo build --release --locked --target "$TARGET" --bin lowendaff-bench
       - name: Smoke
         run: scripts/smoke.sh "target/$TARGET/release/lowendaff-bench"
+      - name: Smoke mutants
+        run: scripts/smoke-mutants.sh "$TARGET"

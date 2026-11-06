@@ -303,7 +303,16 @@ Linux smoke run of the static release binary on `debian:13-slim`, which has no C
 - `--only nope`: exit 2. A config file with a stray key: exit 2.
 - `examples/fetch https://deb.debian.org/debian/README`: 1198 bytes, using the bundled roots.
 
-Not yet exercised: an x86_64 build, and SIGINT against a real long-running plugin. The interrupt path itself is covered by the tests above.
+CI runs the same smoke test on x86_64 and aarch64 (Ubuntu 24.04 runners, as a user with sudo), followed by `scripts/smoke-mutants.sh`. That script builds the release binary from a copy of the sources, unchanged and then with one defect at a time. smoke.sh must accept the unchanged binary and reject each mutant for the expected reason. Results in `rust:1.99.1-slim-trixie` (aarch64), in both of smoke.sh's modes:
+
+| Mutant | As root | As a user with sudo |
+|--------|---------|---------------------|
+| root check removed (`if false`) | `non-root run exited with 2 but not at the root check: 无法在 . 创建运行目录：Permission denied (os error 13) …` | `non-root run exited with 0, expected 2` |
+| run directory kept (`disable_cleanup(true)`) | `run directory left behind in …` | `run directory left behind in …` |
+
+Before smoke.sh checked the refusal message, the root-check mutant passed as root. The non-root run uses `nobody`, which cannot write the current directory, so the mutant failed to create its run directory and exited with 2, the same code as the root refusal.
+
+Not yet exercised: SIGINT against a real long-running plugin. The interrupt path itself is covered by the tests above.
 
 Per plugin:
 
