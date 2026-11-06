@@ -56,6 +56,8 @@ CI pins these tool versions; install the same versions locally:
 
 The `cargo deny check` and `zizmor` gates need network access: one fetches the RustSec advisory database, the other runs online audits (zizmor needs `GH_TOKEN` for those).
 
+CI also uses sccache (backed by the GitHub Actions cache) and the mold linker. They change build speed, not results, so they are optional locally.
+
 ## Code style
 
 Rust code follows the [Google Rust Style Guide](https://google.github.io/styleguide/rustguide.html).
