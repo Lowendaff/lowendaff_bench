@@ -5,7 +5,8 @@ message: Report results through `ctx.emit`; the terminal renderer owns the outpu
 note: Design D-05, D-06 and D-15. Printed text bypasses the renderer and breaks the aligned layout.
 files:
   - crates/bench-api/src/**/*.rs
-  - crates/plugin-*/src/**/*.rs
+  - crates/bench-host/src/**/*.rs
+  - plugins/*/src/**/*.rs
 rule:
   kind: macro_invocation
   has:

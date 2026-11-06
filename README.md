@@ -102,7 +102,7 @@ The ast-grep rules in `ast-grep/rules/` cover what rustc, clippy and rustfmt can
 - no `#[non_exhaustive]` (see below);
 - no files in /tmp or the system temp directory (design D-14);
 - no programs started by name from the host instead of pinned tools (design D-13, P-11);
-- no printing from `bench-api` or plugins, which report through `ctx.emit` (design D-05, D-06).
+- no printing from the library crates (`bench-api`, `bench-host`) or plugins, which report through `ctx.emit` (design D-05, D-06).
 
 **Deliberate interpretations:**
 
