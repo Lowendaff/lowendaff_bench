@@ -2,12 +2,10 @@
 //! connection errors, and provisioning through the real client. Building the client
 //! also proves the preconfigured rustls config matches reqwest's rustls version.
 
-use bench::fetch::Fetcher;
-use bench::provision::provision_all;
+use bench::fetcher::Fetcher;
+use bench::provision;
 use bench_api::ToolAsset;
 use bench_api::ToolSpec;
-use tokio::io::AsyncReadExt;
-use tokio::io::AsyncWriteExt;
 use tokio::net::TcpListener;
 
 const SCRIPT: &[u8] = b"#!/bin/sh\necho fio-3.39\n";
@@ -15,8 +13,18 @@ const SCRIPT_SHA: &str = "1046784cba2513f64f6ee92655862e88fe249cfbbdb19b5420a08d
 
 /// Serves `GET /fio` with the script and everything else with 404.
 async fn serve() -> String {
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let base = format!("http://{}", listener.local_addr().unwrap());
+    use tokio::io::AsyncReadExt;
+    use tokio::io::AsyncWriteExt;
+
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind a local test server");
+    let base = format!(
+        "http://{}",
+        listener
+            .local_addr()
+            .expect("bound listener has an address")
+    );
     tokio::spawn(async move {
         while let Ok((mut socket, _)) = listener.accept().await {
             tokio::spawn(async move {
@@ -41,8 +49,10 @@ async fn serve() -> String {
 
 #[tokio::test]
 async fn fetcher_streams_bodies_and_turns_failures_into_reasons() {
+    use tokio::io::AsyncReadExt;
+
     let base = serve().await;
-    let fetcher = Fetcher::new().unwrap();
+    let fetcher = Fetcher::try_new().unwrap();
 
     let Ok(mut body) = fetcher.open(&format!("{base}/fio")).await else {
         panic!("download should succeed")
@@ -77,9 +87,9 @@ async fn provisioning_through_the_real_client_installs_a_verified_tool() {
         assets,
     };
     let dir = tempfile::tempdir().unwrap();
-    let fetcher = Fetcher::new().unwrap();
+    let fetcher = Fetcher::try_new().unwrap();
 
-    let provisioned = provision_all(&[fio], std::env::consts::ARCH, dir.path(), |url| {
+    let provisioned = provision::provision_all(&[fio], std::env::consts::ARCH, dir.path(), |url| {
         fetcher.open(url)
     })
     .await;

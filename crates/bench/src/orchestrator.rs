@@ -51,6 +51,8 @@ pub struct Planned {
 }
 
 impl Planned {
+    /// Static facts about the planned plugin.
+    #[must_use]
     pub fn descriptor(&self) -> Descriptor {
         self.descriptor
     }
@@ -79,18 +81,25 @@ pub fn plan(
 ) -> Result<Vec<Planned>, Vec<String>> {
     let mut errors: Vec<String> = config
         .keys()
-        .filter(|key| !registry.iter().any(|reg| reg.descriptor.id == key.as_str()))
+        .filter(|key| {
+            !registry
+                .iter()
+                .any(|registration| registration.descriptor.id == key.as_str())
+        })
         .map(|key| format!("配置文件中有未知测试项 `{key}`"))
         .collect();
     let mut planned = Vec::new();
     for id in selection {
-        let Some(reg) = registry.iter().find(|reg| reg.descriptor.id == *id) else {
+        let Some(registration) = registry
+            .iter()
+            .find(|registration| registration.descriptor.id == *id)
+        else {
             errors.push(format!("未知测试项 `{id}`"));
             continue;
         };
-        match reg.build(config.get(*id)) {
+        match registration.build(config.get(*id)) {
             Ok(plugin) => planned.push(Planned {
-                descriptor: reg.descriptor,
+                descriptor: registration.descriptor,
                 plugin,
             }),
             Err(err) => errors.push(format!("测试项 {id} 的配置无效：{err}")),
@@ -128,21 +137,21 @@ pub async fn run_plan(
 ) -> Vec<Run> {
     let mut runs = Vec::with_capacity(plan.len());
     for planned in plan {
-        let d = planned.descriptor;
+        let descriptor = planned.descriptor;
         let (outcome, records, elapsed) = if cancel.is_cancelled() {
             (Outcome::Cancelled, Vec::new(), None)
-        } else if let Err(reason) = preflight(&d.requires, &env) {
+        } else if let Err(reason) = preflight(&descriptor.requires, &env) {
             (Outcome::Skipped { reason }, Vec::new(), None)
         } else {
-            observer.on_start(&d);
+            observer.on_start(&descriptor);
             let started = Instant::now();
             let (outcome, records) =
                 run_one(&planned, env.clone(), cancel, settings, observer).await;
             (outcome, records, Some(started.elapsed()))
         };
-        observer.on_finish(&d, &outcome);
+        observer.on_finish(&descriptor, &outcome);
         runs.push(Run {
-            plugin: d.id,
+            plugin: descriptor.id,
             outcome,
             elapsed,
             records,
@@ -158,9 +167,9 @@ async fn run_one(
     settings: &Settings,
     observer: &mut dyn Observer,
 ) -> (Outcome, Vec<Record>) {
-    let d = planned.descriptor;
+    let descriptor = planned.descriptor;
     let work = match tempfile::Builder::new()
-        .prefix(d.id)
+        .prefix(descriptor.id)
         .tempdir_in(&settings.work_root)
     {
         Ok(dir) => dir,
@@ -174,7 +183,7 @@ async fn run_one(
         }
     };
     let token = global.child_token();
-    let deadline = Instant::now() + d.timeout;
+    let deadline = Instant::now() + descriptor.timeout;
     let (ctx, mut receiver) = Context::new(env, deadline, work.path().to_path_buf(), token.clone());
     let plugin = planned.plugin.clone();
     let mut task = tokio::spawn(async move { plugin.run_boxed(&ctx).await });
@@ -183,7 +192,7 @@ async fn run_one(
     let outcome = loop {
         tokio::select! {
             Some(record) = receiver.recv() => {
-                observer.on_record(&d, &record);
+                observer.on_record(&descriptor, &record);
                 records.push(record);
             }
             joined = &mut task => break outcome_of(joined),
@@ -200,7 +209,7 @@ async fn run_one(
     // Always drain: `select!` may see the task finish before its last records, and
     // records emitted during the grace period arrive only here.
     while let Ok(record) = receiver.try_recv() {
-        observer.on_record(&d, &record);
+        observer.on_record(&descriptor, &record);
         records.push(record);
     }
     drop(work);

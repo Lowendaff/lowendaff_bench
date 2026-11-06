@@ -20,8 +20,6 @@ use bench_api::Requirements;
 use bench_api::Table;
 use bench_api::ToolAsset;
 use bench_api::ToolSpec;
-use bench_api::register;
-use bench_api::validate_registry;
 use serde::Deserialize;
 
 const SHA: &str = "4f2d1c0b9a8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a392817060504";
@@ -45,7 +43,7 @@ const FIO: ToolSpec = ToolSpec {
     ],
 };
 
-const fn desc(id: &'static str, tools: &'static [ToolSpec]) -> Descriptor {
+const fn descriptor(id: &'static str, tools: &'static [ToolSpec]) -> Descriptor {
     Descriptor {
         id,
         title: "测试项",
@@ -65,7 +63,7 @@ macro_rules! plugin {
         struct $name {}
 
         impl Plugin for $name {
-            const DESCRIPTOR: Descriptor = desc($id, $tools);
+            const DESCRIPTOR: Descriptor = descriptor($id, $tools);
 
             async fn run(&self, _ctx: &Context) -> Result<(), PluginError> {
                 Ok(())
@@ -86,7 +84,7 @@ struct Lax {
 }
 
 impl Plugin for Lax {
-    const DESCRIPTOR: Descriptor = desc("test.lax", &[]);
+    const DESCRIPTOR: Descriptor = descriptor("test.lax", &[]);
 
     async fn run(&self, _ctx: &Context) -> Result<(), PluginError> {
         let _ = self.level;
@@ -102,7 +100,7 @@ struct Strict {
 }
 
 impl Plugin for Strict {
-    const DESCRIPTOR: Descriptor = desc("test.strict", &[]);
+    const DESCRIPTOR: Descriptor = descriptor("test.strict", &[]);
 
     async fn run(&self, _ctx: &Context) -> Result<(), PluginError> {
         let _ = &self.path;
@@ -129,22 +127,27 @@ const OTHER_FIO: ToolSpec = ToolSpec {
 plugin!(ConflictingFio, "disk.fio-old", &[OTHER_FIO]);
 
 #[test]
-fn measurement_has_a_value_exactly_when_measured() {
-    let measured = Measurement::measured(171.01, "MB/s").unwrap();
-    assert_eq!(measured.value(), Ok((171.01, "MB/s")));
+fn measurement_displays_a_value_with_unit_or_the_missing_reason() {
+    let measured = Measurement::try_new(171.01, "MB/s").expect("finite value with a unit");
+    assert_eq!(measured.to_string(), "171.01 MB/s");
+    let whole = Measurement::try_new(940.0, "Mbit/s").expect("finite value with a unit");
+    assert_eq!(
+        whole.to_string(),
+        "940 Mbit/s",
+        "whole numbers print without decimals"
+    );
 
-    let busy = Measurement::missing(Missing::Busy);
-    assert_eq!(busy.value(), Err(Missing::Busy));
-    assert_eq!(Missing::Busy.label(), "繁忙");
+    assert_eq!(Measurement::new_missing(Missing::Busy).to_string(), "繁忙");
+    assert_eq!(Missing::Timeout.to_string(), "超时");
 
-    assert!(Measurement::measured(f64::NAN, "ms").is_err());
-    assert!(Measurement::measured(f64::INFINITY, "ms").is_err());
-    assert!(Measurement::measured(1.0, "").is_err());
+    assert!(Measurement::try_new(f64::NAN, "ms").is_err());
+    assert!(Measurement::try_new(f64::INFINITY, "ms").is_err());
+    assert!(Measurement::try_new(1.0, "").is_err());
 }
 
 #[test]
 fn table_rows_must_match_headers() {
-    let table = Table::new(
+    let table = Table::try_new(
         "fio",
         "随机读写",
         vec!["块大小".into(), "读取".into()],
@@ -154,7 +157,7 @@ fn table_rows_must_match_headers() {
     assert_eq!(table.headers(), ["块大小", "读取"]);
     assert_eq!(Record::Table(table).id(), "fio");
 
-    let ragged = Table::new(
+    let ragged = Table::try_new(
         "t",
         "t",
         vec!["a".into(), "b".into()],
@@ -211,19 +214,22 @@ async fn tool_lookup_returns_only_verified_tools() {
 #[test]
 fn a_correct_registry_passes() {
     assert_eq!(
-        validate_registry(&[register::<Good>(), register::<AlsoFio>()]),
+        bench_api::validate_registry(&[
+            bench_api::register::<Good>(),
+            bench_api::register::<AlsoFio>()
+        ]),
         Vec::<String>::new()
     );
 }
 
 #[test]
 fn registry_checks_catch_common_plugin_mistakes() {
-    let problems = validate_registry(&[
-        register::<Good>(),
-        register::<Good>(),
-        register::<BadId>(),
-        register::<Lax>(),
-        register::<Strict>(),
+    let problems = bench_api::validate_registry(&[
+        bench_api::register::<Good>(),
+        bench_api::register::<Good>(),
+        bench_api::register::<BadId>(),
+        bench_api::register::<Lax>(),
+        bench_api::register::<Strict>(),
     ]);
     let expected = [
         "disk.fio: duplicate id",
@@ -247,10 +253,10 @@ fn registry_checks_catch_common_plugin_mistakes() {
 
 #[test]
 fn registry_checks_catch_bad_tool_pins() {
-    let problems = validate_registry(&[
-        register::<Good>(),
-        register::<BrokenTool>(),
-        register::<ConflictingFio>(),
+    let problems = bench_api::validate_registry(&[
+        bench_api::register::<Good>(),
+        bench_api::register::<BrokenTool>(),
+        bench_api::register::<ConflictingFio>(),
     ]);
     let expected = [
         "net.iperf: tool iperf3 has no aarch64 build",

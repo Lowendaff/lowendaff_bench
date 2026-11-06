@@ -7,12 +7,11 @@ pub const REGISTRY: &[Registration] = &[];
 
 #[cfg(test)]
 mod tests {
-    use bench_api::validate_registry;
 
     use super::REGISTRY;
 
     #[test]
     fn registry_passes_the_plugin_contract() {
-        assert_eq!(validate_registry(REGISTRY), Vec::<String>::new());
+        assert_eq!(bench_api::validate_registry(REGISTRY), Vec::<String>::new());
     }
 }

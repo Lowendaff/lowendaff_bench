@@ -9,8 +9,7 @@ use bench::orchestrator::Observer;
 use bench::orchestrator::Outcome;
 use bench::orchestrator::Run;
 use bench::provision::Provisioned;
-use bench::render::Terminal;
-use bench::render::measurement;
+use bench::terminal::Terminal;
 use bench_api::Descriptor;
 use bench_api::Measurement;
 use bench_api::Missing;
@@ -28,7 +27,7 @@ const DISK: Descriptor = Descriptor {
 };
 
 fn text(terminal: Terminal<Vec<u8>>) -> String {
-    String::from_utf8(terminal.into_inner()).unwrap()
+    String::from_utf8(terminal.into_inner()).expect("the terminal writes UTF-8")
 }
 
 fn spaces(n: usize) -> String {
@@ -45,18 +44,19 @@ fn records_line_up_by_display_width() {
         &Record::metric(
             "read-4k",
             "4K 随机读",
-            Measurement::measured(171.01, "MB/s").unwrap(),
+            Measurement::try_new(171.01, "MB/s").unwrap(),
         ),
     );
     terminal.on_record(
         &DISK,
-        &Record::metric("node-2", "节点 2", Measurement::missing(Missing::Busy)),
+        &Record::metric("node-2", "节点 2", Measurement::new_missing(Missing::Busy)),
     );
     let rows = vec![
         vec!["4k".into(), "171.01 MB/s".into()],
         vec!["1m".into(), "980 MB/s".into()],
     ];
-    let table = Table::new("rw", "随机读写", vec!["块大小".into(), "读取".into()], rows).unwrap();
+    let table =
+        Table::try_new("rw", "随机读写", vec!["块大小".into(), "读取".into()], rows).unwrap();
     terminal.on_record(&DISK, &Record::Table(table));
     terminal.on_finish(&DISK, &Outcome::Completed);
 
@@ -151,17 +151,4 @@ fn summary_counts_every_outcome() {
         text(terminal),
         "\n共 6 项：完成 2，跳过 1，失败 1，超时 1，中断 1。总用时 12.3 秒\n"
     );
-}
-
-#[test]
-fn measurements_show_units_or_the_missing_reason() {
-    assert_eq!(
-        measurement(&Measurement::measured(940.0, "Mbit/s").unwrap()),
-        "940 Mbit/s"
-    );
-    assert_eq!(
-        measurement(&Measurement::measured(0.5, "ms").unwrap()),
-        "0.50 ms"
-    );
-    assert_eq!(measurement(&Measurement::missing(Missing::Timeout)), "超时");
 }

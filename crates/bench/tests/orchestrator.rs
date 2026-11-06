@@ -8,12 +8,11 @@ use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
+use bench::orchestrator;
 use bench::orchestrator::Observer;
 use bench::orchestrator::Outcome;
 use bench::orchestrator::Run;
 use bench::orchestrator::Settings;
-use bench::orchestrator::plan;
-use bench::orchestrator::run_plan;
 use bench_api::CancellationToken;
 use bench_api::Context;
 use bench_api::Descriptor;
@@ -27,10 +26,9 @@ use bench_api::Registration;
 use bench_api::Requirements;
 use bench_api::ToolAsset;
 use bench_api::ToolSpec;
-use bench_api::register;
 use serde::Deserialize;
 
-const fn desc(id: &'static str, timeout_ms: u64) -> Descriptor {
+const fn descriptor(id: &'static str, timeout_ms: u64) -> Descriptor {
     Descriptor {
         id,
         title: "测试项",
@@ -49,14 +47,14 @@ struct Good {
 }
 
 impl Plugin for Good {
-    const DESCRIPTOR: Descriptor = desc("test.good", 10_000);
+    const DESCRIPTOR: Descriptor = descriptor("test.good", 10_000);
 
     async fn run(&self, ctx: &Context) -> Result<(), PluginError> {
         ctx.emit(Record::fact("arch", "架构", ctx.env().arch.clone()));
         ctx.emit(Record::metric(
             "rate",
             "速率",
-            Measurement::measured(f64::from(self.samples) * 1.5, "MB/s")?,
+            Measurement::try_new(f64::from(self.samples) * 1.5, "MB/s")?,
         ));
         Ok(())
     }
@@ -69,11 +67,14 @@ static WORK_DIRS: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
 struct UsesWorkDir {}
 
 impl Plugin for UsesWorkDir {
-    const DESCRIPTOR: Descriptor = desc("test.work-dir", 10_000);
+    const DESCRIPTOR: Descriptor = descriptor("test.work-dir", 10_000);
 
     async fn run(&self, ctx: &Context) -> Result<(), PluginError> {
         tokio::fs::write(ctx.work_dir().join("scratch"), b"data").await?;
-        WORK_DIRS.lock().unwrap().push(ctx.work_dir().to_path_buf());
+        WORK_DIRS
+            .lock()
+            .expect("no test panics while holding WORK_DIRS")
+            .push(ctx.work_dir().to_path_buf());
         Ok(())
     }
 }
@@ -83,7 +84,7 @@ impl Plugin for UsesWorkDir {
 struct Failing {}
 
 impl Plugin for Failing {
-    const DESCRIPTOR: Descriptor = desc("test.failing", 10_000);
+    const DESCRIPTOR: Descriptor = descriptor("test.failing", 10_000);
 
     async fn run(&self, ctx: &Context) -> Result<(), PluginError> {
         ctx.emit(Record::fact("before", "失败前的结果", "保留"));
@@ -97,7 +98,7 @@ impl Plugin for Failing {
 struct Panicking {}
 
 impl Plugin for Panicking {
-    const DESCRIPTOR: Descriptor = desc("test.panicking", 10_000);
+    const DESCRIPTOR: Descriptor = descriptor("test.panicking", 10_000);
 
     async fn run(&self, ctx: &Context) -> Result<(), PluginError> {
         ctx.emit(Record::fact("before", "崩溃前的结果", "保留"));
@@ -128,7 +129,7 @@ impl Plugin for NeedsToolAndIpv6 {
             tools: &[FIO],
             net: Net::Ipv6,
         },
-        ..desc("test.needs", 10_000)
+        ..descriptor("test.needs", 10_000)
     };
 
     async fn run(&self, _ctx: &Context) -> Result<(), PluginError> {
@@ -154,14 +155,14 @@ impl Drop for ReleaseFlag {
 }
 
 impl Plugin for Hanging {
-    const DESCRIPTOR: Descriptor = desc("test.hanging", 5_000);
+    const DESCRIPTOR: Descriptor = descriptor("test.hanging", 5_000);
 
     async fn run(&self, ctx: &Context) -> Result<(), PluginError> {
         let _child_process = ReleaseFlag(&HANGING_RELEASED);
         ctx.emit(Record::metric(
             "node-1",
             "节点 1",
-            Measurement::measured(940.0, "Mbit/s")?,
+            Measurement::try_new(940.0, "Mbit/s")?,
         ));
         std::future::pending::<()>().await;
         Ok(())
@@ -174,7 +175,7 @@ impl Plugin for Hanging {
 struct Cooperative {}
 
 impl Plugin for Cooperative {
-    const DESCRIPTOR: Descriptor = desc("test.cooperative", 5_000);
+    const DESCRIPTOR: Descriptor = descriptor("test.cooperative", 5_000);
 
     async fn run(&self, ctx: &Context) -> Result<(), PluginError> {
         let stop = ctx.cancel_token();
@@ -186,7 +187,7 @@ impl Plugin for Cooperative {
         ctx.emit(Record::metric(
             "nodes",
             "已完成节点",
-            Measurement::measured(f64::from(done), "个")?,
+            Measurement::try_new(f64::from(done), "个")?,
         ));
         Ok(())
     }
@@ -198,7 +199,7 @@ impl Plugin for Cooperative {
 struct CpuBound {}
 
 impl Plugin for CpuBound {
-    const DESCRIPTOR: Descriptor = desc("test.cpu-bound", 200);
+    const DESCRIPTOR: Descriptor = descriptor("test.cpu-bound", 200);
 
     async fn run(&self, ctx: &Context) -> Result<(), PluginError> {
         let stop = ctx.cancel_token();
@@ -223,7 +224,7 @@ impl Plugin for CpuBound {
 struct BlocksThread {}
 
 impl Plugin for BlocksThread {
-    const DESCRIPTOR: Descriptor = desc("test.blocks-thread", 100);
+    const DESCRIPTOR: Descriptor = descriptor("test.blocks-thread", 100);
 
     async fn run(&self, ctx: &Context) -> Result<(), PluginError> {
         ctx.emit(Record::fact("started", "已开始", "是"));
@@ -237,7 +238,7 @@ impl Plugin for BlocksThread {
 struct Sleeper {}
 
 impl Plugin for Sleeper {
-    const DESCRIPTOR: Descriptor = desc("test.sleeper", 60_000);
+    const DESCRIPTOR: Descriptor = descriptor("test.sleeper", 60_000);
 
     async fn run(&self, ctx: &Context) -> Result<(), PluginError> {
         ctx.emit(Record::fact("before", "中断前的结果", "保留"));
@@ -250,16 +251,16 @@ impl Plugin for Sleeper {
 
 fn registry() -> Vec<Registration> {
     vec![
-        register::<Good>(),
-        register::<UsesWorkDir>(),
-        register::<Failing>(),
-        register::<Panicking>(),
-        register::<NeedsToolAndIpv6>(),
-        register::<Hanging>(),
-        register::<Cooperative>(),
-        register::<CpuBound>(),
-        register::<BlocksThread>(),
-        register::<Sleeper>(),
+        bench_api::register::<Good>(),
+        bench_api::register::<UsesWorkDir>(),
+        bench_api::register::<Failing>(),
+        bench_api::register::<Panicking>(),
+        bench_api::register::<NeedsToolAndIpv6>(),
+        bench_api::register::<Hanging>(),
+        bench_api::register::<Cooperative>(),
+        bench_api::register::<CpuBound>(),
+        bench_api::register::<BlocksThread>(),
+        bench_api::register::<Sleeper>(),
     ]
 }
 
@@ -294,14 +295,15 @@ async fn run(
     cancel: &CancellationToken,
     grace_ms: u64,
 ) -> (Vec<Run>, Recorder) {
-    let work_root = tempfile::tempdir().unwrap();
-    let planned = plan(&registry(), selection, &config).expect("valid plan");
+    let work_root = tempfile::tempdir().expect("create a temporary work root");
+    let planned = orchestrator::plan(&registry(), selection, &config).expect("valid plan");
     let mut recorder = Recorder::default();
     let settings = Settings {
         grace: Duration::from_millis(grace_ms),
         work_root: work_root.path().to_path_buf(),
     };
-    let runs = run_plan(planned, Arc::new(env), cancel, &settings, &mut recorder).await;
+    let runs =
+        orchestrator::run_plan(planned, Arc::new(env), cancel, &settings, &mut recorder).await;
     (runs, recorder)
 }
 
@@ -326,7 +328,7 @@ async fn completed_run_streams_records_built_from_config() {
     assert_eq!(runs[0].outcome, Outcome::Completed);
     assert_eq!(
         runs[0].records[1],
-        Record::metric("rate", "速率", Measurement::measured(3.0, "MB/s").unwrap())
+        Record::metric("rate", "速率", Measurement::try_new(3.0, "MB/s").unwrap())
     );
     assert_eq!(
         recorder.0,
@@ -342,12 +344,12 @@ async fn completed_run_streams_records_built_from_config() {
 #[tokio::test]
 async fn work_dir_lives_under_the_run_root_and_is_removed() {
     let work_root = tempfile::tempdir().unwrap();
-    let planned = plan(&registry(), &["test.work-dir"], &BTreeMap::new()).unwrap();
+    let planned = orchestrator::plan(&registry(), &["test.work-dir"], &BTreeMap::new()).unwrap();
     let settings = Settings {
         grace: Duration::from_secs(1),
         work_root: work_root.path().to_path_buf(),
     };
-    let runs = run_plan(
+    let runs = orchestrator::run_plan(
         planned,
         Arc::new(env()),
         &CancellationToken::new(),
@@ -503,10 +505,10 @@ async fn plugin_blocking_its_thread_is_detached_not_awaited() {
 
     assert_eq!(runs[0].outcome, Outcome::TimedOut);
     assert_eq!(ids(&runs[0]), ["started"]);
-    // deadline 100 ms + grace 100 ms + abort wait 100 ms, while the plugin itself blocks for 1500 ms
     assert!(
         runs[0].elapsed.unwrap() < Duration::from_secs(1),
-        "{:?}",
+        "deadline, grace and abort wait (100 ms each) must end the run while the plugin still \
+         blocks its thread for 1500 ms; took {:?}",
         runs[0].elapsed
     );
 }
@@ -543,7 +545,7 @@ fn config_errors_are_reported_together_before_anything_runs() {
         ),
         ("test.goood".to_owned(), serde_json::json!({})),
     ]);
-    let Err(errors) = plan(&registry(), &["test.good", "test.nope"], &config) else {
+    let Err(errors) = orchestrator::plan(&registry(), &["test.good", "test.nope"], &config) else {
         panic!("plan should fail")
     };
 

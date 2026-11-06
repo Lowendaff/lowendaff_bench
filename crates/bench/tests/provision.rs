@@ -2,19 +2,15 @@
 //! failure reasons, and a plugin running the tool it was given.
 
 use std::collections::BTreeMap;
-use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
+use bench::orchestrator;
 use bench::orchestrator::Observer;
 use bench::orchestrator::Outcome;
 use bench::orchestrator::Settings;
-use bench::orchestrator::plan;
-use bench::orchestrator::run_plan;
-use bench::provision::install;
-use bench::provision::provision_all;
-use bench::provision::required_tools;
+use bench::provision;
 use bench_api::CancellationToken;
 use bench_api::Context;
 use bench_api::Descriptor;
@@ -26,7 +22,6 @@ use bench_api::Record;
 use bench_api::Requirements;
 use bench_api::ToolAsset;
 use bench_api::ToolSpec;
-use bench_api::register;
 use serde::Deserialize;
 
 const SCRIPT: &[u8] = b"#!/bin/sh\necho fio-3.39\n";
@@ -54,15 +49,23 @@ const FIO: ToolSpec = ToolSpec {
 
 fn entries(dir: &Path) -> Vec<String> {
     std::fs::read_dir(dir)
-        .unwrap()
-        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .expect("read the test directory")
+        .map(|entry| {
+            entry
+                .expect("read a directory entry")
+                .file_name()
+                .to_string_lossy()
+                .into_owned()
+        })
         .collect()
 }
 
 #[tokio::test]
 async fn install_makes_only_a_verified_file_executable() {
+    use std::os::unix::fs::PermissionsExt;
+
     let dir = tempfile::tempdir().unwrap();
-    let path = install(SCRIPT, &FIO, &FIO.assets[0], dir.path())
+    let path = provision::install(SCRIPT, &FIO, &FIO.assets[0], dir.path())
         .await
         .unwrap();
 
@@ -82,7 +85,9 @@ async fn install_rejects_a_hash_mismatch_and_leaves_nothing() {
         "0000000000000000000000000000000000000000000000000000000000000000",
         SCRIPT_LEN,
     );
-    let err = install(SCRIPT, &FIO, &wrong, dir.path()).await.unwrap_err();
+    let err = provision::install(SCRIPT, &FIO, &wrong, dir.path())
+        .await
+        .unwrap_err();
 
     assert!(err.starts_with("SHA-256 不符：应为 0000"), "{err}");
     assert!(entries(dir.path()).is_empty());
@@ -91,7 +96,7 @@ async fn install_rejects_a_hash_mismatch_and_leaves_nothing() {
 #[tokio::test]
 async fn install_stops_reading_past_the_declared_size() {
     let dir = tempfile::tempdir().unwrap();
-    let err = install(
+    let err = provision::install(
         SCRIPT,
         &FIO,
         &asset("x86_64", SCRIPT_SHA, SCRIPT_LEN - 1),
@@ -107,7 +112,7 @@ async fn install_stops_reading_past_the_declared_size() {
 #[tokio::test]
 async fn install_rejects_a_truncated_download() {
     let dir = tempfile::tempdir().unwrap();
-    let err = install(
+    let err = provision::install(
         SCRIPT,
         &FIO,
         &asset("x86_64", SCRIPT_SHA, SCRIPT_LEN + 5),
@@ -152,7 +157,7 @@ async fn provision_all_reports_every_failure_with_its_reason() {
             Err("HTTP 404".to_owned())
         }
     };
-    let provisioned = provision_all(
+    let provisioned = provision::provision_all(
         &[FIO, IPERF3_ARM_ONLY, SYSBENCH],
         "x86_64",
         dir.path(),
@@ -182,7 +187,7 @@ fn required_tools_are_unique_and_in_plan_order() {
         },
         timeout: Duration::from_secs(1),
     };
-    let tools = required_tools([
+    let tools = provision::required_tools([
         descriptor(&[FIO, SYSBENCH]),
         descriptor(&[SYSBENCH, IPERF3_ARM_ONLY]),
     ]);
@@ -230,13 +235,14 @@ impl Observer for Quiet {}
 #[tokio::test]
 async fn a_plugin_runs_the_tool_it_was_provisioned_with() {
     let run_dir = tempfile::tempdir().unwrap();
-    let registry = [register::<RunsFio>()];
-    let planned = plan(&registry, &["disk.fio"], &BTreeMap::new()).unwrap();
-    let tools = required_tools(planned.iter().map(|p| p.descriptor()));
-    let provisioned = provision_all(&tools, std::env::consts::ARCH, run_dir.path(), |_| async {
-        Ok::<_, String>(SCRIPT)
-    })
-    .await;
+    let registry = [bench_api::register::<RunsFio>()];
+    let planned = orchestrator::plan(&registry, &["disk.fio"], &BTreeMap::new()).unwrap();
+    let tools = provision::required_tools(planned.iter().map(|planned| planned.descriptor()));
+    let provisioned =
+        provision::provision_all(&tools, std::env::consts::ARCH, run_dir.path(), |_| async {
+            Ok::<_, String>(SCRIPT)
+        })
+        .await;
     let env = Env {
         tools: provisioned.ready,
         ..Env::default()
@@ -246,7 +252,7 @@ async fn a_plugin_runs_the_tool_it_was_provisioned_with() {
         work_root: run_dir.path().to_path_buf(),
     };
 
-    let runs = run_plan(
+    let runs = orchestrator::run_plan(
         planned,
         Arc::new(env),
         &CancellationToken::new(),

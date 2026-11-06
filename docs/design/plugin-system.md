@@ -179,9 +179,11 @@ Rules that are part of the interface:
 | `metric` | `id`, `label`, `result: Measurement` | finite value with a non-empty unit, or a `Missing` reason |
 | `table` | `id`, `title`, `headers`, `rows` | every row has `headers.len()` cells |
 
-`Missing` reasons and their labels: `Unavailable` 不可用, `Busy` 繁忙, `Timeout` 超时, `Unsupported` 不支持, `Error` 出错, `Unknown` 未知.
+`Missing` and `Measurement` implement `Display`. The `Missing` reasons show as: `Unavailable` 不可用, `Busy` 繁忙, `Timeout` 超时, `Unsupported` 不支持, `Error` 出错, `Unknown` 未知.
 
-The renderer (`crates/bench/src/render.rs`) works as follows:
+`Record` is not `#[non_exhaustive]`: every consumer lives in this workspace, so a new kind is a compile error in each renderer instead of a silently dropped record.
+
+The renderer (`crates/bench/src/terminal.rs`) works as follows:
 
 - When a plugin starts, it prints the plugin's `title` as a section header.
 - Each record prints as it arrives: `label：value` for facts and metrics, aligned tables for `table`.
@@ -228,7 +230,7 @@ Exit codes:
 - **When:** after planning and before the first test. Downloads run one after another into `<run dir>/tools/`, so no download overlaps a measurement.
 - **Verification fails closed.** Each download streams into `<name>.part`. Reading stops as soon as the size exceeds the pin. Size and SHA-256 must then match exactly; only after that is the file made executable and renamed. Any failure deletes the partial file. Integrity comes from the pin, independent of TLS.
 - **Failure handling.** A tool that cannot be provisioned skips the plugins that need it (工具 fio 不可用). The 【准备工具】 section prints each tool's result, for example `fio 3.39  失败：SHA-256 不符…` or `iperf3 3.19  失败：没有适用于 aarch64 的版本`.
-- **Transport** (`crates/bench/src/fetch.rs`).
+- **Transport** (`crates/bench/src/fetcher.rs`).
   - reqwest 0.13 with `rustls-no-provider`, given a preconfigured rustls 0.23 config that uses the ring provider only (aws-lc-rs is not in the dependency tree) and the bundled `webpki-roots`.
   - Downloads work on images without `ca-certificates`; verified on Debian 13 slim (§11).
   - The core (`crates/bench/src/provision.rs`) takes the fetcher as a parameter, so tests run without a network.
@@ -253,17 +255,17 @@ Exit codes:
 
 Current state:
 
-- macOS: `cargo test --workspace` passes **39 tests**; `cargo clippy --workspace --all-targets -- -D warnings` is clean.
-- Linux (`rust:alpine`, rustc 1.99.1, `aarch64-unknown-linux-musl`): the same 39 tests pass.
+- macOS: `cargo test --workspace` passes **38 tests**; `cargo clippy --workspace --all-targets -- -D warnings` is clean.
+- Linux (`rust:alpine`, rustc 1.99.1, `aarch64-unknown-linux-musl`): the same 38 tests pass.
 
 | Suite | Tests | Covers |
 |-------|-------|--------|
-| `bench-api/tests/api.rs` | 7 | `Measurement`/`Table` invariants, `?` cause chain, `ctx.tool`, registry contract (ids, duplicates, config strictness, tool pins) |
+| `bench-api/tests/api.rs` | 7 | `Measurement` display and invariants, `Table` invariants, `?` cause chain, `ctx.tool`, registry contract (ids, duplicates, config strictness, tool pins) |
 | `bench/tests/orchestrator.rs` | 11 | every row of §8, work-directory placement and removal, config errors before running |
 | `bench/tests/provision.rs` | 7 | verified install, hash mismatch, size cap, truncation (nothing left behind in all three), per-tool failure reasons, de-duplication, a plugin running its provisioned tool |
 | `bench/tests/app.rs` | 5 | argument parsing, `--only`/`--skip` in registry order with unknown-id errors, config file rules, a full run (sections, summary, run directory removed), an interrupted run (exit 130, every plugin listed) |
-| `bench/tests/render.rs` | 5 | display-width alignment of mixed CJK/ASCII labels and tables, a section for plugins that never started, the tool section, the summary counts, number formatting |
-| `bench/tests/fetch.rs` | 2 | streaming download, HTTP and connection errors as reasons, provisioning through the real client (local server) |
+| `bench/tests/terminal.rs` | 4 | display-width alignment of mixed CJK/ASCII labels and tables, a section for plugins that never started, the tool section, the summary counts |
+| `bench/tests/fetcher.rs` | 2 | streaming download, HTTP and connection errors as reasons, provisioning through the real client (local server) |
 | `bench/tests/probe.rs` | 1 | reachability needs a completed handshake with any target |
 | `bench/src/registry.rs` | 1 | the real registry passes `validate_registry` |
 

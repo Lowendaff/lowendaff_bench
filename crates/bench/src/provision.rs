@@ -2,26 +2,27 @@
 //! first test, verify size and SHA-256, and only then make it executable.
 
 use std::collections::BTreeMap;
-use std::fmt::Write;
+use std::fs::Permissions;
 use std::future::Future;
-use std::os::unix::fs::PermissionsExt;
+use std::io;
 use std::path::Path;
 use std::path::PathBuf;
 
 use bench_api::Descriptor;
 use bench_api::ToolAsset;
 use bench_api::ToolSpec;
-use sha2::Digest;
 use sha2::Sha256;
+use tokio::fs;
+use tokio::fs::File;
 use tokio::io::AsyncRead;
-use tokio::io::AsyncReadExt;
-use tokio::io::AsyncWriteExt;
 
 /// Verified tools by name, plus the user-facing reason for every tool that failed
 /// (the renderer prints it next to the tool's name and version).
 #[derive(Debug, Default)]
 pub struct Provisioned {
+    /// Paths of verified, executable tools.
     pub ready: BTreeMap<String, PathBuf>,
+    /// Why each remaining tool is unavailable.
     pub failed: BTreeMap<String, String>,
 }
 
@@ -88,7 +89,7 @@ pub async fn install<R: AsyncRead + Unpin>(
         Err(err) => Err(err),
     };
     if outcome.is_err() {
-        let _ = tokio::fs::remove_file(&partial).await;
+        let _ = fs::remove_file(&partial).await;
     }
     outcome.map(|()| installed)
 }
@@ -98,8 +99,13 @@ async fn write_verified<R: AsyncRead + Unpin>(
     asset: &ToolAsset,
     path: &Path,
 ) -> Result<(), String> {
-    let write_error = |err: std::io::Error| format!("无法写入：{err}");
-    let mut file = tokio::fs::File::create(path).await.map_err(write_error)?;
+    use sha2::Digest;
+    use std::fmt::Write;
+    use tokio::io::AsyncReadExt;
+    use tokio::io::AsyncWriteExt;
+
+    let write_error = |err: io::Error| format!("无法写入：{err}");
+    let mut file = File::create(path).await.map_err(write_error)?;
     let mut hasher = Sha256::new();
     let mut total: u64 = 0;
     let mut buffer = vec![0_u8; 64 * 1024];
@@ -125,13 +131,10 @@ async fn write_verified<R: AsyncRead + Unpin>(
             asset.size
         ));
     }
-    let digest = hasher
-        .finalize()
-        .iter()
-        .fold(String::with_capacity(64), |mut hex, byte| {
-            let _ = write!(hex, "{byte:02x}");
-            hex
-        });
+    let mut digest = String::with_capacity(64);
+    for byte in hasher.finalize() {
+        let _ = write!(digest, "{byte:02x}");
+    }
     if digest != asset.sha256 {
         return Err(format!(
             "SHA-256 不符：应为 {}，实际 {digest}",
@@ -142,9 +145,11 @@ async fn write_verified<R: AsyncRead + Unpin>(
 }
 
 async fn make_executable(partial: &Path, installed: &Path) -> Result<(), String> {
+    use std::os::unix::fs::PermissionsExt;
+
     let ready = async {
-        tokio::fs::set_permissions(partial, std::fs::Permissions::from_mode(0o755)).await?;
-        tokio::fs::rename(partial, installed).await
+        fs::set_permissions(partial, Permissions::from_mode(0o755)).await?;
+        fs::rename(partial, installed).await
     };
     ready.await.map_err(|err| format!("安装失败：{err}"))
 }

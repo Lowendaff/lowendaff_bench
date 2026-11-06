@@ -46,6 +46,39 @@ CI (`.github/workflows/ci.yml`) runs exactly these commands. Run them locally be
 
 `<arch>` is `x86_64` or `aarch64`.
 
+## Code style
+
+Rust code follows the [Google Rust Style Guide](https://google.github.io/styleguide/rustguide.html).
+
+**Formatting.** Use default `rustfmt` settings (100 columns). The guide's nightly-only options are not used. `use` statements import one item each, which satisfies "a `use` statement imports items from one module".
+
+**Naming and calls:**
+
+- Call free functions through their module, e.g. `orchestrator::plan(...)`.
+- Import types and use them unqualified. Common names such as `io::Error` and `toml::Value` stay module-qualified.
+- Import a trait inside the function that uses it, unless the whole file does.
+- Name constructors `new()` or `new_*()`, or `try_new()` when they return a `Result`.
+
+**Panics and assertions:**
+
+- Use `expect("why")` instead of `unwrap()`.
+- Put the explanation for an assertion in its message, not in a comment.
+
+**Enforcement.** The lint gate checks these clippy lints:
+
+- `must_use_candidate`
+- `unwrap_used` (allowed in tests through `clippy.toml`)
+- `wildcard_imports`
+- `needless_for_each`
+- `missing_docs` (only in `bench-api`)
+
+`unsafe_code` is forbidden.
+
+**Deliberate interpretations:**
+
+- Public enums are not `#[non_exhaustive]`, because every consumer is in this workspace (the guide's large-scale-change exception).
+- A plugin panic is contained by its tokio task and reported as a failure. This is defense in depth, never control flow.
+
 ## Commits
 
 Commit messages follow the [Angular convention](https://github.com/angular/angular/blob/main/contributing-docs/commit-message-guidelines.md):

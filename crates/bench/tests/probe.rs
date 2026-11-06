@@ -1,6 +1,6 @@
 //! Reachability means a completed TCP handshake with any one target.
 
-use bench::probe::reachable;
+use bench::probe;
 use tokio::net::TcpListener;
 
 #[tokio::test]
@@ -14,7 +14,7 @@ async fn reachable_needs_a_completed_handshake_with_any_target() {
         .unwrap()
         .to_string();
 
-    assert!(reachable(&[open.as_str()]).await);
-    assert!(!reachable(&[closed.as_str()]).await);
-    assert!(reachable(&[closed.as_str(), open.as_str()]).await);
+    assert!(probe::reachable(&[open.as_str()]).await);
+    assert!(!probe::reachable(&[closed.as_str()]).await);
+    assert!(probe::reachable(&[closed.as_str(), open.as_str()]).await);
 }

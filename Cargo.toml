@@ -19,6 +19,13 @@ tokio-util = "0.7"
 [workspace.lints.rust]
 unsafe_code = "forbid"
 
+# Google Rust style guide rules that clippy can check (README "Code style").
+[workspace.lints.clippy]
+must_use_candidate = "warn"
+needless_for_each = "warn"
+unwrap_used = "warn"
+wildcard_imports = "warn"
+
 [profile.release]
 # The orchestrator contains plugin panics only when panics unwind (design §6).
 panic = "unwind"

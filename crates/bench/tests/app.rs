@@ -5,12 +5,9 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::time::Duration;
 
+use bench::app;
 use bench::app::Cli;
 use bench::app::EXIT_INTERRUPTED;
-use bench::app::execute;
-use bench::app::load_config;
-use bench::app::prepare;
-use bench::app::select;
 use bench_api::CancellationToken;
 use bench_api::Context;
 use bench_api::Descriptor;
@@ -21,8 +18,6 @@ use bench_api::PluginError;
 use bench_api::Record;
 use bench_api::Registration;
 use bench_api::Requirements;
-use bench_api::register;
-use clap::Parser;
 use serde::Deserialize;
 
 #[derive(Default, Deserialize)]
@@ -44,7 +39,7 @@ impl Plugin for Good {
         ctx.emit(Record::metric(
             "rate",
             "速率",
-            Measurement::measured(f64::from(self.samples), "MB/s")?,
+            Measurement::try_new(f64::from(self.samples), "MB/s")?,
         ));
         Ok(())
     }
@@ -66,10 +61,16 @@ impl Plugin for Other {
     }
 }
 
-const REGISTRY: &[Registration] = &[register::<Good>(), register::<Other>()];
+const REGISTRY: &[Registration] = &[
+    bench_api::register::<Good>(),
+    bench_api::register::<Other>(),
+];
 
 fn cli(args: &[&str]) -> Cli {
-    Cli::try_parse_from(std::iter::once("lowendaff-bench").chain(args.iter().copied())).unwrap()
+    use clap::Parser;
+
+    Cli::try_parse_from(std::iter::once("lowendaff-bench").chain(args.iter().copied()))
+        .expect("test arguments must parse")
 }
 
 fn ids(list: &[&str]) -> Vec<String> {
@@ -87,19 +88,19 @@ fn ids_are_comma_separated_and_work_dir_defaults_to_cwd() {
 #[test]
 fn selection_keeps_registry_order_and_rejects_unknown_ids() {
     assert_eq!(
-        select(REGISTRY, &[], &[]).unwrap(),
+        app::select(REGISTRY, &[], &[]).unwrap(),
         ["test.good", "test.other"]
     );
     assert_eq!(
-        select(REGISTRY, &ids(&["test.other", "test.good"]), &[]).unwrap(),
+        app::select(REGISTRY, &ids(&["test.other", "test.good"]), &[]).unwrap(),
         ["test.good", "test.other"]
     );
     assert_eq!(
-        select(REGISTRY, &[], &ids(&["test.good"])).unwrap(),
+        app::select(REGISTRY, &[], &ids(&["test.good"])).unwrap(),
         ["test.other"]
     );
     assert_eq!(
-        select(REGISTRY, &ids(&["nope"]), &ids(&["nada"])).unwrap_err(),
+        app::select(REGISTRY, &ids(&["nope"]), &ids(&["nada"])).unwrap_err(),
         ["未知测试项 `nope`", "未知测试项 `nada`"]
     );
 }
@@ -115,24 +116,24 @@ fn config_file_holds_plugin_tables_only() {
 
     let good = write("good.toml", "[plugins.\"test.good\"]\nsamples = 2\n");
     let expected = BTreeMap::from([("test.good".to_owned(), serde_json::json!({ "samples": 2 }))]);
-    assert_eq!(load_config(Some(&good)).unwrap(), expected);
+    assert_eq!(app::load_config(Some(&good)).unwrap(), expected);
 
     let stray = write("stray.toml", "timeout = 3\n");
     assert_eq!(
-        load_config(Some(&stray)).unwrap_err(),
+        app::load_config(Some(&stray)).unwrap_err(),
         "配置文件中有未知的项 `timeout`，只支持 [plugins.\"<id>\"]"
     );
 
     let broken = write("broken.toml", "[plugins\n");
     assert!(
-        load_config(Some(&broken))
+        app::load_config(Some(&broken))
             .unwrap_err()
             .starts_with("无法解析配置文件")
     );
 
     let bad_value = write("bad.toml", "[plugins.\"test.good\"]\nsamples = \"many\"\n");
     let config = bad_value.to_string_lossy().into_owned();
-    let Err(errors) = prepare(&cli(&["--config", &config]), REGISTRY) else {
+    let Err(errors) = app::prepare(&cli(&["--config", &config]), REGISTRY) else {
         panic!("bad config must not plan")
     };
     assert!(
@@ -147,7 +148,7 @@ async fn a_run_prints_sections_and_summary_then_removes_its_directory() {
     let dir = tempfile::tempdir().unwrap();
     let config = dir.path().join("bench.toml");
     std::fs::write(&config, "[plugins.\"test.good\"]\nsamples = 3\n").unwrap();
-    let planned = prepare(
+    let planned = app::prepare(
         &cli(&[
             "--skip",
             "test.other",
@@ -159,7 +160,7 @@ async fn a_run_prints_sections_and_summary_then_removes_its_directory() {
     .unwrap();
     let mut out = Vec::new();
 
-    let code = execute(
+    let code = app::execute(
         planned,
         Env::default(),
         work.path(),
@@ -195,10 +196,10 @@ async fn an_interrupted_run_exits_130_and_still_lists_every_plugin() {
     let work = tempfile::tempdir().unwrap();
     let cancel = CancellationToken::new();
     cancel.cancel();
-    let planned = prepare(&cli(&[]), REGISTRY).unwrap();
+    let planned = app::prepare(&cli(&[]), REGISTRY).unwrap();
     let mut out = Vec::new();
 
-    let code = execute(planned, Env::default(), work.path(), &cancel, &mut out)
+    let code = app::execute(planned, Env::default(), work.path(), &cancel, &mut out)
         .await
         .unwrap();
 
