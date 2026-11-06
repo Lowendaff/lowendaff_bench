@@ -105,3 +105,12 @@ Commit messages follow the [Angular convention](https://github.com/angular/angul
 - The summary is in the imperative and lowercase, with no final period.
 - Every commit except `docs` has a body of at least 20 characters that explains why.
 - No line is longer than 100 characters.
+
+## Merging
+
+Pull requests are merged with **squash merge** only; the repository allows no other merge method.
+
+- The PR title becomes the commit header on `main`, so it must follow the Angular format above.
+- The squash commit body lists the PR's commit messages.
+- A PR is merged only after its exact head commit passed CI, and only with the owner's approval for that PR.
+- The branch is deleted after the merge.
