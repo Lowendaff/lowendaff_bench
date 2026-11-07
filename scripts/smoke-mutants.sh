@@ -37,7 +37,8 @@ trap cleanup EXIT
 build() {
     rm -rf "$scratch/src"
     mkdir -p "$scratch/src"
-    cp -R Cargo.toml Cargo.lock crates "$scratch/src/"
+    # Every workspace member: crates/* and plugins/* (Cargo.toml).
+    cp -R Cargo.toml Cargo.lock crates plugins "$scratch/src/"
     if [ $# -eq 2 ]; then
         [ -f "$1" ] || fail "no such file: $1"
         perl -0pi -e "$2" "$scratch/src/$1"
