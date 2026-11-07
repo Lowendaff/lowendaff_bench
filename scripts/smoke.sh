@@ -1,6 +1,7 @@
 #!/bin/sh
 # Smoke test for a static release binary: static linking, the root requirement, and a
-# full run that leaves nothing behind. CI runs it; README "Gates" documents it.
+# full run in which no test item fails or times out and nothing is left behind. The run's
+# output is printed. CI runs it; README "Gates" documents it.
 #
 # Usage: scripts/smoke.sh <path to lowendaff-bench>
 # Linux only. Run it as root, or as a user with sudo. As root, the non-root check runs as
@@ -45,7 +46,9 @@ esac
 # Not under /tmp: the run directory must sit on the tested disk (design D-14).
 work=$(mktemp -d "$PWD/smoke.XXXXXX")
 output=$($as_root "$bin" --work-dir "$work") || fail "root run failed"
+printf '%s\n' "$output"
 printf '%s\n' "$output" | grep -q '^共 [0-9]* 项' || fail "root run printed no summary"
+printf '%s\n' "$output" | grep -q '，失败 0，超时 0，' || fail "a test item failed or timed out"
 [ -z "$(ls -A "$work")" ] || fail "run directory left behind in $work"
 rmdir "$work"
 echo "smoke: ok"

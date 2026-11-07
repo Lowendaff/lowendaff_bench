@@ -13,6 +13,7 @@ use bench_api::Descriptor;
 use bench_api::DynPlugin;
 use bench_api::Env;
 use bench_api::Net;
+use bench_api::Platform;
 use bench_api::PluginError;
 use bench_api::Record;
 use bench_api::Registration;
@@ -110,6 +111,26 @@ pub fn plan(
     } else {
         Err(errors)
     }
+}
+
+/// Splits the plan by platform (design D-16): the plugins that apply here, and the titles
+/// of the test items that run here in no variant, for the 本机不适用 line.
+#[must_use]
+pub fn for_platform(plan: Vec<Planned>, platform: Platform) -> (Vec<Planned>, Vec<&'static str>) {
+    let (applicable, elsewhere): (Vec<Planned>, Vec<Planned>) = plan
+        .into_iter()
+        .partition(|planned| planned.descriptor.requires.applies_to(platform));
+    let mut titles = Vec::new();
+    for planned in &elsewhere {
+        let title = planned.descriptor.title;
+        let runs_here = applicable
+            .iter()
+            .any(|other| other.descriptor.title == title);
+        if !runs_here && !titles.contains(&title) {
+            titles.push(title);
+        }
+    }
+    (applicable, titles)
 }
 
 pub fn preflight(requires: &Requirements, env: &Env) -> Result<(), String> {

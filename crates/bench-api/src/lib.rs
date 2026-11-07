@@ -49,14 +49,161 @@ pub struct Requirements {
     pub tools: &'static [ToolSpec],
     /// Network access the test needs.
     pub net: Net,
+    /// Kinds of platform the test applies to; empty means every platform. On any other
+    /// platform the plugin does not run (design D-16).
+    pub platforms: &'static [PlatformKind],
 }
 
 impl Requirements {
-    /// No tools and no network.
+    /// No tools, no network, every platform.
     pub const NONE: Self = Self {
         tools: &[],
         net: Net::None,
+        platforms: &[],
     };
+
+    /// Whether the plugin runs on `platform`.
+    #[must_use]
+    pub fn applies_to(&self, platform: Platform) -> bool {
+        self.platforms.is_empty() || self.platforms.contains(&platform.kind())
+    }
+}
+
+/// Where the program runs, detected once by the orchestrator (design D-16).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Platform {
+    /// No virtualization was detected; most likely a dedicated server.
+    #[default]
+    Dedicated,
+    /// A virtual machine.
+    Vm(Hypervisor),
+    /// A container, sharing the kernel of its host.
+    Container(ContainerKind),
+}
+
+impl Platform {
+    /// The kind plugins declare in [`Requirements::platforms`].
+    #[must_use]
+    pub fn kind(self) -> PlatformKind {
+        match self {
+            Self::Dedicated => PlatformKind::Dedicated,
+            Self::Vm(_) => PlatformKind::Vm,
+            Self::Container(_) => PlatformKind::Container,
+        }
+    }
+}
+
+impl fmt::Display for Platform {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Dedicated => f.write_str("未检测到虚拟化"),
+            Self::Vm(Hypervisor::Qemu) => f.write_str("QEMU 虚拟机（纯软件模拟）"),
+            Self::Vm(Hypervisor::Other) => f.write_str("虚拟机（类型未知）"),
+            Self::Vm(hypervisor) => write!(f, "{hypervisor} 虚拟机"),
+            Self::Container(ContainerKind::Wsl) => f.write_str("WSL"),
+            Self::Container(ContainerKind::Other) => f.write_str("容器（类型未知）"),
+            Self::Container(container) => write!(f, "{container} 容器"),
+        }
+    }
+}
+
+/// Kind of platform, as declared by plugins.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlatformKind {
+    /// A machine without detected virtualization.
+    Dedicated,
+    /// Any virtual machine.
+    Vm,
+    /// Any container.
+    Container,
+}
+
+impl fmt::Display for PlatformKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Dedicated => "独立服务器",
+            Self::Vm => "虚拟机",
+            Self::Container => "容器",
+        })
+    }
+}
+
+/// Hypervisor of a virtual machine.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Hypervisor {
+    /// QEMU with KVM acceleration.
+    Kvm,
+    /// QEMU without KVM, emulating the CPU in software.
+    Qemu,
+    /// Xen.
+    Xen,
+    /// VMware.
+    Vmware,
+    /// Microsoft Hyper-V.
+    HyperV,
+    /// Oracle VirtualBox.
+    VirtualBox,
+    /// Parallels.
+    Parallels,
+    /// Amazon EC2 (Nitro or Xen based).
+    AmazonEc2,
+    /// Google Compute Engine.
+    GoogleCompute,
+    /// FreeBSD bhyve.
+    Bhyve,
+    /// A hypervisor that was detected but not recognized.
+    Other,
+}
+
+impl fmt::Display for Hypervisor {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Kvm => "KVM",
+            Self::Qemu => "QEMU",
+            Self::Xen => "Xen",
+            Self::Vmware => "VMware",
+            Self::HyperV => "Hyper-V",
+            Self::VirtualBox => "VirtualBox",
+            Self::Parallels => "Parallels",
+            Self::AmazonEc2 => "Amazon EC2",
+            Self::GoogleCompute => "Google Compute Engine",
+            Self::Bhyve => "bhyve",
+            Self::Other => "未知",
+        })
+    }
+}
+
+/// Kind of container.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ContainerKind {
+    /// LXC, including LXD and Incus.
+    Lxc,
+    /// OpenVZ or Virtuozzo.
+    Openvz,
+    /// Docker.
+    Docker,
+    /// Podman.
+    Podman,
+    /// systemd-nspawn.
+    SystemdNspawn,
+    /// Windows Subsystem for Linux.
+    Wsl,
+    /// A container that was detected but not recognized.
+    Other,
+}
+
+impl fmt::Display for ContainerKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Lxc => "LXC",
+            Self::Openvz => "OpenVZ",
+            Self::Docker => "Docker",
+            Self::Podman => "Podman",
+            Self::SystemdNspawn => "systemd-nspawn",
+            Self::Wsl => "WSL",
+            Self::Other => "未知",
+        })
+    }
 }
 
 /// Network access a plugin needs; an unreachable one skips the plugin.
@@ -115,6 +262,8 @@ pub struct Env {
     pub ipv6: bool,
     /// Tools that were downloaded and verified, by name.
     pub tools: BTreeMap<String, PathBuf>,
+    /// The platform the program runs on.
+    pub platform: Platform,
 }
 
 /// A test item. The implementing struct is also its configuration: `Default` gives the
@@ -502,6 +651,7 @@ pub fn validate_registry(registry: &[Registration]) -> Vec<String> {
     let mut problems = Vec::new();
     let mut ids = BTreeSet::new();
     let mut tools: BTreeMap<&str, ToolSpec> = BTreeMap::new();
+    let mut by_title: BTreeMap<&str, Vec<(&str, &[PlatformKind])>> = BTreeMap::new();
     for registration in registry {
         let descriptor = registration.descriptor;
         let id = descriptor.id;
@@ -519,6 +669,24 @@ pub fn validate_registry(registry: &[Registration]) -> Vec<String> {
         if descriptor.timeout.is_zero() {
             problems.push(format!("{id}: timeout must be positive"));
         }
+        // Variants of one test item share its title; exactly one of them may run anywhere.
+        let platforms = descriptor.requires.platforms;
+        let variants = by_title.entry(descriptor.title).or_default();
+        for (other, other_platforms) in variants.iter() {
+            if *other == id {
+                // A duplicate registration; the duplicate-id check reports it.
+                continue;
+            }
+            let overlap = platforms.is_empty()
+                || other_platforms.is_empty()
+                || platforms.iter().any(|kind| other_platforms.contains(kind));
+            if overlap {
+                problems.push(format!(
+                    "{id}: shares its title with {other}, so their platforms must not overlap"
+                ));
+            }
+        }
+        variants.push((id, platforms));
         if let Err(err) = registration.build(Some(&serde_json::json!({}))) {
             problems.push(format!(
                 "{id}: empty config table must build (missing #[serde(default)]?): {err}"

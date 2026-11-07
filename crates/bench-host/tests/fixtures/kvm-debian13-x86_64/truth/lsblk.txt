@@ -1,0 +1,4 @@
+NAME   KNAME TYPE        SIZE ROTA TRAN   MODEL        FSTYPE MOUNTPOINTS
+sr0    sr0   rom   1073741312    0 sata   QEMU DVD-ROM        
+vda    vda   disk 21474836480    1 virtio                     
+└─vda1 vda1  part 21473771008    1 virtio              ext4   /

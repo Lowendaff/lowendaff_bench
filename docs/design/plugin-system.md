@@ -1,12 +1,14 @@
 # Plugin System Design
 
-- Status: **Accepted** 2026-11-07. The owner decided P-01..P-09 and P-11; P-10 is deferred (§12).
+- Status: **Accepted** 2026-11-07. The owner decided P-01..P-09, P-11 and P-12; P-10 is deferred (§12).
 - Scope: the plugin contract, the orchestrator and tool provisioning. Specific test items are out of scope; they are added one at a time on top of this design.
-- Implementation: **M0 is complete.** It covers:
-  - `crates/bench-api` (contract);
-  - in `crates/bench`: orchestrator, provisioning (core and HTTPS fetch), host probe, Chinese terminal renderer, CLI with root check and exit codes, and an empty registry with its contract test.
-
-  The registry holds no test items yet. The next step is the first test item (§10).
+- Implementation:
+  - **M0 is complete.** It covers:
+    - `crates/bench-api` (contract);
+    - in `crates/bench`: orchestrator, provisioning (core and HTTPS fetch), host probe, Chinese terminal renderer, CLI with root check and exit codes, and the registry with its contract test.
+  - **M1** adds:
+    - platform detection and per-platform plugins (D-16), with host facts in `crates/bench-host`;
+    - the first test items, 系统基础信息 (`docs/design/system-info.md`).
 
 ## 1. Context
 
@@ -66,11 +68,12 @@ Non-goals for v1:
 | D-08 | **Sequential execution** (C4). | A scheduler with exclusive resource tags and bounded parallelism. | Overlapping benchmarks distort each other, and sequential output is deterministic. A plugin may still run concurrent work inside itself. |
 | D-09 | **Stopping is cooperative first, then forced:** cancel token, grace period, abort, and finally detach. | Abort immediately; or wait indefinitely. | The grace period lets a plugin report how far it got. Abort drops the future, which releases child processes and sockets. In-process code that blocks a thread cannot be killed, so it is detached; a hard kill needs process isolation (§13). |
 | D-10 | **Plugins share only `Env`** (C10). | Data dependencies between plugins, with a dependency graph. | Plugins stay independent, testable and reorderable. |
-| D-11 | **Workspace layout:** `crates/bench-api` (the contract), `crates/bench` (orchestrator, provisioning, CLI, renderer; binary `lowendaff-bench`), and `plugins/<item>` (package `plugin-<item>`). Plugins depend on `bench-api` only. | A single crate; or a separate orchestrator crate. | The contract is the real seam, with N plugin adapters behind it. |
+| D-11 | **Workspace layout:** `crates/bench-api` (the contract), `crates/bench` (orchestrator, provisioning, CLI, renderer; binary `lowendaff-bench`), `crates/bench-host` (host facts read from `/proc`, `/sys` and `/etc`, shared by the orchestrator and plugins), and `plugins/<item>` (package `plugin-<item>`). Plugins depend on `bench-api` and, for host facts, `bench-host`. A plugin crate may hold several variants of one test item (D-16). | A single crate; or a separate orchestrator crate. | The contract is the real seam, with N plugin adapters behind it. |
 | D-12 | **Root is checked once, at startup** (C9). When the effective UID is not 0, the program exits with code 2 and a Chinese message. There is no per-plugin root requirement. | A per-plugin `root` requirement with skips. | This was the owner's decision. Plugins may assume root, which removes a whole class of skip paths. |
 | D-13 | **Tools are provisioned from pinned builds before the first test** (§9). | Plugins install their own tools; use the host's package manager; use whatever is on `PATH`. | One verified mechanism instead of N ad-hoc ones. Pins give identical tool versions everywhere, so numbers stay comparable and parsers stay valid. Downloading before the first test keeps downloads out of measurements. |
 | D-14 | **One run directory under the current working directory** holds `tools/` and the per-plugin work directories, and is removed at exit. `--work-dir` overrides the location. | The system temp directory. | Debian 13 mounts `/tmp` as a RAM-backed tmpfs by default, so a disk test there would measure memory. CIS benchmarks recommend mounting `/tmp` `noexec`, which would stop downloaded tools from running. |
 | D-15 | **All user-facing text is Chinese** (C5): titles, labels, skip and failure reasons, summaries. Developer-facing registry-check messages stay English. The renderer aligns columns by display width (CJK takes two columns). | Plain character counts; bilingual output. | Owner's choice. Character counts misalign mixed CJK/ASCII tables. |
+| D-16 | **The orchestrator detects the platform once** and stores it in `Env`: a dedicated server, a virtual machine and its hypervisor, or a container and its kind. Detection follows systemd-detect-virt's order without running it (`crates/bench-host/src/platform.rs`). **Plugins declare the platform kinds they apply to** in `Requirements::platforms`. On other platforms they do not run and get no tools. Variants of one test item share its title and must not overlap in platforms (a registry check). The header prints 运行环境 and one 本机不适用 line, which lists only titles that run here in no variant. | One environment-aware plugin per item; plugins detecting the platform themselves. | The owner chose one plugin per environment, with shared code extracted (P-12). Detecting once gives every plugin the same answer, and the plan is known before anything runs (as in D-07). |
 
 ## 5. Architecture
 
@@ -91,8 +94,8 @@ Run flow:
 
 1. **Check root**, then parse the CLI and the config file.
 2. **Plan.** Resolve the selection (`--only`/`--skip` over registry order) and build every selected plugin. All config errors are reported together, and nothing runs if there are any.
-3. **Probe `Env`**: architecture, IPv4 and IPv6 reachability.
-4. **Provision** every tool the plan needs into the run directory, one after another, and print each tool's result.
+3. **Probe `Env`**: architecture, platform (D-16), IPv4 and IPv6 reachability. Print 运行环境 and the 本机不适用 line, and keep only the plugins that apply to the platform.
+4. **Provision** every tool the remaining plan needs into the run directory, one after another, and print each tool's result.
 5. **Run** each plugin in order:
    - Check preflight.
    - Create its work directory and spawn `run`.
@@ -120,13 +123,19 @@ pub struct Descriptor {
     pub timeout: Duration,         // hard limit for one run
 }
 
-pub struct Requirements { pub tools: &'static [ToolSpec], pub net: Net }
+pub struct Requirements {
+    pub tools: &'static [ToolSpec],
+    pub net: Net,
+    pub platforms: &'static [PlatformKind],   // empty: every platform (D-16)
+}
 pub enum Net { None, Any, Ipv4, Ipv6 }
+pub enum PlatformKind { Dedicated, Vm, Container }
+pub enum Platform { Dedicated, Vm(Hypervisor), Container(ContainerKind) }   // Display: 未检测到虚拟化, KVM 虚拟机, LXC 容器, …
 pub struct ToolSpec { pub name: &'static str, pub version: &'static str, pub assets: &'static [ToolAsset] }
 pub struct ToolAsset { pub arch: &'static str, pub url: &'static str, pub sha256: &'static str, pub size: u64 }
 
 impl Context {
-    pub fn env(&self) -> &Env;                                  // arch, ipv4, ipv6, verified tools
+    pub fn env(&self) -> &Env;                                  // arch, platform, ipv4, ipv6, verified tools
     pub fn emit(&self, record: Record);                         // stream one result
     pub fn tool(&self, name: &str) -> Result<&Path, PluginError>; // path of a declared, verified tool
     pub fn cancel_token(&self) -> CancellationToken;            // fires on timeout and on interrupt
@@ -151,7 +160,7 @@ impl Plugin for RunsFio {
         id: "disk.fio",
         title: "磁盘（fio）",
         version: "0.1.0",
-        requires: Requirements { tools: &[FIO], net: Net::None },
+        requires: Requirements { tools: &[FIO], net: Net::None, platforms: &[] },
         timeout: Duration::from_secs(10),
     };
 
@@ -185,6 +194,7 @@ Rules that are part of the interface:
 
 The renderer (`crates/bench/src/terminal.rs`) works as follows:
 
+- Below the version line it prints 运行环境：<platform>. When a selected test item applies to this platform in no variant, it adds 本机不适用：<titles> (D-16).
 - When a plugin starts, it prints the plugin's `title` as a section header.
 - Each record prints as it arrives: `label：value` for facts and metrics, aligned tables for `table`.
 - After the plugin, it prints the outcome line with a Chinese reason.
@@ -203,6 +213,7 @@ The renderer (`crates/bench/src/terminal.rs`) works as follows:
 | The deadline passes | `timed_out` | all emitted, including during the grace period |
 | Interrupt (SIGINT) while running | `cancelled` | all emitted |
 | Not started because of an interrupt | `cancelled`, no elapsed time | none |
+| Does not apply to the platform (D-16) | not run and not counted; its title is listed on the 本机不适用 line unless a variant runs | none |
 
 Stopping sequence, used for both timeout and interrupt:
 
@@ -239,8 +250,8 @@ Exit codes:
 
 ## 10. Adding a test item (the step-by-step integration path)
 
-1. Create `plugins/<item>` (package `plugin-<item>`) depending on `bench-api` (plus the item's own crates).
-2. Define the config struct with `#[serde(default, deny_unknown_fields)]` and a meaningful `Default`. Give it a `DESCRIPTOR` with id, Chinese title, version, requirements and timeout.
+1. Create `plugins/<item>` (package `plugin-<item>`) depending on `bench-api`, and on `bench-host` for host facts (plus the item's own crates).
+2. Define the config struct with `#[serde(default, deny_unknown_fields)]` and a meaningful `Default`. Give it a `DESCRIPTOR` with id, Chinese title, version, requirements and timeout. An item that differs by platform gets one variant per platform kind in the same crate: same title, ids such as `system.vm`, and disjoint `platforms` (D-16).
 3. If the item needs an external tool, declare its `ToolSpec` (§9) and call it through `ctx.tool(name)`.
 4. Implement `run`:
    - Emit records with Chinese labels as results become available.
@@ -255,19 +266,23 @@ Exit codes:
 
 Current state:
 
-- macOS: `cargo nextest run --workspace` passes **38 tests**; `cargo clippy --workspace --all-targets -- -D warnings` is clean.
-- Linux (`rust:alpine`, rustc 1.99.1, `aarch64-unknown-linux-musl`): the same 38 tests pass.
+- macOS: `cargo nextest run --workspace` passes **70 tests**; `cargo clippy --workspace --all-targets -- -D warnings` is clean.
+- Linux: CI runs the same tests on x86_64 and aarch64 runners.
 
 | Suite | Tests | Covers |
 |-------|-------|--------|
-| `bench-api/tests/api.rs` | 7 | `Measurement` display and invariants, `Table` invariants, `?` cause chain, `ctx.tool`, registry contract (ids, duplicates, config strictness, tool pins) |
+| `bench-api/tests/api.rs` | 10 | `Measurement` display and invariants, `Table` invariants, `?` cause chain, `ctx.tool`, registry contract (ids, duplicates, config strictness, tool pins, variants sharing a title), platform kinds and their Chinese names |
 | `bench/tests/orchestrator.rs` | 11 | every row of §8, work-directory placement and removal, config errors before running |
 | `bench/tests/provision.rs` | 7 | verified install, hash mismatch, size cap, truncation (nothing left behind in all three), per-tool failure reasons, de-duplication, a plugin running its provisioned tool |
-| `bench/tests/app.rs` | 5 | argument parsing, `--only`/`--skip` in registry order with unknown-id errors, config file rules, a full run (sections, summary, run directory removed), an interrupted run (exit 130, every plugin listed) |
+| `bench/tests/app.rs` | 7 | argument parsing, `--only`/`--skip` in registry order with unknown-id errors, config file rules, a full run (sections, summary, run directory removed), an interrupted run (exit 130, every plugin listed), per-platform plugins (only applicable ones run and get tools; the 本机不适用 line), `--list` with platforms |
 | `bench/tests/terminal.rs` | 4 | display-width alignment of mixed CJK/ASCII labels and tables, a section for plugins that never started, the tool section, the summary counts |
 | `bench/tests/fetcher.rs` | 2 | streaming download, HTTP and connection errors as reasons, provisioning through the real client (local server) |
 | `bench/tests/probe.rs` | 1 | reachability needs a completed handshake with any target |
 | `bench/src/registry.rs` | 1 | the real registry passes `validate_registry` |
+| `bench-host/tests/platform.rs` | 10 | platform detection on four captured hosts and on synthetic ones: containers (OpenVZ, WSL, container managers, PID 1, Podman and Docker files, PID namespaces), virtual machines (CPUID, DMI, Xen guests and dom0, Hyper-V enlightenments, EC2 metal, Google) and ARM device trees |
+| `bench-host/tests/facts.rs` | 8 | CPU, memory, distribution and system facts against the hosts' own `lscpu`, `free` and `uname`; ARM part names; the `MemAvailable` fallback; cgroup v1 and v2 limits; os-release quoting and the older release files |
+| `bench-host/tests/storage.rs` | 5 | disks and filesystems against `lsblk` and `df`; partitions, RAID, LVM, btrfs subvolumes, bind mounts, escaped mount points, swap and ZFS pools; a container's root; statvfs |
+| `plugins/system/tests/report.rs` | 4 | the exact 系统基础信息 lines for a KVM guest, a dedicated server and a container with cgroup limits; the three variants' descriptors |
 
 Mutation check on the real code: each mutation is applied to a copy, and `cargo test --workspace` must fail.
 
@@ -292,7 +307,7 @@ Mutation check on the real code: each mutation is applied to a copy, and `cargo 
 | accept non-2xx downloads | `fetcher_streams_bodies_and_turns_failures_into_reasons` |
 | count a timed-out connect as reachable | `reachable_needs_a_completed_handshake_with_any_target` |
 
-All 18 mutations were killed (10 in the first round, 8 in the second).
+All 18 mutations were killed (10 in the first round, 8 in the second). M1 added 50 more, all killed; they are listed by area in `docs/design/system-info.md` §7.
 
 Linux smoke run of the static release binary on `debian:13-slim`, which has no CA store (`/etc/ssl/certs/ca-certificates.crt` absent):
 
@@ -336,6 +351,7 @@ Per plugin:
 
 | P-10 | Where do the pinned static builds come from, and where are they hosted? | **Deferred.** Recorded for later; for now tools are compiled locally for testing. Before release, the decision must also settle the GPL-2.0 source obligation for fio and sysbench binaries. vmbench records license and source per pin for this reason. |
 | P-11 | Use pinned builds only, and ignore tools already installed on the host? | **Yes**, pinned builds only. |
+| P-12 | Environment-specific test items: one plugin that adapts, or one plugin per environment? | **One plugin per platform kind** (dedicated server, virtual machine, container), with the shared parts extracted as far as possible. Plugins for other platforms are summarized on one 本机不适用 line. The "environment" is the runtime platform, not the distribution. Decided 2026-11-07 (D-16). |
 
 ## 13. Deferred extensions (designed seams, not built)
 

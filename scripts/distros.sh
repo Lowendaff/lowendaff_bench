@@ -1,0 +1,46 @@
+#!/bin/sh
+# Runs the 系统基础信息 item in containers of many distributions (design system-info, S-05).
+# In each, the 系统 line must equal the image's own os-release PRETTY_NAME and the item must
+# complete. CI runs it on both architectures; README "Gates" documents it.
+#
+# Usage: scripts/distros.sh <path to a static lowendaff-bench> [<mirror>]
+# Needs Docker. The images are listed in scripts/distros.txt, pinned by digest; Arch Linux has no
+# aarch64 image. With <mirror>, for example ghcr.io/lowendaff/mirror, each image is pulled from
+# <mirror>/<name>:<tag> instead: the copy that scripts/mirror.sh made under the same digest. CI
+# does this (README "Gates").
+set -eu
+
+fail() {
+    echo "distros: $*" >&2
+    exit 1
+}
+
+case $# in
+1 | 2) ;;
+*) fail "usage: scripts/distros.sh <path to lowendaff-bench> [<mirror>]" ;;
+esac
+bin=$(realpath "$1")
+images=
+while read -r image arch_only; do
+    case $image in '' | '#'*) continue ;; esac
+    [ -z "$arch_only" ] || [ "$arch_only" = "$(uname -m)" ] || continue
+    if [ $# -eq 2 ]; then
+        image=$2/${image#*/}
+    fi
+    images="$images $image"
+done <"$(dirname "$0")/distros.txt"
+
+for image in $images; do
+    name=${image%@*}
+    expected=$(docker run --rm --entrypoint sh "$image" -c '. /etc/os-release && printf %s "$PRETTY_NAME"') ||
+        fail "$name: cannot read os-release"
+    output=$(docker run --rm -v "$bin:/usr/local/bin/lowendaff-bench:ro" -w /root "$image" \
+        lowendaff-bench --only system.container 2>&1) || fail "$name: exited with $?: $output"
+    printf '%s\n' "$output" | grep -qx '运行环境：Docker 容器' ||
+        fail "$name: the platform was not detected as Docker: $output"
+    reported=$(printf '%s\n' "$output" | sed -n 's/^  系统  *//p')
+    [ "$reported" = "$expected" ] || fail "$name: 系统 is \"$reported\", expected \"$expected\""
+    printf '%s\n' "$output" | grep -q '^  完成，用时' || fail "$name: the item did not complete: $output"
+    echo "distros: $name: $reported"
+done
+echo "distros: ok"

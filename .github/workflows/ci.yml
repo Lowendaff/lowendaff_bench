@@ -116,6 +116,7 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: read
+      packages: read # pulls the distribution images from ghcr.io/lowendaff/mirror
     env:
       TARGET: ${{ matrix.arch }}-unknown-linux-musl
       RUSTC_WRAPPER: sccache
@@ -148,3 +149,13 @@ jobs:
         run: scripts/smoke.sh "target/$TARGET/release/lowendaff-bench"
       - name: Smoke mutants
         run: scripts/smoke-mutants.sh "$TARGET"
+      # The distribution images come from copies on GHCR (README "Gates"), pulled with this
+      # job's token.
+      - name: Log in to ghcr.io
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          printf '%s' "$GITHUB_TOKEN" |
+            docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+      - name: Distributions
+        run: scripts/distros.sh "target/$TARGET/release/lowendaff-bench" ghcr.io/lowendaff/mirror

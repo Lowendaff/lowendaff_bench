@@ -184,6 +184,7 @@ fn required_tools_are_unique_and_in_plan_order() {
         requires: Requirements {
             tools,
             net: Net::None,
+            platforms: &[],
         },
         timeout: Duration::from_secs(1),
     };
@@ -210,6 +211,7 @@ impl Plugin for RunsFio {
         requires: Requirements {
             tools: &[FIO],
             net: Net::None,
+            platforms: &[],
         },
         timeout: Duration::from_secs(10),
     };

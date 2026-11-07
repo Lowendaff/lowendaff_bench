@@ -7,6 +7,7 @@ note: >-
   memory or cannot run. Tests may use temp directories; this rule covers `src/` only.
 files:
   - crates/*/src/**/*.rs
+  - plugins/*/src/**/*.rs
 rule:
   any:
     - kind: string_literal

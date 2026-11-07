@@ -7,6 +7,7 @@ use std::time::Duration;
 use std::time::Instant;
 
 use bench_api::Descriptor;
+use bench_api::Platform;
 use bench_api::Record;
 use bench_api::Table;
 use bench_api::ToolSpec;
@@ -38,6 +39,18 @@ impl<W: Write> Terminal<W> {
     /// First line of the output.
     pub fn header(&mut self, version: &str) {
         self.write(&format!("lowendaff-bench {version}"));
+    }
+
+    /// The detected platform, below the header.
+    pub fn platform(&mut self, platform: Platform) {
+        self.write(&format!("运行环境：{platform}"));
+    }
+
+    /// Test items that do not apply to this platform in any variant; nothing when empty.
+    pub fn not_applicable(&mut self, titles: &[&str]) {
+        if !titles.is_empty() {
+            self.write(&format!("本机不适用：{}", titles.join("、")));
+        }
     }
 
     /// The 【准备工具】 section: one line per tool with its result.
