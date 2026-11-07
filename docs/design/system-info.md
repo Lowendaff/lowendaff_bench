@@ -122,7 +122,9 @@ The orchestrator detects the platform once (`crates/bench-host/src/platform.rs`,
   Expectations come from the host's own tools at capture time (`truth/`). Small synthetic hosts cover rules no capture shows.
 - **`plugins/system/tests`** checks the records each variant prints for those captures.
 - **CI, distribution matrix (S-05).** The static binary runs `system.container` inside each image on both architectures. The 系统 line must match the image's os-release, and no field may fail. All containers share the runner's kernel, so the matrix covers distribution files; kernels and platforms are covered by the fixtures.
-- **CI runners.** The smoke test runs every test item on the x86_64 and aarch64 runners themselves, which are virtual machines. It fails when an item fails or times out, and prints the output, including 运行环境, to the CI log.
+- **CI runners.** The smoke test runs every test item on the x86_64 and aarch64 runners themselves, which are virtual machines. It fails when an item fails or times out, and prints the output, including 运行环境, to the CI log. On 2026-11-07 both runners reported Hyper-V 虚拟机 and completed the item:
+  - x86_64: AMD EPYC 9V74, 4 vCPUs, AMD-V exposed to the guest, a 150 GiB SCSI "Virtual Disk", Ubuntu 24.04.5.
+  - aarch64: ARM Neoverse-N2 (from the part code), Hyper-V recognized through DMI because ARM has no CPUID; CPU 频率 showed 不可用, since the guest has no cpufreq.
 - **Mutation check.** Each mutation was applied to a copy of the repository, and the tests had to fail. All 50 were killed:
 
   | Area | Mutations | Examples |
