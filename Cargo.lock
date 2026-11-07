@@ -101,6 +101,7 @@ name = "bench-host"
 version = "0.1.0"
 dependencies = [
  "bench-api",
+ "rustix",
  "tempfile",
 ]
 

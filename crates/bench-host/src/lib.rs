@@ -9,7 +9,12 @@
 use std::fs;
 use std::path::PathBuf;
 
+pub mod cpu;
+pub mod memory;
+pub mod os;
 pub mod platform;
+pub mod storage;
+pub mod system;
 
 /// The filesystem host facts are read from: `/` on a real host, a captured copy in tests.
 #[derive(Debug, Clone)]
@@ -79,4 +84,19 @@ impl Root {
         let target = fs::read_link(self.join(path)).ok()?;
         Some(target.to_string_lossy().into_owned())
     }
+}
+
+/// Number of CPUs in a kernel CPU list such as `0-15,32-47`.
+fn cpu_list_len(list: &str) -> Option<usize> {
+    let mut count = 0;
+    for range in list.split(',') {
+        count += match range.split_once('-') {
+            Some((low, high)) => high.parse::<usize>().ok()? - low.parse::<usize>().ok()? + 1,
+            None => {
+                range.parse::<usize>().ok()?;
+                1
+            }
+        };
+    }
+    Some(count)
 }

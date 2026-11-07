@@ -35,7 +35,9 @@ for f in /proc/cpuinfo /proc/meminfo /proc/uptime /proc/loadavg /proc/swaps /pro
     /sys/devices/system/cpu/present /sys/hypervisor/type /sys/hypervisor/properties/features \
     /proc/xen/capabilities /run/systemd/container /run/host/container-manager \
     /proc/device-tree/compatible /proc/device-tree/hypervisor/compatible /.dockerenv \
-    /run/.containerenv /sys/fs/cgroup/memory.max /sys/fs/cgroup/memory.swap.max \
+    /run/.containerenv /sys/fs/cgroup/memory.max /sys/fs/cgroup/memory.current \
+    /sys/fs/cgroup/memory.swap.max /sys/fs/cgroup/memory.swap.current \
+    /sys/fs/cgroup/memory/memory.usage_in_bytes \
     /sys/fs/cgroup/cpu.max /sys/fs/cgroup/cpuset.cpus.effective \
     /sys/fs/cgroup/memory/memory.limit_in_bytes /sys/fs/cgroup/memory/memory.memsw.limit_in_bytes \
     /sys/fs/cgroup/cpu/cpu.cfs_quota_us /sys/fs/cgroup/cpu/cpu.cfs_period_us \
@@ -83,7 +85,7 @@ for block in /sys/class/block/*; do
     # Only these udev keys; never serial numbers, WWNs or UUIDs.
     dev=$(cat "$block/dev" 2>/dev/null) || continue
     if [ -r "/run/udev/data/b$dev" ]; then
-        keys=$(grep -E '^E:ID_(TYPE|BUS|FS_TYPE|FS_LABEL|ATA_ROTATION_RATE_RPM)=' "/run/udev/data/b$dev")
+        keys=$(grep -E '^E:ID_(TYPE|BUS|MODEL_ENC|FS_TYPE|FS_LABEL|ATA_ROTATION_RATE_RPM)=' "/run/udev/data/b$dev")
         printf '@@@ FILE run/udev/data/b%s %s\n' "$dev" "$(printf '%s\n' "$keys" | base64 -w0)"
     fi
 done

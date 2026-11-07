@@ -1,63 +1,28 @@
 //! Platform detection against captured hosts (tests/fixtures/README.md) and against small
 //! synthetic hosts for the rules no capture covers.
 
-use std::fs;
-use std::os::unix::fs::symlink;
-use std::path::Path;
+mod common;
 
 use bench_api::ContainerKind;
 use bench_api::Hypervisor;
 use bench_api::Platform;
 use bench_host::Root;
 use bench_host::platform;
-use bench_host::platform::Cpuid;
+use common::Layout;
 use tempfile::TempDir;
 
-/// A captured host: its files, and its CPUID as recorded in the fixture's `cpuid` file.
-fn fixture(name: &str) -> (Root, Option<Cpuid>) {
-    let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures")
-        .join(name);
-    let cpuid = fs::read_to_string(dir.join("cpuid"))
-        .ok()
-        .map(|text| cpuid(text.trim()));
-    (Root::new(dir.join("root")), cpuid)
-}
-
-/// `signature` is the hypervisor signature, or `-` when the hypervisor bit is clear.
-fn cpuid(signature: &str) -> Cpuid {
-    Cpuid {
-        hypervisor: (signature != "-").then(|| signature.to_owned()),
-    }
-}
-
 fn detect_fixture(name: &str) -> Platform {
-    let (root, cpuid) = fixture(name);
-    platform::detect(&root, cpuid.as_ref())
+    platform::detect(&common::fixture(name), common::fixture_cpuid(name).as_ref())
 }
 
-/// Files (host path, contents) and empty directories of a synthetic host.
-type Layout = (
-    &'static [(&'static str, &'static str)],
-    &'static [&'static str],
-);
-
-fn host((files, dirs): Layout) -> TempDir {
-    let dir = TempDir::new().expect("temp dir");
-    for (path, contents) in files {
-        let path = dir.path().join(path.trim_start_matches('/'));
-        fs::create_dir_all(path.parent().expect("parent")).expect("create parent");
-        fs::write(path, contents).expect("write file");
-    }
-    for path in dirs {
-        fs::create_dir_all(dir.path().join(path.trim_start_matches('/'))).expect("create dir");
-    }
-    dir
+fn host(layout: Layout) -> TempDir {
+    common::host(layout)
 }
 
-/// `signature` as for [`cpuid`], or `None` for an architecture without CPUID.
+/// `signature` is the hypervisor signature, `-` for a clear hypervisor bit, or `None` for
+/// an architecture without CPUID.
 fn detect(dir: &TempDir, signature: Option<&str>) -> Platform {
-    let cpuid = signature.map(cpuid);
+    let cpuid = signature.map(common::cpuid);
     platform::detect(&Root::new(dir.path()), cpuid.as_ref())
 }
 
@@ -83,7 +48,7 @@ fn captured_hosts_match_systemd_detect_virt() {
 #[test]
 fn without_cpuid_a_kvm_guest_looks_like_plain_qemu() {
     // DMI on this guest only says "QEMU"; CPUID is what tells KVM from software emulation.
-    let (root, _) = fixture("kvm-debian13-x86_64");
+    let root = common::fixture("kvm-debian13-x86_64");
     assert_eq!(
         platform::detect(&root, None),
         Platform::Vm(Hypervisor::Qemu)
@@ -157,14 +122,14 @@ fn an_openvz_host_and_an_empty_container_variable_are_not_containers() {
 #[test]
 fn an_unknown_pid_namespace_is_some_container() {
     let dir = host((&[], &["/proc/self/ns"]));
-    symlink("pid:[4026533244]", dir.path().join("proc/self/ns/pid")).expect("symlink");
+    common::link(&dir, "/proc/self/ns/pid", "pid:[4026533244]");
     assert_eq!(
         detect(&dir, Some("-")),
         Platform::Container(ContainerKind::Other)
     );
 
     let dir = host((&[], &["/proc/self/ns"]));
-    symlink("pid:[4026531836]", dir.path().join("proc/self/ns/pid")).expect("symlink");
+    common::link(&dir, "/proc/self/ns/pid", "pid:[4026531836]");
     assert_eq!(detect(&dir, Some("-")), Platform::Dedicated);
 }
 

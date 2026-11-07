@@ -20,14 +20,18 @@ ssh root@host sh -s < capture.sh > host.capture
 ./unpack.sh host.capture <name>
 ```
 
-`capture.sh` writes nothing on the host. It never reads hostnames, addresses, serial numbers, WWNs or UUIDs. From the environment of PID 1 it keeps only the `container` variable, and from the udev database only the `ID_TYPE`, `ID_BUS`, `ID_FS_TYPE`, `ID_FS_LABEL` and `ID_ATA_ROTATION_RATE_RPM` keys.
+`capture.sh` writes nothing on the host. It never reads hostnames, addresses, serial numbers, WWNs or UUIDs. From the environment of PID 1 it keeps only the `container` variable, and from the udev database only the `ID_TYPE`, `ID_BUS`, `ID_MODEL_ENC`, `ID_FS_TYPE`, `ID_FS_LABEL` and `ID_ATA_ROTATION_RATE_RPM` keys.
 
 The repository is public, so review every capture before committing it:
 
 - Search it for hostnames, IP addresses and serial numbers.
 - Trim mount points that reveal how the host is used.
 
-Trimmed so far:
+Edits after capture:
 
-- `dedicated-pve-x86_64`: mount points and `df` lines under `/opt/CI`, `/var/lib/docker`, `/var/lib/containerd` and `/run/docker`, and the dataset `Volume1/docker`. Also the udev entries of the ZFS volumes (`zd*`), which carried partition labels of the guests' disks.
-- `kvm-debian13-x86_64`: Docker's overlay mounts.
+- `dedicated-pve-x86_64`:
+  - Trimmed the mount points and `df` lines under `/opt/CI`, `/var/lib/docker`, `/var/lib/containerd` and `/run/docker`, and the dataset `Volume1/docker`.
+  - Trimmed the udev entries of the ZFS volumes (`zd*`), which carried partition labels of the guests' disks.
+  - Added `ID_MODEL_ENC` to the udev entries of the four disks the same day, read from the same host; the key joined `capture.sh` after the first capture.
+- `kvm-debian13-x86_64`: trimmed Docker's overlay mounts.
+- The two Docker captures were redone after `capture.sh` started reading the cgroup's memory usage.
