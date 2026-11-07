@@ -1,0 +1,45 @@
+# Copies the images in scripts/distros.txt to ghcr.io/lowendaff/mirror under their digests
+# (README "Gates"). Packages that a workflow publishes with GITHUB_TOKEN are linked to this
+# repository, so CI can pull them with its own token. After changing the list, run
+# `gh workflow run mirror.yml --ref <branch>`.
+name: mirror
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  mirror:
+    name: copy the distribution images to ghcr
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write # creates and updates the image packages under ghcr.io/lowendaff/mirror
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Fetch the official crane release and check it against the SHA-256 that GitHub lists for
+      # the asset.
+      - name: Install crane
+        env:
+          VERSION: v0.22.1
+          ASSET: go-containerregistry_Linux_x86_64.tar.gz
+          SHA256: 0ab7a1d6932a213aed964ce97666c3077fe691c8606413674a8b3e0b9ec4cda0
+        run: |
+          curl --fail --silent --show-error --location --output "$RUNNER_TEMP/crane.tar.gz" \
+            "https://github.com/google/go-containerregistry/releases/download/$VERSION/$ASSET"
+          echo "$SHA256  $RUNNER_TEMP/crane.tar.gz" | sha256sum --check --strict
+          mkdir "$RUNNER_TEMP/crane"
+          tar -xzf "$RUNNER_TEMP/crane.tar.gz" -C "$RUNNER_TEMP/crane" crane
+          echo "$RUNNER_TEMP/crane" >> "$GITHUB_PATH"
+      - name: Log in to ghcr.io
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          printf '%s' "$GITHUB_TOKEN" |
+            crane auth login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+      - name: Copy
+        run: scripts/mirror.sh ghcr.io/lowendaff/mirror
