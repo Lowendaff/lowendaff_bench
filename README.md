@@ -6,7 +6,13 @@ A comprehensive test tool for Linux servers (VPS), written in Rust:
 - An orchestrator selects the plugins, downloads the pinned tools they need, runs them in order with timeouts, and prints the results in Chinese.
 - It must run as root.
 
-**Status:** the plugin framework (M0) is in place, and the registry is still empty. Test items are added one at a time. The design is in [`docs/design/plugin-system.md`](docs/design/plugin-system.md).
+**Status:** the plugin framework (M0) is in place. Test items are added one at a time; the first is 系统基础信息 (system information). The design is in [`docs/design/plugin-system.md`](docs/design/plugin-system.md).
+
+The tool first detects where it runs: a dedicated server, a virtual machine or a container. It prints this as 运行环境 and runs only the test items made for that platform. For example, 系统基础信息 has a variant for each platform (`system.dedicated`, `system.vm`, `system.container`), and exactly one of them runs. `--list` shows which platforms each item applies to.
+
+| Test item | Shows | Design |
+|-----------|-------|--------|
+| 系统基础信息 | CPU, memory and swap, disks and filesystems, distribution, kernel, uptime, load, TCP congestion control, IPv4/IPv6 reachability | [`docs/design/system-info.md`](docs/design/system-info.md) |
 
 ## Usage
 
