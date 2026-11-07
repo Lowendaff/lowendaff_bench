@@ -64,6 +64,8 @@ CI also uses sccache (backed by the GitHub Actions cache) and the mold linker. T
 
 Every Monday, the `latest-deps` workflow updates a scratch checkout to the newest dependency versions that `Cargo.toml` allows. It then runs the tests and the dependency policy. A failure means an upstream release would break the build. The committed `Cargo.lock` is not touched.
 
+`scripts/distros.txt` lists container images pinned by digest. The `mirror` workflow copies them to `ghcr.io/lowendaff/mirror` under the same digests with `scripts/mirror.sh`, which checks each copy, so that CI can pull them from there: AWS ECR Public allows one anonymous pull per second per address, and GitHub's runners share addresses. The workflow publishes with `GITHUB_TOKEN`, so the packages are linked to this repository and CI can pull them with its own token. After changing `scripts/distros.txt`, run `gh workflow run mirror.yml --ref <branch>`; images that are already copied are skipped.
+
 Dependabot (`.github/dependabot.yml`) proposes weekly update PRs for cargo and for the pinned GitHub Actions. It waits until a release is at least 7 days old.
 
 ## Code style
