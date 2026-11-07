@@ -148,3 +148,5 @@ jobs:
         run: scripts/smoke.sh "target/$TARGET/release/lowendaff-bench"
       - name: Smoke mutants
         run: scripts/smoke-mutants.sh "$TARGET"
+      - name: Distributions
+        run: scripts/distros.sh "target/$TARGET/release/lowendaff-bench"

@@ -48,6 +48,7 @@ CI (`.github/workflows/ci.yml`) runs exactly these commands. Run them locally be
 | Static build | `cargo build --release --locked --target <arch>-unknown-linux-musl --bin lowendaff-bench` | Linux |
 | Smoke | `scripts/smoke.sh target/<arch>-unknown-linux-musl/release/lowendaff-bench` | Linux, as root or with sudo |
 | Smoke mutants | `scripts/smoke-mutants.sh <arch>-unknown-linux-musl`: smoke must reject deliberately broken builds | Linux, as root or with sudo |
+| Distributions | `scripts/distros.sh target/<arch>-unknown-linux-musl/release/lowendaff-bench`: 系统基础信息 in 12 distributions' images (13 on x86_64) | Linux or macOS with Docker |
 
 `<arch>` is `x86_64` or `aarch64`.
 
