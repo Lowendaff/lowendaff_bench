@@ -1,0 +1,16 @@
+[package]
+name = "plugin-disk"
+description = "Disk performance test item for lowendaff-bench (硬盘性能)"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[dependencies]
+bench-api.workspace = true
+bench-host.workspace = true
+serde.workspace = true
+tokio = { workspace = true, features = ["fs", "macros", "process", "rt", "time"] }
+
+[lints]
+workspace = true

@@ -8,6 +8,8 @@ pub const REGISTRY: &[Registration] = &[
     bench_api::register::<plugin_system::Dedicated>(),
     bench_api::register::<plugin_system::Vm>(),
     bench_api::register::<plugin_system::Container>(),
+    // 硬盘性能: fio with YABS's method, on every platform.
+    bench_api::register::<plugin_disk::Fio>(),
 ];
 
 #[cfg(test)]
