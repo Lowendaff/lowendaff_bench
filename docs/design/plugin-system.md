@@ -1,6 +1,6 @@
 # Plugin System Design
 
-- Status: **Accepted** 2026-11-07. The owner decided P-01..P-09, P-11 and P-12; P-10 is deferred (§12).
+- Status: **Accepted** 2026-11-07. The owner decided P-01..P-09, P-11 and P-12 on 2026-11-07, and P-10 on 2026-11-08 (§12).
 - Scope: the plugin contract, the orchestrator and tool provisioning. Specific test items are out of scope; they are added one at a time on top of this design.
 - Implementation:
   - **M0 is complete.** It covers:
@@ -9,6 +9,7 @@
   - **M1** adds:
     - platform detection and per-platform plugins (D-16), with host facts in `crates/bench-host`;
     - the first test items, 系统基础信息 (`docs/design/system-info.md`).
+  - **M2** (in progress) adds pinned fio builds (P-10) and the 硬盘性能 test item (`docs/design/disk.md`).
 
 ## 1. Context
 
@@ -246,7 +247,7 @@ Exit codes:
   - Downloads work on images without `ca-certificates`; verified on Debian 13 slim (§11).
   - The core (`crates/bench/src/provision.rs`) takes the fetcher as a parameter, so tests run without a network.
 - **Pinned builds only (P-11).** Tools already installed on the host are never used.
-- **Source of the builds (P-10, deferred).** Until it is decided, tool builds are compiled locally for testing.
+- **Source of the builds (P-10).** This repository builds the tools and publishes them. A manual workflow per tool builds static binaries from checksum-pinned sources. It publishes them, together with those sources, the build script and the license texts, as an immutable GitHub release whose tag carries a build number, such as `fio-3.43-1`. For fio, see `docs/design/disk.md` §4.
 
 ## 10. Adding a test item (the step-by-step integration path)
 
@@ -348,8 +349,7 @@ Per plugin:
 | P-07 | Names? | **As proposed** (C7). |
 | P-08 | Exit codes? | **As proposed** (§8). |
 | P-09 | Run as non-root? | **No; root is required** (D-12). |
-
-| P-10 | Where do the pinned static builds come from, and where are they hosted? | **Deferred.** Recorded for later; for now tools are compiled locally for testing. Before release, the decision must also settle the GPL-2.0 source obligation for fio and sysbench binaries. vmbench records license and source per pin for this reason. |
+| P-10 | Where do the pinned static builds come from, and where are they hosted? | **This repository builds and publishes them** (§9). A manual workflow per tool builds static binaries from checksum-pinned sources, in an image pinned by digest. It publishes them as an immutable release that also carries the sources, the build script and the license texts. Offering the source from the same place as the binary meets GPL-2.0 §3. The alternatives were a separate tools repository, and third-party builds such as YABS's. Decided 2026-11-08 with the disk test (`docs/design/disk.md`, DK-03). |
 | P-11 | Use pinned builds only, and ignore tools already installed on the host? | **Yes**, pinned builds only. |
 | P-12 | Environment-specific test items: one plugin that adapts, or one plugin per environment? | **One plugin per platform kind** (dedicated server, virtual machine, container), with the shared parts extracted as far as possible. Plugins for other platforms are summarized on one 本机不适用 line. The "environment" is the runtime platform, not the distribution. Decided 2026-11-07 (D-16). |
 

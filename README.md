@@ -75,6 +75,16 @@ Every Monday, the `latest-deps` workflow updates a scratch checkout to the newes
 
 Dependabot (`.github/dependabot.yml`) proposes weekly update PRs for cargo and for the pinned GitHub Actions. It waits until a release is at least 7 days old.
 
+## Third-party tools
+
+Some test items run external tools. The program downloads each tool as a pinned build and checks its SHA-256 and size before use; it never uses a tool already installed on the host (design P-11). This repository builds the tools and publishes them as immutable GitHub releases (design P-10).
+
+| Tool | Version | License | Used by | Release |
+|------|---------|---------|---------|---------|
+| fio, with libaio 0.3.113 linked statically | 3.43 | GPL-2.0; libaio LGPL-2.1 | 硬盘性能 (in progress) | `fio-3.43-1` |
+
+Each release holds the binaries for x86_64 and aarch64, the exact source tarballs they were built from, the build script, the license texts and `SHA256SUMS`. The `fio` workflow builds fio with `scripts/build-fio.sh` in Alpine 3.22; a pull request that changes the build runs it without publishing anything. To publish a new build, update the workflow's `TAG` (the fio version and the build number) and, for a new version, the sources and their SHA-256 in `scripts/build-fio.sh`; merge, run `gh workflow run fio.yml --ref main`, and then update the plugin's pins.
+
 ## Code style
 
 Rust code follows the [Google Rust Style Guide](https://google.github.io/styleguide/rustguide.html).
