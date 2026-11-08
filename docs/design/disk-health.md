@@ -1,6 +1,6 @@
 # Disk Health Test Item (硬盘健康)
 
-- Status: **Accepted** 2026-11-08. The owner decided DH-01..DH-07 (§2), confirmed the design section by section, and accepted the risks (§9).
+- Status: **Accepted** 2026-11-08. The owner decided DH-01..DH-07 (§2), confirmed the design section by section, and accepted the risks (§9); DH-08 followed on 2026-11-09.
 - Implementation (M3): the smartctl builds and the release `smartctl-7.5-1`, then the plugin in `plugins/disk-health`.
 - Scope: one test item, `disk.health`, which reads the SMART health of every physical disk of a dedicated server with a pinned smartctl, and the smartctl builds it needs (§4). The other checks for dedicated servers join 系统基础信息 (DH-01).
 
@@ -34,6 +34,7 @@ Non-goals:
 | DH-05 | The device nodes that smartctl creates | **Removed after the item** when they did not exist before it (§6). The alternatives were leaving them and documenting it, or finding disks without smartctl's scan and skipping RAID-card disks while the node is missing. |
 | DH-06 | Test data, with no other hardware at hand | **The owner's four SATA SSDs,** read directly and through the RAID card. NVMe comes from GitHub's runners; hard disks and SAS are written by hand from smartmontools 7.5's source, and marked so (§7.2). |
 | DH-07 | A real run on dedicated hardware | **Once, on the owner's dedicated server,** as an exception to read-only probing (§8). |
+| DH-08 | Where the item runs among the others | **Before 硬盘性能**, after 系统基础信息 (the registry's order is the run order). SMART is read before fio heats the disks and writes up to about 10 GiB, so the temperature is the idle one, 累计写入 leaves out the program's own writes, and a failing disk shows before the stress test. The health result neither skips nor changes 硬盘性能. |
 
 ## 3. Background
 
@@ -46,6 +47,8 @@ Read-only probes, 2026-11-08:
 - `smartctl --scan-open` lists `/dev/sda` to `/dev/sdd` with type `sat`, and `/dev/bus/0` with types `sat+megaraid,18`, `21`, `23` and `24`. Serials compared on the server: 18, 21, 23 and 24 are `sda`, `sdb`, `sdc` and `sdd`.
 - smartd runs, and created `/dev/megaraid_sas_ioctl_node` 17 seconds after boot (§6).
 - None of the four disks has Device Statistics page 3, and `sda` has no attribute 197. All four have page 7; smartctl's estimate from attribute 177 differs from it by 0 to 4 points. The two 870 EVO exit with status 64 (entries in the error log) and are otherwise read normally.
+- Through the RAID card, the SCT commands fail (exit status bit 2) and every value the item uses is the same as read directly. The disk's own SMART status does not come through the card either, so smartctl judges health from the attributes' thresholds, with the warning "This result is based on an Attribute check" (`ataprint.cpp`).
+- Timing, 2026-11-09: the scan took 46 ms, `-i` 34 ms and `-x` 46 to 50 ms per disk, directly and through the RAID card alike.
 - With the rules of §5, they show:
 
 ```
@@ -139,11 +142,12 @@ From its source (`smartmontools-7.5.tar.gz`) and trial runs:
 - Crate `plugins/disk-health` (package `plugin-disk-health`); one plugin, `disk.health`, titled 硬盘健康.
 - Requirements: the tool smartctl 7.5, no network, and only the platform kind `Dedicated`. Elsewhere the item appears in 本机不适用.
 - Timeout: 5 minutes. Each disk gets 60 seconds.
+- Order: after 系统基础信息 and before 硬盘性能 (DH-08).
 - No configuration fields.
 
 ### 5.2 Flow
 
-1. Note which of the device nodes of §6 exist.
+1. Note which of the device nodes of §6 exist. This comes before any smartctl call, because the scan itself creates the node.
 2. **Scan** with `smartctl --scan-open --json`.
    - No devices: the item is skipped with smartctl 没有找到硬盘.
    - Exit status bit 0 or 1, or output that is not JSON: the item fails with smartctl 扫描硬盘失败：<reason>, the reason as in §5.6.
@@ -162,7 +166,7 @@ smartctl runs from an argument list (no shell) with `kill_on_drop(true)`, so can
   - `/dev/sdX` and `/dev/hdX` show as `sdX` and `hdX`, as in 系统基础信息.
   - An NVMe controller `/dev/nvmeN` with exactly one namespace shows as that namespace's block device, for example `nvme0n1`; otherwise as `nvmeN`. The namespaces are the entries of `/sys/class/nvme/nvmeN/` named `nvme<a>n<b>`, or `nvme<a>c<c>n<b>` for one path of a multipath namespace, whose block device is `nvme<a>n<b>`. 系统基础信息 leaves the per-path devices out in the same way.
   - A disk reached only through a RAID card shows as `RAID 卡 <id> 号盘` (MegaRAID) or `RAID 卡 <enclosure>:<slot> 号盘` (3SNIC). When such disks sit on more than one card, the card's SCSI host is added, for example `RAID 卡 host1 的 18 号盘`.
-- **Duplicates:** results with the same `serial_number` are one disk. The one with a device name is kept; among the rest, the first in scan order. Results without a serial are never merged. Serials are compared in memory and never shown.
+- **Duplicates:** results with the same `serial_number` are one disk. The one with a device name is kept; among the rest, the first in scan order. Results without a serial are never merged. Serials are compared in memory and never shown. Duplicates are removed before naming: whether RAID-card disks show their card's host depends on the RAID-card disks that remain.
 - **Order:** disks with a device name first, sorted by name like 系统基础信息's disk table (plain string order, so `nvme0n1` comes before `sda`); then the RAID-card disks, by host and number.
 
 ### 5.4 Values
@@ -249,13 +253,24 @@ An example; only the `sda` row is real, from the owner's server:
 
   Time is simulated with tokio's paused clock.
 - **Device nodes:** in a temporary directory, regular files stand in for the nodes. One created during the item is removed; one present before is kept.
-- **Mutation round** on the key logic: the exit-status bits, the sources of each value and their fallbacks, reading `raw.string`, the units and boundaries of 累计写入, duplicates and names, the outcome rules, and which nodes are removed.
+- **Mutation round** (2026-11-09): each mutation was applied to a fresh copy of the repository, and the tests had to fail. All 52 were killed. The one that first survived, attribute 198 instead of 197 for pending sectors, led to a test with attribute 197 and no page 3.
+
+  | Area | Mutations |
+  |------|-----------|
+  | Exit status and messages | only bit 0 fails a read; bit 2 fails a read; messages of the wrong severity; the bits' texts swapped; JSON without an exit status accepted |
+  | Scan and reads | `-a` instead of `-x`; a scan that does not open the devices; a failed scan accepted; a 30-second limit; a failed read accepted |
+  | Health | 不支持 inverted; SMART off inverted |
+  | Values | four wrong Device Statistics offsets; attributes 9, 198 and 197 instead of 5, 197 and 199; no CRC fallback; NVMe units of 512 bytes; SAS's read log; sectors without their size; hexadecimal counted; the fraction padded on the left; finer than a byte accepted; ATA disks not read |
+  | Names and order | megaraid without its comma; every card on host 0; the first of several namespaces; a path's numbers swapped; no card in names; no NVMe controller recognized; not sorted; sorted backwards |
+  | Merging and output | a card path kept over a named device; readings without a serial merged; several cards inverted; the GB to TB boundary; rounded instead of cut; note ids from 0 |
+  | Device nodes | any error counts as missing; removal without checking existence; nothing removed on drop; the noted nodes not cleared; nodes noted after the scan; the node note's id |
+  | Flow and registry | Ctrl-C taken for a timeout; one failed disk fails the item; no skip without disks; every platform; 硬盘健康 after 硬盘性能 |
 
 ### 7.2 Fixtures (DH-06)
 
 - **SATA:** the owner's four SSDs, each read directly and through the RAID card, so 8 files, taken through pipes only. On the server, each serial is replaced by a placeholder, the same for both paths of one disk, so that duplicates are tested on real data. WWNs are removed on the server too.
 - **Scan:** the owner's `--scan-open` output, which contains no serials.
-- **NVMe:** once `smartctl-7.5-1` is released, a temporary draft PR reads the disks of GitHub's runners. The x86_64 runner's system disk is sometimes NVMe ("MSFT NVMe Accelerator v1.0") and sometimes a SCSI virtual disk, which may serve as a real 不支持 sample. Without an NVMe sample, NVMe is written by hand.
+- **NVMe and a virtual disk:** with `smartctl-7.5-1`, on 2026-11-09, a temporary branch whose workflow ran on its own push read the disks of seven GitHub runners; a branch was enough, and no draft PR was needed. Two x86_64 runners had Azure's virtual NVMe disk ("MSFT NVMe Accelerator v1.0"): a real NVMe sample, with every count at 0, and one namespace although `nvme_number_of_namespaces` is 127. The others had Hyper-V's virtual SCSI disk, which turned out to be a real sample of exit status 2 without a message, not of 不支持. NVMe with real counts and 不支持 are written by hand.
 - **Hard disks and SAS:** written by hand from the fields in smartmontools 7.5's source, and marked so in the fixtures' README.
 - **读取失败:** this repository's smartctl opening a missing disk in a container (`Smartctl open device: /dev/sdz [SAT] failed: No such device`, exit status 2).
 
@@ -278,12 +293,15 @@ An example; only the `sda` row is real, from the owner's server:
   5. Compare: `/root` must list the same entries as before, and the node's birth time must be unchanged.
 - 硬盘性能 does not run, so no test file is written and the disks get no load.
 - The output contains no serials, host names or IP addresses by design, and is shown to the owner as it is.
+- **Result** (2026-11-09): the x86_64 build of commit `f82d404` ran as above. It downloaded and verified smartctl, read the four disks directly and through the RAID card in 0.3 seconds, and showed the four rows of §3.1 (with 46167, 38112, 53544 and 35124 hours) without a 说明 line; the item completed and the program exited with 0. Afterwards the test directory held only the binary, `/root` listed the same entries as before, and the node's birth time was unchanged.
 
 ## 9. Risks and limitations
 
 - **Untested hardware:** NVMe on real hardware (at most a runner's virtual NVMe), SAS, hard disks, 3SNIC cards, several RAID cards in one server, and multipath NVMe. Some of their fixtures are written by hand (§7.2).
 - **RAID cards the scan does not cover:** smartctl's scan lists the disks of MegaRAID and 3SNIC cards only. Disks on HP Smart Array (`cciss`), Adaptec (`aacraid`), Areca or 3ware cards need explicit device types that the scan does not produce, so the item shows only what the scan lists.
 - **RAID volumes:** a volume that a card presents as a disk appears as a row of its own, usually 不支持. Its member disks appear separately when the scan lists them.
+- **Health through RAID cards:** for a SATA disk read only through a MegaRAID card, 通过 and 未通过 come from smartctl's check of the attributes' thresholds, not from the disk's own SMART status, which does not come through the card (§3.1).
+- **Virtual disks:** some answer smartctl so badly that the read fails, as Hyper-V's virtual SCSI disk does (exit status 2, §7.2). The item applies to dedicated servers only, where such disks are rare.
 - **Duplicates by serial:** two different disks that report the same serial, as some cheap disks and bridges do, show as one. A disk reached through two paths shows twice when one of the reads fails.
 - **Estimated endurance:** for SATA SSDs without Device Statistics page 7, 已用寿命 is smartctl's estimate from vendor attributes. On the owner's disks, the estimate differed from the standard value by up to 4 points.
 - **Waking disks:** reading wakes a disk in standby, as smartctl does by default.
@@ -299,6 +317,6 @@ An example; only the `sda` row is real, from the owner's server:
 2. **After the owner merges it:**
    - run the workflow on `main`;
    - verify the assets, `SHA256SUMS`, `gh release verify` and `gh release verify-asset`.
-3. **Fixtures:** the owner's disks through pipes, and NVMe from a temporary draft PR.
+3. **Fixtures:** the owner's disks through pipes, and NVMe and a virtual disk from a temporary branch on GitHub's runners.
 4. **Second PR:** `plugins/disk-health`, its registry line, the "Tool downloads" step and the README updates. Then the real run (§8).
 5. **Merge:** after the owner's approval.

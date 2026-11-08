@@ -14,6 +14,7 @@ path = "src/main.rs"
 bench-api.workspace = true
 bench-host.workspace = true
 plugin-disk.workspace = true
+plugin-disk-health.workspace = true
 plugin-system.workspace = true
 clap = { version = "4", features = ["derive"] }
 futures-util = { version = "0.3", default-features = false }

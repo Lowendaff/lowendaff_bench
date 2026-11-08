@@ -143,6 +143,10 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - name: Test
         run: cargo nextest run --workspace --locked --no-fail-fast
+      # Smoke only downloads the tools of items that apply on the runner (design disk-health,
+      # §7.3); this checks every pin, smartctl's included.
+      - name: Tool downloads
+        run: cargo nextest run -p bench --test tools --locked --run-ignored only
       - name: Static build
         run: cargo build --release --locked --target "$TARGET" --bin lowendaff-bench
       - name: Smoke

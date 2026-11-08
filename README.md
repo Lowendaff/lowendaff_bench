@@ -13,6 +13,7 @@ The tool first detects where it runs: a dedicated server, a virtual machine or a
 | Test item | Shows | Design |
 |-----------|-------|--------|
 | 系统基础信息 | CPU, memory and swap, disks and filesystems, distribution, kernel, uptime, load, TCP congestion control, IPv4/IPv6 reachability | [`docs/design/system-info.md`](docs/design/system-info.md) |
+| 硬盘健康 | Dedicated servers only: each physical disk's SMART health as smartctl judges it, with power-on time, temperature, endurance used, data written, bad blocks and interface errors. Disks behind MegaRAID and 3SNIC RAID cards are included | [`docs/design/disk-health.md`](docs/design/disk-health.md) |
 | 硬盘性能 | Speed and IOPS of the test directory's filesystem, measured with fio exactly as YABS does: mixed random reads and writes (50/50) at 4K, 64K, 512K and 1M. Skipped on a RAM disk or without enough free space | [`docs/design/disk.md`](docs/design/disk.md) |
 
 ## Usage
@@ -48,6 +49,7 @@ CI (`.github/workflows/ci.yml`) runs exactly these commands. Run them locally be
 | Format | `cargo fmt --all --check` | any host |
 | Lint | `cargo clippy --workspace --all-targets --locked -- -D warnings` | any host |
 | Test | `cargo nextest run --workspace --locked --no-fail-fast` | any host; CI uses Linux x86_64 and aarch64 |
+| Tool downloads | `cargo nextest run -p bench --test tools --locked --run-ignored only`: downloads every pinned tool for the host's architecture and checks its size and SHA-256, also the tools of items that do not apply on the CI runners | any host with network access; CI uses Linux x86_64 and aarch64 |
 | Dependencies | `cargo deny check` (policy in `deny.toml`) | any host |
 | Workflows | `zizmor --persona pedantic .` (config in `.github/zizmor.yml`) | any host |
 | Rule tests | `ast-grep test` (cases in `ast-grep/tests/`) | any host |

@@ -1,0 +1,34 @@
+{
+  "json_format_version": [
+    1,
+    0
+  ],
+  "smartctl": {
+    "version": [
+      7,
+      5
+    ],
+    "argv": [
+      "smartctl",
+      "--json",
+      "-x",
+      "-d",
+      "sat",
+      "/dev/sde"
+    ],
+    "exit_status": 4
+  },
+  "device": {
+    "name": "/dev/sde",
+    "info_name": "/dev/sde [SAT]",
+    "type": "sat",
+    "protocol": "ATA"
+  },
+  "model_name": "Example SSD 500GB",
+  "serial_number": "FIXTURE-SERIAL-OFF",
+  "logical_block_size": 512,
+  "smart_support": {
+    "available": true,
+    "enabled": false
+  }
+}

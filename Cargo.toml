@@ -11,6 +11,7 @@ license = "MIT"
 [workspace.dependencies]
 bench-host = { path = "crates/bench-host" }
 plugin-disk = { path = "plugins/disk" }
+plugin-disk-health = { path = "plugins/disk-health" }
 plugin-system = { path = "plugins/system" }
 bench-api = { path = "crates/bench-api" }
 serde = { version = "1", features = ["derive"] }

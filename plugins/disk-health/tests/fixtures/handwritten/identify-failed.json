@@ -1,0 +1,27 @@
+{
+  "json_format_version": [
+    1,
+    0
+  ],
+  "smartctl": {
+    "version": [
+      7,
+      5
+    ],
+    "argv": [
+      "smartctl",
+      "--json",
+      "-x",
+      "-d",
+      "sat",
+      "/dev/sdc"
+    ],
+    "exit_status": 2
+  },
+  "device": {
+    "name": "/dev/sdc",
+    "info_name": "/dev/sdc [SAT]",
+    "type": "sat",
+    "protocol": "ATA"
+  }
+}
