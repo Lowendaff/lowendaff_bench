@@ -52,8 +52,8 @@ CI (`.github/workflows/ci.yml`) runs exactly these commands. Run them locally be
 | Rule tests | `ast-grep test` (cases in `ast-grep/tests/`) | any host |
 | Rules | `ast-grep scan` (rules in `ast-grep/rules/`, config in `sgconfig.yml`) | any host |
 | Static build | `cargo build --release --locked --target <arch>-unknown-linux-musl --bin lowendaff-bench` | Linux |
-| Smoke | `scripts/smoke.sh target/<arch>-unknown-linux-musl/release/lowendaff-bench` | Linux, as root or with sudo |
-| Smoke mutants | `scripts/smoke-mutants.sh <arch>-unknown-linux-musl`: smoke must reject deliberately broken builds | Linux, as root or with sudo |
+| Smoke | `scripts/smoke.sh target/<arch>-unknown-linux-musl/release/lowendaff-bench`: a full run in which no test item is skipped, fails or times out | Linux, as root or with sudo, with network access (it downloads fio) |
+| Smoke mutants | `scripts/smoke-mutants.sh <arch>-unknown-linux-musl`: smoke must reject deliberately broken builds; these runs skip 硬盘性能 | Linux, as root or with sudo |
 | Distributions | `scripts/distros.sh target/<arch>-unknown-linux-musl/release/lowendaff-bench ghcr.io/lowendaff/mirror`: 系统基础信息 in the images of `scripts/distros.txt`, 12 distributions (13 on x86_64), pulled from their copies on GHCR; without the last argument, from the original registries | Linux or macOS with Docker; the copies need `docker login ghcr.io` |
 
 `<arch>` is `x86_64` or `aarch64`.
