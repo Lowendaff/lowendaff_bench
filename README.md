@@ -49,6 +49,7 @@ CI (`.github/workflows/ci.yml`) runs exactly these commands. Run them locally be
 | Format | `cargo fmt --all --check` | any host |
 | Lint | `cargo clippy --workspace --all-targets --locked -- -D warnings` | any host |
 | Test | `cargo nextest run --workspace --locked --no-fail-fast` | any host; CI uses Linux x86_64 and aarch64 |
+| Tool downloads | `cargo nextest run -p bench --test tools --locked --run-ignored only`: downloads every pinned tool for the host's architecture and checks its size and SHA-256, also the tools of items that do not apply on the CI runners | any host with network access; CI uses Linux x86_64 and aarch64 |
 | Dependencies | `cargo deny check` (policy in `deny.toml`) | any host |
 | Workflows | `zizmor --persona pedantic .` (config in `.github/zizmor.yml`) | any host |
 | Rule tests | `ast-grep test` (cases in `ast-grep/tests/`) | any host |
