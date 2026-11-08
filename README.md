@@ -83,8 +83,9 @@ Some test items run external tools. The program downloads each tool as a pinned 
 | Tool | Version | License | Used by | Release |
 |------|---------|---------|---------|---------|
 | fio, with libaio 0.3.113 linked statically | 3.43 | GPL-2.0; libaio LGPL-2.1 | 硬盘性能 (`disk.fio`) | `fio-3.43-1` |
+| smartctl, from smartmontools | 7.5 | GPL-2.0-or-later | 硬盘健康 (`disk.health`) | `smartctl-7.5-1` |
 
-Each release holds the binaries for x86_64 and aarch64, the exact source tarballs they were built from, the build script, the license texts and `SHA256SUMS`. The `fio` workflow builds fio with `scripts/build-fio.sh` in Alpine 3.22; a pull request that changes the build runs it without publishing anything. To publish a new build, update the workflow's `TAG` (the fio version and the build number) and, for a new version, the sources and their SHA-256 in `scripts/build-fio.sh`; merge, run `gh workflow run fio.yml --ref main`, and then update the plugin's pins.
+Each release holds the binaries for x86_64 and aarch64, the exact source tarballs they were built from, the build script, the license texts (for smartctl also musl's, which is linked statically) and `SHA256SUMS`. The workflows `fio` and `smartctl` build their tool with `scripts/build-fio.sh` and `scripts/build-smartctl.sh` in Alpine 3.22; a pull request that changes a build runs it without publishing anything. To publish a new build, update the workflow's `TAG` (the tool's version and the build number) and, for a new version, the sources and their SHA-256 in the build script; merge, run `gh workflow run <workflow>.yml --ref main`, and then update the plugin's pins.
 
 ## Code style
 

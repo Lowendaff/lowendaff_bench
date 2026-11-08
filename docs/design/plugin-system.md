@@ -10,6 +10,7 @@
     - platform detection and per-platform plugins (D-16), with host facts in `crates/bench-host`;
     - the first test items, 系统基础信息 (`docs/design/system-info.md`).
   - **M2** adds pinned fio builds (P-10) and the 硬盘性能 test item (`docs/design/disk.md`).
+  - **M3** adds pinned smartctl builds and the 硬盘健康 test item for dedicated servers (`docs/design/disk-health.md`). The dedicated additions to 系统基础信息 follow (DH-01).
 
 ## 1. Context
 
@@ -247,7 +248,7 @@ Exit codes:
   - Downloads work on images without `ca-certificates`; verified on Debian 13 slim (§11).
   - The core (`crates/bench/src/provision.rs`) takes the fetcher as a parameter, so tests run without a network.
 - **Pinned builds only (P-11).** Tools already installed on the host are never used.
-- **Source of the builds (P-10).** This repository builds the tools and publishes them. A manual workflow per tool builds static binaries from checksum-pinned sources. It publishes them, together with those sources, the build script and the license texts, as an immutable GitHub release whose tag carries a build number, such as `fio-3.43-1`. For fio, see `docs/design/disk.md` §4.
+- **Source of the builds (P-10).** This repository builds the tools and publishes them. A manual workflow per tool builds static binaries from checksum-pinned sources. It publishes them, together with those sources, the build script and the license texts, as an immutable GitHub release whose tag carries a build number, such as `fio-3.43-1`. For fio, see `docs/design/disk.md` §4; for smartctl, `docs/design/disk-health.md` §4.
 
 ## 10. Adding a test item (the step-by-step integration path)
 
