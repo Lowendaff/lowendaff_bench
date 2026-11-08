@@ -293,6 +293,7 @@ An example; only the `sda` row is real, from the owner's server:
   5. Compare: `/root` must list the same entries as before, and the node's birth time must be unchanged.
 - 硬盘性能 does not run, so no test file is written and the disks get no load.
 - The output contains no serials, host names or IP addresses by design, and is shown to the owner as it is.
+- **Result** (2026-11-09): the x86_64 build of commit `f82d404` ran as above. It downloaded and verified smartctl, read the four disks directly and through the RAID card in 0.3 seconds, and showed the four rows of §3.1 (with 46167, 38112, 53544 and 35124 hours) without a 说明 line; the item completed and the program exited with 0. Afterwards the test directory held only the binary, `/root` listed the same entries as before, and the node's birth time was unchanged.
 
 ## 9. Risks and limitations
 
