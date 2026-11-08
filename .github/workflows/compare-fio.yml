@@ -26,4 +26,6 @@ jobs:
         with:
           persist-credentials: false
       - name: Compare
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: sh scripts/compare-fio.sh

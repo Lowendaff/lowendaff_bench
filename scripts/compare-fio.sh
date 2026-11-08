@@ -15,8 +15,9 @@ aarch64) ours=fio-aarch64 ours_sha=40720e705be65f9fbf059664db9dd048040e3d1ab8836
 esac
 dir=$PWD/compare
 mkdir -p "$dir"
-curl -fsSL -o "$dir/ours" "https://github.com/Lowendaff/lowendaff_bench/releases/download/fio-3.43-1/$ours"
-curl -fsSL -o "$dir/yabs" "https://github.com/masonr/yet-another-bench-script/releases/download/fio-3.43/$yabs"
+# Authenticated downloads: GitHub was timing out unauthenticated ones (2026-11-08 incident).
+gh release download fio-3.43-1 --repo Lowendaff/lowendaff_bench --pattern "$ours" --output "$dir/ours"
+gh release download fio-3.43 --repo masonr/yet-another-bench-script --pattern "$yabs" --output "$dir/yabs"
 printf '%s  %s\n%s  %s\n' "$ours_sha" "$dir/ours" "$yabs_sha" "$dir/yabs" | sha256sum -c -
 chmod +x "$dir/ours" "$dir/yabs"
 echo "kernel $(uname -r), $(nproc) CPUs, file size $size, filesystem $(df -T "$dir" | awk 'NR == 2 { print $2 }')"
