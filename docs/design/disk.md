@@ -1,6 +1,7 @@
 # Disk Performance Test Item (硬盘性能)
 
 - Status: **Accepted** 2026-11-08. The owner decided DK-01..DK-07 (§2), which include the plugin system's P-10.
+- Implementation (M2): the fio builds and the release `fio-3.43-1` (PR #4), then the plugin in `plugins/disk`.
 - Scope: one test item, `disk.fio`, which measures the filesystem of the test directory with fio the way YABS does, and the pinned fio builds it needs (§4). Hardware checks for dedicated servers are separate work (DK-04).
 
 ## 1. Goals and non-goals
@@ -77,7 +78,7 @@ Non-goals:
   - a short run with YABS's parameters succeeds on the runner.
 - **Release:**
   - The tag is `fio-3.43-1`. The trailing build number allows a rebuild, because an immutable release's tag cannot be reused.
-  - The release is created as a draft, all assets are uploaded, and only then is it published. It is not marked as the latest release.
+  - The release is created as a draft, all assets are uploaded, and only then is it published. Publishing passes `--latest=false` too, because publishing a draft otherwise makes it the latest release; `fio-3.43-1` became the latest that way. GitHub still shows the newest release as the latest while no release is marked, so `fio-3.43-1` stays the latest until the program publishes releases of its own (checked 2026-11-08).
   - Assets: `fio-x86_64`, `fio-aarch64`, both source tarballs, `build-fio.sh`, both license texts and `SHA256SUMS`.
   - Offering the sources from the same place as the binaries satisfies GPL-2.0 §3. LGPL-2.1's relinking requirement is met because the complete sources of fio and libaio are offered.
 - **Immutable releases:** enabled in the repository settings before the first release. Assets and the tag cannot change after publishing, and GitHub adds a release attestation.
@@ -96,13 +97,13 @@ Non-goals:
 
 ### 5.2 Flow
 
-1. The test file is `test.fio` in the plugin's private directory (`Context::work_dir`). That directory is in the run directory, never in `/tmp`.
+1. The test file is `test.fio` in the plugin's private directory (`Context::work_dir`). That directory is in the run directory, never in `/tmp`. fio splits `--filename` at colons, so every `:` in the path is passed as `\:`.
 2. **RAM disk (DK-06).** `statfs` gives the filesystem type. tmpfs (`0x01021994`) or ramfs (`0x858458f6`) skips the item: 测试目录在内存盘上，测到的会是内存速度；请在硬盘上的目录运行，或用 --work-dir 指定.
 3. **Free space.** `statvfs` gives the space available. Less than 2 GiB on x86_64, or 512 MiB on aarch64, skips the item, for example: 测试目录可用空间不足 2 GiB（只有 1.2 GiB）. Exactly the threshold passes, as in YABS.
 4. **ZFS.** For ZFS (`0x2fc12fc1`), when `spa_asize_inflation` is readable and the space available is below twice that value in GiB, a 说明 fact precedes the tables: 测试目录在 ZFS 上，可用空间少于 48 GiB，结果可能不准（与 YABS 的提示相同）.
 5. **Setup,** with YABS's parameters.
    - When fio prints "does not support direct=1/buffered=0" or "does not support O_DIRECT" (`filesetup.c` and `ioengines.c` in fio 3.43), the item is skipped: 测试目录所在的文件系统不支持直接 I/O.
-   - Any other failure fails the item, with the last lines of fio's error output.
+   - Any other failure fails the item, with fio's error line: the last line of its messages, terse results excluded, because fio prints the two in either order.
 6. **Tests,** in the order 4k, 64k, 512k, 1m, each with YABS's parameters and a 35-second limit.
    - A test over the limit shows 超时.
    - A fio error, a nonzero error field, or no terse line for the job shows 出错.
@@ -151,20 +152,41 @@ An example. The numbers are made up, and the widest line is 72 columns:
 ## 6. Testing
 
 - **Unit tests:**
-  - **Parsing:** fixtures from real fio `--minimal` output on both architectures, including warning lines before the terse line.
-  - **Formatting:** expected values come from YABS's own `format_speed` and `format_iops` at the boundaries (976 and 977 KiB/s, 976562 and 976563 KiB/s, 999 and 1000 IOPS), and the output must match character for character.
+  - **Parsing:** fixtures from real fio 3.43 output on both architectures (`plugins/disk/tests/fixtures/README.md`): every block size, `note:` lines before the result, a setup that ran out of space, and ramfs refusing O_DIRECT.
+  - **Formatting:** 655 cases printed by YABS's own `format_speed` and `format_iops`, at the boundaries (976 and 977 KiB/s, 976562 and 976563 KiB/s, 999 and 1000 IOPS) and at pseudo-random values of every magnitude. mawk and gawk printed them identically, and the plugin must match character for character. Exactness needs awk's `%.6g` step: YABS prints 24432362 IOPS as `24432.4k`, where truncating alone would give `24432.3k`.
   - **Decisions:**
     - the free-space threshold, including exactly the threshold;
     - recognizing RAM disks and ZFS, and the ZFS 说明 threshold;
     - recognizing a filesystem without direct I/O;
     - 超时 and 出错 cells, and the item failing when no block size has a result;
     - the tables' contents.
-- **Mutation rounds:** on parsing, formatting and the decisions. Every mutant must be killed.
-- **Comparison with YABS's fio:** one machine runs YABS's full procedure with this repository's fio and with YABS's fio, alternating, twice each.
-  - Both architectures run on GitHub runners, in a temporary draft PR that is never merged.
-  - Local Docker proved unsuitable (2026-11-08, Docker Desktop on Apple silicon). Caches served the 512 MiB file at 6 to 15 GiB/s, so the 512k and 1m tests ended after about 40 ms. The same binary's results then varied by up to 78% between runs, which hid any difference between the two builds.
+- **Mutation round** (2026-11-08): each mutation was applied to a fresh copy of the repository, and the plugin-disk and bench-host tests had to fail. All 26 were killed:
+
+  | Mutation | Killed by |
+  |----------|-----------|
+  | setup `--runtime=2`; tests `--rwmixread=70` | `the_setup_run_is_yabss`, `every_test_run_is_yabss` |
+  | escape `;` instead of `:` | `colons_in_the_test_path_are_escaped` |
+  | read KiB/s from field 6; write IOPS from field 48 | `rates_come_from_terse_fields_7_8_48_and_49` |
+  | ignore the error field; match the job name in field 2 | `an_error_in_the_result_line_is_reported` and others |
+  | require both direct-I/O messages | `a_filesystem_without_direct_io_is_recognized` |
+  | let the error line be a terse result | `the_error_line_skips_results_in_either_order` |
+  | treat a failed run as finished | `an_error_in_the_result_line_is_reported` |
+  | unit thresholds 976564 and 976; five significant digits; one decimal more than YABS keeps; `k` from 1001 | `speeds_and_iops_print_exactly_as_yabs_prints_them` |
+  | 合计 without the writes; 读取 showing the writes | `a_table_has_yabss_rows_and_one_column_per_block_size` |
+  | 超时 shown as 出错 | `tests_without_a_result_show_why_after_the_table` |
+  | exactly enough space skips; 2 GiB on aarch64 | `exactly_enough_free_space_passes_as_in_yabs`, `the_file_size_follows_the_architecture_as_in_yabs` |
+  | free space rounded instead of cut | `the_free_space_shown_is_cut_not_rounded` |
+  | skip ZFS instead of RAM disks | `a_ram_disk_is_skipped_whatever_its_free_space` |
+  | ZFS note at three times `spa_asize_inflation`, or at exactly twice | `zfs_with_little_free_space_gets_yabss_note` |
+  | ramfs or ZFS magic numbers lost | `memory_and_zfs_are_told_apart_from_other_filesystems` |
+- **Comparison with YABS's fio** (2026-11-08, temporary draft PR #6): on GitHub's runners (ext4 on Azure disks, kernel 7.0), YABS's full procedure ran with this repository's fio and with YABS's, alternating, twice each, ours first.
+  - x86_64, 2 GiB: every test of the two builds agreed within 1.7%, about the spread between two runs of one build (YABS's 64k read: 176465, then 174115 KiB/s).
+  - aarch64, 512 MiB: the first run, ours, was slower at 64k, 512k and 1m (64k read 108009 KiB/s). Our second run agreed with both of YABS's within 4% at 64k (175657 against 169435 and 168826 KiB/s), and within 1% at 512k and 1m. The slow first run looks like the runner's disk warming up, not a difference between the builds.
+  - So the two builds measure the same.
+  - Before that, local Docker proved unsuitable (Docker Desktop on Apple silicon). Caches served the 512 MiB file at 6 to 15 GiB/s, so the 512k and 1m tests ended after about 40 ms. The same binary's results then varied by up to 78% between runs, which hid any difference between the two builds.
 - **Real runs:** the full test in local Docker, with the test directory on overlayfs (tested) and on tmpfs (skipped).
-- **CI (DK-07):** Smoke runs the full test on the x86_64 and aarch64 runners, which also exercises downloading and verifying fio. Smoke mutants pass `--skip disk.fio`.
+- **CI (DK-07):** Smoke runs the full test on the x86_64 and aarch64 runners, which also exercises downloading and verifying fio. Smoke now also requires that no item is skipped: 硬盘性能 skipped for want of its tool would otherwise hide a broken download or pin. Smoke mutants pass `--skip disk.fio`.
+- **The run itself** (`plugins/disk/src/lib.rs`: starting fio, the 35-second limit, cancellation, deleting the test file) has no unit test. Real runs in Docker and CI's smoke test cover it.
 
 ## 7. Risks and limitations
 
@@ -174,7 +196,7 @@ An example. The numbers are made up, and the widest line is 72 columns:
 - **ZFS before 2.3** accepts O_DIRECT without bypassing the ARC, so reads can come from memory. YABS has the same limitation, and the 说明 line covers only free space.
 - **Builds are not bit-for-bit reproducible** (§4).
 - **A published immutable release cannot be fixed.** A rebuild needs a new tag (`fio-3.43-2`) and new pins.
-- **The comparison with YABS's fio** runs on GitHub runners, not on the owner's hardware.
+- **The comparison with YABS's fio** ran on GitHub's runners, not on the owner's hardware. On aarch64, the first test run of a fresh runner was slower.
 - **CI time:** each Linux CI job takes about 2.5 minutes longer (DK-07).
 - **Kernel support:** fio needs the kernel's AIO system calls (`io_setup`). A kernel or sandbox without them fails at setup, with fio's error.
 
