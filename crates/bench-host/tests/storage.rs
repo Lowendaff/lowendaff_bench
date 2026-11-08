@@ -10,6 +10,7 @@ use bench_host::Root;
 use bench_host::storage;
 use bench_host::storage::Disk;
 use bench_host::storage::Filesystem;
+use bench_host::storage::FilesystemKind;
 use bench_host::storage::Use;
 
 /// Size and model of a disk as `lsblk -b -o NAME,KNAME,TYPE,SIZE,ROTA,TRAN,MODEL,...` printed
@@ -260,4 +261,29 @@ fn statvfs_and_device_of_work_on_this_host() {
     assert!(storage::device_of(Path::new(".")).is_some());
     assert_eq!(storage::device_of(Path::new("/no/such/path")), None);
     assert!(fs::metadata(".").is_ok());
+}
+
+#[test]
+fn memory_and_zfs_are_told_apart_from_other_filesystems() {
+    for (magic, kind) in [
+        (0x0102_1994, FilesystemKind::Memory), // tmpfs
+        (0x8584_58f6, FilesystemKind::Memory), // ramfs
+        (0x2fc1_2fc1, FilesystemKind::Zfs),
+        (0xef53, FilesystemKind::Other),      // ext4
+        (0x5846_5342, FilesystemKind::Other), // xfs
+        (0x9123_683e, FilesystemKind::Other), // btrfs
+        (0x794c_7630, FilesystemKind::Other), // overlayfs
+    ] {
+        assert_eq!(FilesystemKind::from_magic(magic), kind, "magic {magic:#x}");
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn dev_shm_is_in_memory() {
+    assert_eq!(
+        storage::filesystem_kind(Path::new("/dev/shm")),
+        Some(FilesystemKind::Memory),
+        "/dev/shm is a tmpfs on every supported distribution"
+    );
 }

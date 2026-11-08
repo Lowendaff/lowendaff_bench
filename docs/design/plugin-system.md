@@ -9,7 +9,7 @@
   - **M1** adds:
     - platform detection and per-platform plugins (D-16), with host facts in `crates/bench-host`;
     - the first test items, 系统基础信息 (`docs/design/system-info.md`).
-  - **M2** (in progress) adds pinned fio builds (P-10) and the 硬盘性能 test item (`docs/design/disk.md`).
+  - **M2** adds pinned fio builds (P-10) and the 硬盘性能 test item (`docs/design/disk.md`).
 
 ## 1. Context
 
@@ -267,8 +267,8 @@ Exit codes:
 
 Current state:
 
-- macOS: `cargo nextest run --workspace` passes **70 tests**; `cargo clippy --workspace --all-targets -- -D warnings` is clean.
-- Linux: CI runs the same tests on x86_64 and aarch64 runners.
+- macOS: `cargo nextest run --workspace` passes **90 tests**; `cargo clippy --workspace --all-targets -- -D warnings` is clean.
+- Linux: CI runs the same tests on x86_64 and aarch64 runners, plus one that needs Linux's `/dev/shm` (91).
 
 | Suite | Tests | Covers |
 |-------|-------|--------|
@@ -282,8 +282,10 @@ Current state:
 | `bench/src/registry.rs` | 1 | the real registry passes `validate_registry` |
 | `bench-host/tests/platform.rs` | 10 | platform detection on four captured hosts and on synthetic ones: containers (OpenVZ, WSL, container managers, PID 1, Podman and Docker files, PID namespaces), virtual machines (CPUID, DMI, Xen guests and dom0, Hyper-V enlightenments, EC2 metal, Google) and ARM device trees |
 | `bench-host/tests/facts.rs` | 8 | CPU, memory, distribution and system facts against the hosts' own `lscpu`, `free` and `uname`; ARM part names; the `MemAvailable` fallback; cgroup v1 and v2 limits; os-release quoting and the older release files |
-| `bench-host/tests/storage.rs` | 5 | disks and filesystems against `lsblk` and `df`; partitions, RAID, LVM, btrfs subvolumes, bind mounts, escaped mount points, swap and ZFS pools; a container's root; statvfs |
+| `bench-host/tests/storage.rs` | 6 (7 on Linux) | disks and filesystems against `lsblk` and `df`; partitions, RAID, LVM, btrfs subvolumes, bind mounts, escaped mount points, swap and ZFS pools; a container's root; statvfs; RAM disks and ZFS from `statfs` magic numbers, and `/dev/shm` as a RAM disk on Linux |
 | `plugins/system/tests/report.rs` | 4 | the exact 系统基础信息 lines for a KVM guest, a dedicated server and a container with cgroup limits; the three variants' descriptors |
+| `plugins/disk/tests/fio.rs` | 9 | YABS's setup and test commands, escaped colons, terse fields 7, 8, 48 and 49 in real fio 3.43 output from both architectures, `note:` lines, ENOSPC and ramfs failures, the error line |
+| `plugins/disk/tests/report.rs` | 10 | 655 speed and IOPS cases printed by YABS's own functions, impossible rates, the file size per architecture, RAM disks, the free-space threshold and its text, the ZFS note, the method line, both tables and their 说明 lines |
 
 Mutation check on the real code: each mutation is applied to a copy, and `cargo test --workspace` must fail.
 

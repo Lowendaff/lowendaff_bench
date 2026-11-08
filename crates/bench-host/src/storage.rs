@@ -244,6 +244,39 @@ pub fn device_of(path: &Path) -> Option<(u32, u32)> {
     ))
 }
 
+/// What holds a filesystem's data, as far as a disk test is concerned.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FilesystemKind {
+    /// tmpfs or ramfs: the data is in memory.
+    Memory,
+    /// A ZFS dataset.
+    Zfs,
+    /// Any other filesystem.
+    Other,
+}
+
+impl FilesystemKind {
+    /// Classifies the magic number that `statfs(2)` reports in `f_type`.
+    #[must_use]
+    pub fn from_magic(magic: i128) -> Self {
+        match magic {
+            // TMPFS_MAGIC and RAMFS_MAGIC from <linux/magic.h>.
+            0x0102_1994 | 0x8584_58f6 => Self::Memory,
+            // ZFS_SUPER_MAGIC from OpenZFS's include/sys/fs/zfs.h.
+            0x2fc1_2fc1 => Self::Zfs,
+            _ => Self::Other,
+        }
+    }
+}
+
+/// The kind of the filesystem holding `path`, from `statfs(2)`.
+#[must_use]
+pub fn filesystem_kind(path: &Path) -> Option<FilesystemKind> {
+    let stat = rustix::fs::statfs(path).ok()?;
+    // `f_type` is signed on some targets and unsigned on others; i128 holds every value.
+    Some(FilesystemKind::from_magic(i128::from(stat.f_type)))
+}
+
 /// One entry of `/sys/class/block`.
 #[derive(Debug)]
 struct BlockDevice {

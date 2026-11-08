@@ -50,11 +50,12 @@ build() {
         --manifest-path "$scratch/src/Cargo.toml" --target-dir "$scratch/target"
 }
 
-# smoke: runs smoke.sh on the built binary in a fresh directory and prints its output.
+# smoke: runs smoke.sh on the built binary in a fresh directory and prints its output. The
+# mutants concern the root check and the run directory, so the long disk test is left out.
 smoke() {
     $as_root rm -rf "$scratch/run"
     mkdir "$scratch/run"
-    (cd "$scratch/run" && "$repo/scripts/smoke.sh" "$bin") 2>&1
+    (cd "$scratch/run" && "$repo/scripts/smoke.sh" "$bin" --skip disk.fio) 2>&1
 }
 
 # mutant <text smoke.sh must print> <file> <perl substitution>

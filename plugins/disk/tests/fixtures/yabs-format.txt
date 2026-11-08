@@ -1,0 +1,655 @@
+speed	0	0.00 KB/s
+speed	1	1.02 KB/s
+speed	2	2.04 KB/s
+speed	3	3.07 KB/s
+speed	9	9.21 KB/s
+speed	10	10.24 KB/s
+speed	99	101.37 KB/s
+speed	100	102.40 KB/s
+speed	975	998.40 KB/s
+speed	976	999.42 KB/s
+speed	977	1.00 MB/s
+speed	978	1.00 MB/s
+speed	999	1.02 MB/s
+speed	1000	1.02 MB/s
+speed	1023	1.04 MB/s
+speed	1024	1.04 MB/s
+speed	9765	9.99 MB/s
+speed	9766	10.00 MB/s
+speed	97656	99.99 MB/s
+speed	97657	100.00 MB/s
+speed	976561	999.99 MB/s
+speed	976562	999.99 MB/s
+speed	976563	1.00 GB/s
+speed	976564	1.00 GB/s
+speed	1048575	1.07 GB/s
+speed	1048576	1.07 GB/s
+speed	2097152	2.14 GB/s
+speed	9765625	10.00 GB/s
+speed	30000000	30.72 GB/s
+speed	97656250	100.00 GB/s
+speed	478	489.47 KB/s
+speed	40429	41.39 MB/s
+speed	3261743	3.34 GB/s
+speed	28482201	29.16 GB/s
+speed	99	101.37 KB/s
+speed	4964	5.08 MB/s
+speed	23902	24.47 MB/s
+speed	80495935	82.42 GB/s
+speed	9	9.21 KB/s
+speed	856	876.54 KB/s
+speed	35848	36.70 MB/s
+speed	9938208	10.17 GB/s
+speed	528507708	541.19 GB/s
+speed	99	101.37 KB/s
+speed	926	948.22 KB/s
+speed	357053	365.62 MB/s
+speed	57635776	59.01 GB/s
+speed	5	5.12 KB/s
+speed	537	549.88 KB/s
+speed	78935	80.82 MB/s
+speed	2675521	2.73 GB/s
+speed	99614922	102.00 GB/s
+speed	7	7.16 KB/s
+speed	7292	7.46 MB/s
+speed	9661	9.89 MB/s
+speed	46039454	47.14 GB/s
+speed	4	4.09 KB/s
+speed	566	579.58 KB/s
+speed	22166	22.69 MB/s
+speed	1378989	1.41 GB/s
+speed	292281120	299.29 GB/s
+speed	99	101.37 KB/s
+speed	7274	7.44 MB/s
+speed	837368	857.46 MB/s
+speed	42007475	43.01 GB/s
+speed	1	1.02 KB/s
+speed	474	485.37 KB/s
+speed	17504	17.92 MB/s
+speed	3184193	3.26 GB/s
+speed	464549850	475.69 GB/s
+speed	31	31.74 KB/s
+speed	1315	1.34 MB/s
+speed	987916	1.01 GB/s
+speed	64370844	65.91 GB/s
+speed	1	1.02 KB/s
+speed	59	60.41 KB/s
+speed	17906	18.33 MB/s
+speed	4434201	4.54 GB/s
+speed	382071892	391.24 GB/s
+speed	26	26.62 KB/s
+speed	820	839.68 KB/s
+speed	568402	582.04 MB/s
+speed	80811444	82.75 GB/s
+speed	4	4.09 KB/s
+speed	547	560.12 KB/s
+speed	76808	78.65 MB/s
+speed	2035729	2.08 GB/s
+speed	346603945	354.92 GB/s
+speed	37	37.88 KB/s
+speed	6857	7.02 MB/s
+speed	645225	660.71 MB/s
+speed	73496345	75.26 GB/s
+speed	2	2.04 KB/s
+speed	751	769.02 KB/s
+speed	5565	5.69 MB/s
+speed	7904196	8.09 GB/s
+speed	195500214	200.19 GB/s
+speed	52	53.24 KB/s
+speed	9470	9.69 MB/s
+speed	349291	357.67 MB/s
+speed	19671717	20.14 GB/s
+speed	2	2.04 KB/s
+speed	794	813.05 KB/s
+speed	37103	37.99 MB/s
+speed	3454095	3.53 GB/s
+speed	248956439	254.93 GB/s
+speed	67	68.60 KB/s
+speed	4542	4.65 MB/s
+speed	835317	855.36 MB/s
+speed	26282740	26.91 GB/s
+speed	5	5.12 KB/s
+speed	914	935.93 KB/s
+speed	33080	33.87 MB/s
+speed	3276686	3.35 GB/s
+speed	911472680	933.34 GB/s
+speed	21	21.50 KB/s
+speed	1014	1.03 MB/s
+speed	965987	989.17 MB/s
+speed	74370660	76.15 GB/s
+speed	5	5.12 KB/s
+speed	641	656.38 KB/s
+speed	49397	50.58 MB/s
+speed	1512477	1.54 GB/s
+speed	961417988	984.49 GB/s
+speed	51	52.22 KB/s
+speed	8738	8.94 MB/s
+speed	768145	786.58 MB/s
+speed	71419407	73.13 GB/s
+speed	0	0.00 KB/s
+speed	460	471.04 KB/s
+speed	36449	37.32 MB/s
+speed	5902551	6.04 GB/s
+speed	405745288	415.48 GB/s
+speed	1	1.02 KB/s
+speed	7422	7.60 MB/s
+speed	14554	14.90 MB/s
+speed	60505043	61.95 GB/s
+speed	7	7.16 KB/s
+speed	886	907.26 KB/s
+speed	3098	3.17 MB/s
+speed	8365209	8.56 GB/s
+speed	210974800	216.03 GB/s
+speed	87	89.08 KB/s
+speed	3749	3.83 MB/s
+speed	920347	942.43 MB/s
+speed	72498249	74.23 GB/s
+speed	9	9.21 KB/s
+speed	21	21.50 KB/s
+speed	2298	2.35 MB/s
+speed	9090431	9.30 GB/s
+speed	511613368	523.89 GB/s
+speed	20	20.48 KB/s
+speed	4388	4.49 MB/s
+speed	917936	939.96 MB/s
+speed	83833040	85.84 GB/s
+speed	0	0.00 KB/s
+speed	779	797.69 KB/s
+speed	92062	94.27 MB/s
+speed	7826020	8.01 GB/s
+speed	431961051	442.32 GB/s
+speed	17	17.40 KB/s
+speed	7511	7.69 MB/s
+speed	362485	371.18 MB/s
+speed	97578114	99.92 GB/s
+speed	2	2.04 KB/s
+speed	709	726.01 KB/s
+speed	58689	60.09 MB/s
+speed	8494054	8.69 GB/s
+speed	523188630	535.74 GB/s
+speed	94	96.25 KB/s
+speed	5354	5.48 MB/s
+speed	631941	647.10 MB/s
+speed	70144060	71.82 GB/s
+speed	5	5.12 KB/s
+speed	38	38.91 KB/s
+speed	89505	91.65 MB/s
+speed	9602783	9.83 GB/s
+speed	723328901	740.68 GB/s
+speed	75	76.80 KB/s
+speed	4344	4.44 MB/s
+speed	362109	370.80 MB/s
+speed	27855258	28.52 GB/s
+speed	7	7.16 KB/s
+speed	668	684.03 KB/s
+speed	85464	87.51 MB/s
+speed	8755052	8.96 GB/s
+speed	680805380	697.14 GB/s
+speed	79	80.89 KB/s
+speed	9198	9.41 MB/s
+speed	652985	668.65 MB/s
+speed	47789048	48.93 GB/s
+speed	2	2.04 KB/s
+speed	265	271.36 KB/s
+speed	23939	24.51 MB/s
+speed	4309480	4.41 GB/s
+speed	506176814	518.32 GB/s
+speed	71	72.70 KB/s
+speed	1256	1.28 MB/s
+speed	609493	624.12 MB/s
+speed	28787825	29.47 GB/s
+speed	6	6.14 KB/s
+speed	954	976.89 KB/s
+speed	30205	30.92 MB/s
+speed	9383793	9.60 GB/s
+speed	297442528	304.58 GB/s
+speed	71	72.70 KB/s
+speed	8242	8.43 MB/s
+speed	681772	698.13 MB/s
+speed	14216418	14.55 GB/s
+speed	2	2.04 KB/s
+speed	10	10.24 KB/s
+speed	25252	25.85 MB/s
+speed	8439265	8.64 GB/s
+speed	227645622	233.10 GB/s
+speed	31	31.74 KB/s
+speed	7527	7.70 MB/s
+speed	406683	416.44 MB/s
+speed	28323559	29.00 GB/s
+speed	5	5.12 KB/s
+speed	991	1.01 MB/s
+speed	43730	44.77 MB/s
+speed	6423637	6.57 GB/s
+speed	544343563	557.40 GB/s
+speed	98	100.35 KB/s
+speed	4884	5.00 MB/s
+speed	224382	229.76 MB/s
+speed	30718940	31.45 GB/s
+speed	9	9.21 KB/s
+speed	539	551.93 KB/s
+speed	38372	39.29 MB/s
+speed	6924072	7.09 GB/s
+speed	314907645	322.46 GB/s
+speed	9	9.21 KB/s
+speed	1701	1.74 MB/s
+speed	671025	687.13 MB/s
+speed	8271324	8.46 GB/s
+speed	1	1.02 KB/s
+speed	18	18.43 KB/s
+speed	75925	77.74 MB/s
+speed	581624	595.58 MB/s
+speed	353866086	362.35 GB/s
+speed	84	86.01 KB/s
+speed	1238	1.26 MB/s
+speed	322511	330.25 MB/s
+speed	98593476	100.96 GB/s
+speed	1	1.02 KB/s
+speed	442	452.60 KB/s
+speed	79683	81.59 MB/s
+speed	1909151	1.95 GB/s
+speed	984050915	1007.67 GB/s
+speed	31	31.74 KB/s
+speed	7346	7.52 MB/s
+speed	558517	571.92 MB/s
+speed	84122160	86.14 GB/s
+speed	7	7.16 KB/s
+speed	237	242.68 KB/s
+speed	46600	47.71 MB/s
+speed	8483258	8.68 GB/s
+speed	597590223	611.93 GB/s
+speed	93	95.23 KB/s
+speed	7046	7.21 MB/s
+speed	627199	642.25 MB/s
+speed	155772	159.51 MB/s
+speed	6	6.14 KB/s
+speed	193	197.63 KB/s
+speed	89761	91.91 MB/s
+speed	7502756	7.68 GB/s
+speed	524083528	536.66 GB/s
+speed	3	3.07 KB/s
+speed	4062	4.15 MB/s
+speed	818697	838.34 MB/s
+speed	6899651	7.06 GB/s
+speed	7	7.16 KB/s
+speed	423	433.15 KB/s
+speed	13961	14.29 MB/s
+speed	4273019	4.37 GB/s
+speed	503261224	515.33 GB/s
+speed	57	58.36 KB/s
+speed	8630	8.83 MB/s
+speed	418414	428.45 MB/s
+speed	46195170	47.30 GB/s
+speed	2	2.04 KB/s
+speed	726	743.42 KB/s
+speed	35934	36.79 MB/s
+speed	8790937	9.00 GB/s
+speed	116654860	119.45 GB/s
+speed	98	100.35 KB/s
+speed	4857	4.97 MB/s
+speed	629515	644.62 MB/s
+speed	78128757	80.00 GB/s
+speed	3	3.07 KB/s
+speed	328	335.87 KB/s
+speed	67642	69.26 MB/s
+speed	751259	769.28 MB/s
+speed	841858383	862.06 GB/s
+speed	72	73.72 KB/s
+speed	5972	6.11 MB/s
+speed	127164	130.21 MB/s
+speed	47501528	48.64 GB/s
+speed	3	3.07 KB/s
+speed	618	632.83 KB/s
+speed	66489	68.08 MB/s
+speed	9798748	10.03 GB/s
+speed	703138319	720.01 GB/s
+speed	9	9.21 KB/s
+speed	7971	8.16 MB/s
+speed	253405	259.48 MB/s
+speed	40255270	41.22 GB/s
+speed	3	3.07 KB/s
+speed	936	958.46 KB/s
+speed	54873	56.19 MB/s
+speed	7674106	7.85 GB/s
+speed	242158630	247.97 GB/s
+speed	98	100.35 KB/s
+speed	8898	9.11 MB/s
+speed	536137	549.00 MB/s
+speed	39410748	40.35 GB/s
+speed	7	7.16 KB/s
+speed	318	325.63 KB/s
+speed	18580	19.02 MB/s
+speed	4528719	4.63 GB/s
+speed	157657137	161.44 GB/s
+speed	26	26.62 KB/s
+speed	6620	6.77 MB/s
+speed	546141	559.24 MB/s
+speed	26762422	27.40 GB/s
+speed	5	5.12 KB/s
+speed	887	908.28 KB/s
+speed	68648	70.29 MB/s
+speed	7706488	7.89 GB/s
+iops	0	0
+iops	1	1
+iops	9	9
+iops	10	10
+iops	99	99
+iops	100	100
+iops	999	999
+iops	1000	1.0k
+iops	1001	1.0k
+iops	1049	1.0k
+iops	1050	1.0k
+iops	1099	1.0k
+iops	1100	1.1k
+iops	9999	9.9k
+iops	10000	10.0k
+iops	10049	10.0k
+iops	10050	10.0k
+iops	99999	99.9k
+iops	100000	100.0k
+iops	100049	100.0k
+iops	100050	100.0k
+iops	999999	999.9k
+iops	1000000	1000.0k
+iops	1000050	1000.0k
+iops	9999999	10000.0k
+iops	9	9
+iops	20	20
+iops	51317	51.3k
+iops	1912070	1912.0k
+iops	0	0
+iops	81	81
+iops	6243	6.2k
+iops	973323	973.3k
+iops	75985868	75985.9k
+iops	8	8
+iops	682	682
+iops	22198	22.1k
+iops	2879384	2879.3k
+iops	0	0
+iops	48	48
+iops	4621	4.6k
+iops	614778	614.7k
+iops	97299119	97299.1k
+iops	1	1
+iops	131	131
+iops	84657	84.6k
+iops	8172088	8172.0k
+iops	0	0
+iops	75	75
+iops	810	810
+iops	977136	977.1k
+iops	26596114	26596.1k
+iops	2	2
+iops	692	692
+iops	75782	75.7k
+iops	7482103	7482.1k
+iops	0	0
+iops	24	24
+iops	0	0
+iops	339396	339.3k
+iops	50388754	50388.8k
+iops	7	7
+iops	741	741
+iops	80217	80.2k
+iops	5322182	5322.1k
+iops	1	1
+iops	33	33
+iops	1081	1.0k
+iops	290434	290.4k
+iops	33458871	33458.9k
+iops	8	8
+iops	767	767
+iops	96875	96.8k
+iops	9648137	9648.1k
+iops	0	0
+iops	93	93
+iops	2216	2.2k
+iops	45529	45.5k
+iops	47224457	47224.5k
+iops	2	2
+iops	635	635
+iops	86560	86.5k
+iops	6578504	6578.5k
+iops	0	0
+iops	24	24
+iops	8465	8.4k
+iops	646469	646.4k
+iops	1520797	1520.8k
+iops	9	9
+iops	727	727
+iops	80377	80.3k
+iops	3211786	3211.7k
+iops	1	1
+iops	75	75
+iops	7496	7.4k
+iops	449177	449.1k
+iops	95929675	95929.7k
+iops	0	0
+iops	328	328
+iops	48647	48.6k
+iops	9780556	9780.5k
+iops	1	1
+iops	10	10
+iops	7187	7.1k
+iops	204577	204.5k
+iops	90898088	90898.1k
+iops	3	3
+iops	115	115
+iops	39796	39.7k
+iops	2752596	2752.6k
+iops	1	1
+iops	25	25
+iops	5176	5.1k
+iops	410949	410.9k
+iops	83419485	83419.5k
+iops	2	2
+iops	223	223
+iops	34706	34.7k
+iops	3545115	3545.1k
+iops	1	1
+iops	81	81
+iops	1470	1.4k
+iops	166516	166.5k
+iops	72272656	72272.7k
+iops	10	10
+iops	544	544
+iops	28266	28.2k
+iops	1553138	1553.1k
+iops	0	0
+iops	54	54
+iops	2256	2.2k
+iops	181877	181.8k
+iops	13775823	13775.8k
+iops	8	8
+iops	910	910
+iops	20772	20.7k
+iops	5751140	5751.1k
+iops	0	0
+iops	64	64
+iops	1064	1.0k
+iops	193585	193.5k
+iops	10099168	10099.2k
+iops	7	7
+iops	165	165
+iops	51607	51.6k
+iops	2964052	2964.0k
+iops	1	1
+iops	52	52
+iops	3678	3.6k
+iops	616681	616.6k
+iops	69452424	69452.4k
+iops	1	1
+iops	654	654
+iops	86355	86.3k
+iops	7956493	7956.4k
+iops	1	1
+iops	91	91
+iops	7889	7.8k
+iops	996163	996.1k
+iops	8002264	8002.2k
+iops	0	0
+iops	114	114
+iops	85367	85.3k
+iops	6956288	6956.2k
+iops	0	0
+iops	22	22
+iops	6579	6.5k
+iops	425696	425.6k
+iops	3034769	3034.7k
+iops	5	5
+iops	911	911
+iops	72563	72.5k
+iops	5336510	5336.5k
+iops	0	0
+iops	7	7
+iops	5453	5.4k
+iops	380395	380.3k
+iops	62074902	62074.9k
+iops	10	10
+iops	126	126
+iops	15047	15.0k
+iops	6494226	6494.2k
+iops	0	0
+iops	86	86
+iops	9508	9.5k
+iops	971635	971.6k
+iops	86844505	86844.5k
+iops	7	7
+iops	558	558
+iops	25178	25.1k
+iops	625815	625.8k
+iops	0	0
+iops	47	47
+iops	1394	1.3k
+iops	198167	198.1k
+iops	49395153	49395.2k
+iops	8	8
+iops	570	570
+iops	25737	25.7k
+iops	5256339	5256.3k
+iops	1	1
+iops	25	25
+iops	9346	9.3k
+iops	74069	74.0k
+iops	76046664	76046.7k
+iops	4	4
+iops	423	423
+iops	61426	61.4k
+iops	3203941	3203.9k
+iops	0	0
+iops	59	59
+iops	5178	5.1k
+iops	539384	539.3k
+iops	30913479	30913.5k
+iops	4	4
+iops	318	318
+iops	35593	35.5k
+iops	8684762	8684.7k
+iops	1	1
+iops	67	67
+iops	4612	4.6k
+iops	594978	594.9k
+iops	18425846	18425.8k
+iops	0	0
+iops	814	814
+iops	27597	27.5k
+iops	747350	747.3k
+iops	0	0
+iops	36	36
+iops	8430	8.4k
+iops	164332	164.3k
+iops	3866473	3866.4k
+iops	1	1
+iops	300	300
+iops	49298	49.2k
+iops	1911794	1911.7k
+iops	1	1
+iops	17	17
+iops	5760	5.7k
+iops	896891	896.8k
+iops	93849770	93849.8k
+iops	2	2
+iops	801	801
+iops	17659	17.6k
+iops	2310749	2310.7k
+iops	1	1
+iops	50	50
+iops	5465	5.4k
+iops	330994	330.9k
+iops	90001720	90001.7k
+iops	3	3
+iops	978	978
+iops	50424	50.4k
+iops	4805164	4805.1k
+iops	1	1
+iops	31	31
+iops	9110	9.1k
+iops	650761	650.7k
+iops	6843196	6843.2k
+iops	0	0
+iops	465	465
+iops	69519	69.5k
+iops	6441502	6441.5k
+iops	1	1
+iops	46	46
+iops	2563	2.5k
+iops	340941	340.9k
+iops	25784380	25784.4k
+iops	3	3
+iops	679	679
+iops	36672	36.6k
+iops	9911350	9911.3k
+iops	0	0
+iops	79	79
+iops	867	867
+iops	852140	852.1k
+iops	81559824	81559.8k
+iops	6	6
+iops	885	885
+iops	85648	85.6k
+iops	8762838	8762.8k
+iops	1	1
+iops	99	99
+iops	1825	1.8k
+iops	733932	733.9k
+iops	76646731	76646.7k
+iops	9	9
+iops	701	701
+iops	78315	78.3k
+iops	8811885	8811.8k
+iops	0	0
+iops	83	83
+iops	1490	1.4k
+iops	570473	570.4k
+iops	33845030	33845.0k
+iops	4	4
+iops	702	702
+iops	81194	81.1k
+iops	5142756	5142.7k
+iops	1	1
+iops	75	75
+iops	5764	5.7k
+iops	724540	724.5k
+iops	59731486	59731.5k
+iops	4	4
+iops	641	641
+iops	67416	67.4k
+iops	6179968	6179.9k
+iops	0	0
+iops	92	92
+iops	2154	2.1k
+iops	40430	40.4k
+iops	24432362	24432.4k
+iops	5	5
+iops	33	33
+iops	21344	21.3k
+iops	7714590	7714.5k
+iops	0	0
+iops	50	50
+iops	2251	2.2k
+iops	649759	649.7k
+iops	52460198	52460.2k
+iops	8	8
+iops	214	214
+iops	5671	5.6k

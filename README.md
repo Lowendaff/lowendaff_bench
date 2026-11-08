@@ -6,13 +6,14 @@ A comprehensive test tool for Linux servers (VPS), written in Rust:
 - An orchestrator selects the plugins, downloads the pinned tools they need, runs them in order with timeouts, and prints the results in Chinese.
 - It must run as root.
 
-**Status:** the plugin framework (M0) is in place. Test items are added one at a time; the first is 系统基础信息 (system information). The design is in [`docs/design/plugin-system.md`](docs/design/plugin-system.md).
+**Status:** the plugin framework (M0) is in place. Test items are added one at a time: 系统基础信息 (system information) and 硬盘性能 (disk performance) so far. The design is in [`docs/design/plugin-system.md`](docs/design/plugin-system.md).
 
 The tool first detects where it runs: a dedicated server, a virtual machine or a container. It prints this as 运行环境 and runs only the test items made for that platform. For example, 系统基础信息 has a variant for each platform (`system.dedicated`, `system.vm`, `system.container`), and exactly one of them runs. `--list` shows which platforms each item applies to.
 
 | Test item | Shows | Design |
 |-----------|-------|--------|
 | 系统基础信息 | CPU, memory and swap, disks and filesystems, distribution, kernel, uptime, load, TCP congestion control, IPv4/IPv6 reachability | [`docs/design/system-info.md`](docs/design/system-info.md) |
+| 硬盘性能 | Speed and IOPS of the test directory's filesystem, measured with fio exactly as YABS does: mixed random reads and writes (50/50) at 4K, 64K, 512K and 1M. Skipped on a RAM disk or without enough free space | [`docs/design/disk.md`](docs/design/disk.md) |
 
 ## Usage
 
@@ -52,8 +53,8 @@ CI (`.github/workflows/ci.yml`) runs exactly these commands. Run them locally be
 | Rule tests | `ast-grep test` (cases in `ast-grep/tests/`) | any host |
 | Rules | `ast-grep scan` (rules in `ast-grep/rules/`, config in `sgconfig.yml`) | any host |
 | Static build | `cargo build --release --locked --target <arch>-unknown-linux-musl --bin lowendaff-bench` | Linux |
-| Smoke | `scripts/smoke.sh target/<arch>-unknown-linux-musl/release/lowendaff-bench` | Linux, as root or with sudo |
-| Smoke mutants | `scripts/smoke-mutants.sh <arch>-unknown-linux-musl`: smoke must reject deliberately broken builds | Linux, as root or with sudo |
+| Smoke | `scripts/smoke.sh target/<arch>-unknown-linux-musl/release/lowendaff-bench`: a full run in which no test item is skipped, fails or times out | Linux, as root or with sudo, with network access (it downloads fio) |
+| Smoke mutants | `scripts/smoke-mutants.sh <arch>-unknown-linux-musl`: smoke must reject deliberately broken builds; these runs skip 硬盘性能 | Linux, as root or with sudo |
 | Distributions | `scripts/distros.sh target/<arch>-unknown-linux-musl/release/lowendaff-bench ghcr.io/lowendaff/mirror`: 系统基础信息 in the images of `scripts/distros.txt`, 12 distributions (13 on x86_64), pulled from their copies on GHCR; without the last argument, from the original registries | Linux or macOS with Docker; the copies need `docker login ghcr.io` |
 
 `<arch>` is `x86_64` or `aarch64`.
@@ -81,7 +82,7 @@ Some test items run external tools. The program downloads each tool as a pinned 
 
 | Tool | Version | License | Used by | Release |
 |------|---------|---------|---------|---------|
-| fio, with libaio 0.3.113 linked statically | 3.43 | GPL-2.0; libaio LGPL-2.1 | 硬盘性能 (in progress) | `fio-3.43-1` |
+| fio, with libaio 0.3.113 linked statically | 3.43 | GPL-2.0; libaio LGPL-2.1 | 硬盘性能 (`disk.fio`) | `fio-3.43-1` |
 
 Each release holds the binaries for x86_64 and aarch64, the exact source tarballs they were built from, the build script, the license texts and `SHA256SUMS`. The `fio` workflow builds fio with `scripts/build-fio.sh` in Alpine 3.22; a pull request that changes the build runs it without publishing anything. To publish a new build, update the workflow's `TAG` (the fio version and the build number) and, for a new version, the sources and their SHA-256 in `scripts/build-fio.sh`; merge, run `gh workflow run fio.yml --ref main`, and then update the plugin's pins.
 
