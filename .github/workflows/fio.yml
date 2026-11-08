@@ -95,4 +95,5 @@ jobs:
             --notes-file "$RUNNER_TEMP/notes.md"
           gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" -- \
             fio-x86_64 fio-aarch64 build-fio.sh COPYING-* ./*.tar.gz SHA256SUMS
-          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false
+          # Publishing makes a release the latest unless told otherwise, whatever the draft said.
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest=false
