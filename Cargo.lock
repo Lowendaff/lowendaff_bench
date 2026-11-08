@@ -73,6 +73,7 @@ dependencies = [
  "clap",
  "futures-util",
  "plugin-disk",
+ "plugin-disk-health",
  "plugin-system",
  "reqwest",
  "rustix",
@@ -775,6 +776,18 @@ dependencies = [
  "bench-api",
  "bench-host",
  "serde",
+ "tokio",
+]
+
+[[package]]
+name = "plugin-disk-health"
+version = "0.1.0"
+dependencies = [
+ "bench-api",
+ "bench-host",
+ "serde",
+ "serde_json",
+ "tempfile",
  "tokio",
 ]
 

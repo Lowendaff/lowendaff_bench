@@ -13,6 +13,7 @@ The tool first detects where it runs: a dedicated server, a virtual machine or a
 | Test item | Shows | Design |
 |-----------|-------|--------|
 | 系统基础信息 | CPU, memory and swap, disks and filesystems, distribution, kernel, uptime, load, TCP congestion control, IPv4/IPv6 reachability | [`docs/design/system-info.md`](docs/design/system-info.md) |
+| 硬盘健康 | Dedicated servers only: each physical disk's SMART health as smartctl judges it, with power-on time, temperature, endurance used, data written, bad blocks and interface errors. Disks behind MegaRAID and 3SNIC RAID cards are included | [`docs/design/disk-health.md`](docs/design/disk-health.md) |
 | 硬盘性能 | Speed and IOPS of the test directory's filesystem, measured with fio exactly as YABS does: mixed random reads and writes (50/50) at 4K, 64K, 512K and 1M. Skipped on a RAM disk or without enough free space | [`docs/design/disk.md`](docs/design/disk.md) |
 
 ## Usage

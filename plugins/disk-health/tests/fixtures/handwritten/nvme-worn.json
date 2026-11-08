@@ -1,0 +1,73 @@
+{
+  "json_format_version": [
+    1,
+    0
+  ],
+  "smartctl": {
+    "version": [
+      7,
+      5
+    ],
+    "argv": [
+      "smartctl",
+      "--json",
+      "-x",
+      "-d",
+      "nvme",
+      "/dev/nvme1"
+    ],
+    "exit_status": 8
+  },
+  "device": {
+    "name": "/dev/nvme1",
+    "info_name": "/dev/nvme1",
+    "type": "nvme",
+    "protocol": "NVMe"
+  },
+  "model_name": "Example NVMe SSD 1TB",
+  "serial_number": "FIXTURE-SERIAL-NVME",
+  "nvme_number_of_namespaces": 32,
+  "smart_support": {
+    "available": true,
+    "enabled": true
+  },
+  "smart_status": {
+    "passed": false,
+    "nvme": {
+      "value": 4,
+      "reliability": true
+    }
+  },
+  "nvme_smart_health_information_log": {
+    "nsid": -1,
+    "critical_warning": 4,
+    "temperature": 61,
+    "available_spare": 100,
+    "available_spare_threshold": 10,
+    "percentage_used": 104,
+    "data_units_read": 51234567,
+    "data_units_written": 42382812,
+    "host_reads": 812345678,
+    "host_writes": 654321098,
+    "controller_busy_time": 12345,
+    "power_cycles": 87,
+    "power_on_hours": 28761,
+    "unsafe_shutdowns": 12,
+    "media_errors": 2,
+    "num_err_log_entries": 2
+  },
+  "spare_available": {
+    "current_percent": 100,
+    "threshold_percent": 10
+  },
+  "endurance_used": {
+    "current_percent": 104
+  },
+  "temperature": {
+    "current": 61
+  },
+  "power_cycle_count": 87,
+  "power_on_time": {
+    "hours": 28761
+  }
+}

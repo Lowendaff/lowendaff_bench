@@ -1,0 +1,60 @@
+{
+  "json_format_version": [
+    1,
+    0
+  ],
+  "smartctl": {
+    "version": [
+      7,
+      5
+    ],
+    "pre_release": false,
+    "svn_revision": "5714",
+    "platform_info": "x86_64-linux-7.0.0-1017-azure",
+    "build_info": "(local build)",
+    "argv": [
+      "smartctl",
+      "--json",
+      "-x",
+      "-d",
+      "scsi",
+      "/dev/sda"
+    ],
+    "exit_status": 2
+  },
+  "local_time": {
+    "time_t": 1794157914,
+    "asctime": "Sun Nov  8 17:11:54 2026 UTC"
+  },
+  "device": {
+    "name": "/dev/sda",
+    "info_name": "/dev/sda",
+    "type": "scsi",
+    "protocol": "SCSI"
+  },
+  "scsi_vendor": "Msft",
+  "scsi_product": "Virtual Disk",
+  "model_name": "Msft Virtual Disk",
+  "scsi_model_name": "Msft Virtual Disk",
+  "scsi_revision": "1.0",
+  "scsi_version": "SPC-3",
+  "user_capacity": {
+    "blocks": 314572800,
+    "bytes": 161061273600
+  },
+  "logical_block_size": 512,
+  "physical_block_size": 4096,
+  "scsi_lb_provisioning": {
+    "name": "thin provisioned",
+    "value": 2,
+    "management_enabled": {
+      "name": "LBPME",
+      "value": 1
+    },
+    "read_zeros": {
+      "name": "LBPRZ",
+      "value": 0
+    }
+  },
+  "rotation_rate": 0
+}

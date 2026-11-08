@@ -1,0 +1,35 @@
+{
+  "json_format_version": [
+    1,
+    0
+  ],
+  "smartctl": {
+    "version": [
+      7,
+      5
+    ],
+    "pre_release": false,
+    "svn_revision": "5714",
+    "platform_info": "aarch64-linux-7.0.14-linuxkit",
+    "build_info": "(local build)",
+    "argv": [
+      "smartctl",
+      "--json",
+      "-x",
+      "-d",
+      "sat",
+      "/dev/sdz"
+    ],
+    "messages": [
+      {
+        "string": "Smartctl open device: /dev/sdz [SAT] failed: No such device",
+        "severity": "error"
+      }
+    ],
+    "exit_status": 2
+  },
+  "local_time": {
+    "time_t": 1794157813,
+    "asctime": "Sun Nov  8 17:10:13 2026 UTC"
+  }
+}
