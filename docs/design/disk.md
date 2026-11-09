@@ -58,7 +58,7 @@ Non-goals:
 
 ## 4. fio builds (DK-03, P-10)
 
-- **Files:** the build script `scripts/build-fio.sh` and the workflow `.github/workflows/fio.yml`.
+- **Files:** the build script `scripts/build-fio.sh` and the workflow `.github/workflows/fio.yml`. Since M4, `.github/workflows/tools.yml` builds every tool in place of the workflow (`docs/design/cpu.md` §4).
   - A pull request that changes either file runs the build jobs only, so both architectures are built and checked before merging.
   - Only a manual run on `main` publishes the release. Its tag is the workflow's `TAG`, and the release job first checks that the x86_64 binary reports the same fio version.
 - **Sources,** pinned in the script and checked before use:

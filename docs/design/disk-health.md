@@ -106,7 +106,7 @@ From its source (`smartmontools-7.5.tar.gz`) and trial runs:
 
 ## 4. smartctl builds (DH-04, P-10)
 
-- **Files:** `scripts/build-smartctl.sh` and `.github/workflows/smartctl.yml`. They work like fio's (`docs/design/disk.md` §4).
+- **Files:** `scripts/build-smartctl.sh` and `.github/workflows/smartctl.yml`. They work like fio's (`docs/design/disk.md` §4). Since M4, `.github/workflows/tools.yml` builds every tool in place of the workflow (`docs/design/cpu.md` §4).
   - A pull request that changes either file builds both architectures without publishing.
   - Only a manual run on `main` publishes, after checking that the x86_64 binary reports the pinned version.
 - **Sources,** pinned in the script and checked before use. The signatures were checked once, when pinning; the script checks the SHA-256.

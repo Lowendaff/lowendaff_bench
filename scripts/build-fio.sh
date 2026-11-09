@@ -1,7 +1,7 @@
 #!/bin/sh
 # Builds a static fio with the libaio engine for the 硬盘性能 test item (design disk, §4) from
-# sources pinned by SHA-256. It runs inside Alpine 3.22 on the architecture it builds for; the fio
-# workflow (.github/workflows/fio.yml) starts it and publishes what it writes.
+# sources pinned by SHA-256. It runs inside Alpine 3.22 on the architecture it builds for; the tools
+# workflow (.github/workflows/tools.yml) starts it and publishes what it writes as RELEASE.
 #
 # Usage: build-fio.sh <output dir>
 # Writes fio-<arch>, this script, both source tarballs and both license texts to the output
@@ -9,6 +9,7 @@
 # complete a short run with YABS's parameters.
 set -eu
 
+RELEASE=fio-3.43-1
 FIO_VERSION=3.43
 FIO_URL=https://brick.kernel.dk/snaps/fio-$FIO_VERSION.tar.gz
 FIO_SHA256=6f57893c7a73d9ed72e9e2b6e15f136a99c137bd6a7645fdeeb4a40b3e9da78d
@@ -27,10 +28,16 @@ fetch() { # <url> <sha256> <file>
 }
 
 [ $# -eq 1 ] || fail "usage: build-fio.sh <output dir>"
+case $RELEASE in
+"fio-$FIO_VERSION-"*) ;;
+*) fail "the release $RELEASE is not of fio $FIO_VERSION" ;;
+esac
 mkdir -p "$1"
 out=$(cd "$1" && pwd)
 arch=$(uname -m)
-work=$(mktemp -d)
+# A fixed directory rather than a random one, whose name would end up in the binary.
+work=/build
+mkdir "$work" || fail "$work exists already"
 
 apk add --no-cache curl gcc linux-headers make musl-dev >/dev/null
 cd "$work"
