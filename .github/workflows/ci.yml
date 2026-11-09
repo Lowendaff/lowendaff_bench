@@ -143,14 +143,21 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - name: Test
         run: cargo nextest run --workspace --locked --no-fail-fast
-      # Smoke only downloads the tools of items that apply on the runner (design disk-health,
-      # §7.3); this checks every pin, smartctl's included.
+      # Smoke only downloads the tools of items that apply and run on the runner (design
+      # disk-health, §7.3); this checks every pin, smartctl's and Geekbench's included, and
+      # unpacks Geekbench's archive.
       - name: Tool downloads
         run: cargo nextest run -p bench --test tools --locked --run-ignored only
       - name: Static build
         run: cargo build --release --locked --target "$TARGET" --bin lowendaff-bench
+      # Turns a 64 MiB swap file on and off as root, which the tests cannot (design cpu, §9.3).
+      - name: Swap round trip
+        run: |
+          cargo build --release --locked --target "$TARGET" -p swap-file --example roundtrip
+          sudo "target/$TARGET/release/examples/roundtrip" "$RUNNER_TEMP"
+      # Geekbench would publish a result from every run and take minutes (design cpu, §9.3).
       - name: Smoke
-        run: scripts/smoke.sh "target/$TARGET/release/lowendaff-bench"
+        run: scripts/smoke.sh "target/$TARGET/release/lowendaff-bench" --skip cpu.geekbench
       - name: Smoke mutants
         run: scripts/smoke-mutants.sh "$TARGET"
       # The distribution images come from copies on GHCR (README "Gates"), pulled with this

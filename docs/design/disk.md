@@ -1,7 +1,7 @@
 # Disk Performance Test Item (硬盘性能)
 
 - Status: **Accepted** 2026-11-08. The owner decided DK-01..DK-07 (§2), which include the plugin system's P-10.
-- Implementation (M2): the fio builds and the release `fio-3.43-1` (PR #4), then the plugin in `plugins/disk`.
+- Implementation (M2): the fio builds and the release `fio-3.43-1` (PR #4), then the plugin in `plugins/disk`. Since M4 the plugin pins `fio-3.43-2`, the same fio with musl's notice (`docs/design/cpu.md` §4).
 - Scope: one test item, `disk.fio`, which measures the filesystem of the test directory with fio the way YABS does, and the pinned fio builds it needs (§4). Hardware checks for dedicated servers are separate work (DK-04).
 
 ## 1. Goals and non-goals
@@ -77,7 +77,7 @@ Non-goals:
   - `fio --enghelp` lists libaio;
   - a short run with YABS's parameters succeeds on the runner.
 - **Release:**
-  - The tag is `fio-3.43-1`. The trailing build number allows a rebuild, because an immutable release's tag cannot be reused.
+  - The tag is `fio-3.43-1`. The trailing build number allows a rebuild, because an immutable release's tag cannot be reused; M4 rebuilt it as `fio-3.43-2`.
   - The release is created as a draft, all assets are uploaded, and only then is it published. Publishing passes `--latest=false` too, because publishing a draft otherwise makes it the latest release; `fio-3.43-1` became the latest that way. GitHub still shows the newest release as the latest while no release is marked, so `fio-3.43-1` stays the latest until the program publishes releases of its own (checked 2026-11-08).
   - Assets: `fio-x86_64`, `fio-aarch64`, both source tarballs, `build-fio.sh`, both license texts and `SHA256SUMS`.
   - Offering the sources from the same place as the binaries satisfies GPL-2.0 §3. LGPL-2.1's relinking requirement is met because the complete sources of fio and libaio are offered.

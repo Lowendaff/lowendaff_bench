@@ -52,14 +52,18 @@ pub struct Requirements {
     /// Kinds of platform the test applies to; empty means every platform. On any other
     /// platform the plugin does not run (design D-16).
     pub platforms: &'static [PlatformKind],
+    /// The oldest glibc that the test's tools run on, or `None` when they do not need glibc.
+    /// The orchestrator checks it before downloading the tools (design cpu, §6.2).
+    pub glibc: Option<GlibcVersion>,
 }
 
 impl Requirements {
-    /// No tools, no network, every platform.
+    /// No tools, no network, every platform, any C library.
     pub const NONE: Self = Self {
         tools: &[],
         net: Net::None,
         platforms: &[],
+        glibc: None,
     };
 
     /// Whether the plugin runs on `platform`.
@@ -219,15 +223,44 @@ pub enum Net {
     Ipv6,
 }
 
+/// A glibc version, such as 2.35. Versions compare by major, then minor number.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct GlibcVersion {
+    /// Major number, 2 for every glibc since 1997.
+    pub major: u32,
+    /// Minor number.
+    pub minor: u32,
+}
+
+impl fmt::Display for GlibcVersion {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}.{}", self.major, self.minor)
+    }
+}
+
+/// The host's C library, as far as programs built for glibc are concerned (design cpu, §6.2).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Libc {
+    /// glibc of this version.
+    Glibc(GlibcVersion),
+    /// glibc whose version could not be read. Plugins that need glibc still run.
+    #[default]
+    GlibcUnknown,
+    /// No glibc loader for this architecture, as on musl systems such as Alpine.
+    NoGlibc,
+}
+
 /// A pinned external tool. Plugins that share a tool must declare identical specs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ToolSpec {
-    /// Executable name, e.g. `fio`.
+    /// Tool name, e.g. `fio`: the executable's file name, or the directory of an archive.
     pub name: &'static str,
     /// Upstream version the builds were made from.
     pub version: &'static str,
     /// One static build per architecture in [`RELEASE_ARCHES`].
     pub assets: &'static [ToolAsset],
+    /// What each asset is.
+    pub form: ToolForm,
 }
 
 impl ToolSpec {
@@ -236,6 +269,19 @@ impl ToolSpec {
     pub fn asset_for(&self, arch: &str) -> Option<&ToolAsset> {
         self.assets.iter().find(|asset| asset.arch == arch)
     }
+}
+
+/// What the download of a tool is (design cpu, §6.3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ToolForm {
+    /// The download is the static executable itself.
+    Executable,
+    /// A gzip-compressed tar archive with one top-level directory. It is unpacked into a
+    /// directory named after the tool, without that top-level directory.
+    TarGz {
+        /// File name of the executable in the archive's top-level directory.
+        executable: &'static str,
+    },
 }
 
 /// One downloadable build of a [`ToolSpec`].
@@ -264,6 +310,8 @@ pub struct Env {
     pub tools: BTreeMap<String, PathBuf>,
     /// The platform the program runs on.
     pub platform: Platform,
+    /// The host's C library (design cpu, §6.2).
+    pub libc: Libc,
 }
 
 /// A test item. The implementing struct is also its configuration: `Default` gives the
@@ -746,6 +794,17 @@ fn check_tool(owner: &str, tool: &ToolSpec, problems: &mut Vec<String>) {
         }
         if asset.size == 0 {
             problems.push(format!("{owner}: tool {name} size must be positive"));
+        }
+    }
+    if let ToolForm::TarGz { executable } = tool.form {
+        let plain = !executable.is_empty()
+            && executable != "."
+            && executable != ".."
+            && !executable.contains('/');
+        if !plain {
+            problems.push(format!(
+                "{owner}: tool {name} must name its executable in the archive by file name"
+            ));
         }
     }
 }

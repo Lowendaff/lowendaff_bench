@@ -1,7 +1,9 @@
 #!/bin/sh
 # Runs the 系统基础信息 item in containers of many distributions (design system-info, S-05).
 # In each, the 系统 line must equal the image's own os-release PRETTY_NAME and the item must
-# complete. CI runs it on both architectures; README "Gates" documents it.
+# complete. Then Geekbench 7 runs without a network, so that nothing is downloaded or uploaded:
+# its reason to skip must fit the image's own glibc (design cpu, §9.3). CI runs it on both
+# architectures; README "Gates" documents it.
 #
 # Usage: scripts/distros.sh <path to a static lowendaff-bench> [<mirror>]
 # Needs Docker. The images are listed in scripts/distros.txt, pinned by digest; Arch Linux has no
@@ -41,6 +43,23 @@ for image in $images; do
     reported=$(printf '%s\n' "$output" | sed -n 's/^  系统  *//p')
     [ "$reported" = "$expected" ] || fail "$name: 系统 is \"$reported\", expected \"$expected\""
     printf '%s\n' "$output" | grep -q '^  完成，用时' || fail "$name: the item did not complete: $output"
-    echo "distros: $name: $reported"
+
+    # glibc's version as the image's ldd reports it: "ldd (GNU libc) 2.34". musl has none.
+    glibc=$(docker run --rm --entrypoint sh "$image" -c 'ldd --version 2>&1 | head -n 1' |
+        sed -n 's/^ldd (.*) \([0-9][0-9]*\.[0-9][0-9]*\)$/\1/p')
+    major=${glibc%%.*}
+    minor=${glibc#*.}
+    if [ -z "$glibc" ]; then
+        reason='需要 glibc 2.35 或更新，本机没有 glibc'
+    elif [ "$major" -gt 2 ] || { [ "$major" -eq 2 ] && [ "$minor" -ge 35 ]; }; then
+        reason='需要 IPv4 网络连接'
+    else
+        reason="需要 glibc 2.35 或更新，本机是 $glibc"
+    fi
+    output=$(docker run --rm --network none -v "$bin:/usr/local/bin/lowendaff-bench:ro" -w /root \
+        "$image" lowendaff-bench --only cpu.geekbench 2>&1) || fail "$name: exited with $?: $output"
+    printf '%s\n' "$output" | grep -qx "  跳过：$reason" ||
+        fail "$name: Geekbench 7 was not skipped with \"$reason\": $output"
+    echo "distros: $name: $reported; Geekbench 7: $reason"
 done
 echo "distros: ok"

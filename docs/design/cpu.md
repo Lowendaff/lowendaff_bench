@@ -1,6 +1,6 @@
 # CPU Test Items (CPU 性能 and Geekbench 7)
 
-- Status: **Accepted** 2026-11-09. The owner decided CP-01..CP-17 (§2), confirmed the design section by section, and accepted the risks (§10).
+- Status: **Accepted** 2026-11-09. The owner decided CP-01..CP-17 (§2), confirmed the design section by section, and accepted the risks (§10); CP-18 followed the real runs the same day.
 - Implementation (M4): one workflow for every pinned tool build, with the releases `sysbench-1.0.20-1` and `fio-3.43-2` (§4); then the test items in `plugins/cpu` and `plugins/geekbench`, and the crate `crates/swap-file` (§5–§8).
 - Scope: two test items, `cpu.sysbench` (CPU 性能) and `cpu.geekbench` (Geekbench 7), and the tool builds they need.
 
@@ -43,6 +43,7 @@ Non-goals:
 | CP-15 | Geekbench errors | **Only a failed upload is retried,** up to 3 times, 30 seconds apart (§6.4). Nothing was published then, and the cause is usually the network. A kill for lack of memory and a timeout are not retried, as a rerun would most likely end the same way. The alternatives were retrying every error, and no retries. |
 | CP-16 | Real runs | **On all three of the owner's hosts,** once each: the VM, the dedicated server and the ARM board, with `--only cpu.sysbench,cpu.geekbench` (§9.5). Each run publishes one Geekbench result. |
 | CP-17 | How the tools are built | **One workflow for every pinned tool,** as DH-04 foresaw for a third tool (§4). fio is rebuilt as `fio-3.43-2`, with musl's notice. |
+| CP-18 | Hosts whose kernel will not use swap | **No swap, and a note saying why** (§7.1), decided after the real run on the owner's VM (§9.5), where 2 GiB of swap stayed unused until Geekbench was killed. The rule is narrower than the owner's choice "swappiness 0": only with `vm.swappiness` 0 under the multi-gen LRU, which then reclaims page cache only; the classic LRU still swaps to prevent OOM (Linux 6.12, `mm/vmscan.c`). The alternatives were setting swappiness to 60 for the run, and only a risk entry. |
 
 ## 3. Background
 
@@ -169,7 +170,7 @@ Geekbench 6.7.2, the rejected fallback, needs only glibc 2.27 (its x86_64 worker
 
 ### 5.4 Errors and outcomes
 
-- Reasons: `sysbench 没有输出每秒事件数`, `sysbench 退出码 N：<the last line of output>`, `超过 60 秒仍未结束，已停止`. After the fourth failed attempt, `（共试了 4 次）` follows the reason.
+- Reasons: `sysbench 没有输出每秒事件数`, `sysbench 退出码 N：<the last line of output>`, `sysbench 被信号终止：<the last line of output>`, `无法运行 sysbench：<error>`, `超过 60 秒仍未结束，已停止`. After the fourth failed attempt, `（共试了 4 次）` follows the reason.
 - The single-thread run fails: the item fails with the reason, without a table.
 - The multi-thread run fails: the table shows the single-thread row, without a ratio, and the item fails with `多线程测试失败：<reason>`.
 
@@ -185,7 +186,7 @@ Geekbench 6.7.2, the rejected fallback, needs only glibc 2.27 (its x86_64 worker
 
 - **glibc:** read once at the start, from files only (P-11):
   1. The loader that Geekbench names: `/lib64/ld-linux-x86-64.so.2` on x86_64, `/lib/ld-linux-aarch64.so.1` on aarch64. If it does not exist, the system has no glibc (Alpine and other musl systems, or a system without the usual loader path).
-  2. Otherwise, with its links resolved, `libc.so.6` in the loader's directory, and in it the text `release version <major>.<minor>` that glibc prints about itself (`release version 2.41` on Debian 13).
+  2. Otherwise, with its links resolved, the text `release version <major>.<minor>` that glibc prints about itself: first in the loader itself (`ld.so (GNU libc) stable release version 2.34.`), else in the `libc.so.6` beside it (`release version 2.31` on Debian 11). Neither alone is enough (arm64 images of `scripts/distros.txt`, 2026-11-09): the loaders of Debian 11, Ubuntu 20.04 and CentOS 7 do not describe themselves, and Rocky Linux 9, Oracle Linux 9, Amazon Linux 2023 and Fedora 45 keep the loader in `/usr/lib` but `libc.so.6` in `/usr/lib64`. The first design looked beside the loader only, so these four read as an unknown version; the distribution matrix of PR #11 found it on Rocky Linux 9.
   3. A version that cannot be read lets the item run; Geekbench then reports any problem itself.
 - **Order of the checks:** platform (D-16), glibc, network, then tools. The orchestrator checks glibc and network before the downloads, and downloads no tool of an item that fails them. Until now, every planned tool was downloaded before any check, so that a host without IPv4 tried to download Geekbench from an IPv4-only server.
 - Reasons: `需要 glibc 2.35 或更新，本机是 2.34`, `需要 glibc 2.35 或更新，本机没有 glibc`, and the existing `需要 IPv4 网络连接`.
@@ -228,19 +229,21 @@ Geekbench 6.7.2, the rejected fallback, needs only glibc 2.27 (its x86_64 worker
   完成，用时 412.3 秒
 ```
 
-- Facts `single` (单核), `multi` (多核) and `url` (结果链接).
+- Facts `single` (单核), `multi` (多核) and `url` (结果链接); without a link in the output, 结果链接 reads `不可用`.
 - Notes (label `说明`), when they apply:
   - `可用内存不足（估计需要 5 GiB，可用 1.6 GiB），临时加了 4 GiB swap，分数可能偏低`
   - `可用内存可能不足（估计需要 5 GiB，可用 1.6 GiB），无法临时加 swap：<reason>`
   - `无法关闭临时 swap：<error>；请手动执行 swapoff <path>，再删除这个文件`
   - `无法让 Geekbench 在内存耗尽时优先被结束：<error>`
+  - `无法恢复本程序的 oom_score_adj：<error>`, when the program could set 1000 but not lower its own value again (§7.3)
   - `上传失败 1 次后重跑成功，失败原因：<reason>`
 - Skips: `需要 IPv4 网络连接`, `需要 glibc 2.35 或更新，本机是 2.34`, `需要 glibc 2.35 或更新，本机没有 glibc`.
 - Failures:
   - `上传失败（<reason>），免费版只有上传成功才给出分数`, after the last retry;
   - `运行中因内存不足被系统终止`;
   - `Geekbench 没有输出分数`, for an exit status of 0 without scores;
-  - `Geekbench 退出码 N：<the last line of output>`;
+  - `Geekbench 退出码 N：<the last line of output>`, or `Geekbench 被信号终止：<the last line of output>`;
+  - `无法运行 Geekbench：<error>` and `无法读取 Geekbench 的输出：<error>`;
   - `超过 60 分钟仍未结束，已停止`.
 
 ## 7. Memory, temporary swap and OOM protection
@@ -249,7 +252,8 @@ Geekbench 6.7.2, the rejected fallback, needs only glibc 2.27 (its x86_64 worker
 
 - **Need:** `1 GiB + threads × 1 GiB`, the threads as in §5.2. The runners measured 3.6 GiB with 4 threads and about 1.3 GiB with one (§3.2); the cpuset test showed that the memory-heavy workloads follow the cpuset.
 - **Available:** `MemAvailable` plus `SwapFree` from `/proc/meminfo`; in a cgroup with a memory limit, at most the limit minus the usage.
-- **Swap size:** the shortfall rounded up to whole GiB, at most 8 GiB, and at most the free space of the work directory's filesystem minus 1 GiB, rounded down. Below 1 GiB, no swap, and a note.
+- **Swap size:** the shortfall rounded up to whole GiB, at most 8 GiB, and at most the free space of the work directory's filesystem minus 1 GiB, rounded down. Below 1 GiB, no swap, and a note whose reason is `运行目录所在的磁盘只剩 N GiB`, or `无法读取运行目录所在磁盘的剩余空间`.
+- **No swap the kernel would not use (CP-18):** with `vm.swappiness` 0 and the multi-gen LRU on (bit 0x0001 of `/sys/kernel/mm/lru_gen/enabled`), the kernel reclaims page cache only (`isolate_folios` in Linux 6.12 scans file pages alone), so swap would stay unused. Then there is no swap, and the note's reason is `本机 vm.swappiness 为 0，内核不会把内存换出到 swap`. The classic LRU swaps to prevent OOM even with swappiness 0, so there swap is added as usual.
 
 ### 7.2 The swap file (CP-07)
 
@@ -265,8 +269,8 @@ Geekbench 6.7.2, the rejected fallback, needs only glibc 2.27 (its x86_64 worker
 
 ### 7.3 OOM protection (CP-13)
 
-- Before Geekbench starts, the program reads its own `/proc/self/oom_score_adj`, writes 1000, starts Geekbench, and writes back the old value. Geekbench and its worker inherit 1000; restoring a lower value needs `CAP_SYS_RESOURCE`, which root has.
-- If the value cannot be written, Geekbench runs anyway, with a note (§6.6).
+- Before Geekbench starts, the program reads its own `/proc/self/oom_score_adj`, writes 1000, starts Geekbench, and writes back the old value. Geekbench and its worker inherit 1000.
+- If the value cannot be written, Geekbench runs anyway, with a note (§6.6). Lowering it back needs no capability as long as the old value is not below the process's minimum, which the kernel records with the last privileged write; when it fails all the same, a note says so.
 
 ## 8. Changes to the plugin system
 
@@ -324,6 +328,17 @@ A mutation round covers the parsers, the retries, the estimate and the swap size
   - the VM: 1 thread and 0.61 GiB available, without swap; it needs 2 GiB and gets 2 GiB of swap on its ext4 root, and sysbench runs only with one thread;
   - the dedicated server: 64 threads, 131 GiB available and 4.1 GiB of free swap; it needs 65 GiB and gets no swap.
 - The owner sees the whole output. The pull request quotes only the lines of the two items.
+- **Results** (2026-11-09, the build of `3162de2`): on all three hosts the test directory was removed, `/root` and `/proc/swaps` were as before, and no process was left.
+
+  | Host | CPU 性能 (events per second) | Geekbench 7 | Total |
+  |---|---|---|---|
+  | VM, 1 thread, 0.6 GiB available | 446.16 with one thread | 2 GiB of swap; `运行中因内存不足被系统终止`, nothing uploaded | 292 s |
+  | Dedicated server, 64 threads | 859.00 and 44631.33, 51.96 times | 770 and 11048, result 841851 | 555 s |
+  | ARM board, 4 threads, 1.6 GiB available | 982.29 and 3891.62, 3.96 times | 4 GiB of swap; 200 and 519, result 842061 | 2488 s |
+
+  - On the VM, the kernel log shows the swap turned on, but at the kill all of it was still free (`Free swap = Total swap`). Its `vm.swappiness` is 0, set in `/etc/sysctl.d/99-optimization.conf`, under the multi-gen LRU: hence CP-18. The protection worked as designed: docker's allocation set off the kill, and the kernel chose Geekbench (`oom_score_adj` 1000).
+  - **CP-18 on the VM** (2026-11-10, the build of `985a5ee`, with the owner's approval): no swap was added, and the note read `可用内存可能不足（估计需要 2 GiB，可用 0.5 GiB），无法临时加 swap：本机 vm.swappiness 为 0，内核不会把内存换出到 swap`. Geekbench was killed for lack of memory again (an `sshd-session` allocation set off the kill, and the kernel chose `geekbench_avx2`), so nothing was uploaded. CPU 性能 gave 531.80 with one thread. The host's state was as before.
+  - On the ARM board, the run swapped out about 11.7 GiB and back in about 10.7 GiB (`pswpout` and `pswpin` in 4 KiB pages; the board has no swap of its own, so all of it went through the run's file): far more than the size of the swap (risk 7).
 
 ## 10. Risks and limitations
 
@@ -333,7 +348,7 @@ A mutation round covers the parsers, the retries, the estimate and the swap size
 4. **Console text.** The free version has no machine-readable output, so the item reads English console lines, as checked for 7.1.0 on both architectures.
 5. **glibc 2.35.** Geekbench 7 skips on 8 of the 13 distributions of the matrix (§3.3), among them Rocky Linux 9 and Amazon Linux 2023.
 6. **The memory estimate** rests on two measurements, with 1 and 4 threads. Hosts with many threads may need much more or much less; at the cap of 8 GiB of swap, memory can still run out, and Geekbench is then killed.
-7. **Temporary swap** writes up to 8 GiB of zeros to the disk of the run directory, and swapping lowers the scores. Without swap support (ZFS, tmpfs, overlay, btrfs without NOCOW, containers without permission), there is no swap.
+7. **Temporary swap** writes up to 8 GiB of zeros to the disk of the run directory, and swapping writes far more: on the ARM board, one run swapped out about 11.7 GiB through 4 GiB of swap (§9.5). Swapping lowers the scores. Without swap support (ZFS, tmpfs, overlay, btrfs without NOCOW, containers without permission), or with swappiness 0 under the multi-gen LRU (CP-18), there is no swap.
 8. **A forced end of the program** leaves the swap on until a reboot or a manual `swapoff`, with its file in the run directory, and lets Geekbench's processes finish and perhaps upload.
 9. **`unsafe`:** two foreign function calls in `crates/swap-file`.
 10. **OOM:** for a moment, the program itself has `oom_score_adj` 1000. The memory kill is recognised by a count for the whole host, so another process killed for memory during the run is taken for Geekbench.
@@ -343,7 +358,7 @@ A mutation round covers the parsers, the retries, the estimate and the swap size
 14. **Retries** in sysbench can hide unstable runs; the 说明 line shows them.
 15. **sysbench 1.0.20** dates from 2020, and its LuaJIT's aarch64 support is old. Its source is an archive that GitHub generates; should its hash change, the build fails, and the release keeps the copy that was built.
 16. **Threads in containers** follow the cpuset; a CPU quota is not counted, so the multi-thread result shows the throttling.
-17. **The real runs** (CP-16) are three more exceptions to read-only access to the owner's hosts. They publish three results, load the dedicated server's guests for minutes, and write 2 GiB and 4 GiB of temporary swap to the VM's and the ARM board's disks (§9.5).
+17. **The real runs** (CP-16), and the VM's second run for CP-18, are four more exceptions to read-only access to the owner's hosts. They published two results (both runs on the VM were killed before their upload), loaded the dedicated server's guests for minutes, and wrote 2 GiB and 4 GiB of temporary swap to the VM's and the ARM board's disks (§9.5).
 
 ## 11. Implementation plan
 

@@ -1,0 +1,20 @@
+[package]
+name = "plugin-cpu"
+description = "CPU performance test item for lowendaff-bench (CPU 性能)"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[dependencies]
+bench-api.workspace = true
+bench-host.workspace = true
+serde.workspace = true
+tokio = { workspace = true, features = ["macros", "process", "rt", "time"] }
+
+[dev-dependencies]
+tempfile.workspace = true
+tokio = { workspace = true, features = ["macros", "rt", "test-util"] }
+
+[lints]
+workspace = true

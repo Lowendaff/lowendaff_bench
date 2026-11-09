@@ -11,6 +11,7 @@ use bench_api::ContainerKind;
 use bench_api::Context;
 use bench_api::Descriptor;
 use bench_api::Env;
+use bench_api::GlibcVersion;
 use bench_api::Hypervisor;
 use bench_api::Measurement;
 use bench_api::Missing;
@@ -23,6 +24,7 @@ use bench_api::Record;
 use bench_api::Requirements;
 use bench_api::Table;
 use bench_api::ToolAsset;
+use bench_api::ToolForm;
 use bench_api::ToolSpec;
 use serde::Deserialize;
 
@@ -31,6 +33,7 @@ const SHA: &str = "4f2d1c0b9a8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a392817060
 const FIO: ToolSpec = ToolSpec {
     name: "fio",
     version: "3.39",
+    form: ToolForm::Executable,
     assets: &[
         ToolAsset {
             arch: "x86_64",
@@ -65,6 +68,7 @@ const fn variant(
             tools,
             net: Net::None,
             platforms,
+            glibc: None,
         },
         timeout: Duration::from_secs(10),
     }
@@ -128,6 +132,7 @@ impl Plugin for Strict {
 const BROKEN_TOOL: ToolSpec = ToolSpec {
     name: "iperf3",
     version: "3.19",
+    form: ToolForm::Executable,
     assets: &[ToolAsset {
         arch: "x86_64",
         url: "http://example.com/iperf3",
@@ -136,6 +141,26 @@ const BROKEN_TOOL: ToolSpec = ToolSpec {
     }],
 };
 plugin!(BrokenTool, "net.iperf", &[BROKEN_TOOL]);
+
+const NESTED_ARCHIVE: ToolSpec = ToolSpec {
+    name: "geekbench",
+    version: "7.1.0",
+    form: ToolForm::TarGz {
+        executable: "bin/geekbench7",
+    },
+    ..FIO
+};
+plugin!(NestedArchive, "cpu.nested", &[NESTED_ARCHIVE]);
+
+const ARCHIVE: ToolSpec = ToolSpec {
+    name: "geekbench7",
+    version: "7.1.0",
+    form: ToolForm::TarGz {
+        executable: "geekbench7",
+    },
+    ..FIO
+};
+plugin!(Archive, "cpu.archive", &[ARCHIVE]);
 
 const OTHER_FIO: ToolSpec = ToolSpec {
     version: "3.40",
@@ -290,6 +315,8 @@ fn registry_checks_catch_bad_tool_pins() {
         bench_api::register::<Good>(),
         bench_api::register::<BrokenTool>(),
         bench_api::register::<ConflictingFio>(),
+        bench_api::register::<NestedArchive>(),
+        bench_api::register::<Archive>(),
     ]);
     let expected = [
         "net.iperf: tool iperf3 has no aarch64 build",
@@ -297,6 +324,7 @@ fn registry_checks_catch_bad_tool_pins() {
         "net.iperf: tool iperf3 sha256 must be 64 lowercase hex digits",
         "net.iperf: tool iperf3 size must be positive",
         "disk.fio-old: tool fio differs from another plugin's declaration",
+        "cpu.nested: tool geekbench must name its executable in the archive by file name",
     ];
     for line in expected {
         assert!(
@@ -305,6 +333,18 @@ fn registry_checks_catch_bad_tool_pins() {
         );
     }
     assert_eq!(problems.len(), expected.len(), "{problems:#?}");
+}
+
+#[test]
+fn glibc_versions_order_by_major_then_minor_and_print_as_major_dot_minor() {
+    let version = |major, minor| GlibcVersion { major, minor };
+    assert!(version(2, 34) < version(2, 35));
+    assert!(
+        version(2, 9) < version(2, 10),
+        "minor numbers compare as numbers"
+    );
+    assert!(version(1, 99) < version(2, 0));
+    assert_eq!(version(2, 35).to_string(), "2.35");
 }
 
 #[test]

@@ -12,6 +12,7 @@ use bench_api::Plugin;
 use bench_api::PluginError;
 use bench_api::Requirements;
 use bench_api::ToolAsset;
+use bench_api::ToolForm;
 use bench_api::ToolSpec;
 use bench_host::Root;
 use bench_host::storage;
@@ -24,29 +25,30 @@ use crate::report::FileSize;
 pub mod fio;
 pub mod report;
 
-/// fio 3.43 from the release `fio-3.43-1`, which the fio workflow built and published
-/// (design disk, §4).
+/// fio 3.43 from the release `fio-3.43-2`, which the tools workflow built and published
+/// (design disk, §4; design cpu, §4).
 const FIO: ToolSpec = ToolSpec {
     name: "fio",
     version: "3.43",
+    form: ToolForm::Executable,
     assets: &[
         ToolAsset {
             arch: "x86_64",
             url: concat!(
-                "https://github.com/Lowendaff/lowendaff_bench/releases/download/fio-3.43-1/",
+                "https://github.com/Lowendaff/lowendaff_bench/releases/download/fio-3.43-2/",
                 "fio-x86_64"
             ),
-            sha256: "0196f44814d91d8af1015f5102ad004765a3197d7f23ae5b321332df2e2245b6",
-            size: 6_645_616,
+            sha256: "f5d10f8743eac99b644924302b693deb3f3a1bb3ea3a2572f0efe385e6de9af6",
+            size: 6_645_592,
         },
         ToolAsset {
             arch: "aarch64",
             url: concat!(
-                "https://github.com/Lowendaff/lowendaff_bench/releases/download/fio-3.43-1/",
+                "https://github.com/Lowendaff/lowendaff_bench/releases/download/fio-3.43-2/",
                 "fio-aarch64"
             ),
-            sha256: "40720e705be65f9fbf059664db9dd048040e3d1ab8836c67339110bcd8a2f73a",
-            size: 6_813_056,
+            sha256: "7f592e890267e9d92f9de487263ccccb94addb513a23bb54be18a155ad6ebd77",
+            size: 6_813_040,
         },
     ],
 };

@@ -1,0 +1,79 @@
+Geekbench 7.1.0 : https://www.geekbench.com/
+
+Geekbench 7 requires an active internet connection and automatically uploads 
+benchmark results to the Geekbench Browser.
+
+Upgrade to Geekbench 7 Pro to enable offline use and unlock other features:
+
+  http://www.geekbench.com/app/parkdale/store
+
+Enter your Geekbench 7 Pro license using the following command line:
+
+  /home/runner/work/_temp/gb/geekbench7 --unlock <email> <key>
+
+System Information
+  Operating System              Ubuntu 24.04.5 LTS
+  Kernel                        Linux 7.0.0-1017-azure x86_64
+  Model                         Microsoft Corporation Virtual Machine
+  Motherboard                   Microsoft Corporation Virtual Machine
+  BIOS                          Microsoft Corporation Hyper-V UEFI Release v4.1
+
+CPU Information
+  Name                          AMD EPYC 9V74 80-Core Processor                
+  Topology                      1 Processor, 2 Cores, 4 Threads
+  Identifier                    AuthenticAMD Family 25 Model 17 Stepping 1
+  Base Frequency                3.68 GHz
+  L1 Instruction Cache          32.0 KB x 2
+  L1 Data Cache                 32.0 KB x 2
+  L2 Cache                      1.00 MB x 2
+  L3 Cache                      320 MB
+  Instruction Sets              sse2 sse3 pclmul fma3 sse41 aesni avx f16c avx2 avx512-f avx512-dq shani avx512-bw avx512-vl vaes avx512-vnni
+
+Memory Information
+  Size                          15.6 GB
+
+
+Single-Core
+  Running File Compression
+  Running Navigation
+  Running HTML5 Browser
+  Running PDF Viewer
+  Running Photo Library
+  Running Clang
+  Running Text Processing
+  Running Asset Compression
+  Running HDR
+  Running Photo Editor
+  Running Ray Tracer
+  Running Structure from Motion
+  Running Game Physics
+  Running Video Encoder
+  Running Audio Encoder
+  Running Video Player
+
+Multi-Core
+  Running File Compression
+  Running Photo Library
+  Running Clang
+  Running Text Processing
+  Running Asset Compression
+  Running HDR
+  Running Photo Editor
+  Running Ray Tracer
+
+
+Uploading results to the Geekbench Browser. This could take a minute or two 
+depending on the speed of your internet connection.
+
+Upload succeeded. Visit the following link and view your results online:
+
+  https://browser.geekbench.com/v7/cpu/840201
+
+Visit the following link and add this result to your profile:
+
+  https://browser.geekbench.com/v7/cpu/840201/claim?key=FIXTURE
+
+Benchmark Summary
+  Single-Core Score             1771
+  Multi-Core Score              4347
+

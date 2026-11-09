@@ -97,10 +97,10 @@ Run flow:
 
 1. **Check root**, then parse the CLI and the config file.
 2. **Plan.** Resolve the selection (`--only`/`--skip` over registry order) and build every selected plugin. All config errors are reported together, and nothing runs if there are any.
-3. **Probe `Env`**: architecture, platform (D-16), IPv4 and IPv6 reachability. Print 运行环境 and the 本机不适用 line, and keep only the plugins that apply to the platform.
-4. **Provision** every tool the remaining plan needs into the run directory, one after another, and print each tool's result.
+3. **Probe `Env`**: architecture, platform (D-16), IPv4 and IPv6 reachability, and the C library (`docs/design/cpu.md` §6.2). Print 运行环境 and the 本机不适用 line, and keep only the plugins that apply to the platform.
+4. **Provision** every tool the remaining plan needs into the run directory, one after another, and print each tool's result. Tools of plugins whose glibc or network the host does not meet are not downloaded; archives are unpacked (`docs/design/cpu.md` §6.2, §6.3).
 5. **Run** each plugin in order:
-   - Check preflight.
+   - Check preflight: glibc, network, then tools.
    - Create its work directory and spawn `run`.
    - Forward records live to the renderer.
    - Apply the timeout and interrupt rules (§8), then remove the work directory.
@@ -130,15 +130,19 @@ pub struct Requirements {
     pub tools: &'static [ToolSpec],
     pub net: Net,
     pub platforms: &'static [PlatformKind],   // empty: every platform (D-16)
+    pub glibc: Option<GlibcVersion>,          // oldest glibc the tools run on (design cpu, §6.2)
 }
 pub enum Net { None, Any, Ipv4, Ipv6 }
 pub enum PlatformKind { Dedicated, Vm, Container }
 pub enum Platform { Dedicated, Vm(Hypervisor), Container(ContainerKind) }   // Display: 未检测到虚拟化, KVM 虚拟机, LXC 容器, …
-pub struct ToolSpec { pub name: &'static str, pub version: &'static str, pub assets: &'static [ToolAsset] }
+pub struct GlibcVersion { pub major: u32, pub minor: u32 }                 // Display: 2.35
+pub enum Libc { Glibc(GlibcVersion), GlibcUnknown, NoGlibc }               // in `Env`
+pub struct ToolSpec { pub name: &'static str, pub version: &'static str, pub assets: &'static [ToolAsset], pub form: ToolForm }
+pub enum ToolForm { Executable, TarGz { executable: &'static str } }       // design cpu, §6.3
 pub struct ToolAsset { pub arch: &'static str, pub url: &'static str, pub sha256: &'static str, pub size: u64 }
 
 impl Context {
-    pub fn env(&self) -> &Env;                                  // arch, platform, ipv4, ipv6, verified tools
+    pub fn env(&self) -> &Env;                                  // arch, platform, ipv4, ipv6, libc, verified tools
     pub fn emit(&self, record: Record);                         // stream one result
     pub fn tool(&self, name: &str) -> Result<&Path, PluginError>; // path of a declared, verified tool
     pub fn cancel_token(&self) -> CancellationToken;            // fires on timeout and on interrupt
@@ -163,7 +167,7 @@ impl Plugin for RunsFio {
         id: "disk.fio",
         title: "磁盘（fio）",
         version: "0.1.0",
-        requires: Requirements { tools: &[FIO], net: Net::None, platforms: &[] },
+        requires: Requirements { tools: &[FIO], net: Net::None, platforms: &[], glibc: None },
         timeout: Duration::from_secs(10),
     };
 
@@ -181,7 +185,7 @@ Rules that are part of the interface:
 - Record ids are stable within a plugin's major version.
 - Release profiles keep `panic = "unwind"`; the workspace sets it explicitly, because a panic is contained only when it unwinds.
 - The orchestrator runs on the main thread over a multi-thread runtime with at least two workers.
-- `unsafe_code` is forbidden workspace-wide.
+- `unsafe_code` is forbidden workspace-wide, except in `crates/swap-file`, where it is denied and two calls to `swapon` and `swapoff` allow it (`docs/design/cpu.md` §7.2, CP-07).
 
 ## 7. Records and terminal output
 
@@ -297,7 +301,7 @@ Mutation check on the real code: each mutation is applied to a copy, and `cargo 
 | no SHA-256 check | `install_rejects_a_hash_mismatch_and_leaves_nothing` |
 | keep the partial file on error | the three `install_*` failure tests |
 | no `chmod` | `install_makes_only_a_verified_file_executable`, `a_plugin_runs_the_tool_it_was_provisioned_with` |
-| ignore tool preflight | `unmet_requirements_skip_without_running` |
+| ignore tool preflight | `unmet_requirements_skip_without_running_glibc_first_then_network_then_tools` |
 | work directory in system temp | `work_dir_lives_under_the_run_root_and_is_removed` |
 | drop the final drain | `completed_run…`, `cooperative_plugin…`, `cpu_bound_plugin…` |
 | no abort after grace | `timeout_keeps_partial_records_and_releases_resources` |

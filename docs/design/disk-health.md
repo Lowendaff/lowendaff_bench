@@ -307,7 +307,7 @@ An example; only the `sda` row is real, from the owner's server:
 - **Waking disks:** reading wakes a disk in standby, as smartctl does by default.
 - **Timeout:** when 5 or more disks each hang for 60 seconds, the item times out at 5 minutes and shows no table.
 - **A forced end of the program** leaves behind a device node that the item created (§6).
-- **musl's notice:** `fio-3.43-1` does not include musl's `COPYRIGHT`. Fixing that needs a new release, `fio-3.43-2`, and new pins. The proposal is to add the notice at fio's next rebuild.
+- **musl's notice:** `fio-3.43-1` does not include musl's `COPYRIGHT`. M4 fixed that with the release `fio-3.43-2`, which the plugin pins since (`docs/design/cpu.md` §4).
 - **`smartctl-7.5-1` is not bit-for-bit reproducible:** it was built in a random directory, and a published immutable release cannot be fixed, as for fio. Builds since M4 match while Alpine's packages stay the same (`docs/design/cpu.md` §4).
 - **The real run** (§8) is one exception to read-only probing of the owner's servers.
 

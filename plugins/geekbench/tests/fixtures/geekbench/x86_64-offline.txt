@@ -1,0 +1,68 @@
+Geekbench 7.1.0 : https://www.geekbench.com/
+
+Geekbench 7 requires an active internet connection and automatically uploads 
+benchmark results to the Geekbench Browser.
+
+Upgrade to Geekbench 7 Pro to enable offline use and unlock other features:
+
+  http://www.geekbench.com/app/parkdale/store
+
+Enter your Geekbench 7 Pro license using the following command line:
+
+  /gb/geekbench7 --unlock <email> <key>
+
+System Information
+  Operating System              Debian GNU/Linux 13 (trixie)
+  Kernel                        Linux 7.0.14-linuxkit x86_64
+  Model                         N/A
+  Motherboard                   N/A
+
+CPU Information
+  Name                          VirtualApple @ 2.50GHz
+  Topology                      1 Processor, 10 Cores
+  Identifier                    GenuineIntel Family 6 Model 44 Stepping 0
+  Base Frequency                2.50 GHz
+  L1 Instruction Cache          128 KB x 10
+  L1 Data Cache                 128 KB x 10
+  L2 Cache                      8.00 MB x 2
+  Instruction Sets              sse2 sse3 pclmul fma3 sse41 aesni avx f16c avx2
+
+Memory Information
+  Size                          7.75 GB
+
+
+Single-Core
+  Running File Compression
+  Running Navigation
+  Running HTML5 Browser
+  Running PDF Viewer
+  Running Photo Library
+  Running Clang
+  Running Text Processing
+  Running Asset Compression
+  Running HDR
+  Running Photo Editor
+  Running Ray Tracer
+  Running Structure from Motion
+  Running Game Physics
+  Running Video Encoder
+  Running Audio Encoder
+  Running Video Player
+
+Multi-Core
+  Running File Compression
+  Running Photo Library
+  Running Clang
+  Running Text Processing
+  Running Asset Compression
+  Running HDR
+  Running Photo Editor
+  Running Ray Tracer
+
+
+libcurl: (6) Could not resolve host: browser.geekbench.com
+
+Uploading results to the Geekbench Browser. This could take a minute or two 
+depending on the speed of your internet connection.
+
+console_upload_failed unable to resolve host browser.geekbench.com

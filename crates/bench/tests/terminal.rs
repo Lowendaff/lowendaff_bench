@@ -16,6 +16,7 @@ use bench_api::Missing;
 use bench_api::Record;
 use bench_api::Requirements;
 use bench_api::Table;
+use bench_api::ToolForm;
 use bench_api::ToolSpec;
 
 const DISK: Descriptor = Descriptor {
@@ -102,11 +103,13 @@ fn tool_section_shows_each_tool_with_its_result() {
     let fio = ToolSpec {
         name: "fio",
         version: "3.39",
+        form: ToolForm::Executable,
         assets: &[],
     };
     let iperf3 = ToolSpec {
         name: "iperf3",
         version: "3.19",
+        form: ToolForm::Executable,
         assets: &[],
     };
     let provisioned = Provisioned {
