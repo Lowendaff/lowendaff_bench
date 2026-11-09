@@ -51,11 +51,11 @@ build() {
 }
 
 # smoke: runs smoke.sh on the built binary in a fresh directory and prints its output. The
-# mutants concern the root check and the run directory, so the long disk test is left out.
+# mutants concern the root check and the run directory, so the long tests are left out.
 smoke() {
     $as_root rm -rf "$scratch/run"
     mkdir "$scratch/run"
-    (cd "$scratch/run" && "$repo/scripts/smoke.sh" "$bin" --skip disk.fio) 2>&1
+    (cd "$scratch/run" && "$repo/scripts/smoke.sh" "$bin" --skip disk.fio,cpu.sysbench) 2>&1
 }
 
 # mutant <text smoke.sh must print> <file> <perl substitution>

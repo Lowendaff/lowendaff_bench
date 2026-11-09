@@ -11,6 +11,8 @@ pub const REGISTRY: &[Registration] = &[
     // 硬盘健康: SMART through smartctl, on dedicated servers only. Before 硬盘性能, so that
     // the disks are idle and fio's writes are not counted (design disk-health, DH-08).
     bench_api::register::<plugin_disk_health::Smartctl>(),
+    // CPU 性能: sysbench, before fio's writes can disturb it (design cpu, CP-08).
+    bench_api::register::<plugin_cpu::Sysbench>(),
     // 硬盘性能: fio with YABS's method, on every platform.
     bench_api::register::<plugin_disk::Fio>(),
 ];
@@ -26,17 +28,23 @@ mod tests {
     }
 
     #[test]
-    fn disk_health_runs_before_disk_performance() {
-        // SMART is read while the disks are idle and before fio's writes (design
-        // disk-health, DH-08).
+    fn the_items_run_in_the_owners_order() {
+        // SMART is read while the disks are idle and before fio's writes (design disk-health,
+        // DH-08); sysbench runs before fio too (design cpu, CP-08).
         let ids: Vec<&str> = REGISTRY
             .iter()
             .map(|registration| registration.descriptor.id)
             .collect();
-        let position = |id: &str| {
-            let index = ids.iter().position(|registered| *registered == id);
-            index.expect("both items are registered")
-        };
-        assert!(position("disk.health") < position("disk.fio"), "{ids:?}");
+        assert_eq!(
+            ids,
+            [
+                "system.dedicated",
+                "system.vm",
+                "system.container",
+                "disk.health",
+                "cpu.sysbench",
+                "disk.fio",
+            ]
+        );
     }
 }
