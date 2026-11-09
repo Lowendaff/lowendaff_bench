@@ -15,6 +15,9 @@ pub const REGISTRY: &[Registration] = &[
     bench_api::register::<plugin_cpu::Sysbench>(),
     // 硬盘性能: fio with YABS's method, on every platform.
     bench_api::register::<plugin_disk::Fio>(),
+    // Geekbench 7: last, being the longest, with a download, an upload and perhaps swap that
+    // must not disturb the disk test (design cpu, CP-08).
+    bench_api::register::<plugin_geekbench::Geekbench>(),
 ];
 
 #[cfg(test)]
@@ -44,6 +47,7 @@ mod tests {
                 "disk.health",
                 "cpu.sysbench",
                 "disk.fio",
+                "cpu.geekbench",
             ]
         );
     }

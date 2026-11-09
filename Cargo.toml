@@ -11,6 +11,7 @@ license = "MIT"
 [workspace.dependencies]
 bench-host = { path = "crates/bench-host" }
 plugin-cpu = { path = "plugins/cpu" }
+plugin-geekbench = { path = "plugins/geekbench" }
 plugin-disk = { path = "plugins/disk" }
 plugin-disk-health = { path = "plugins/disk-health" }
 plugin-system = { path = "plugins/system" }
