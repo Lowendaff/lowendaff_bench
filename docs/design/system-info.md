@@ -1,6 +1,6 @@
 # System Information Test Items (系统基础信息)
 
-- Status: **Accepted** 2026-11-07. The owner decided S-01..S-08 (§2). The hardware of dedicated servers (§9) followed on 2026-11-09 with S-09..S-21, and the owner accepted its risks (§9.8), as revised after the captures, the same day.
+- Status: **Accepted** 2026-11-07. The owner decided S-01..S-08 (§2). The hardware of dedicated servers (§9) followed on 2026-11-09 with S-09..S-21, and the owner accepted its risks (§9.8), as revised after the captures, the same day. S-22 followed a real Proxmox VE container on 2026-11-10.
 - Scope: the first test items. One plugin per kind of platform in `plugins/system`. They read the host through `crates/bench-host` and rely on the orchestrator's platform detection (plugin system design, D-16). §9 adds the machine, firmware, memory modules, ECC, BMC and RAID cards to the dedicated variant (disk health design, DH-01).
 
 ## 1. Goals and non-goals
@@ -28,7 +28,7 @@ Non-goals:
 | S-04 | Text when no virtualization is found | 未检测到虚拟化, not 独立服务器: finding nothing is no proof of bare metal. |
 | S-05 | Distribution coverage in CI | Run the item in images of Debian 11/13, Ubuntu 20.04/24.04, CentOS 7, Rocky 9, AlmaLinux 8, Fedora 45, Alpine 3.22, Arch (x86_64 only), openSUSE Leap 16.0, Amazon Linux 2023 and Oracle Linux 9, on both architectures (`scripts/distros.sh`). Images are listed in `scripts/distros.txt`, pinned by digest, and come from AWS ECR Public, except openSUSE, which publishes on its own registry. CI pulls copies with the same digests from `ghcr.io/lowendaff/mirror` (README "Gates"): ECR Public allows one anonymous pull per second per address, and on 2026-11-07 that limit failed the x86_64 job on the runners' shared addresses. The step belongs to the Linux CI jobs, which are required checks. |
 | S-06 | Fixtures | The owner's KVM guest and dedicated server were sampled read-only. The captures may be published after trimming (`crates/bench-host/tests/fixtures/README.md`). |
-| S-07 | One environment-aware plugin, or one plugin per environment | **One plugin per platform kind**, with the shared parts extracted as far as possible. LXC is in scope and tested with Docker first. |
+| S-07 | One environment-aware plugin, or one plugin per environment | **One plugin per platform kind**, with the shared parts extracted as far as possible. LXC is in scope and tested with Docker first; a real Proxmox VE container followed on 2026-11-10 (§7). |
 | S-08 | Plugins that do not apply here | One 本机不适用 line in the header. Titles that run here in another variant are left out. |
 | S-09 | How much of the memory modules to show (dedicated servers, §9) | **A table of every slot,** empty slots included. The alternatives were one summary line, and a table of the installed modules only. |
 | S-10 | The memory table's columns | **插槽, 容量, 类型, 速度, 厂商, 型号.** The type is the generation and the module kind (DDR4 LRDIMM). The speed is the configured speed, with the rated speed in parentheses when they differ. An empty slot shows its locator and 空 only. The alternatives added a rank column, or left out the manufacturer and part number. |
@@ -43,6 +43,7 @@ Non-goals:
 | S-19 | A real run of §9 | **Once, on the owner's dedicated server,** as an exception to read-only probing (§9.7). Only the new lines are published. |
 | S-20 | A slot that firmware reports as empty but that carries a module's data | **容量 shows 未启用,** the other columns show the module's data, and a 说明 line under the table names the slots. The owner's server has two such slots (§9.1). The alternatives were the same without the 说明 line, and showing the slot as 空. |
 | S-21 | A real run on the owner's ARM board | **Once, `--only system.dedicated`,** by S-19's procedure (§9.7). The alternatives were adding the disk health item, to read the board's NVMe SSD for real, and no run. |
+| S-22 | A container's uptime and load, which `/proc` may show for the host: Docker shares the kernel's, and lxcfs passes the load through | **Compared with what the kernel reports itself:** `CLOCK_BOOTTIME` for the uptime, which LXD and Incus do not intercept as they can sysinfo(2), and sysinfo(2) for the load. In a container, a value equal to the kernel's is the host's and gets （宿主机）; a different one is the container's own and shows plain. OpenVZ is left out, because its kernel answers both with the container's own values. Decided 2026-11-10 after the Proxmox VE container's run (§7). The alternatives were documenting it only, and leaving both lines out in containers. |
 
 ## 3. Fields
 
@@ -63,8 +64,8 @@ All three variants print the section in this order. The table gives the source o
 | 系统 | fact | os-release(5): `/etc/os-release`, then `/usr/lib/os-release`; `PRETTY_NAME`, else `NAME VERSION`. Then `/etc/lsb-release`, `/etc/redhat-release`, `/etc/centos-release`, `/etc/system-release`, `/etc/debian_version`, `/etc/alpine-release`. | Quoting and escapes as os-release(5) defines them. |
 | 内核 | fact | `/proc/sys/kernel/osrelease` | Same as `uname -r`. |
 | 架构 | fact | `Env.arch` | |
-| 运行时间 | fact | `/proc/uptime` | "3 天 4 小时 12 分钟". |
-| 负载 | fact | `/proc/loadavg` | |
+| 运行时间 | fact | `/proc/uptime` | "3 天 4 小时 12 分钟". In a container, （宿主机） follows when it is the host's (S-22). |
+| 负载 | fact | `/proc/loadavg` | In a container, （宿主机） follows when it is the host's (S-22). |
 | TCP 拥塞控制 | fact | `/proc/sys/net/ipv4/tcp_congestion_control`, plus `/proc/sys/net/core/default_qdisc` when present. | "bbr（队列 fq）". |
 | IPv4 / IPv6 | fact | `Env.ipv4`, `Env.ipv6` from the orchestrator's probe. | |
 
@@ -80,7 +81,7 @@ The platform itself is printed once, in the header (运行环境), by the orches
   - cpufreq and cache sizes missing in VMs (the capture from Docker on Apple silicon has cache directories without sizes);
   - DMI missing on device-tree boards;
   - `default_qdisc` missing inside network namespaces.
-- **Containers.** LXC with lxcfs shows container values in `/proc`. Docker without lxcfs shows the host's, so containers read their cgroup (v2, else v1) for memory and CPU limits.
+- **Containers.** LXC with lxcfs shows container values in `/proc`; on Proxmox VE the container's own cgroup files say `max`, because the limits sit above its namespace. Docker without lxcfs shows the host's, so containers read their cgroup (v2, else v1) for memory and CPU limits.
 - **Architectures.** x86_64 and aarch64, the release architectures.
 
 ## 5. Platform detection
@@ -128,9 +129,9 @@ The orchestrator detects the platform once (`crates/bench-host/src/platform.rs`,
 ## 7. Testing
 
 - **`crates/bench-host/tests`** runs the readers against captured hosts in `tests/fixtures`:
-  - the owner's KVM guest and dedicated server;
-  - Docker on Apple silicon;
-  - Docker standing in for LXC.
+  - the owner's KVM guest, dedicated server and ARM board;
+  - an unprivileged Proxmox VE container on that server;
+  - Docker on Apple silicon, plain and with limits on its own cgroup.
 
   Expectations come from the host's own tools at capture time (`truth/`). Small synthetic hosts cover rules no capture shows.
 - **`plugins/system/tests`** checks the records each variant prints for those captures.
@@ -138,7 +139,8 @@ The orchestrator detects the platform once (`crates/bench-host/src/platform.rs`,
 - **CI runners.** The smoke test runs every test item on the x86_64 and aarch64 runners themselves, which are virtual machines. It fails when an item fails or times out, and prints the output, including 运行环境, to the CI log. On 2026-11-07 both runners reported Hyper-V 虚拟机 and completed the item:
   - x86_64: AMD EPYC 9V74, 4 vCPUs, AMD-V exposed to the guest, a 150 GiB SCSI "Virtual Disk", Ubuntu 24.04.5.
   - aarch64: ARM Neoverse-N2 (from the part code), Hyper-V recognized through DMI because ARM has no CPUID; CPU 频率 showed 不可用, since the guest has no cpufreq.
-- **Mutation check.** Each mutation was applied to a copy of the repository, and the tests had to fail. All 50 were killed:
+- **A Proxmox VE container (2026-11-10).** With the owner's approval, an unprivileged container (2 cores, 1 GiB, its root on ZFS) was made on the dedicated server for one capture and one run of `--skip cpu.geekbench`, then destroyed. The run completed 系统基础信息, CPU 性能 and 硬盘性能, with 硬盘健康 本机不适用. Its 负载 was the host's, passed through by lxcfs, which led to S-22.
+- **Mutation check.** Each mutation was applied to a copy of the repository, and the tests had to fail. All 66 were killed, the last 16 for S-22 on 2026-11-10, two of them in a Linux container because the code they change is built for Linux only:
 
   | Area | Mutations | Examples |
   |------|-----------|----------|
@@ -147,13 +149,15 @@ The orchestrator detects the platform once (`crates/bench-host/src/platform.rs`,
   | CPU, memory, distribution | 14 | wrong `model name` key; core ids ignored; cpufreq off by a factor of 10; data and instruction caches swapped; vendor prefix doubled; VT-x read from `svm`; CPU lists off by one; `Cached` left out of the estimate; kB read as bytes; cgroup v1 "unlimited" taken as a limit; quota and period swapped; `/usr/lib/os-release` skipped; escapes in double quotes ignored; `VERSION_ID` skipped |
   | Storage | 11 | ZFS volumes counted as disks; `nvme0n1p1`-style partitions misread; bind mounts kept; device names in mount sources unresolved; swap partitions ignored; ZFS members unrecognized; the longest mount point kept; `/boot` kept; full model names unread; ATA rotation rate inverted; octal escapes misdecoded |
   | Report | 11 | the 介质 column in VMs; ZFS used space shown; the test directory unmarked; the cgroup memory limit applied when larger; the cgroup swap ignored; two-socket text for one socket; a CPU quota above the cpuset shown; 硬件虚拟化 in containers; TiB with one decimal; hours not wrapped at 24; the system disk unmarked |
+  | The host's uptime and load (S-22) | 16 | the uptime's second of tolerance made inclusive or a minute; loads compared with `any`, or within 0.1 or 0.001; OpenVZ compared; containers not compared; VMs and dedicated servers compared; only the reading before /proc used, or only the one after; the mark inverted, renamed, or given without comparing the uptime or the load; on Linux, the load's fixed point read with 11 fractional bits, and the real-time clock read for the uptime |
 
 ## 8. Known limitations
 
 - CPUID is x86 only. ARM guests are recognized by DMI or the device tree.
 - ARM model names come from the part table. SMBIOS processor strings, such as "Ampere Altra Q80-30", are not decoded.
 - A ZFS pool's used space is not shown (§6).
-- LXC is tested through Docker until a real LXC capture exists (S-07).
+- LXC is tested with one Proxmox VE container: unprivileged, with nesting, its root on ZFS. Privileged containers and other managers, such as LXD or Incus, are not captured.
+- The （宿主机） mark (S-22) trusts the kernel's answers. A container in its own time namespace, which shifts `CLOCK_BOOTTIME` as well, has its uptime marked as the host's; so would a load that matches the host's to the hundredth by chance, such as an idle container's under lxcfs with `--enable-loadavg` on an idle host; and so would values from any other kernel that, like OpenVZ's, answers with the container's own.
 - Kernels older than the runners' are not exercised in CI; their userlands are, through the distribution matrix.
 
 ## 9. Hardware of dedicated servers
