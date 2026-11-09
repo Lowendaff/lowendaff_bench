@@ -149,6 +149,11 @@ jobs:
         run: cargo nextest run -p bench --test tools --locked --run-ignored only
       - name: Static build
         run: cargo build --release --locked --target "$TARGET" --bin lowendaff-bench
+      # Turns a 64 MiB swap file on and off as root, which the tests cannot (design cpu, §9.3).
+      - name: Swap round trip
+        run: |
+          cargo build --release --locked --target "$TARGET" -p swap-file --example roundtrip
+          sudo "target/$TARGET/release/examples/roundtrip" "$RUNNER_TEMP"
       - name: Smoke
         run: scripts/smoke.sh "target/$TARGET/release/lowendaff-bench"
       - name: Smoke mutants

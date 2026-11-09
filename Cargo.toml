@@ -18,6 +18,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.11"
 smbios-lib = "0.9.4"
+swap-file = { path = "crates/swap-file" }
 tempfile = "3"
 tokio = "1"
 tokio-util = "0.7"
