@@ -1,7 +1,8 @@
 #!/bin/sh
 # Runs the 系统基础信息 item in containers of many distributions (design system-info, S-05).
-# In each, the 系统 line must equal the image's own os-release PRETTY_NAME and the item must
-# complete. Then Geekbench 7 runs without a network, so that nothing is downloaded or uploaded:
+# In each, the 系统 line must equal the image's own os-release PRETTY_NAME, the item must
+# complete, and its uptime and load must be marked as the host's, which Docker shares (S-22).
+# Then Geekbench 7 runs without a network, so that nothing is downloaded or uploaded:
 # its reason to skip must fit the image's own glibc (design cpu, §9.3). CI runs it on both
 # architectures; README "Gates" documents it.
 #
@@ -43,6 +44,11 @@ for image in $images; do
     reported=$(printf '%s\n' "$output" | sed -n 's/^  系统  *//p')
     [ "$reported" = "$expected" ] || fail "$name: 系统 is \"$reported\", expected \"$expected\""
     printf '%s\n' "$output" | grep -q '^  完成，用时' || fail "$name: the item did not complete: $output"
+    # Docker shares the kernel's uptime and load, so both are the host's (design system-info, S-22).
+    for label in 运行时间 负载; do
+        printf '%s\n' "$output" | grep -q "^  $label  *.*（宿主机）\$" ||
+            fail "$name: $label is not marked as the host's: $output"
+    done
 
     # glibc's version as the image's ldd reports it: "ldd (GNU libc) 2.34". musl has none.
     glibc=$(docker run --rm --entrypoint sh "$image" -c 'ldd --version 2>&1 | head -n 1' |

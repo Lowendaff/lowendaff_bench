@@ -13,6 +13,7 @@ use bench_api::PluginError;
 use bench_api::Requirements;
 use bench_host::Root;
 use bench_host::storage;
+use bench_host::system::Counters;
 use serde::Deserialize;
 
 pub mod hardware;
@@ -83,6 +84,7 @@ async fn emit(ctx: &Context, kind: PlatformKind) -> Result<(), PluginError> {
             env,
             work_dir: storage::device_of(Path::new(&work_dir)),
             space: storage::statvfs,
+            kernel: Counters::read,
         };
         report::records(&host, kind)
     })

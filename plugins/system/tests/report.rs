@@ -1,8 +1,10 @@
 //! The records each variant prints for captured hosts (crates/bench-host/tests/fixtures).
 
+use std::cell::Cell;
 use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
+use std::time::Duration;
 
 use bench_api::ContainerKind;
 use bench_api::Env;
@@ -12,6 +14,8 @@ use bench_api::PlatformKind;
 use bench_api::Record;
 use bench_host::Root;
 use bench_host::storage::Space;
+use bench_host::system;
+use bench_host::system::Counters;
 use plugin_system::report;
 use plugin_system::report::Host;
 
@@ -58,7 +62,24 @@ fn lines(records: &[Record]) -> Vec<String> {
     lines
 }
 
+/// The report on a kernel with nothing in front of `/proc`: its own uptime and load are the
+/// ones the captured files show.
 fn report(name: &str, kind: PlatformKind, platform: Platform, work_dir: (u32, u32)) -> Vec<String> {
+    let root = Root::new(fixture_dir(name).join("root"));
+    let kernel = Counters {
+        uptime: system::uptime(&root).expect("/proc/uptime"),
+        load: system::load(&root).expect("/proc/loadavg"),
+    };
+    report_with(name, kind, platform, work_dir, move || Some(kernel))
+}
+
+fn report_with(
+    name: &str,
+    kind: PlatformKind,
+    platform: Platform,
+    work_dir: (u32, u32),
+    kernel: impl Fn() -> Option<Counters>,
+) -> Vec<String> {
     let host = Host {
         root: Root::new(fixture_dir(name).join("root")),
         env: Env {
@@ -75,8 +96,35 @@ fn report(name: &str, kind: PlatformKind, platform: Platform, work_dir: (u32, u3
         },
         work_dir: Some(work_dir),
         space: df(name),
+        kernel,
     };
     lines(&report::records(&host, kind).expect("records"))
+}
+
+/// The report of the Proxmox VE container, whose server had been up 61 days, with the kernel's
+/// load averages in `loads`, one per reading.
+fn proxmox(loads: &[[f64; 3]]) -> Vec<String> {
+    let readings = Cell::new(0);
+    let lines = report_with(
+        "lxc-pve-debian13-x86_64",
+        PlatformKind::Container,
+        Platform::Container(ContainerKind::Lxc),
+        (0, 75),
+        || {
+            let reading = readings.get();
+            readings.set(reading + 1);
+            loads.get(reading).map(|&load| Counters {
+                uptime: Duration::from_secs(5_322_667),
+                load,
+            })
+        },
+    );
+    assert_eq!(
+        readings.get(),
+        2,
+        "the kernel is read before /proc and after it"
+    );
+    lines
 }
 
 #[test]
@@ -247,7 +295,8 @@ fn a_container_reports_its_cgroup_limits_and_own_root() {
         Platform::Container(ContainerKind::Lxc),
         (0, 69),
     );
-    // --memory 512m --cpus 1.5: the host's /proc/meminfo would show 8 GB here.
+    // --memory 512m --cpus 1.5: the host's /proc/meminfo would show 8 GB here. Docker shares the
+    // kernel's uptime and load, which are the host's.
     assert_eq!(
         lines,
         [
@@ -266,11 +315,82 @@ fn a_container_reports_its_cgroup_limits_and_own_root() {
             "系统：Debian GNU/Linux 13 (trixie)",
             "内核：7.0.14-linuxkit",
             "架构：aarch64",
-            "运行时间：2 天 20 小时 21 分钟",
-            "负载：0.49 / 0.17 / 0.12",
+            "运行时间：2 天 20 小时 21 分钟（宿主机）",
+            "负载：0.49 / 0.17 / 0.12（宿主机）",
             "TCP 拥塞控制：cubic",
             "IPv4 / IPv6：可用 / 不可用",
         ]
+    );
+}
+
+#[test]
+fn a_proxmox_container_reports_what_lxcfs_shows() {
+    // The server's load was what the container's /proc/loadavg shows.
+    let lines = proxmox(&[[2.40, 2.43, 2.52]; 2]);
+    // cores 2, memory 1024 and swap 512 (MiB). The cgroup files the container sees say max,
+    // because the limits sit above its namespace; lxcfs shows them in /proc instead. Its uptime
+    // is the container's, but the load is the host's: lxcfs serves /proc/loadavg too, yet passes
+    // the host's values through unless it runs with --enable-loadavg, which Proxmox VE does not.
+    assert_eq!(
+        lines,
+        [
+            "CPU 型号：Intel(R) Xeon(R) Gold 6130 CPU @ 2.10GHz",
+            "CPU 核心：2 个",
+            "CPU 频率：3700 MHz",
+            "CPU 缓存：L1d 32 KiB / L1i 32 KiB / L2 1 MiB / L3 22 MiB",
+            "AES 指令：支持",
+            "内存总量：1 GiB",
+            "内存已用：29.37 MiB",
+            "Swap 总量：512 MiB",
+            "Swap 已用：0 KiB",
+            "文件系统：",
+            "挂载点 | 类型 | 容量 | 已用 | 可用",
+            "/（测试目录） | zfs | 8.0 GiB | 351 MiB | 7.7 GiB",
+            "系统：Debian GNU/Linux 13 (trixie)",
+            "内核：7.0.14-15-pve",
+            "架构：x86_64",
+            "运行时间：0 分钟",
+            "负载：2.40 / 2.43 / 2.52（宿主机）",
+            "TCP 拥塞控制：cubic",
+            "IPv4 / IPv6：可用 / 不可用",
+        ]
+    );
+}
+
+#[test]
+fn an_openvz_container_shows_its_own_uptime_and_load() {
+    // OpenVZ's kernel answers sysinfo(2) and /proc alike with the container's own values.
+    let lines = report(
+        "lxc-limits-debian13-aarch64",
+        PlatformKind::Container,
+        Platform::Container(ContainerKind::Openvz),
+        (0, 69),
+    );
+    for line in ["运行时间：2 天 20 小时 21 分钟", "负载：0.49 / 0.17 / 0.12"] {
+        assert!(lines.contains(&line.to_owned()), "{line} in {lines:?}");
+    }
+}
+
+#[test]
+fn a_load_change_between_the_kernels_readings_still_marks_the_hosts_load() {
+    // The load averages change every five seconds; /proc was read on one side of a change.
+    let (shown, changed) = ([2.40, 2.43, 2.52], [2.47, 2.45, 2.53]);
+    for loads in [[shown, changed], [changed, shown]] {
+        let lines = proxmox(&loads);
+        assert!(
+            lines.contains(&"负载：2.40 / 2.43 / 2.52（宿主机）".to_owned()),
+            "{loads:?}: {lines:?}"
+        );
+    }
+}
+
+#[test]
+fn a_container_load_unlike_the_kernels_is_the_containers_own() {
+    // lxcfs with --enable-loadavg shows the container's own averages in /proc/loadavg.
+    let lines = proxmox(&[[0.15, 0.20, 0.30]; 2]);
+    assert!(
+        lines.contains(&"负载：2.40 / 2.43 / 2.52".to_owned()),
+        "{lines:?}"
     );
 }
 

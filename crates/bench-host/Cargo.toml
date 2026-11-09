@@ -8,7 +8,7 @@ license.workspace = true
 
 [dependencies]
 bench-api.workspace = true
-rustix = { version = "1", features = ["fs"] }
+rustix = { version = "1", features = ["fs", "system", "time"] }
 smbios-lib.workspace = true
 
 [dev-dependencies]

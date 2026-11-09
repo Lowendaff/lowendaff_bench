@@ -242,16 +242,20 @@ fn partitions_raid_and_btrfs_subvolumes_lead_to_their_disks() {
 
 #[test]
 fn a_container_shows_its_own_root_filesystem() {
-    let name = "docker-debian13-aarch64";
-    let root =
-        storage::root_filesystem(&common::fixture(name), common::df(name)).expect("a root mount");
-    assert_eq!(root.mount_point, "/");
-    assert_eq!(root.fs_type, "overlay");
-    assert_eq!(root.space, common::df(name)("/"));
-    assert!(
-        root.disks.is_empty(),
-        "the disks seen in a container are the host's"
-    );
+    for (name, fs_type) in [
+        ("docker-debian13-aarch64", "overlay"),
+        ("lxc-pve-debian13-x86_64", "zfs"),
+    ] {
+        let root = storage::root_filesystem(&common::fixture(name), common::df(name))
+            .expect("a root mount");
+        assert_eq!(root.mount_point, "/", "{name}");
+        assert_eq!(root.fs_type, fs_type, "{name}");
+        assert_eq!(root.space, common::df(name)("/"), "{name}");
+        assert!(
+            root.disks.is_empty(),
+            "{name}: the disks seen in a container are the host's"
+        );
+    }
 }
 
 #[test]
