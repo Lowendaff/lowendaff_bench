@@ -135,7 +135,7 @@ fn cores(cpu: &Cpu, kind: PlatformKind, limits: Option<&CgroupLimits>) -> String
         },
         PlatformKind::Vm => format!("{logical} 个"),
         PlatformKind::Container => {
-            let allowed = limits.and_then(|limits| limits.cpuset).unwrap_or(logical);
+            let allowed = cpu::threads(logical, kind, limits.and_then(|limits| limits.cpuset));
             match limits.and_then(|limits| limits.cpus) {
                 Some(quota) if quota < allowed as f64 => {
                     format!("{allowed} 个（限额 {} 个）", number(quota))

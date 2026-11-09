@@ -6,6 +6,7 @@ mod common;
 use std::fs;
 use std::time::Duration;
 
+use bench_api::PlatformKind;
 use bench_host::Root;
 use bench_host::cpu;
 use bench_host::cpu::Topology;
@@ -178,6 +179,42 @@ fn old_kernels_estimate_available_memory() {
     assert_eq!(memory.swap_used(), 0);
 }
 
+#[test]
+fn threads_are_the_logical_cpus_or_a_containers_cpuset() {
+    let host = common::host((
+        &[
+            ("/sys/devices/system/cpu/online", "0-7\n"),
+            ("/sys/fs/cgroup/cpuset.cpus.effective", "0-1\n"),
+        ],
+        &[],
+    ));
+    let root = Root::new(host.path());
+    assert_eq!(cpu::usable_threads(&root, PlatformKind::Container), Some(2));
+    assert_eq!(
+        cpu::usable_threads(&root, PlatformKind::Vm),
+        Some(8),
+        "only containers are bound by the cpuset"
+    );
+    assert_eq!(cpu::usable_threads(&root, PlatformKind::Dedicated), Some(8));
+
+    assert_eq!(
+        cpu::threads(4, PlatformKind::Container, None),
+        4,
+        "a container without a cpuset has the logical CPUs"
+    );
+    assert_eq!(
+        cpu::usable_threads(
+            &common::fixture("dedicated-pve-x86_64"),
+            PlatformKind::Dedicated
+        ),
+        Some(64)
+    );
+    let empty = common::host((&[], &[]));
+    assert_eq!(
+        cpu::usable_threads(&Root::new(empty.path()), PlatformKind::Vm),
+        None
+    );
+}
 #[test]
 fn container_limits_come_from_the_cgroup() {
     let lxc = memory::cgroup_limits(&common::fixture("lxc-limits-debian13-aarch64"));

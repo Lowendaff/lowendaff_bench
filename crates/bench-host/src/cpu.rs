@@ -3,7 +3,10 @@
 use std::collections::BTreeSet;
 use std::mem;
 
+use bench_api::PlatformKind;
+
 use crate::Root;
+use crate::memory;
 
 /// What the CPU reports about itself. Every field is `None` (or empty) when the host does
 /// not expose it, which is common in virtual machines and containers.
@@ -48,6 +51,28 @@ pub enum Virtualization {
     /// Not advertised in CPU flags on this architecture.
     #[default]
     NotApplicable,
+}
+
+/// Threads a test can run at once (design cpu, §5.2): the logical CPUs, or in a container
+/// the CPUs of its cpuset when it has one. 系统基础信息 shows the same number.
+#[must_use]
+pub fn threads(logical: usize, kind: PlatformKind, cpuset: Option<usize>) -> usize {
+    match kind {
+        PlatformKind::Container => cpuset.unwrap_or(logical),
+        PlatformKind::Dedicated | PlatformKind::Vm => logical,
+    }
+}
+
+/// [`threads`] for the host under `root`; `None` when its logical CPUs cannot be counted.
+#[must_use]
+pub fn usable_threads(root: &Root, kind: PlatformKind) -> Option<usize> {
+    let logical = read(root).logical?;
+    let cpuset = if kind == PlatformKind::Container {
+        memory::cgroup_limits(root).cpuset
+    } else {
+        None
+    };
+    Some(threads(logical, kind, cpuset))
 }
 
 /// Reads the CPU facts under `root`.
