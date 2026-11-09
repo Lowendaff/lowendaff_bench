@@ -12,6 +12,7 @@ use bench_api::Context;
 use bench_api::Descriptor;
 use bench_api::DynPlugin;
 use bench_api::Env;
+use bench_api::Libc;
 use bench_api::Net;
 use bench_api::Platform;
 use bench_api::PluginError;
@@ -133,19 +134,36 @@ pub fn for_platform(plan: Vec<Planned>, platform: Platform) -> (Vec<Planned>, Ve
     (applicable, titles)
 }
 
-pub fn preflight(requires: &Requirements, env: &Env) -> Result<(), String> {
-    if let Some(tool) = requires
-        .tools
-        .iter()
-        .find(|tool| !env.tools.contains_key(tool.name))
-    {
-        return Err(format!("工具 {} 不可用", tool.name));
+/// What the host must offer a plugin besides its tools, checked before any download (design
+/// cpu, §6.2): its glibc, then its network.
+pub fn check_host(requires: &Requirements, env: &Env) -> Result<(), String> {
+    if let Some(minimum) = requires.glibc {
+        match env.libc {
+            Libc::Glibc(version) if version < minimum => {
+                return Err(format!("需要 glibc {minimum} 或更新，本机是 {version}"));
+            }
+            Libc::NoGlibc => return Err(format!("需要 glibc {minimum} 或更新，本机没有 glibc")),
+            Libc::Glibc(_) | Libc::GlibcUnknown => {}
+        }
     }
     match requires.net {
         Net::Any if !(env.ipv4 || env.ipv6) => Err("需要网络连接".into()),
         Net::Ipv4 if !env.ipv4 => Err("需要 IPv4 网络连接".into()),
         Net::Ipv6 if !env.ipv6 => Err("需要 IPv6 网络连接".into()),
         _ => Ok(()),
+    }
+}
+
+/// Everything a plugin needs before it runs: [`check_host`], then its tools.
+pub fn preflight(requires: &Requirements, env: &Env) -> Result<(), String> {
+    check_host(requires, env)?;
+    match requires
+        .tools
+        .iter()
+        .find(|tool| !env.tools.contains_key(tool.name))
+    {
+        Some(tool) => Err(format!("工具 {} 不可用", tool.name)),
+        None => Ok(()),
     }
 }
 

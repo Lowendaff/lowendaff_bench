@@ -17,6 +17,8 @@ use bench_api::CancellationToken;
 use bench_api::Context;
 use bench_api::Descriptor;
 use bench_api::Env;
+use bench_api::GlibcVersion;
+use bench_api::Libc;
 use bench_api::Measurement;
 use bench_api::Net;
 use bench_api::Plugin;
@@ -119,25 +121,29 @@ const FIO: ToolSpec = ToolSpec {
     }],
 };
 
-static NEEDS_TOOL_RAN: AtomicBool = AtomicBool::new(false);
+static DEMANDING_RAN: AtomicBool = AtomicBool::new(false);
 
+/// Needs glibc 2.35, IPv6 and fio, so that a test can see the order of the checks.
 #[derive(Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-struct NeedsToolAndIpv6 {}
+struct Demanding {}
 
-impl Plugin for NeedsToolAndIpv6 {
+impl Plugin for Demanding {
     const DESCRIPTOR: Descriptor = Descriptor {
         requires: Requirements {
             tools: &[FIO],
             net: Net::Ipv6,
             platforms: &[],
-            glibc: None,
+            glibc: Some(GlibcVersion {
+                major: 2,
+                minor: 35,
+            }),
         },
         ..descriptor("test.needs", 10_000)
     };
 
     async fn run(&self, _ctx: &Context) -> Result<(), PluginError> {
-        NEEDS_TOOL_RAN.store(true, Ordering::SeqCst);
+        DEMANDING_RAN.store(true, Ordering::SeqCst);
         Ok(())
     }
 }
@@ -259,7 +265,7 @@ fn registry() -> Vec<Registration> {
         bench_api::register::<UsesWorkDir>(),
         bench_api::register::<Failing>(),
         bench_api::register::<Panicking>(),
-        bench_api::register::<NeedsToolAndIpv6>(),
+        bench_api::register::<Demanding>(),
         bench_api::register::<Hanging>(),
         bench_api::register::<Cooperative>(),
         bench_api::register::<CpuBound>(),
@@ -407,43 +413,74 @@ async fn panic_is_contained_and_the_run_continues() {
     assert_eq!(runs[1].outcome, Outcome::Completed);
 }
 
-#[tokio::test]
-async fn unmet_requirements_skip_without_running() {
+/// The reason a run of `Demanding` on `env` is skipped with, and how long it ran.
+async fn skip_reason(env: Env) -> (String, Option<Duration>) {
     let (runs, _) = run(
         &["test.needs"],
         BTreeMap::new(),
-        env(),
+        env,
         &CancellationToken::new(),
         1_000,
     )
     .await;
-    assert_eq!(
-        runs[0].outcome,
-        Outcome::Skipped {
-            reason: "工具 fio 不可用".into()
-        }
-    );
+    let Outcome::Skipped { reason } = &runs[0].outcome else {
+        panic!("{:?}", runs[0].outcome)
+    };
+    (reason.clone(), runs[0].elapsed)
+}
 
-    let with_fio = Env {
-        tools: BTreeMap::from([("fio".to_owned(), PathBuf::from("/x/fio"))]),
+#[tokio::test]
+async fn unmet_requirements_skip_without_running_glibc_first_then_network_then_tools() {
+    let glibc = |minor| Libc::Glibc(GlibcVersion { major: 2, minor });
+    let fio = || BTreeMap::from([("fio".to_owned(), PathBuf::from("/x/fio"))]);
+    let old_glibc = Env {
+        libc: glibc(34),
         ..env()
     };
-    let (runs, _) = run(
-        &["test.needs"],
-        BTreeMap::new(),
-        with_fio,
-        &CancellationToken::new(),
-        1_000,
-    )
-    .await;
     assert_eq!(
-        runs[0].outcome,
-        Outcome::Skipped {
-            reason: "需要 IPv6 网络连接".into()
-        }
+        skip_reason(old_glibc).await,
+        ("需要 glibc 2.35 或更新，本机是 2.34".to_owned(), None)
     );
-    assert_eq!(runs[0].elapsed, None);
-    assert!(!NEEDS_TOOL_RAN.load(Ordering::SeqCst));
+    let musl = Env {
+        libc: Libc::NoGlibc,
+        tools: fio(),
+        ipv6: true,
+        ..env()
+    };
+    assert_eq!(
+        skip_reason(musl).await.0,
+        "需要 glibc 2.35 或更新，本机没有 glibc"
+    );
+    assert_eq!(
+        skip_reason(env()).await.0,
+        "需要 IPv6 网络连接",
+        "an unknown glibc passes, and the network comes before the tools"
+    );
+    let without_fio = Env {
+        libc: glibc(35),
+        ipv6: true,
+        ..env()
+    };
+    assert_eq!(skip_reason(without_fio).await.0, "工具 fio 不可用");
+    assert!(!DEMANDING_RAN.load(Ordering::SeqCst));
+}
+
+#[test]
+fn the_host_check_accepts_the_minimum_glibc_and_newer() {
+    let requires = Demanding::DESCRIPTOR.requires;
+    let on = |major, minor| Env {
+        libc: Libc::Glibc(GlibcVersion { major, minor }),
+        ipv6: true,
+        ..env()
+    };
+    assert_eq!(orchestrator::check_host(&requires, &on(2, 41)), Ok(()));
+    assert_eq!(orchestrator::check_host(&requires, &on(3, 0)), Ok(()));
+    assert!(orchestrator::check_host(&requires, &on(2, 34)).is_err());
+    assert_eq!(
+        orchestrator::check_host(&requires, &on(2, 35)),
+        Ok(()),
+        "tools are not the host check's business"
+    );
 }
 
 #[tokio::test(start_paused = true)]

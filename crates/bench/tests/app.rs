@@ -12,7 +12,9 @@ use bench_api::CancellationToken;
 use bench_api::Context;
 use bench_api::Descriptor;
 use bench_api::Env;
+use bench_api::GlibcVersion;
 use bench_api::Hypervisor;
+use bench_api::Libc;
 use bench_api::Measurement;
 use bench_api::Net;
 use bench_api::Platform;
@@ -355,6 +357,79 @@ async fn only_plugins_for_the_detected_platform_run() {
         text.contains("\n共 1 项：完成 1，跳过 0，失败 0，超时 0，中断 0。"),
         "{text}"
     );
+}
+
+const GEEKBENCH: ToolSpec = ToolSpec {
+    name: "geekbench",
+    version: "7.1.0",
+    form: ToolForm::TarGz {
+        executable: "geekbench7",
+    },
+    assets: SMARTCTL.assets,
+};
+
+#[derive(Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct NeedsGlibcAndIpv4 {}
+
+impl Plugin for NeedsGlibcAndIpv4 {
+    const DESCRIPTOR: Descriptor = Descriptor {
+        id: "test.geekbench",
+        title: "Geekbench 7",
+        requires: Requirements {
+            tools: &[GEEKBENCH],
+            net: Net::Ipv4,
+            platforms: &[],
+            glibc: Some(GlibcVersion {
+                major: 2,
+                minor: 35,
+            }),
+        },
+        ..Good::DESCRIPTOR
+    };
+
+    async fn run(&self, _ctx: &Context) -> Result<(), PluginError> {
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn tools_of_items_the_host_cannot_run_are_not_downloaded() {
+    let registry = [bench_api::register::<NeedsGlibcAndIpv4>()];
+    let without_glibc = Env {
+        libc: Libc::NoGlibc,
+        ipv4: true,
+        ..Env::default()
+    };
+    let without_ipv4 = Env {
+        libc: Libc::GlibcUnknown,
+        ..Env::default()
+    };
+    let cases = [
+        (without_glibc, "需要 glibc 2.35 或更新，本机没有 glibc"),
+        (without_ipv4, "需要 IPv4 网络连接"),
+    ];
+    for (env, reason) in cases {
+        let work = tempfile::tempdir().unwrap();
+        let planned = app::prepare(&cli(&[]), &registry).unwrap();
+        let mut out = Vec::new();
+        let code = app::execute(
+            planned,
+            env,
+            work.path(),
+            &CancellationToken::new(),
+            &mut out,
+        )
+        .await
+        .unwrap();
+        let text = String::from_utf8(out).unwrap();
+        assert_eq!(code, 0);
+        assert!(
+            !text.contains("【准备工具】"),
+            "nothing is downloaded for an item that is skipped anyway: {text}"
+        );
+        assert!(text.contains(&format!("跳过：{reason}")), "{text}");
+    }
 }
 
 #[test]

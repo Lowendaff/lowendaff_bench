@@ -1,10 +1,11 @@
 //! Host facts for `Env`, probed once before anything runs: architecture, platform
-//! (design D-16) and IPv4/IPv6 reachability.
+//! (design D-16), IPv4/IPv6 reachability and the C library (design cpu, §6.2).
 
 use std::time::Duration;
 
 use bench_api::Env;
 use bench_host::Root;
+use bench_host::glibc;
 use bench_host::platform;
 use tokio::net::TcpStream;
 
@@ -21,6 +22,7 @@ pub async fn probe() -> Env {
         ipv4,
         ipv6,
         platform: platform::detect(&Root::system(), platform::cpuid().as_ref()),
+        libc: glibc::read(&Root::system(), std::env::consts::ARCH),
         ..Env::default()
     }
 }

@@ -183,7 +183,13 @@ pub async fn execute(
     let (planned, not_applicable) = orchestrator::for_platform(planned, env.platform);
     terminal.not_applicable(&not_applicable);
 
-    let tools = provision::required_tools(planned.iter().map(Planned::descriptor));
+    // Only the tools of items this host can run, so that nothing is downloaded in vain, such
+    // as Geekbench on a host without glibc or IPv4 (design cpu, §6.2).
+    let runnable = planned
+        .iter()
+        .map(Planned::descriptor)
+        .filter(|descriptor| orchestrator::check_host(&descriptor.requires, &env).is_ok());
+    let tools = provision::required_tools(runnable);
     if !tools.is_empty() {
         let tools_dir = run_dir.path().join("tools");
         fs::create_dir(&tools_dir).map_err(|err| format!("无法创建工具目录：{err}"))?;
