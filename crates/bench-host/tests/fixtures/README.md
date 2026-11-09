@@ -11,8 +11,9 @@ Each directory is a read-only capture of one real host, made with `capture.sh` a
 | `kvm-debian13-x86_64` | KVM guest, Debian 13, kernel 6.12, 1 vCPU, one virtio disk | 2026-11-07, owner's VM | `kvm` |
 | `dedicated-pve-x86_64` | Inspur server, 2 × Xeon Gold 6130, Proxmox VE on Debian 13 (kernel 7.0); system SSD with LVM, three SSDs in the ZFS pool `Volume1` | 2026-11-07, owner's server; hardware files 2026-11-09 | `none` |
 | `docker-debian13-aarch64` | `debian:13-slim` in Docker Desktop on Apple silicon (linuxkit kernel 7.0, no DMI) | 2026-11-07 | not installed |
-| `lxc-limits-debian13-aarch64` | as above, with `--memory 512m --cpus 1.5 -e container=lxc`, standing in for LXC until a real LXC capture exists | 2026-11-07 | not installed |
+| `lxc-limits-debian13-aarch64` | as above, with `--memory 512m --cpus 1.5 -e container=lxc`: a container whose own cgroup carries its limits, which a Proxmox VE container's does not | 2026-11-07 | not installed |
 | `rock3a-debian13-aarch64` | Radxa ROCK 3A board (Rockchip RK3568, 4 × Cortex-A55, 2 GB), Debian 13 (kernel 6.12); U-Boot with EFI and SMBIOS, a device tree, one NVMe SSD | 2026-11-09, owner's board | `none` |
+| `lxc-pve-debian13-x86_64` | unprivileged Proxmox VE container on the dedicated server above (`cores 2`, `memory 1024`, `swap 512`, nesting on), from the Debian 13 template 13.6-1, root on a ZFS subvolume; lxcfs serves `/proc/meminfo`, `/proc/cpuinfo`, `/proc/swaps`, `/proc/uptime` and `/sys/devices/system/cpu`, while the container's cgroup files say `max`. Made for the capture and destroyed after it | 2026-11-10, owner's server | `lxc` |
 
 ## Adding a capture
 

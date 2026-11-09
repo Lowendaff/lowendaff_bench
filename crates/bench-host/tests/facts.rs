@@ -158,7 +158,11 @@ fn x86_cpus_fall_back_to_cpuinfo_and_read_amd_flags() {
 
 #[test]
 fn memory_matches_free() {
-    for name in ["kvm-debian13-x86_64", "dedicated-pve-x86_64"] {
+    for name in [
+        "kvm-debian13-x86_64",
+        "dedicated-pve-x86_64",
+        "lxc-pve-debian13-x86_64",
+    ] {
         let memory = memory::read(&common::fixture(name)).expect("meminfo");
         let output = common::truth(name, "free");
         assert_eq!(memory.total, free(&output, "Mem:", 1), "{name}");
@@ -209,6 +213,10 @@ fn threads_are_the_logical_cpus_or_a_containers_cpuset() {
         ),
         Some(64)
     );
+    // lxcfs shows the container's two CPUs online; lscpu still counts the host's 64.
+    let pve = common::fixture("lxc-pve-debian13-x86_64");
+    assert_eq!(cpu::read(&pve).logical, Some(2));
+    assert_eq!(cpu::usable_threads(&pve, PlatformKind::Container), Some(2));
     let empty = common::host((&[], &[]));
     assert_eq!(
         cpu::usable_threads(&Root::new(empty.path()), PlatformKind::Vm),
@@ -234,6 +242,12 @@ fn container_limits_come_from_the_cgroup() {
         (None, None),
         "max means unlimited"
     );
+
+    // Proxmox VE sets the limits on the container's cgroup, above the root of the namespace
+    // the container sees; lxcfs shows them in /proc/meminfo instead.
+    let pve = memory::cgroup_limits(&common::fixture("lxc-pve-debian13-x86_64"));
+    assert_eq!((pve.memory, pve.swap, pve.cpus), (None, None, None));
+    assert_eq!(pve.cpuset, Some(2), "cores: 2");
 
     let v1: Layout = (
         &[
@@ -269,6 +283,7 @@ fn distribution_names_follow_os_release() {
         "kvm-debian13-x86_64",
         "dedicated-pve-x86_64",
         "docker-debian13-aarch64",
+        "lxc-pve-debian13-x86_64",
     ] {
         assert_eq!(
             os::distribution(&common::fixture(name)).as_deref(),
@@ -355,6 +370,7 @@ fn kernel_uptime_load_and_tcp_settings() {
         ("dedicated-pve-x86_64", "cubic", Some("fq_codel")),
         // Not visible inside a container's network namespace.
         ("docker-debian13-aarch64", "cubic", None),
+        ("lxc-pve-debian13-x86_64", "cubic", None),
     ] {
         let root = common::fixture(name);
         let uname = common::truth(name, "uname");

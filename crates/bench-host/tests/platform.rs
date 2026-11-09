@@ -28,7 +28,7 @@ fn detect(dir: &TempDir, signature: Option<&str>) -> Platform {
 
 #[test]
 fn captured_hosts_match_systemd_detect_virt() {
-    // systemd-detect-virt printed "kvm" and "none" on these hosts at capture time.
+    // systemd-detect-virt printed "kvm", "none" and "lxc" on these hosts at capture time.
     assert_eq!(
         detect_fixture("kvm-debian13-x86_64"),
         Platform::Vm(Hypervisor::Kvm)
@@ -41,6 +41,11 @@ fn captured_hosts_match_systemd_detect_virt() {
     // PID 1 carries container=lxc, which wins over the /.dockerenv of the Docker test bed.
     assert_eq!(
         detect_fixture("lxc-limits-debian13-aarch64"),
+        Platform::Container(ContainerKind::Lxc)
+    );
+    // A container on Proxmox VE, captured on the dedicated server.
+    assert_eq!(
+        detect_fixture("lxc-pve-debian13-x86_64"),
         Platform::Container(ContainerKind::Lxc)
     );
 }

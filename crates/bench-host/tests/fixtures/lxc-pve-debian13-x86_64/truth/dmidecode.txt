@@ -1,0 +1,4 @@
+/sys/firmware/dmi/tables/smbios_entry_point: Permission denied
+Can't read memory from /dev/mem
+# dmidecode 3.6
+Scanning /dev/mem for entry point.
