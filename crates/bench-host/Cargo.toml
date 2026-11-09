@@ -9,6 +9,7 @@ license.workspace = true
 [dependencies]
 bench-api.workspace = true
 rustix = { version = "1", features = ["fs"] }
+smbios-lib.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

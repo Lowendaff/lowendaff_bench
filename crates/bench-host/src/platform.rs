@@ -265,7 +265,8 @@ fn xen_dom0(root: &Root) -> bool {
 }
 
 fn device_tree(root: &Root) -> Option<Hypervisor> {
-    if let Some(compatible) = first_string(root, "/proc/device-tree/hypervisor/compatible") {
+    let hypervisor = crate::device_tree_strings(root, "/proc/device-tree/hypervisor/compatible");
+    if let Some(compatible) = hypervisor.first() {
         return Some(if compatible == "linux,kvm" {
             Hypervisor::Kvm
         } else if compatible.contains("xen") {
@@ -283,16 +284,10 @@ fn device_tree(root: &Root) -> Option<Hypervisor> {
     {
         return Some(Hypervisor::Qemu);
     }
-    match first_string(root, "/proc/device-tree/compatible").as_deref() {
+    let compatible = crate::device_tree_strings(root, "/proc/device-tree/compatible");
+    match compatible.first().map(String::as_str) {
         Some("qemu,pseries") => Some(Hypervisor::Qemu),
         Some("linux,dummy-virt") => Some(Hypervisor::Other),
         _ => None,
     }
-}
-
-/// The first NUL-terminated string of a device-tree property.
-fn first_string(root: &Root, path: &str) -> Option<String> {
-    let text = root.read(path)?;
-    let first = text.split('\0').next()?.trim();
-    (!first.is_empty()).then(|| first.to_owned())
 }

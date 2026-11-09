@@ -1,0 +1,4 @@
+NAME        KNAME     TYPE         SIZE ROTA TRAN   MODEL                    FSTYPE MOUNTPOINTS
+nvme0n1     nvme0n1   disk 128035676160    0 nvme   KBG40ZNS128G BG4A KIOXIA        
+|-nvme0n1p1 nvme0n1p1 part    536870912    0 nvme                            vfat   
+`-nvme0n1p2 nvme0n1p2 part 127497736192    0 nvme                            ext4   /

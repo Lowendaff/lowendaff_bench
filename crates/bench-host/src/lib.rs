@@ -1,18 +1,24 @@
 //! Host facts for lowendaff-bench, shared by the orchestrator and the test items.
 //!
-//! Everything is read from kernel interfaces (`/proc`, `/sys`) and standard files under
-//! `/etc`; no program is run (design P-11). Every reader goes through a [`Root`], so tests
-//! point it at a captured fixture instead of `/`.
+//! Everything is read from kernel interfaces (`/proc`, `/sys`, and on x86 `/dev/mem` as a last
+//! resort for the SMBIOS table) and standard files under `/etc` and `/usr/share`; no program is
+//! run (design P-11). Every reader goes through a [`Root`], so tests point it at a captured
+//! fixture instead of `/`.
 
 #![warn(missing_docs)]
 
 use std::fs;
 use std::path::PathBuf;
 
+pub mod bmc;
 pub mod cpu;
+pub mod edac;
+pub mod machine;
 pub mod memory;
 pub mod os;
 pub mod platform;
+pub mod raid;
+pub mod smbios;
 pub mod storage;
 pub mod system;
 
@@ -84,6 +90,55 @@ impl Root {
         let target = fs::read_link(self.join(path)).ok()?;
         Some(target.to_string_lossy().into_owned())
     }
+
+    /// The file's bytes, or `None` when it is missing or unreadable.
+    #[must_use]
+    pub fn read_bytes(&self, path: &str) -> Option<Vec<u8>> {
+        fs::read(self.join(path)).ok()
+    }
+}
+
+/// The strings of a device-tree property, which are NUL-terminated, without empty ones.
+fn device_tree_strings(root: &Root, path: &str) -> Vec<String> {
+    let Some(text) = root.read(path) else {
+        return Vec::new();
+    };
+    text.split('\0')
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .map(str::to_owned)
+        .collect()
+}
+
+/// A firmware string without surrounding whitespace, or `None` when the firmware left a
+/// placeholder instead (system information design §9.3, §9.4).
+fn firmware_string(text: &str) -> Option<String> {
+    const PLACEHOLDERS: [&str; 14] = [
+        "to be filled by o.e.m.",
+        "default string",
+        "system product name",
+        "system manufacturer",
+        "system version",
+        "base board product name",
+        "not specified",
+        "not applicable",
+        "none",
+        "n/a",
+        "unknown",
+        "0123456789",
+        "undefined",
+        "no dimm",
+    ];
+    let text = text.trim();
+    let lower = text.to_ascii_lowercase();
+    // AMI's numbered defaults, such as `Manufacturer0` and `PartNum0`.
+    let numbered = ["manufacturer", "partnum"].iter().any(|prefix| {
+        lower
+            .strip_prefix(prefix)
+            .is_some_and(|rest| !rest.is_empty() && rest.bytes().all(|byte| byte.is_ascii_digit()))
+    });
+    let zeros = text.bytes().all(|byte| byte == b'0');
+    (!zeros && !numbered && !PLACEHOLDERS.contains(&lower.as_str())).then(|| text.to_owned())
 }
 
 /// Number of CPUs in a kernel CPU list such as `0-15,32-47`.

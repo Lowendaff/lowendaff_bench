@@ -1,0 +1,56 @@
+#
+#	List of PCI ID's
+#
+#	Version: 2025.06.09
+#	Date:    2025-06-09 03:15:02
+#
+#	Maintained by Albert Pool, Martin Mares, and other volunteers from
+#	the PCI ID Project at https://pci-ids.ucw.cz/.
+#
+#	New data are always welcome, especially if they are accurate. If you have
+#	anything to contribute, please follow the instructions at the web site.
+#
+#	This file can be distributed under either the GNU General Public License
+#	(version 2 or higher) or the 3-clause BSD License.
+#
+#	The database is a compilation of factual data, and as such the copyright
+#	only covers the aggregation and formatting. The copyright is held by
+#	Martin Mares and Albert Pool.
+#
+# Vendors, devices and subsystems. Please keep sorted.
+# Syntax:
+# vendor  vendor_name
+#	device  device_name				<-- single tab
+#		subvendor subdevice  subsystem_name	<-- two tabs
+1000  Broadcom / LSI
+	005d  MegaRAID SAS-3 3108 [Invader]
+		1000 9361  MegaRAID SAS 9361-8i
+		1000 9363  MegaRAID SAS 9361-4i
+		1000 9364  MegaRAID SAS 9364-8i
+		1000 936a  MegaRAID SAS 9364-8i
+		1000 9380  MegaRAID SAS 9380-8e
+		1028 1f41  PERC H830 Adapter
+		1028 1f42  PERC H730P Adapter
+		1028 1f43  PERC H730 Adapter
+		1028 1f47  PERC H730P Mini
+		1028 1f48  PERC H730P Mini (for blades)
+		1028 1f49  PERC H730 Mini
+		1028 1f4a  PERC H730 Mini (for blades)
+		1028 1f4d  PERC FD33xS
+		1028 1f4f  PERC H730P Slim
+		1028 1f54  PERC FD33xD
+		1028 1fd1  PERC H730P MX
+		1734 11f6  PRAID EP400i
+		17aa 1052  ThinkServer RAID 720i
+		17aa 1053  ThinkServer RAID 720ix
+		1bd4 0014  12G SAS3108 2G
+		1bd4 0015  12G SAS3108 4G
+		1d49 0600  ThinkSystem RAID 730-8i 1GB Cache PCIe 12Gb Adapter
+		1d49 0608  ThinkSystem RAID 730-8i 2GB Flash PCIe 12Gb Adapter
+		1d49 0609  ThinkSystem RAID 730-8i 4GB Flash PCIe 12Gb Adapter
+		8086 351e  RMS3CC080 RAID Controller
+		8086 351f  RMS3CC040 RAID Controller
+		8086 9360  RS3DC080 RAID Controller
+		8086 9362  RS3DC040 RAID Controller
+		8086 9380  RS3SC008 RAID Controller
+		8086 9381  RS3MC044 RAID Controller

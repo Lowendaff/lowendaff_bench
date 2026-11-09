@@ -1,0 +1,14 @@
+Mounted on                                     1B-blocks      Used        Avail
+/                                           125644845056 939614208 124688453632
+/dev                                             4194304         0      4194304
+/dev/shm                                      1032491008         0   1032491008
+/sys/firmware/efi/efivars                         131048       832       130216
+/run                                           412999680    937984    412061696
+/run/lock                                        5242880         0      5242880
+/tmp                                          1032491008         0   1032491008
+/run/credentials/systemd-journald.service        1048576         0      1048576
+/run/credentials/systemd-resolved.service        1048576         0      1048576
+/run/credentials/systemd-networkd.service        1048576         0      1048576
+/run/credentials/getty@tty1.service              1048576         0      1048576
+/run/credentials/serial-getty@ttyS2.service      1048576         0      1048576
+/run/user/0                                    206495744      4096    206491648
