@@ -3,9 +3,11 @@
 
 use std::time::Duration;
 
+use bench_api::ContainerKind;
 use bench_api::Env;
 use bench_api::Measurement;
 use bench_api::Missing;
+use bench_api::Platform;
 use bench_api::PlatformKind;
 use bench_api::Record;
 use bench_api::RecordError;
@@ -24,13 +26,15 @@ use bench_host::storage::Space;
 use bench_host::storage::Storage;
 use bench_host::storage::Use;
 use bench_host::system;
+use bench_host::system::Counters;
 
 use crate::hardware;
 use crate::hardware::Hardware;
 
 /// What a report reads: the host's files, the facts the orchestrator probed, where the run
-/// directory is, and how to size a mounted filesystem (statvfs on a real host).
-pub struct Host<F> {
+/// directory is, how to size a mounted filesystem (statvfs on a real host), and the running
+/// kernel's own uptime and load.
+pub struct Host<F, K> {
     /// The host's root, or a captured fixture.
     pub root: Root,
     /// Facts probed by the orchestrator.
@@ -39,12 +43,15 @@ pub struct Host<F> {
     pub work_dir: Option<(u32, u32)>,
     /// Size of a filesystem by mount point.
     pub space: F,
+    /// Reads the uptime and load the kernel reports itself ([`Counters::read`] on a real host).
+    pub kernel: K,
 }
 
 /// All records for one kind of platform, in display order.
-pub fn records<F>(host: &Host<F>, kind: PlatformKind) -> Result<Vec<Record>, RecordError>
+pub fn records<F, K>(host: &Host<F, K>, kind: PlatformKind) -> Result<Vec<Record>, RecordError>
 where
     F: Fn(&str) -> Option<Space>,
+    K: Fn() -> Option<Counters>,
 {
     let root = &host.root;
     let limits = (kind == PlatformKind::Container).then(|| memory::cgroup_limits(root));
@@ -68,7 +75,13 @@ where
         }
         storage_records(&mut records, &storage, host.work_dir, hardware.is_some())?;
     }
-    system_records(&mut records, root, &host.env);
+    // A container's /proc may show the host's uptime and load: Docker shares the kernel's, and
+    // lxcfs passes the load through. OpenVZ's kernel answers with the container's own.
+    let kernel: Option<&dyn Fn() -> Option<Counters>> = match host.env.platform {
+        Platform::Container(ContainerKind::Openvz) | Platform::Dedicated | Platform::Vm(_) => None,
+        Platform::Container(_) => Some(&host.kernel),
+    };
+    system_records(&mut records, root, &host.env, kernel);
     Ok(records)
 }
 
@@ -301,7 +314,7 @@ fn storage_records(
 }
 
 /// A container sees the host's disks, so only its own root filesystem is shown.
-fn container_storage<F>(records: &mut Vec<Record>, host: &Host<F>) -> Result<(), RecordError>
+fn container_storage<F, K>(records: &mut Vec<Record>, host: &Host<F, K>) -> Result<(), RecordError>
 where
     F: Fn(&str) -> Option<Space>,
 {
@@ -370,7 +383,14 @@ fn uses(uses: &[Use]) -> String {
     parts.join("，")
 }
 
-fn system_records(records: &mut Vec<Record>, root: &Root, env: &Env) {
+/// `kernel` reads the running kernel's own uptime and load, given only where `/proc` may show
+/// either the container's or the host's; values equal to the kernel's are marked as the host's.
+fn system_records(
+    records: &mut Vec<Record>,
+    root: &Root,
+    env: &Env,
+    kernel: Option<&dyn Fn() -> Option<Counters>>,
+) {
     records.push(Record::fact(
         "os",
         "系统",
@@ -382,16 +402,34 @@ fn system_records(records: &mut Vec<Record>, root: &Root, env: &Env) {
         system::kernel(root).unwrap_or_else(unavailable),
     ));
     records.push(Record::fact("arch", "架构", env.arch.clone()));
+    // The kernel is read before and after /proc, because its load averages change every five
+    // seconds: /proc matches one of the readings even when a change falls in between.
+    let read = || kernel.and_then(|read| read());
+    let before = read();
+    let (shown_uptime, shown_load) = (system::uptime(root), system::load(root));
+    let after = read();
+    let mark = |matches: &dyn Fn(&Counters) -> bool| {
+        if before.iter().chain(&after).any(matches) {
+            "（宿主机）"
+        } else {
+            ""
+        }
+    };
     records.push(Record::fact(
         "uptime",
         "运行时间",
-        system::uptime(root).map_or_else(unavailable, uptime),
+        shown_uptime.map_or_else(unavailable, |shown| {
+            let mark = mark(&|kernel| kernel.matches_uptime(shown));
+            format!("{}{mark}", uptime(shown))
+        }),
     ));
     records.push(Record::fact(
         "load",
         "负载",
-        system::load(root).map_or_else(unavailable, |[one, five, fifteen]| {
-            format!("{one:.2} / {five:.2} / {fifteen:.2}")
+        shown_load.map_or_else(unavailable, |shown| {
+            let [one, five, fifteen] = shown;
+            let mark = mark(&|kernel| kernel.matches_load(shown));
+            format!("{one:.2} / {five:.2} / {fifteen:.2}{mark}")
         }),
     ));
     let tcp = match (
