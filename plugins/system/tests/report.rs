@@ -275,6 +275,44 @@ fn a_container_reports_its_cgroup_limits_and_own_root() {
 }
 
 #[test]
+fn a_proxmox_container_reports_what_lxcfs_shows() {
+    let lines = report(
+        "lxc-pve-debian13-x86_64",
+        PlatformKind::Container,
+        Platform::Container(ContainerKind::Lxc),
+        (0, 75),
+    );
+    // cores 2, memory 1024 and swap 512 (MiB). The cgroup files the container sees say max,
+    // because the limits sit above its namespace; lxcfs shows them in /proc instead. Its uptime
+    // is the container's, but the load is the host's: lxcfs serves /proc/loadavg too, yet passes
+    // the host's values through unless it runs with --enable-loadavg, which Proxmox VE does not.
+    assert_eq!(
+        lines,
+        [
+            "CPU 型号：Intel(R) Xeon(R) Gold 6130 CPU @ 2.10GHz",
+            "CPU 核心：2 个",
+            "CPU 频率：3700 MHz",
+            "CPU 缓存：L1d 32 KiB / L1i 32 KiB / L2 1 MiB / L3 22 MiB",
+            "AES 指令：支持",
+            "内存总量：1 GiB",
+            "内存已用：29.37 MiB",
+            "Swap 总量：512 MiB",
+            "Swap 已用：0 KiB",
+            "文件系统：",
+            "挂载点 | 类型 | 容量 | 已用 | 可用",
+            "/（测试目录） | zfs | 8.0 GiB | 351 MiB | 7.7 GiB",
+            "系统：Debian GNU/Linux 13 (trixie)",
+            "内核：7.0.14-15-pve",
+            "架构：x86_64",
+            "运行时间：0 分钟",
+            "负载：2.40 / 2.43 / 2.52",
+            "TCP 拥塞控制：cubic",
+            "IPv4 / IPv6：可用 / 不可用",
+        ]
+    );
+}
+
+#[test]
 fn the_three_variants_share_one_title_and_split_the_platforms() {
     use bench_api::Plugin;
 
