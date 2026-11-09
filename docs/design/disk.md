@@ -58,7 +58,7 @@ Non-goals:
 
 ## 4. fio builds (DK-03, P-10)
 
-- **Files:** the build script `scripts/build-fio.sh` and the workflow `.github/workflows/fio.yml`.
+- **Files:** the build script `scripts/build-fio.sh` and the workflow `.github/workflows/fio.yml`. Since M4, `.github/workflows/tools.yml` builds every tool in place of the workflow (`docs/design/cpu.md` §4).
   - A pull request that changes either file runs the build jobs only, so both architectures are built and checked before merging.
   - Only a manual run on `main` publishes the release. Its tag is the workflow's `TAG`, and the release job first checks that the x86_64 binary reports the same fio version.
 - **Sources,** pinned in the script and checked before use:
@@ -70,7 +70,7 @@ Non-goals:
 
 - **Build environment:** Alpine 3.22, pinned by digest and pulled from `ghcr.io/lowendaff/mirror`. Each architecture builds natively, on `ubuntu-24.04` (x86_64) and `ubuntu-24.04-arm` (aarch64).
   - libaio is built as a static library, then fio with `./configure --build-static --disable-native`.
-  - Compilers come from Alpine's signed packages and follow the 3.22 branch, so builds are not bit-for-bit reproducible. Two builds from the same script on the same day, one in local Docker and one in CI, already produced different binaries (2026-11-08).
+  - Compilers come from Alpine's signed packages and follow the 3.22 branch, so builds are not bit-for-bit reproducible over time. Two builds from the same script on the same day, one in local Docker and one in CI, already produced different binaries (2026-11-08). The difference was the build's random directory; since M4 the directory is fixed, and builds with the same packages match (`docs/design/cpu.md` §4).
 - **Checks before release:**
   - the binary is statically linked;
   - `fio --version` prints `fio-3.43`;
@@ -194,7 +194,7 @@ An example. The numbers are made up, and the widest line is 72 columns:
   - Tests are not time-based, so a fast disk finishes a test early. On a cache-backed disk, the 512k and 1m tests ended after about 40 ms (§6).
   - The 512 MiB file on aarch64 fits more easily in caches.
 - **ZFS before 2.3** accepts O_DIRECT without bypassing the ARC, so reads can come from memory. YABS has the same limitation, and the 说明 line covers only free space.
-- **Builds are not bit-for-bit reproducible** (§4).
+- **Builds are not bit-for-bit reproducible over time** (§4). `fio-3.43-1` was built in a random directory; later builds match while Alpine's packages stay the same (`docs/design/cpu.md` §4).
 - **A published immutable release cannot be fixed.** A rebuild needs a new tag (`fio-3.43-2`) and new pins.
 - **The comparison with YABS's fio** ran on GitHub's runners, not on the owner's hardware. On aarch64, the first test run of a fresh runner was slower.
 - **CI time:** each Linux CI job takes about 2.5 minutes longer (DK-07).

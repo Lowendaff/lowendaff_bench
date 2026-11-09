@@ -106,7 +106,7 @@ From its source (`smartmontools-7.5.tar.gz`) and trial runs:
 
 ## 4. smartctl builds (DH-04, P-10)
 
-- **Files:** `scripts/build-smartctl.sh` and `.github/workflows/smartctl.yml`. They work like fio's (`docs/design/disk.md` §4).
+- **Files:** `scripts/build-smartctl.sh` and `.github/workflows/smartctl.yml`. They work like fio's (`docs/design/disk.md` §4). Since M4, `.github/workflows/tools.yml` builds every tool in place of the workflow (`docs/design/cpu.md` §4).
   - A pull request that changes either file builds both architectures without publishing.
   - Only a manual run on `main` publishes, after checking that the x86_64 binary reports the pinned version.
 - **Sources,** pinned in the script and checked before use. The signatures were checked once, when pinning; the script checks the SHA-256.
@@ -308,7 +308,7 @@ An example; only the `sda` row is real, from the owner's server:
 - **Timeout:** when 5 or more disks each hang for 60 seconds, the item times out at 5 minutes and shows no table.
 - **A forced end of the program** leaves behind a device node that the item created (§6).
 - **musl's notice:** `fio-3.43-1` does not include musl's `COPYRIGHT`. Fixing that needs a new release, `fio-3.43-2`, and new pins. The proposal is to add the notice at fio's next rebuild.
-- **Builds are not bit-for-bit reproducible,** and a published immutable release cannot be fixed, as for fio.
+- **`smartctl-7.5-1` is not bit-for-bit reproducible:** it was built in a random directory, and a published immutable release cannot be fixed, as for fio. Builds since M4 match while Alpine's packages stay the same (`docs/design/cpu.md` §4).
 - **The real run** (§8) is one exception to read-only probing of the owner's servers.
 
 ## 10. Implementation plan

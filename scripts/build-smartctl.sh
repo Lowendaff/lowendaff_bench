@@ -1,7 +1,7 @@
 #!/bin/sh
 # Builds a static smartctl for the 硬盘健康 test item (design disk-health, §4) from sources pinned
-# by SHA-256. It runs inside Alpine 3.22 on the architecture it builds for; the smartctl workflow
-# (.github/workflows/smartctl.yml) starts it and publishes what it writes.
+# by SHA-256. It runs inside Alpine 3.22 on the architecture it builds for; the tools workflow
+# (.github/workflows/tools.yml) starts it and publishes what it writes as RELEASE.
 #
 # Usage: build-smartctl.sh <output dir>
 # Writes smartctl-<arch>, this script, the smartmontools tarball and the license texts of
@@ -9,6 +9,7 @@
 # be static, report the pinned version, and scan without reading drive databases from the host.
 set -eu
 
+RELEASE=smartctl-7.5-1
 SMARTMONTOOLS_VERSION=7.5
 SMARTMONTOOLS_RELEASE=https://github.com/smartmontools/smartmontools/releases/download/RELEASE_7_5
 SMARTMONTOOLS_URL=$SMARTMONTOOLS_RELEASE/smartmontools-$SMARTMONTOOLS_VERSION.tar.gz
@@ -29,10 +30,16 @@ fetch() { # <url> <sha256> <file>
 }
 
 [ $# -eq 1 ] || fail "usage: build-smartctl.sh <output dir>"
+case $RELEASE in
+"smartctl-$SMARTMONTOOLS_VERSION-"*) ;;
+*) fail "the release $RELEASE is not of smartctl $SMARTMONTOOLS_VERSION" ;;
+esac
 mkdir -p "$1"
 out=$(cd "$1" && pwd)
 arch=$(uname -m)
-work=$(mktemp -d)
+# A fixed directory rather than a random one, whose name would end up in the binary.
+work=/build
+mkdir "$work" || fail "$work exists already"
 
 apk add --no-cache curl g++ linux-headers make >/dev/null
 musl=$(apk list --installed musl)
