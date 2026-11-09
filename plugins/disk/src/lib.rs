@@ -12,6 +12,7 @@ use bench_api::Plugin;
 use bench_api::PluginError;
 use bench_api::Requirements;
 use bench_api::ToolAsset;
+use bench_api::ToolForm;
 use bench_api::ToolSpec;
 use bench_host::Root;
 use bench_host::storage;
@@ -29,6 +30,7 @@ pub mod report;
 const FIO: ToolSpec = ToolSpec {
     name: "fio",
     version: "3.43",
+    form: ToolForm::Executable,
     assets: &[
         ToolAsset {
             arch: "x86_64",

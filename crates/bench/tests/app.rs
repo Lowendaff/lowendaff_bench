@@ -23,6 +23,7 @@ use bench_api::Record;
 use bench_api::Registration;
 use bench_api::Requirements;
 use bench_api::ToolAsset;
+use bench_api::ToolForm;
 use bench_api::ToolSpec;
 use serde::Deserialize;
 
@@ -265,6 +266,7 @@ impl Plugin for InfoVm {
 const SMARTCTL: ToolSpec = ToolSpec {
     name: "smartctl",
     version: "7.4",
+    form: ToolForm::Executable,
     assets: &[
         ToolAsset {
             arch: "x86_64",
@@ -293,6 +295,7 @@ impl Plugin for DiskHealth {
             tools: &[SMARTCTL],
             net: Net::None,
             platforms: &[PlatformKind::Dedicated],
+            glibc: None,
         },
         ..Good::DESCRIPTOR
     };

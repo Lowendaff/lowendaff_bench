@@ -5,6 +5,7 @@
 use bench::fetcher::Fetcher;
 use bench::provision;
 use bench_api::ToolAsset;
+use bench_api::ToolForm;
 use bench_api::ToolSpec;
 use tokio::net::TcpListener;
 
@@ -84,6 +85,7 @@ async fn provisioning_through_the_real_client_installs_a_verified_tool() {
     let fio = ToolSpec {
         name: "fio",
         version: "3.39",
+        form: ToolForm::Executable,
         assets,
     };
     let dir = tempfile::tempdir().unwrap();

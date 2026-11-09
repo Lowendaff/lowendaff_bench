@@ -21,6 +21,7 @@ use bench_api::PluginError;
 use bench_api::Record;
 use bench_api::Requirements;
 use bench_api::ToolAsset;
+use bench_api::ToolForm;
 use bench_api::ToolSpec;
 use serde::Deserialize;
 
@@ -41,6 +42,7 @@ const fn asset(arch: &'static str, sha256: &'static str, size: u64) -> ToolAsset
 const FIO: ToolSpec = ToolSpec {
     name: "fio",
     version: "3.39",
+    form: ToolForm::Executable,
     assets: &[
         asset("x86_64", SCRIPT_SHA, SCRIPT_LEN),
         asset("aarch64", SCRIPT_SHA, SCRIPT_LEN),
@@ -128,6 +130,7 @@ async fn install_rejects_a_truncated_download() {
 const IPERF3_ARM_ONLY: ToolSpec = ToolSpec {
     name: "iperf3",
     version: "3.19",
+    form: ToolForm::Executable,
     assets: &[ToolAsset {
         arch: "aarch64",
         url: "https://tools.example/iperf3",
@@ -139,6 +142,7 @@ const IPERF3_ARM_ONLY: ToolSpec = ToolSpec {
 const SYSBENCH: ToolSpec = ToolSpec {
     name: "sysbench",
     version: "1.0.20",
+    form: ToolForm::Executable,
     assets: &[ToolAsset {
         arch: "x86_64",
         url: "https://tools.example/sysbench",
@@ -185,6 +189,7 @@ fn required_tools_are_unique_and_in_plan_order() {
             tools,
             net: Net::None,
             platforms: &[],
+            glibc: None,
         },
         timeout: Duration::from_secs(1),
     };
@@ -212,6 +217,7 @@ impl Plugin for RunsFio {
             tools: &[FIO],
             net: Net::None,
             platforms: &[],
+            glibc: None,
         },
         timeout: Duration::from_secs(10),
     };

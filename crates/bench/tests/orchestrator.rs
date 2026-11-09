@@ -25,6 +25,7 @@ use bench_api::Record;
 use bench_api::Registration;
 use bench_api::Requirements;
 use bench_api::ToolAsset;
+use bench_api::ToolForm;
 use bench_api::ToolSpec;
 use serde::Deserialize;
 
@@ -109,6 +110,7 @@ impl Plugin for Panicking {
 const FIO: ToolSpec = ToolSpec {
     name: "fio",
     version: "3.39",
+    form: ToolForm::Executable,
     assets: &[ToolAsset {
         arch: "x86_64",
         url: "https://tools.example/fio",
@@ -129,6 +131,7 @@ impl Plugin for NeedsToolAndIpv6 {
             tools: &[FIO],
             net: Net::Ipv6,
             platforms: &[],
+            glibc: None,
         },
         ..descriptor("test.needs", 10_000)
     };

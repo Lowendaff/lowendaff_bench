@@ -15,6 +15,7 @@ use bench_api::PluginError;
 use bench_api::Record;
 use bench_api::Requirements;
 use bench_api::ToolAsset;
+use bench_api::ToolForm;
 use bench_api::ToolSpec;
 use bench_host::Root;
 use serde::Deserialize;
@@ -35,6 +36,7 @@ pub mod report;
 const SMARTCTL: ToolSpec = ToolSpec {
     name: "smartctl",
     version: "7.5",
+    form: ToolForm::Executable,
     assets: &[
         ToolAsset {
             arch: "x86_64",
