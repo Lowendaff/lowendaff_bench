@@ -4,18 +4,22 @@
 # workflow (.github/workflows/tools.yml) starts it and publishes what it writes as RELEASE.
 #
 # Usage: build-fio.sh <output dir>
-# Writes fio-<arch>, this script, both source tarballs and both license texts to the output
-# directory. The binary must be static, report the pinned version, offer the libaio engine and
-# complete a short run with YABS's parameters.
+# Writes fio-<arch>, this script, both source tarballs and the license texts of fio, of libaio and
+# of musl, which is linked statically, to the output directory. The binary must be static, report
+# the pinned version, offer the libaio engine and complete a short run with YABS's parameters.
 set -eu
 
-RELEASE=fio-3.43-1
+RELEASE=fio-3.43-2
 FIO_VERSION=3.43
 FIO_URL=https://brick.kernel.dk/snaps/fio-$FIO_VERSION.tar.gz
 FIO_SHA256=6f57893c7a73d9ed72e9e2b6e15f136a99c137bd6a7645fdeeb4a40b3e9da78d
 LIBAIO_VERSION=0.3.113
 LIBAIO_URL=https://deb.debian.org/debian/pool/main/liba/libaio/libaio_$LIBAIO_VERSION.orig.tar.gz
 LIBAIO_SHA256=2c44d1c5fd0d43752287c9ae1eb9c023f04ef848ea8d4aafa46e9aedb678200b
+# Only for its COPYRIGHT: Alpine links musl statically but ships no copy of the notice.
+MUSL_VERSION=1.2.5
+MUSL_URL=https://musl.libc.org/releases/musl-$MUSL_VERSION.tar.gz
+MUSL_SHA256=a9a118bbe84d8764da0ea0d28b3ab3fae8477fc7e4085d90102b8596fc7c75e4
 
 fail() {
     echo "build-fio: $*" >&2
@@ -40,11 +44,18 @@ work=/build
 mkdir "$work" || fail "$work exists already"
 
 apk add --no-cache curl gcc linux-headers make musl-dev >/dev/null
+musl=$(apk list --installed musl)
+case $musl in
+"musl-$MUSL_VERSION-"*) ;;
+*) fail "the image has $musl, but the notice is pinned for musl $MUSL_VERSION" ;;
+esac
 cd "$work"
 fetch "$LIBAIO_URL" "$LIBAIO_SHA256" "libaio_$LIBAIO_VERSION.orig.tar.gz"
 fetch "$FIO_URL" "$FIO_SHA256" "fio-$FIO_VERSION.tar.gz"
+fetch "$MUSL_URL" "$MUSL_SHA256" "musl-$MUSL_VERSION.tar.gz"
 tar -xzf "libaio_$LIBAIO_VERSION.orig.tar.gz"
 tar -xzf "fio-$FIO_VERSION.tar.gz"
+tar -xzf "musl-$MUSL_VERSION.tar.gz" "musl-$MUSL_VERSION/COPYRIGHT"
 
 # Only the static library, so that fio cannot link libaio dynamically.
 make -C "libaio-$LIBAIO_VERSION/src" ENABLE_SHARED=0 prefix=/usr install >/dev/null
@@ -72,5 +83,6 @@ cp "$0" "$out/build-fio.sh"
 cp "../fio-$FIO_VERSION.tar.gz" "../libaio_$LIBAIO_VERSION.orig.tar.gz" "$out/"
 cp COPYING "$out/COPYING-fio"
 cp "../libaio-$LIBAIO_VERSION/COPYING" "$out/COPYING-libaio"
+cp "../musl-$MUSL_VERSION/COPYRIGHT" "$out/COPYRIGHT-musl"
 rm -rf "$work"
 echo "build-fio: built $out/fio-$arch ($version)"
