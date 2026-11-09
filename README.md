@@ -6,7 +6,7 @@ A comprehensive test tool for Linux servers (VPS), written in Rust:
 - An orchestrator selects the plugins, downloads the pinned tools they need, runs them in order with timeouts, and prints the results in Chinese.
 - It must run as root.
 
-**Status:** the plugin framework (M0) is in place. Test items are added one at a time: 系统基础信息 (system information), 硬盘健康 (disk health) and 硬盘性能 (disk performance) so far. The design is in [`docs/design/plugin-system.md`](docs/design/plugin-system.md).
+**Status:** the plugin framework (M0) is in place. Test items are added one at a time: 系统基础信息 (system information), 硬盘健康 (disk health), CPU 性能 (CPU performance), 硬盘性能 (disk performance) and Geekbench 7 so far. The design is in [`docs/design/plugin-system.md`](docs/design/plugin-system.md).
 
 The tool first detects where it runs: a dedicated server, a virtual machine or a container. It prints this as 运行环境 and runs only the test items made for that platform. For example, 系统基础信息 has a variant for each platform (`system.dedicated`, `system.vm`, `system.container`), and exactly one of them runs. `--list` shows which platforms each item applies to.
 
@@ -14,7 +14,9 @@ The tool first detects where it runs: a dedicated server, a virtual machine or a
 |-----------|-------|--------|
 | 系统基础信息 | CPU, memory and swap, disks and filesystems, distribution, kernel, uptime, load, TCP congestion control, IPv4/IPv6 reachability; on dedicated servers also the machine, board and firmware, the BMC, ECC, the memory modules and RAID cards | [`docs/design/system-info.md`](docs/design/system-info.md) |
 | 硬盘健康 | Dedicated servers only: each physical disk's SMART health as smartctl judges it, with power-on time, temperature, endurance used, data written, bad blocks and interface errors. Disks behind MegaRAID and 3SNIC RAID cards are included | [`docs/design/disk-health.md`](docs/design/disk-health.md) |
+| CPU 性能 | sysbench's CPU test (primes up to 10000), 20 seconds with one thread and 20 seconds with every usable thread: events per second, and how many times the single-thread rate the multi-thread one is | [`docs/design/cpu.md`](docs/design/cpu.md) |
 | 硬盘性能 | Speed and IOPS of the test directory's filesystem, measured with fio exactly as YABS does: mixed random reads and writes (50/50) at 4K, 64K, 512K and 1M. Skipped on a RAM disk or without enough free space | [`docs/design/disk.md`](docs/design/disk.md) |
+| Geekbench 7 | Geekbench 7's single- and multi-core scores and the public result link. The free version uploads every result to the Geekbench Browser; `--skip cpu.geekbench` leaves it out. Needs IPv4 and glibc 2.35 or later, and adds temporary swap when memory is short | [`docs/design/cpu.md`](docs/design/cpu.md) |
 
 ## Usage
 
@@ -49,15 +51,16 @@ CI (`.github/workflows/ci.yml`) runs exactly these commands. Run them locally be
 | Format | `cargo fmt --all --check` | any host |
 | Lint | `cargo clippy --workspace --all-targets --locked -- -D warnings` | any host |
 | Test | `cargo nextest run --workspace --locked --no-fail-fast` | any host; CI uses Linux x86_64 and aarch64 |
-| Tool downloads | `cargo nextest run -p bench --test tools --locked --run-ignored only`: downloads every pinned tool for the host's architecture and checks its size and SHA-256, also the tools of items that do not apply on the CI runners | any host with network access; CI uses Linux x86_64 and aarch64 |
+| Tool downloads | `cargo nextest run -p bench --test tools --locked --run-ignored only`: downloads every pinned tool for the host's architecture, checks its size and SHA-256 and unpacks archives, also the tools of items that do not apply or do not run on the CI runners | any host with network access; CI uses Linux x86_64 and aarch64 |
 | Dependencies | `cargo deny check` (policy in `deny.toml`) | any host |
 | Workflows | `zizmor --persona pedantic .` (config in `.github/zizmor.yml`) | any host |
 | Rule tests | `ast-grep test` (cases in `ast-grep/tests/`) | any host |
 | Rules | `ast-grep scan` (rules in `ast-grep/rules/`, config in `sgconfig.yml`) | any host |
 | Static build | `cargo build --release --locked --target <arch>-unknown-linux-musl --bin lowendaff-bench` | Linux |
-| Smoke | `scripts/smoke.sh target/<arch>-unknown-linux-musl/release/lowendaff-bench`: a full run in which no test item is skipped, fails or times out | Linux, as root or with sudo, with network access (it downloads fio) |
-| Smoke mutants | `scripts/smoke-mutants.sh <arch>-unknown-linux-musl`: smoke must reject deliberately broken builds; these runs skip 硬盘性能 | Linux, as root or with sudo |
-| Distributions | `scripts/distros.sh target/<arch>-unknown-linux-musl/release/lowendaff-bench ghcr.io/lowendaff/mirror`: 系统基础信息 in the images of `scripts/distros.txt`, 12 distributions (13 on x86_64), pulled from their copies on GHCR; without the last argument, from the original registries | Linux or macOS with Docker; the copies need `docker login ghcr.io` |
+| Swap round trip | `cargo build --release --locked --target <arch>-unknown-linux-musl -p swap-file --example roundtrip`, then `sudo target/<arch>-unknown-linux-musl/release/examples/roundtrip <dir>`: turns a 64 MiB swap file in `<dir>` on and off | Linux, with sudo, on a filesystem that holds swap files, such as ext4 |
+| Smoke | `scripts/smoke.sh target/<arch>-unknown-linux-musl/release/lowendaff-bench --skip cpu.geekbench`: a full run without Geekbench 7, which would publish a result, in which no test item is skipped, fails or times out | Linux, as root or with sudo, with network access (it downloads sysbench and fio) |
+| Smoke mutants | `scripts/smoke-mutants.sh <arch>-unknown-linux-musl`: smoke must reject deliberately broken builds; these runs skip CPU 性能, 硬盘性能 and Geekbench 7 | Linux, as root or with sudo |
+| Distributions | `scripts/distros.sh target/<arch>-unknown-linux-musl/release/lowendaff-bench ghcr.io/lowendaff/mirror`: 系统基础信息 in the images of `scripts/distros.txt`, 12 distributions (13 on x86_64), pulled from their copies on GHCR, and Geekbench 7 there without a network, which must skip for the image's glibc; without the last argument, from the original registries | Linux or macOS with Docker; the copies need `docker login ghcr.io` |
 
 `<arch>` is `x86_64` or `aarch64`.
 
@@ -80,14 +83,17 @@ Dependabot (`.github/dependabot.yml`) proposes weekly update PRs for cargo and f
 
 ## Third-party tools
 
-Some test items run external tools. The program downloads each tool as a pinned build and checks its SHA-256 and size before use; it never uses a tool already installed on the host (design P-11). This repository builds the tools and publishes them as immutable GitHub releases (design P-10).
+Some test items run external tools. The program downloads each tool as a pinned build and checks its SHA-256 and size before use; it never uses a tool already installed on the host (design P-11). This repository builds the tools and publishes them as immutable GitHub releases (design P-10), except Geekbench.
 
 | Tool | Version | License | Used by | Release |
 |------|---------|---------|---------|---------|
-| fio, with libaio 0.3.113 linked statically | 3.43 | GPL-2.0; libaio LGPL-2.1 | 硬盘性能 (`disk.fio`) | `fio-3.43-1` |
+| fio, with libaio 0.3.113 linked statically | 3.43 | GPL-2.0; libaio LGPL-2.1 | 硬盘性能 (`disk.fio`) | `fio-3.43-2` |
 | smartctl, from smartmontools | 7.5 | GPL-2.0-or-later | 硬盘健康 (`disk.health`) | `smartctl-7.5-1` |
+| sysbench, with its bundled LuaJIT and Concurrency Kit | 1.0.20 | GPL-2.0-or-later; LuaJIT MIT; Concurrency Kit BSD-2-Clause | CPU 性能 (`cpu.sysbench`) | `sysbench-1.0.20-1` |
 
-Each release holds the binaries for x86_64 and aarch64, the exact source tarballs they were built from, the build script, the license texts (for smartctl also musl's, which is linked statically) and `SHA256SUMS`. The workflows `fio` and `smartctl` build their tool with `scripts/build-fio.sh` and `scripts/build-smartctl.sh` in Alpine 3.22; a pull request that changes a build runs it without publishing anything. To publish a new build, update the workflow's `TAG` (the tool's version and the build number) and, for a new version, the sources and their SHA-256 in the build script; merge, run `gh workflow run <workflow>.yml --ref main`, and then update the plugin's pins.
+Each release holds the binaries for x86_64 and aarch64, the exact source tarballs they were built from, the build script, the license texts (also musl's, which is linked statically; `fio-3.43-1` lacked it) and `SHA256SUMS`. The workflow `tools` builds each tool with `scripts/build-<tool>.sh` in Alpine 3.22; a pull request that changes a build runs every build without publishing anything. To publish a new build, update the script's `RELEASE` (the tool's version and the build number) and, for a new version, the sources and their SHA-256; merge, run `gh workflow run tools.yml --ref main -f tool=<tool>`, and then update the plugin's pins. The builds are reproducible bit for bit while Alpine's packages stay the same.
+
+Geekbench 7.1.0, for Geekbench 7 (`cpu.geekbench`), is the exception (design cpu, CP-02). It is closed source and its license forbids redistribution, so the program downloads Primate Labs' own archive from `cdn.geekbench.com`, pinned by SHA-256 and size, and unpacks it. The free license allows personal, non-commercial use on one's own devices only, requires every result to be uploaded to the Geekbench Browser, and forbids automated use; the owner accepted that risk (design cpu, §10).
 
 ## Code style
 
