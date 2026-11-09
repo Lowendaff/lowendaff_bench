@@ -14,6 +14,7 @@ use bench_host::cpu::Virtualization;
 use bench_host::memory;
 use bench_host::os;
 use bench_host::system;
+use bench_host::system::Counters;
 use common::Layout;
 
 /// The value after `key:` in `lscpu` or `free` output.
@@ -402,4 +403,58 @@ fn kernel_uptime_load_and_tcp_settings() {
         Some(Duration::from_secs_f64(93_784.25))
     );
     assert_eq!(system::load(&root), Some([0.38, 0.13, 0.05]));
+}
+
+#[test]
+fn the_kernels_own_counters_tell_the_hosts_values_from_a_containers() {
+    // /proc/loadavg rounds each average to hundredths: 4914 / 2048 shows as 2.40.
+    let kernel = Counters {
+        uptime: Duration::from_secs(5_322_697),
+        load: [4914.0 / 2048.0, 4977.0 / 2048.0, 5160.0 / 2048.0],
+    };
+    assert!(kernel.matches_uptime(Duration::from_secs_f64(5_322_696.5)));
+    assert!(
+        !kernel.matches_uptime(Duration::from_secs(5_322_698)),
+        "a second apart is another clock"
+    );
+    assert!(
+        !kernel.matches_uptime(Duration::from_secs_f64(13.43)),
+        "the container's own uptime, as lxcfs shows it"
+    );
+    assert!(kernel.matches_load([2.40, 2.43, 2.52]));
+    let rounded = Counters {
+        load: [10.0 / 2048.0, 0.0, 0.0],
+        ..kernel
+    };
+    assert!(
+        rounded.matches_load([0.0, 0.0, 0.0]),
+        "/proc/loadavg shows 10 / 2048 as 0.00"
+    );
+    assert!(
+        !kernel.matches_load([2.40, 2.43, 2.53]),
+        "every average has to match"
+    );
+    assert!(
+        !kernel.matches_load([0.0, 0.0, 0.0]),
+        "an idle container's own load"
+    );
+}
+
+#[test]
+fn the_running_kernel_reports_what_its_proc_files_show() {
+    // Outside containers with lxcfs, where the tests run, the files are the kernel's own.
+    let root = Root::system();
+    let kernel = Counters::read();
+    if !cfg!(target_os = "linux") {
+        assert_eq!(kernel, None, "the counters are read on Linux only");
+        return;
+    }
+    let kernel = kernel.expect("Linux has had CLOCK_BOOTTIME since 2.6.39");
+    assert!(kernel.matches_uptime(system::uptime(&root).expect("/proc/uptime")));
+    // The averages change every five seconds; one of three tries falls between two changes.
+    let agrees = (0..3).any(|_| {
+        let shown = system::load(&root).expect("/proc/loadavg");
+        Counters::read().is_some_and(|kernel| kernel.matches_load(shown))
+    });
+    assert!(agrees, "sysinfo(2) and /proc/loadavg disagree");
 }
