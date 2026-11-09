@@ -15,6 +15,7 @@ use bench_host::Root;
 use bench_host::storage;
 use serde::Deserialize;
 
+pub mod hardware;
 pub mod report;
 
 /// The title all three variants share, so only one 系统基础信息 section appears.

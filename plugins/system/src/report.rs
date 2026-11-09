@@ -17,11 +17,16 @@ use bench_host::cpu::Virtualization;
 use bench_host::memory;
 use bench_host::memory::CgroupLimits;
 use bench_host::os;
+use bench_host::raid;
 use bench_host::storage;
 use bench_host::storage::Filesystem;
 use bench_host::storage::Space;
+use bench_host::storage::Storage;
 use bench_host::storage::Use;
 use bench_host::system;
+
+use crate::hardware;
+use crate::hardware::Hardware;
 
 /// What a report reads: the host's files, the facts the orchestrator probed, where the run
 /// directory is, and how to size a mounted filesystem (statvfs on a real host).
@@ -43,19 +48,31 @@ where
 {
     let root = &host.root;
     let limits = (kind == PlatformKind::Container).then(|| memory::cgroup_limits(root));
+    let hardware = (kind == PlatformKind::Dedicated).then(|| Hardware::read(root, &host.env.arch));
     let mut records = Vec::new();
+    if let Some(hardware) = &hardware {
+        hardware::machine_records(&mut records, hardware);
+    }
     cpu_records(&mut records, &cpu::read(root), kind, limits.as_ref())?;
     memory_records(&mut records, memory::read(root), limits.as_ref())?;
+    if let Some(hardware) = &hardware {
+        hardware::memory_records(&mut records, hardware)?;
+    }
     if kind == PlatformKind::Container {
         container_storage(&mut records, host)?;
     } else {
-        storage_records(&mut records, host, kind == PlatformKind::Dedicated)?;
+        let storage = storage::read(root, &host.space);
+        if hardware.is_some() {
+            let disks: Vec<String> = storage.disks.iter().map(|disk| disk.name.clone()).collect();
+            hardware::raid_records(&mut records, &raid::read(root, &disks));
+        }
+        storage_records(&mut records, &storage, host.work_dir, hardware.is_some())?;
     }
     system_records(&mut records, root, &host.env);
     Ok(records)
 }
 
-fn unavailable() -> String {
+pub(crate) fn unavailable() -> String {
     Missing::Unavailable.to_string()
 }
 
@@ -208,15 +225,12 @@ fn memory_records(
     Ok(())
 }
 
-fn storage_records<F>(
+fn storage_records(
     records: &mut Vec<Record>,
-    host: &Host<F>,
+    storage: &Storage,
+    work_dir: Option<(u32, u32)>,
     show_media: bool,
-) -> Result<(), RecordError>
-where
-    F: Fn(&str) -> Option<Space>,
-{
-    let storage = storage::read(&host.root, &host.space);
+) -> Result<(), RecordError> {
     if storage.disks.is_empty() {
         records.push(Record::fact("disks", "硬盘", unavailable()));
     } else {
@@ -266,7 +280,7 @@ where
         .filesystems
         .iter()
         .map(|filesystem| {
-            let mut row = filesystem_row(filesystem, host.work_dir);
+            let mut row = filesystem_row(filesystem, work_dir);
             row.push(if filesystem.disks.is_empty() {
                 "—".to_owned()
             } else {
@@ -416,7 +430,7 @@ fn size(bytes: u64) -> Result<Measurement, RecordError> {
 }
 
 /// A size as table text, such as `931.5 GiB` or `512 MiB`.
-fn size_text(bytes: u64) -> String {
+pub(crate) fn size_text(bytes: u64) -> String {
     match scaled(bytes) {
         (value, unit @ ("KiB" | "MiB")) => format!("{value:.0} {unit}"),
         (value, "TiB") => format!("{value:.2} TiB"),
