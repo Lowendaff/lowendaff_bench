@@ -17,7 +17,7 @@ while read -r marker kind path data; do
         DIR) mkdir -p "$out/root/$path" ;;
         EMPTY)
             mkdir -p "$(dirname "$out/root/$path")"
-            : > "$out/root/$path"
+            [ -e "$out/root/$path" ] || : > "$out/root/$path"
             ;;
         FILE)
             mkdir -p "$(dirname "$out/root/$path")"
