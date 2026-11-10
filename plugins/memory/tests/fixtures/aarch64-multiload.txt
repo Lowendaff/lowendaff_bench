@@ -1,0 +1,2 @@
+Samples	, Byte/thd	, ChaseThds	, ChaseNS	, ChaseMibs	, ChDeviate	, LoadThds	, LdMaxMibs	, LdAvgMibs	, LdDeviate	, ChaseArg	, MemLdArg
+3     	, 33554432   	, 0       	, 0.000   	, 0       	, 0.000   	, 4       	, 70192   	, 54911   	, 0.473   	, --------	, stream-triad

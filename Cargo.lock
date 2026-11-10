@@ -901,6 +901,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "plugin-memory"
+version = "0.1.0"
+dependencies = [
+ "bench-api",
+ "bench-host",
+ "plugin-cpu",
+ "rustix",
+ "serde",
+ "tokio",
+]
+
+[[package]]
 name = "plugin-system"
 version = "0.1.0"
 dependencies = [

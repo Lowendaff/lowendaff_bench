@@ -14,6 +14,7 @@ plugin-cpu = { path = "plugins/cpu" }
 plugin-geekbench = { path = "plugins/geekbench" }
 plugin-disk = { path = "plugins/disk" }
 plugin-disk-health = { path = "plugins/disk-health" }
+plugin-memory = { path = "plugins/memory" }
 plugin-system = { path = "plugins/system" }
 bench-api = { path = "crates/bench-api" }
 serde = { version = "1", features = ["derive"] }
