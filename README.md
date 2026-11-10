@@ -32,6 +32,7 @@ sudo lowendaff-bench --config bench.toml    # per-item settings: [plugins."<id>"
   - `0`: the run finished;
   - `2`: usage or config error, or not root;
   - `130`: interrupted.
+- **Proxies.** Tool downloads go through the proxy that `HTTPS_PROXY` or `ALL_PROXY` names (lowercase names work too); `NO_PROXY` exempts hosts. HTTP and SOCKS5 proxies work, and with `socks5h://` the proxy resolves the names. On a server that reaches GitHub poorly, for example, `ssh -D 1080 <a host abroad>` opens a SOCKS5 proxy, and `sudo ALL_PROXY=socks5h://127.0.0.1:1080 lowendaff-bench` uses it: put the variable after `sudo`, which drops most of the caller's environment. A proxy cannot change a tool, since each is pinned by SHA-256 and size. A download that fails on the network names the proxy variable that is set, or suggests setting one. The IPv4/IPv6 check at start connects directly. Design: [`docs/design/plugin-system.md`](docs/design/plugin-system.md) §9.1.
 
 ## Build
 
