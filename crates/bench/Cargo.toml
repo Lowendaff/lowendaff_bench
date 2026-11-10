@@ -17,6 +17,7 @@ plugin-cpu.workspace = true
 plugin-disk.workspace = true
 plugin-disk-health.workspace = true
 plugin-geekbench.workspace = true
+plugin-memory.workspace = true
 plugin-system.workspace = true
 clap = { version = "4", features = ["derive"] }
 flate2 = "1"

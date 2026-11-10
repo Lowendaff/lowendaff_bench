@@ -83,6 +83,7 @@ dependencies = [
  "plugin-disk",
  "plugin-disk-health",
  "plugin-geekbench",
+ "plugin-memory",
  "plugin-system",
  "reqwest",
  "rustix",
