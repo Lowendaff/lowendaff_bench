@@ -1,6 +1,6 @@
 # Plugin System Design
 
-- Status: **Accepted** 2026-11-07. The owner decided P-01..P-09, P-11 and P-12 on 2026-11-07, and P-10 on 2026-11-08 (§12).
+- Status: **Accepted** 2026-11-07. The owner decided P-01..P-09, P-11 and P-12 on 2026-11-07, and P-10 on 2026-11-08 (§12). P-13..P-16, on proxies, followed on 2026-11-10 (§9.1).
 - Scope: the plugin contract, the orchestrator and tool provisioning. Specific test items are out of scope; they are added one at a time on top of this design.
 - Implementation:
   - **M0 is complete.** It covers:
@@ -251,9 +251,50 @@ Exit codes:
 - **Transport** (`crates/bench/src/fetcher.rs`).
   - reqwest 0.13 with `rustls-no-provider`, given a preconfigured rustls 0.23 config that uses the ring provider only (aws-lc-rs is not in the dependency tree) and the bundled `webpki-roots`.
   - Downloads work on images without `ca-certificates`; verified on Debian 13 slim (§11).
+  - The proxy comes from the standard environment variables, SOCKS5 included (§9.1).
   - The core (`crates/bench/src/provision.rs`) takes the fetcher as a parameter, so tests run without a network.
 - **Pinned builds only (P-11).** Tools already installed on the host are never used.
 - **Source of the builds (P-10).** This repository builds the tools and publishes them. A manual workflow builds static binaries from checksum-pinned sources; since M4 one workflow builds every tool (`docs/design/cpu.md` §4). It publishes them, together with those sources, the build script and the license texts, as an immutable GitHub release whose tag carries a build number, such as `fio-3.43-1`. For fio, see `docs/design/disk.md` §4; for smartctl, `docs/design/disk-health.md` §4; for sysbench, `docs/design/cpu.md` §4. Geekbench is the one exception: Primate Labs' own builds, pinned and downloaded at run time (`docs/design/cpu.md`, CP-02).
+
+### 9.1 Proxies (P-13..P-16)
+
+Designed with the owner on 2026-11-10, as the third of the engineering follow-ups after M4.
+
+**Understanding.** On servers that reach GitHub poorly, mostly in mainland China, the pinned tools often fail to download, and their items skip. Users who have a proxy should be able to use it; for users without one nothing changes. Integrity still comes from the pins alone. Out of scope: GitHub outages (P-14), the program's own distribution (decided at its first release), mirrors, and the reachability check at start, which still connects directly.
+
+**Design.**
+- reqwest takes the proxy from `HTTPS_PROXY`, `https_proxy`, `ALL_PROXY` or `all_proxy` and honours `NO_PROXY`; that is its default. `HTTP_PROXY` applies to `http://` addresses only. Its `socks` feature, which adds no crate, makes `socks5://` and `socks5h://` work (P-15).
+- A network error, when the request fails or the body breaks off, ends in a hint (P-16): `；本机设置了 <variable>，请确认这个代理可用` for the first of those four variables that is set and not empty, otherwise `；可设置环境变量 HTTPS_PROXY 或 ALL_PROXY 使用代理`. The hint names the variable, never its value, which may hold a password, and reqwest's errors do not show the proxy either. HTTP errors and mismatched sizes or SHA-256 get no hint, because the network worked. The hint follows each failed tool in 【准备工具】.
+- Tests: the hint's choice of variable with a fake environment; against a local server, the hint after a refused connection and after a body that breaks off, and none after a 404; a download through a local SOCKS5 proxy, which fails without the `socks` feature. A mutation round killed all 10 mutants.
+
+**Checked by hand** on 2026-11-10: a static aarch64 build ran `--only cpu.sysbench` in `debian:13-slim` under Docker Desktop.
+- **`HTTPS_PROXY` (an HTTP proxy) and `ALL_PROXY=socks5h://…`:** each downloaded sysbench from GitHub and completed the item. The proxies, running on the host, saw `github.com:443` and then `release-assets.githubusercontent.com:443`, as names.
+- **A dead proxy with a password in `HTTPS_PROXY`:** sysbench's line ended in `；本机设置了 HTTPS_PROXY，请确认这个代理可用`, and the password appeared nowhere in the output.
+- **No network and no proxy:** the line ended in `；可设置环境变量 HTTPS_PROXY 或 ALL_PROXY 使用代理`.
+
+**Decision log.**
+
+| Question | Decision | Alternatives |
+|----------|----------|--------------|
+| What should a second download source solve? | Networks that reach GitHub poorly. GitHub outages were in at first, then left out (P-14) | Outages only; nothing |
+| Scope | The tools only | The tools and the program |
+| Where the downloads come from | First public GitHub acceleration proxies, then the same day the user's own proxy, which reqwest already reads (P-13) | A copy in Cloudflare R2, on the site's server, or on the owner's host in Hong Kong |
+| GitHub outages | Not covered (P-14) | A second source outside GitHub |
+| SOCKS5 | Supported (P-15) | HTTP proxies only |
+| How users learn about proxies | The README, and a hint after each failed download (P-16) | The README only; one hint line under 【准备工具】 |
+
+The dropped direction tried each GitHub address directly, then through a built-in list of public acceleration proxies and a `--github-proxy` option. Of four such proxies checked from Singapore on 2026-11-10, two failed and the other two differed 17 times in speed, though both served the exact file. They relay without caching, so they fail along with GitHub.
+
+**Risks**, accepted on 2026-11-10:
+1. Users without a proxy still cannot download from such networks.
+2. GitHub outages are not covered.
+3. A proxy sees the server's address and which files it downloads. It cannot change a file unnoticed.
+4. SOCKS5 with a password, `socks4` and `socks4a` are untested; reqwest implements them.
+5. The hint says a variable is set even when `NO_PROXY` exempts the host or the value is wrong.
+6. Reading the variables is reqwest's default and is not tested here. Recheck it by hand when reqwest's major version changes.
+7. The variables also apply to Geekbench's download. Whether Geekbench's own upload uses them is up to Geekbench.
+8. Failure lines grow longer and wrap on narrow terminals.
+9. A server that is online only through a proxy shows IPv4 and IPv6 as 不可用, and Geekbench 7 skips for want of IPv4.
 
 ## 10. Adding a test item (the step-by-step integration path)
 
@@ -360,6 +401,10 @@ Per plugin:
 | P-10 | Where do the pinned static builds come from, and where are they hosted? | **This repository builds and publishes them** (§9). A manual workflow per tool builds static binaries from checksum-pinned sources, in an image pinned by digest. It publishes them as an immutable release that also carries the sources, the build script and the license texts. Offering the source from the same place as the binary meets GPL-2.0 §3. The alternatives were a separate tools repository, and third-party builds such as YABS's. Decided 2026-11-08 with the disk test (`docs/design/disk.md`, DK-03). |
 | P-11 | Use pinned builds only, and ignore tools already installed on the host? | **Yes**, pinned builds only. |
 | P-12 | Environment-specific test items: one plugin that adapts, or one plugin per environment? | **One plugin per platform kind** (dedicated server, virtual machine, container), with the shared parts extracted as far as possible. Plugins for other platforms are summarized on one 本机不适用 line. The "environment" is the runtime platform, not the distribution. Decided 2026-11-07 (D-16). |
+| P-13 | How should tools download on networks that reach GitHub poorly? | **Through the user's own proxy**, which the standard environment variables name (§9.1). No mirrors, no public GitHub proxies, no built-in proxy list. The alternatives were a copy in Cloudflare R2, on the site's server or on the owner's host in Hong Kong, and public GitHub acceleration proxies, which the owner chose first and dropped the same day. Decided 2026-11-10. |
+| P-14 | Should downloads survive a GitHub outage? | **No.** A tool that cannot be downloaded skips its items with the reason, as before. The alternative was a second source outside GitHub. Decided 2026-11-10. |
+| P-15 | Should SOCKS5 proxies work? | **Yes,** through reqwest's `socks` feature, so that a proxy from `ssh -D` serves. The alternative was HTTP proxies only. Decided 2026-11-10. |
+| P-16 | How do users learn that a proxy helps? | **The README, and a hint after each download that fails on the network** (§9.1), naming the variable that is set but never its value. The alternatives were the README only, and one hint line under 【准备工具】. Decided 2026-11-10. |
 
 ## 13. Deferred extensions (designed seams, not built)
 
