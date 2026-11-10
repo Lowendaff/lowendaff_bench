@@ -12,6 +12,7 @@
   - **M2** adds pinned fio builds (P-10) and the 硬盘性能 test item (`docs/design/disk.md`).
   - **M3** adds pinned smartctl builds and the 硬盘健康 test item for dedicated servers (`docs/design/disk-health.md`). The dedicated additions to 系统基础信息 follow (DH-01).
   - **M4** adds one workflow for every pinned tool build, and the test items CPU 性能 (sysbench) and Geekbench 7 (`docs/design/cpu.md`).
+  - **M5** adds pinned STREAM and multichase builds and the test item 内存性能 (`docs/design/memory.md`).
 
 ## 1. Context
 
@@ -254,7 +255,7 @@ Exit codes:
   - The proxy comes from the standard environment variables, SOCKS5 included (§9.1).
   - The core (`crates/bench/src/provision.rs`) takes the fetcher as a parameter, so tests run without a network.
 - **Pinned builds only (P-11).** Tools already installed on the host are never used.
-- **Source of the builds (P-10).** This repository builds the tools and publishes them. A manual workflow builds static binaries from checksum-pinned sources; since M4 one workflow builds every tool (`docs/design/cpu.md` §4). It publishes them, together with those sources, the build script and the license texts, as an immutable GitHub release whose tag carries a build number, such as `fio-3.43-1`. For fio, see `docs/design/disk.md` §4; for smartctl, `docs/design/disk-health.md` §4; for sysbench, `docs/design/cpu.md` §4. Geekbench is the one exception: Primate Labs' own builds, pinned and downloaded at run time (`docs/design/cpu.md`, CP-02).
+- **Source of the builds (P-10).** This repository builds the tools and publishes them. A manual workflow builds static binaries from checksum-pinned sources; since M4 one workflow builds every tool (`docs/design/cpu.md` §4). It publishes them, together with those sources, the build script and the license texts, as an immutable GitHub release whose tag carries a build number, such as `fio-3.43-1`. For fio, see `docs/design/disk.md` §4; for smartctl, `docs/design/disk-health.md` §4; for sysbench, `docs/design/cpu.md` §4; for STREAM and multichase, `docs/design/memory.md` §4. Geekbench is the one exception: Primate Labs' own builds, pinned and downloaded at run time (`docs/design/cpu.md`, CP-02).
 
 ### 9.1 Proxies (P-13..P-16)
 

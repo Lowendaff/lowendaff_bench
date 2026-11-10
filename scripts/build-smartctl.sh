@@ -10,6 +10,11 @@
 set -eu
 
 RELEASE=smartctl-7.5-1
+# The image the tools workflow runs this script in: Alpine 3.22 of scripts/distros.txt.
+# shellcheck disable=SC2034 # tools.yml reads this line and the next
+IMAGE=ghcr.io/lowendaff/mirror/docker/library/alpine:3.22
+# shellcheck disable=SC2034
+IMAGE_DIGEST=sha256:bfe7ceb9f09ec0566c48fb93356e45a47a00be5a1dd14fa5b909e7709c66b034
 SMARTMONTOOLS_VERSION=7.5
 SMARTMONTOOLS_RELEASE=https://github.com/smartmontools/smartmontools/releases/download/RELEASE_7_5
 SMARTMONTOOLS_URL=$SMARTMONTOOLS_RELEASE/smartmontools-$SMARTMONTOOLS_VERSION.tar.gz

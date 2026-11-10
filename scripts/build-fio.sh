@@ -10,6 +10,11 @@
 set -eu
 
 RELEASE=fio-3.43-2
+# The image the tools workflow runs this script in: Alpine 3.22 of scripts/distros.txt.
+# shellcheck disable=SC2034 # tools.yml reads this line and the next
+IMAGE=ghcr.io/lowendaff/mirror/docker/library/alpine:3.22
+# shellcheck disable=SC2034
+IMAGE_DIGEST=sha256:bfe7ceb9f09ec0566c48fb93356e45a47a00be5a1dd14fa5b909e7709c66b034
 FIO_VERSION=3.43
 FIO_URL=https://brick.kernel.dk/snaps/fio-$FIO_VERSION.tar.gz
 FIO_SHA256=6f57893c7a73d9ed72e9e2b6e15f136a99c137bd6a7645fdeeb4a40b3e9da78d

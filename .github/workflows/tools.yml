@@ -2,7 +2,8 @@
 # request that changes a build runs every build without publishing. A manual run on main builds
 # the chosen tool and publishes the release that the RELEASE line of its script names; afterwards
 # the plugins' pins take its hashes and sizes. An immutable release's tag cannot be reused, so a
-# rebuild of the same version takes the next build number.
+# rebuild of the same version takes the next build number. Each script also names the image it
+# builds in, on its IMAGE and IMAGE_DIGEST lines (design memory, §4).
 name: tools
 
 on:
@@ -15,7 +16,7 @@ on:
       tool:
         description: Tool to build and publish
         type: choice
-        options: [fio, smartctl, sysbench]
+        options: [fio, multichase, smartctl, stream, sysbench]
 
 permissions: {}
 
@@ -27,7 +28,7 @@ jobs:
         # Every tool for a pull request, the chosen one for a manual run.
         tool: >-
           ${{ fromJSON(inputs.tool && format('["{0}"]', inputs.tool)
-          || '["fio", "smartctl", "sysbench"]') }}
+          || '["fio", "multichase", "smartctl", "stream", "sysbench"]') }}
         arch: [x86_64, aarch64]
         include:
           - arch: x86_64
@@ -38,7 +39,7 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: read
-      packages: read # pulls the Alpine image from ghcr.io/lowendaff/mirror
+      packages: read # pulls the build images from ghcr.io/lowendaff/mirror
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -49,16 +50,18 @@ jobs:
         run: |
           printf '%s' "$GITHUB_TOKEN" |
             docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
-      # The Alpine 3.22 image of scripts/distros.txt, from its copy on GHCR (same digest).
+      # The image the script names: a copy on GHCR, by digest, of an image of scripts/distros.txt.
       - name: Build
         env:
           TOOL: ${{ matrix.tool }}
-          IMAGE: ghcr.io/lowendaff/mirror/docker/library/alpine:3.22
-          DIGEST: sha256:bfe7ceb9f09ec0566c48fb93356e45a47a00be5a1dd14fa5b909e7709c66b034
         run: |
+          image=$(sed -n 's/^IMAGE=//p' "scripts/build-$TOOL.sh")
+          digest=$(sed -n 's/^IMAGE_DIGEST=//p' "scripts/build-$TOOL.sh")
+          [[ $image =~ ^ghcr\.io/lowendaff/mirror/[a-z0-9./_-]+:[a-z0-9._-]+$ ]]
+          [[ $digest =~ ^sha256:[0-9a-f]{64}$ ]]
           mkdir "$RUNNER_TEMP/out"
           docker run --rm -v "$PWD/scripts/build-$TOOL.sh:/build-$TOOL.sh:ro" \
-            -v "$RUNNER_TEMP/out:/out" "$IMAGE@$DIGEST" sh "/build-$TOOL.sh" /out
+            -v "$RUNNER_TEMP/out:/out" "$image@$digest" sh "/build-$TOOL.sh" /out
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ matrix.tool }}-${{ matrix.arch }}
@@ -74,7 +77,7 @@ jobs:
     permissions:
       contents: write # creates the release and uploads its assets
     steps:
-      # Both builds carry the same script, source tarballs and license texts.
+      # Both builds carry the same script, sources and license texts.
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: ${{ runner.temp }}/assets
@@ -94,9 +97,9 @@ jobs:
           cat SHA256SUMS
           run_url=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID
           {
-            echo "Static $TOOL $version, built by $run_url with build-$TOOL.sh from the source"
-            echo "tarballs attached here, whose license texts are in the COPYING-* and COPYRIGHT-*"
-            echo "files. musl is linked statically; its notice is in COPYRIGHT-musl. Verify the"
+            echo "Static $TOOL $version, built by $run_url with build-$TOOL.sh from the sources"
+            echo "attached here. The license texts, including that of the C library linked"
+            echo "statically, are in the COPYING-*, COPYRIGHT-* and LICENSE-* files. Verify the"
             echo "files with \`sha256sum -c SHA256SUMS\`."
           } > "$RUNNER_TEMP/notes.md"
           # A draft first, so that every asset is in place before the release becomes immutable.
