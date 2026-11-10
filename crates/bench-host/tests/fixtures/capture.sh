@@ -78,11 +78,17 @@ for cpu in /sys/devices/system/cpu/cpu[0-9]*; do
         emit_file "$cpu/$f"
     done
 done
-for index in /sys/devices/system/cpu/cpu0/cache/index*; do
+for index in /sys/devices/system/cpu/cpu[0-9]*/cache/index*; do
     for f in level type size shared_cpu_list; do
         emit_file "$index/$f"
     done
 done
+# NUMA nodes, and the CPUs and nodes a process may use (memory design, §6).
+for node in /sys/devices/system/node/node[0-9]*; do
+    emit_file "$node/cpulist"
+    emit_file "$node/meminfo"
+done
+emit_file /proc/self/status
 for f in cpuinfo_max_freq cpuinfo_min_freq scaling_max_freq scaling_driver; do
     emit_file "/sys/devices/system/cpu/cpu0/cpufreq/$f"
 done
