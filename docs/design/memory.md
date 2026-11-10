@@ -1,6 +1,6 @@
 # Memory Test Item (内存性能)
 
-- Status: **Accepted** 2026-11-10. The owner decided ME-01..ME-15 (§2), confirmed the design section by section, and accepted the risks (§10).
+- Status: **Accepted** 2026-11-10. The owner decided ME-01..ME-15 (§2), confirmed the design section by section, and accepted the risks (§10). The implementation settled the points of §12.
 - Implementation (M5): builds of STREAM and multichase, with the releases `stream-5.10-1` and `multichase-2026.10.01-1` (§4); then the test item in `plugins/memory`, with new host facts in `crates/bench-host` (§5–§8).
 - Scope: one test item, `memory` (内存性能), in four chapters, and the tool builds it needs.
 
@@ -108,10 +108,10 @@ Both follow `tools.yml` as the other tools do (`docs/design/cpu.md` §4): a manu
 
 ### 5.2 Quantities
 
-- **Available memory A:** `MemAvailable`; in a container also at most the cgroup's limit minus its usage. Swap does not count: a memory test that swaps measures the disk. The **budget** B is A ÷ 2 (ME-05).
-- **Last-level cache C:** the size of the highest cache level times the number of its instances, counted by the distinct CPU lists that share one. Unknown: 32 MiB, with a 说明 line. **Cᵢ** is the same for the instances whose CPUs are in node i.
+- **Available memory A:** `MemAvailable`; in a container also at most the cgroup's limit minus its usage. Swap does not count: a memory test that swaps measures the disk. The **budget** B is A ÷ 2 (ME-05). Buffers halved to fit are never halved below a page, 4 KiB.
+- **Last-level cache C:** the size of the highest cache level holding data times the number of its instances, counted by the distinct CPU lists that share one. Unknown: 32 MiB, with the 说明 line `没有末级缓存的信息，按 32 MiB 计算`. **Cᵢ** is the same for the instances serving node i's CPUs that the process may use.
 - **Threads N:** the usable threads, as for CPU 性能 (the logical CPUs, or a container's cpuset). With one thread, only the single-thread runs happen.
-- **Nodes:** `/sys/devices/system/node/node*`, each with its CPUs, kept to those the process may use, and its `MemFree`.
+- **Nodes:** `/sys/devices/system/node/node*`, each with its CPUs and its `MemTotal` and `MemFree`. The CPUs the process may use are `Cpus_allowed_list` in `/proc/self/status`: its affinity, within a container's cpuset, in the kernel's numbering, which the nodes use too. The nodes it may allocate on are `Mems_allowed_list`.
 
 ### 5.3 sysbench
 
@@ -119,12 +119,12 @@ Four runs of `sysbench memory --memory-total-size=0 --memory-access-mode=seq --t
 
 - **Single thread:** one buffer, the smallest power of two of at least 4C (C = 44 MiB gives 256 MiB), halved until it fits B.
 - **Multi-thread:** `--memory-scope=local`, one buffer per thread, the smallest power of two of at least 4C ÷ N and at least 1 MiB, halved until the N buffers fit B.
-- A working set below 4C after halving adds a 说明 line.
+- A working set below 4C after halving adds the 说明 line `可用内存不足，测试数据小于末级缓存总和的 4 倍（<4C>），一部分读写落在缓存里，结果偏高`.
 - Each run is retried up to three times, as in CPU 性能; a run longer than 60 seconds is stopped. The result is the MiB/s of `MiB transferred (… MiB/sec)`, which must be finite and positive.
 
 ### 5.4 STREAM
 
-- **Size:** the smallest of the six whose array is at least 4C; above B for the three arrays, the largest that fits. An array below 4C adds the 说明 line `未完全符合 STREAM 运行规则（每个数组至少为末级缓存总和的 4 倍）`. When not even the smallest fits B (46 MiB), the chapter shows `可用内存不足` and the others go on.
+- **Size:** the smallest of the six whose array is at least 4C; above B for the three arrays, the largest that fits. An array below 4C adds the 说明 line `未完全符合 STREAM 运行规则（每个数组至少为末级缓存总和的 4 倍）`. When not even the smallest fits B, the chapter shows `可用内存不足：三个数组最少要 46 MiB，可用内存的一半只有 <B>`, which is no failure, and the others go on.
 - **Runs:** `OMP_NUM_THREADS=1`, then `OMP_NUM_THREADS=N` with `OMP_PROC_BIND=spread` (ME-08).
 - **Result:** the best rate of each kernel; the output must contain `Solution Validates`, or the chapter fails. Each run is retried up to three times and stopped after 180 seconds.
 
@@ -132,18 +132,20 @@ Four runs of `sysbench memory --memory-total-size=0 --memory-access-mode=seq --t
 
 One `multichase -n 5` (2.5 seconds) per level:
 
-- L1d, L2 and L3 at half of one instance of each, and memory at the smallest power of two of at least 4C, halved until it fits B, with a 说明 line below 4C.
-- A level whose size is unknown, as often in virtual machines, is skipped with a 说明 line.
+- L1d, L2 and L3 at half of one instance of each, and memory at the smallest power of two of at least 4C, halved until it fits B; below 4C, the 说明 line `可用内存不足，内存一档的缓冲区小于末级缓存总和的 4 倍（<4C>），一部分访问落在缓存里，延迟偏低`.
+- A level the kernel says nothing of, being hidden, as often in virtual machines, or absent, as the L3 of the owner's board, is skipped with the 说明 line `没有 L3 的信息，跳过这一档`.
+- Each run is retried up to three times and stopped after 60 seconds.
 - The best latency of the default stride, 256 bytes, without huge pages: the result includes the cost of TLB misses on 4 KiB pages.
 
 ### 5.6 NUMA
 
-Only with more than one node, and with every cell:
+Only when the matrix has more than one cell, and with every cell:
 
-- **Bandwidth**, threads on node i and memory on node j: `multiload -l stream-triad -n 3 -t <node i's CPUs> -m <per thread> -W j:1`. Per thread: the smallest power of two of at least 4Cᵢ ÷ t and at least 1 MiB, the t buffers at most half of node j's `MemFree`. The result is `LdMaxMibs`.
-- **Latency:** `multichase -n 5 -m <the smallest power of two of at least 4Cᵢ> -W j:1`, its thread on node i.
-- A node none of whose CPUs the process may use is no row; a node without memory is no column.
-- When `mbind` is refused, as in Docker's default containers, the chapter shows `不可用：容器不允许把内存绑定到指定节点` and is no failure.
+- **Bandwidth**, threads on node i and memory on node j: `multiload -l stream-triad -n 3 -t <node i's CPUs> -m <per thread> -W j:1`. Per thread: the smallest power of two of at least 4Cᵢ ÷ t and at least 1 MiB, the t buffers at most half of node j's `MemFree` and at most B. The result is `LdMaxMibs`.
+- **Latency:** `multichase -n 5 -m <the smallest power of two of at least 4Cᵢ> -W j:1`, its thread on node i, its buffer within the same bounds.
+- A node none of whose CPUs the process may use is no row; a node without memory, or one the process may not allocate on, is no column.
+- Each run is retried up to three times and stopped after 60 seconds.
+- When `mbind` is refused, as in Docker's default containers, the chapter shows `不可用：容器不允许把内存绑定到指定节点` and is no failure; nothing is retried.
 - About 9 seconds a cell: 35 seconds for two nodes, 2.5 minutes for four, 9 minutes for eight.
 
 ### 5.7 Output
@@ -183,20 +185,20 @@ Only with more than one node, and with every cell:
 
 - Each chapter is a fact named after it, giving its parameters, and a table; the numbers above are invented.
 - Units are each tool's own: MiB/s for sysbench and multiload, MB/s for STREAM, nanoseconds for latency.
-- With one thread, the tables have the single-thread column only. The NUMA chapter appears with more than one node.
+- With one thread, the tables have the single-thread column only. The NUMA chapter appears when its matrix has more than one cell.
 - 说明 lines follow the chapter they concern: a shrunk working set, STREAM's run rule, a retry that succeeded.
 
 ### 5.8 Errors and outcomes
 
-- A chapter that fails shows `失败：<reason>` in place of its parameters; the other chapters run, and the item fails at the end, keeping their results, as CPU 性能 does when its multi-thread run fails.
-- Reasons: a tool's exit code with its last line, output that cannot be read, a run stopped at its limit, or STREAM's results failing validation.
-- A cancellation stops the running tool; the item is 已中断, and the results so far stay.
+- A chapter that fails shows `失败：<run>：<reason>（共试了 4 次）` in place of its parameters, such as `失败：多线程测试：STREAM 退出码 1：…（共试了 4 次）`, and stops; the other chapters run, and the item fails at the end with the chapters that failed, such as `STREAM 出错`, keeping their results, as CPU 性能 does when its multi-thread run fails. A table shows the runs before the one that failed, `—` for the rest.
+- Reasons: a tool's exit code with its last line, output that cannot be read, a run stopped at its limit, or STREAM's results failing validation. A run that succeeded after failures adds `<run>失败 N 次后成功，最后一次失败的原因：<reason>`.
+- A cancellation stops the running tool and is not retried; the item is 已中断, and the results so far stay.
 
 ## 6. Host facts (`crates/bench-host`)
 
-- **Caches:** each level's size and the CPU lists sharing each instance, from `/sys/devices/system/cpu/cpu*/cache/index*/{level,type,size,shared_cpu_list}`, giving L1d, L2, one L3, C and each Cᵢ.
-- **NUMA** (new module `numa`): the nodes, each with its CPUs within the allowed set and its `MemFree` from `node*/meminfo`.
-- **Memory:** the available memory without swap, from `memory` and the cgroup limits that exist already.
+- **Caches** (new module `cache`): every cache instance once, with its level, kind, size and the CPUs sharing it, from `/sys/devices/system/cpu/cpu*/cache/index*/{level,type,size,shared_cpu_list}`, giving L1d, L2, one L3, C and each Cᵢ.
+- **NUMA** (new module `numa`): the nodes, each with its CPUs and its `MemTotal` and `MemFree` from `node*/meminfo`, and the nodes the process may allocate on. The CPUs it may run on come from `cpu::allowed`.
+- **Memory:** `memory::usable`, the available memory without swap, from `memory` and the cgroup limits that exist already.
 
 ## 7. Placing a tool on a node
 
@@ -206,7 +208,7 @@ The matrix runs each tool from a new system thread whose CPU set the plugin sets
 
 - The registry gains `memory` after `cpu.sysbench`.
 - CI's smoke runs the item on the runners, which have one node: about a minute and a half, and no matrix. The smoke mutants skip it. "Tool downloads" fetches and unpacks both new tools.
-- `crates/bench-host/tests/fixtures/capture.sh` also reads every CPU's cache directories and the node directories, and the owner's three hosts are captured again, read-only.
+- `crates/bench-host/tests/fixtures/capture.sh` also reads every CPU's cache directories, the node directories and `/proc/self/status`, and the owner's three hosts are captured again, read-only.
 - README: the item's row and the two tools.
 
 ## 9. Testing
@@ -214,8 +216,8 @@ The matrix runs each tool from a new system thread whose CPU set the plugin sets
 - **Pure functions:** the working sets, STREAM's size, the latency buffers and the matrix's rows and columns, for many C, B and N, with cpusets and nodes without CPUs or memory; the readers of each tool's output, from real output captured from both architectures, including failures.
 - **Flow:** fake tools, as in CPU 性能's tests, through four chapters: a chapter failing, retries, cancellation, `mbind` refused.
 - **Placement:** on Linux, a child inherits the CPU set it was started with (CI's runners).
-- **Mutations** of the selections and the flow.
-- **Real runs** (owner's approval needed): `--only memory` on the owner's three hosts; the server has two nodes, so the matrix first runs there.
+- **Mutations** of the selections and the flow: 59, two of them of the placement, in a Linux container. 56 were killed. The three left change nothing: rounding 4C ÷ t down instead of up gives the same power of two while cache sizes are whole KiB and t is at most 4096; a set's `replace` adds what `insert` adds; and no entry of a cache directory but `index*` holds the four files read.
+- **Real runs:** `--only memory` on the owner's three hosts, approved and done on 2026-11-11 with the build of `a7fe052`. All three completed, in 36, 50 and 120 seconds, and left nothing behind. The server's matrix, the first one run, shows its uneven memory: node 0 has two modules in use and node 1 four (system information, S-20), so threads on node 0 get more bandwidth from node 1's memory than from their own (35735 against 23867 MiB/s), and node 1's own is the fastest (46589 MiB/s); the latency is 83 to 87 ns within a node and 156 to 157 ns across. The VM's L3, which QEMU reports as 16 MiB, measured like memory (187 against 182 ns): risk 3.
 
 ## 10. Risks and limitations
 
@@ -242,3 +244,16 @@ Accepted by the owner on 2026-11-10:
 2. **Publish** `stream-5.10-1` and `multichase-2026.10.01-1` from `main`, and verify them.
 3. **Second pull request:** the host facts and fixtures, `plugins/memory`, the registry, CI and the README; then the real runs (§9).
 4. The owner merges.
+
+## 12. Changes during implementation
+
+Points the sections above settled while the item was built, on 2026-11-10 and 2026-11-11; none changes a decision of §2:
+
+1. **The CPUs and nodes the process may use** come from `Cpus_allowed_list` and `Mems_allowed_list` in `/proc/self/status`, rather than from the online CPUs and a container's cpuset: these are the numbers `sched_setaffinity` and the nodes use (§5.2).
+2. **A node the process may not allocate on is no column** of the matrix, where `mbind` would fail (§5.6).
+3. **The matrix appears when it has more than one cell**, which more than one node does not ensure: a node may have neither usable CPUs nor memory (§5.6).
+4. **A cache level the kernel says nothing of** gets `没有 L3 的信息，跳过这一档`: the owner's board has no L3 at all, where `读不到 L3 的大小` would mislead (§5.5).
+5. **multichase and multiload are retried** up to three times and stopped after 60 seconds, like the other tools; a refused `mbind` is not retried (§5.5, §5.6).
+6. **No buffer is halved below a page**, and the matrix's buffers also stay within B (§5.2, §5.6).
+7. **The item's failure names the chapters that failed**, such as `STREAM 出错`; each chapter's line gives its reason (§5.8).
+8. **multichase is built with `make CAP=`**, so that the Makefile does not target the build machine's CPU (§4); the first build on GitHub's runners needed SVE.

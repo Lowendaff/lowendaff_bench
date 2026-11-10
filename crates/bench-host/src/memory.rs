@@ -2,6 +2,8 @@
 
 use std::collections::BTreeMap;
 
+use bench_api::PlatformKind;
+
 use crate::Root;
 
 /// Memory as the kernel reports it, in bytes.
@@ -60,8 +62,24 @@ pub fn read(root: &Root) -> Option<Memory> {
     })
 }
 
+/// Memory a test may use without swapping (design memory, §5.2): `MemAvailable` and, in a
+/// container, at most its cgroup's limit minus its usage. `None` without `/proc/meminfo`.
+#[must_use]
+pub fn usable(root: &Root, kind: PlatformKind) -> Option<u64> {
+    let available = read(root)?.available;
+    if kind != PlatformKind::Container {
+        return Some(available);
+    }
+    let limits = cgroup_limits(root);
+    let left = limits
+        .memory
+        .zip(limits.memory_used)
+        .map(|(limit, used)| limit.saturating_sub(used));
+    Some(left.map_or(available, |left| available.min(left)))
+}
+
 /// `/proc/meminfo` fields in bytes.
-fn meminfo(text: &str) -> BTreeMap<&str, u64> {
+pub(crate) fn meminfo(text: &str) -> BTreeMap<&str, u64> {
     let mut fields = BTreeMap::new();
     for line in text.lines() {
         let Some((key, value)) = line.split_once(':') else {

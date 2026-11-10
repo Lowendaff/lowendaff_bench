@@ -7,15 +7,18 @@
 
 #![warn(missing_docs)]
 
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::PathBuf;
 
 pub mod bmc;
+pub mod cache;
 pub mod cpu;
 pub mod edac;
 pub mod glibc;
 pub mod machine;
 pub mod memory;
+pub mod numa;
 pub mod os;
 pub mod platform;
 pub mod raid;
@@ -142,17 +145,38 @@ fn firmware_string(text: &str) -> Option<String> {
     (!zeros && !numbered && !PLACEHOLDERS.contains(&lower.as_str())).then(|| text.to_owned())
 }
 
-/// Number of CPUs in a kernel CPU list such as `0-15,32-47`.
-fn cpu_list_len(list: &str) -> Option<usize> {
-    let mut count = 0;
-    for range in list.split(',') {
-        count += match range.split_once('-') {
-            Some((low, high)) => high.parse::<usize>().ok()? - low.parse::<usize>().ok()? + 1,
+/// The numbers in a kernel CPU or node list such as `0-15,32-47`, ascending; `None` when the
+/// list is empty or malformed.
+fn cpu_list(list: &str) -> Option<Vec<usize>> {
+    // No kernel has this many CPUs; a larger number means a damaged list.
+    const LIMIT: usize = 1 << 16;
+    let mut numbers = BTreeSet::new();
+    for range in list.trim().split(',') {
+        let (low, high) = match range.split_once('-') {
+            Some((low, high)) => (low.parse::<usize>().ok()?, high.parse::<usize>().ok()?),
             None => {
-                range.parse::<usize>().ok()?;
-                1
+                let number = range.parse::<usize>().ok()?;
+                (number, number)
             }
         };
+        if low > high || high >= LIMIT {
+            return None;
+        }
+        numbers.extend(low..=high);
     }
-    Some(count)
+    Some(numbers.into_iter().collect())
+}
+
+/// Number of CPUs in a kernel CPU list such as `0-15,32-47`.
+fn cpu_list_len(list: &str) -> Option<usize> {
+    cpu_list(list).as_ref().map(Vec::len)
+}
+
+/// A list in this process's `/proc/self/status`, such as `Cpus_allowed_list: 0-63`.
+fn status_list(root: &Root, key: &str) -> Option<Vec<usize>> {
+    let status = root.read("/proc/self/status")?;
+    let list = status
+        .lines()
+        .find_map(|line| line.strip_prefix(key)?.strip_prefix(':'))?;
+    cpu_list(list)
 }

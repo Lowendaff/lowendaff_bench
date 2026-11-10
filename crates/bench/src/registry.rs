@@ -13,6 +13,9 @@ pub const REGISTRY: &[Registration] = &[
     bench_api::register::<plugin_disk_health::Smartctl>(),
     // CPU 性能: sysbench, before fio's writes can disturb it (design cpu, CP-08).
     bench_api::register::<plugin_cpu::Sysbench>(),
+    // 内存性能: sysbench, STREAM and multichase, after CPU 性能 and before fio's writes
+    // (design memory, ME-09).
+    bench_api::register::<plugin_memory::Memory>(),
     // 硬盘性能: fio with YABS's method, on every platform.
     bench_api::register::<plugin_disk::Fio>(),
     // Geekbench 7: last, being the longest, with a download, an upload and perhaps swap that
@@ -46,6 +49,7 @@ mod tests {
                 "system.container",
                 "disk.health",
                 "cpu.sysbench",
+                "memory",
                 "disk.fio",
                 "cpu.geekbench",
             ]

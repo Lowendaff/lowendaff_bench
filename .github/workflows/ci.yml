@@ -145,7 +145,7 @@ jobs:
         run: cargo nextest run --workspace --locked --no-fail-fast
       # Smoke only downloads the tools of items that apply and run on the runner (design
       # disk-health, §7.3); this checks every pin, smartctl's and Geekbench's included, and
-      # unpacks Geekbench's archive.
+      # unpacks the archives of Geekbench, STREAM and multichase.
       - name: Tool downloads
         run: cargo nextest run -p bench --test tools --locked --run-ignored only
       - name: Static build

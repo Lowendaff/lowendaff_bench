@@ -83,6 +83,7 @@ dependencies = [
  "plugin-disk",
  "plugin-disk-health",
  "plugin-geekbench",
+ "plugin-memory",
  "plugin-system",
  "reqwest",
  "rustix",
@@ -897,6 +898,18 @@ dependencies = [
  "serde",
  "swap-file",
  "tempfile",
+ "tokio",
+]
+
+[[package]]
+name = "plugin-memory"
+version = "0.1.0"
+dependencies = [
+ "bench-api",
+ "bench-host",
+ "plugin-cpu",
+ "rustix",
+ "serde",
  "tokio",
 ]
 

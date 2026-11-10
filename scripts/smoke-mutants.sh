@@ -55,7 +55,8 @@ build() {
 smoke() {
     $as_root rm -rf "$scratch/run"
     mkdir "$scratch/run"
-    (cd "$scratch/run" && "$repo/scripts/smoke.sh" "$bin" --skip disk.fio,cpu.sysbench,cpu.geekbench) 2>&1
+    (cd "$scratch/run" &&
+        "$repo/scripts/smoke.sh" "$bin" --skip disk.fio,cpu.sysbench,memory,cpu.geekbench) 2>&1
 }
 
 # mutant <text smoke.sh must print> <file> <perl substitution>

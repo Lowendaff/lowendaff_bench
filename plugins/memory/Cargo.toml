@@ -1,0 +1,24 @@
+[package]
+name = "plugin-memory"
+description = "Memory performance test item for lowendaff-bench (内存性能)"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[dependencies]
+bench-api.workspace = true
+bench-host.workspace = true
+plugin-cpu.workspace = true
+serde.workspace = true
+tokio = { workspace = true, features = ["macros", "process", "rt", "sync", "time"] }
+
+# Places the NUMA matrix's tools on a node's CPUs (design memory, §7); Linux only.
+[target.'cfg(target_os = "linux")'.dependencies]
+rustix = { version = "1", features = ["thread"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt", "test-util"] }
+
+[lints]
+workspace = true

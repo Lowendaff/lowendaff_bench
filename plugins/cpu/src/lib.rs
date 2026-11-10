@@ -29,7 +29,7 @@ use crate::sysbench::Success;
 
 /// sysbench 1.0.20 from the release `sysbench-1.0.20-1`, which the tools workflow built and
 /// published (design cpu, §4).
-const SYSBENCH: ToolSpec = ToolSpec {
+pub const SYSBENCH: ToolSpec = ToolSpec {
     name: "sysbench",
     version: "1.0.20",
     form: ToolForm::Executable,
