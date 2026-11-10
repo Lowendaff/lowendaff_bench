@@ -10,6 +10,11 @@
 set -eu
 
 RELEASE=sysbench-1.0.20-1
+# The image the tools workflow runs this script in: Alpine 3.22 of scripts/distros.txt.
+# shellcheck disable=SC2034 # tools.yml reads this line and the next
+IMAGE=ghcr.io/lowendaff/mirror/docker/library/alpine:3.22
+# shellcheck disable=SC2034
+IMAGE_DIGEST=sha256:bfe7ceb9f09ec0566c48fb93356e45a47a00be5a1dd14fa5b909e7709c66b034
 SYSBENCH_VERSION=1.0.20
 SYSBENCH_URL=https://github.com/akopytov/sysbench/archive/refs/tags/$SYSBENCH_VERSION.tar.gz
 SYSBENCH_SHA256=e8ee79b1f399b2d167e6a90de52ccc90e52408f7ade1b9b7135727efe181347f
