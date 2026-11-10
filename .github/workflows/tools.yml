@@ -16,7 +16,7 @@ on:
       tool:
         description: Tool to build and publish
         type: choice
-        options: [fio, smartctl, sysbench]
+        options: [fio, smartctl, stream, sysbench]
 
 permissions: {}
 
@@ -28,7 +28,7 @@ jobs:
         # Every tool for a pull request, the chosen one for a manual run.
         tool: >-
           ${{ fromJSON(inputs.tool && format('["{0}"]', inputs.tool)
-          || '["fio", "smartctl", "sysbench"]') }}
+          || '["fio", "smartctl", "stream", "sysbench"]') }}
         arch: [x86_64, aarch64]
         include:
           - arch: x86_64
