@@ -75,6 +75,14 @@ pub fn usable_threads(root: &Root, kind: PlatformKind) -> Option<usize> {
     Some(threads(logical, kind, cpuset))
 }
 
+/// The CPUs this process may run on (design memory, §5.2), from `Cpus_allowed_list` in
+/// `/proc/self/status`: its affinity, within a container's cpuset, in the kernel's numbering,
+/// which the NUMA nodes use too. `None` when it is missing.
+#[must_use]
+pub fn allowed(root: &Root) -> Option<Vec<usize>> {
+    crate::status_list(root, "Cpus_allowed_list")
+}
+
 /// Reads the CPU facts under `root`.
 #[must_use]
 pub fn read(root: &Root) -> Cpu {
@@ -203,7 +211,7 @@ fn caches(root: &Root, first: &[(String, String)]) -> Vec<(String, u64)> {
 }
 
 /// Sizes such as `32K`, `22528 KB` or `1M`.
-fn bytes(text: &str) -> Option<u64> {
+pub(crate) fn bytes(text: &str) -> Option<u64> {
     let text = text.trim();
     let digits = text.trim_end_matches(|c: char| !c.is_ascii_digit());
     let number: u64 = digits.trim().parse().ok()?;
