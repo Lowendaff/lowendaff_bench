@@ -12,13 +12,8 @@ use bench_api::CancellationToken;
 use bench_api::Context;
 use bench_api::Descriptor;
 use bench_api::Env;
-use bench_api::GlibcVersion;
-use bench_api::Hypervisor;
-use bench_api::Libc;
 use bench_api::Measurement;
 use bench_api::Net;
-use bench_api::Platform;
-use bench_api::PlatformKind;
 use bench_api::Plugin;
 use bench_api::PluginError;
 use bench_api::Record;
@@ -27,6 +22,11 @@ use bench_api::Requirements;
 use bench_api::ToolAsset;
 use bench_api::ToolForm;
 use bench_api::ToolSpec;
+use bench_host::glibc::GlibcVersion;
+use bench_host::glibc::Libc;
+use bench_host::platform::Hypervisor;
+use bench_host::platform::Platform;
+use bench_host::platform::PlatformKind;
 use serde::Deserialize;
 
 #[derive(Default, Deserialize)]

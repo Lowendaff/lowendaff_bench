@@ -2,10 +2,10 @@
 
 mod common;
 
-use bench_api::GlibcVersion;
-use bench_api::Libc;
 use bench_host::Root;
 use bench_host::glibc;
+use bench_host::glibc::GlibcVersion;
+use bench_host::glibc::Libc;
 
 /// How glibc describes itself inside `libc.so.6`, between binary data.
 fn library(banner: &str) -> Vec<u8> {

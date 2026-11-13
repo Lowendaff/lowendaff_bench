@@ -7,10 +7,10 @@ use std::time::Duration;
 use std::time::Instant;
 
 use bench_api::Descriptor;
-use bench_api::Platform;
 use bench_api::Record;
 use bench_api::Table;
 use bench_api::ToolSpec;
+use bench_host::platform::Platform;
 
 use crate::orchestrator::Observer;
 use crate::orchestrator::Outcome;

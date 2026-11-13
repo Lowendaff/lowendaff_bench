@@ -4,12 +4,12 @@
 use std::num::NonZeroUsize;
 use std::path::Path;
 
-use bench_api::PlatformKind;
 use bench_host::Root;
 use bench_host::cpu;
 use bench_host::memory;
 use bench_host::memory::CgroupLimits;
 use bench_host::memory::Memory;
+use bench_host::platform::PlatformKind;
 use bench_host::storage;
 
 /// One GiB, in bytes.

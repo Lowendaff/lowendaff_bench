@@ -9,7 +9,6 @@ use std::time::Duration;
 
 use bench_api::Context;
 use bench_api::Descriptor;
-use bench_api::PlatformKind;
 use bench_api::Plugin;
 use bench_api::PluginError;
 use bench_api::Record;
@@ -18,6 +17,7 @@ use bench_api::ToolAsset;
 use bench_api::ToolForm;
 use bench_api::ToolSpec;
 use bench_host::Root;
+use bench_host::platform::PlatformKind;
 use serde::Deserialize;
 
 use crate::nodes::Nodes;

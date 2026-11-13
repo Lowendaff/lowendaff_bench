@@ -1,4 +1,4 @@
-//! Plugin contract for lowendaff-bench. Test-item crates depend on this crate only.
+//! Plugin contract for lowendaff-bench, which every test-item crate implements.
 //!
 //! User-facing strings are Chinese; ids,
 //! identifiers and comments are English.
@@ -16,6 +16,10 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 
+use bench_host::glibc::GlibcVersion;
+use bench_host::glibc::Libc;
+use bench_host::platform::Platform;
+use bench_host::platform::PlatformKind;
 use serde::de::DeserializeOwned;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::UnboundedReceiver;
@@ -73,143 +77,6 @@ impl Requirements {
     }
 }
 
-/// Where the program runs, detected once by the orchestrator.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum Platform {
-    /// No virtualization was detected; most likely a dedicated server.
-    #[default]
-    Dedicated,
-    /// A virtual machine.
-    Vm(Hypervisor),
-    /// A container, sharing the kernel of its host.
-    Container(ContainerKind),
-}
-
-impl Platform {
-    /// The kind plugins declare in [`Requirements::platforms`].
-    #[must_use]
-    pub fn kind(self) -> PlatformKind {
-        match self {
-            Self::Dedicated => PlatformKind::Dedicated,
-            Self::Vm(_) => PlatformKind::Vm,
-            Self::Container(_) => PlatformKind::Container,
-        }
-    }
-}
-
-impl fmt::Display for Platform {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Dedicated => f.write_str("未检测到虚拟化"),
-            Self::Vm(Hypervisor::Qemu) => f.write_str("QEMU 虚拟机（纯软件模拟）"),
-            Self::Vm(Hypervisor::Other) => f.write_str("虚拟机（类型未知）"),
-            Self::Vm(hypervisor) => write!(f, "{hypervisor} 虚拟机"),
-            Self::Container(ContainerKind::Wsl) => f.write_str("WSL"),
-            Self::Container(ContainerKind::Other) => f.write_str("容器（类型未知）"),
-            Self::Container(container) => write!(f, "{container} 容器"),
-        }
-    }
-}
-
-/// Kind of platform, as declared by plugins.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PlatformKind {
-    /// A machine without detected virtualization.
-    Dedicated,
-    /// Any virtual machine.
-    Vm,
-    /// Any container.
-    Container,
-}
-
-impl fmt::Display for PlatformKind {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            Self::Dedicated => "独立服务器",
-            Self::Vm => "虚拟机",
-            Self::Container => "容器",
-        })
-    }
-}
-
-/// Hypervisor of a virtual machine.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Hypervisor {
-    /// QEMU with KVM acceleration.
-    Kvm,
-    /// QEMU without KVM, emulating the CPU in software.
-    Qemu,
-    /// Xen.
-    Xen,
-    /// VMware.
-    Vmware,
-    /// Microsoft Hyper-V.
-    HyperV,
-    /// Oracle VirtualBox.
-    VirtualBox,
-    /// Parallels.
-    Parallels,
-    /// Amazon EC2 (Nitro or Xen based).
-    AmazonEc2,
-    /// Google Compute Engine.
-    GoogleCompute,
-    /// FreeBSD bhyve.
-    Bhyve,
-    /// A hypervisor that was detected but not recognized.
-    Other,
-}
-
-impl fmt::Display for Hypervisor {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            Self::Kvm => "KVM",
-            Self::Qemu => "QEMU",
-            Self::Xen => "Xen",
-            Self::Vmware => "VMware",
-            Self::HyperV => "Hyper-V",
-            Self::VirtualBox => "VirtualBox",
-            Self::Parallels => "Parallels",
-            Self::AmazonEc2 => "Amazon EC2",
-            Self::GoogleCompute => "Google Compute Engine",
-            Self::Bhyve => "bhyve",
-            Self::Other => "未知",
-        })
-    }
-}
-
-/// Kind of container.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ContainerKind {
-    /// LXC, including LXD and Incus.
-    Lxc,
-    /// OpenVZ or Virtuozzo.
-    Openvz,
-    /// Docker.
-    Docker,
-    /// Podman.
-    Podman,
-    /// systemd-nspawn.
-    SystemdNspawn,
-    /// Windows Subsystem for Linux.
-    Wsl,
-    /// A container that was detected but not recognized.
-    Other,
-}
-
-impl fmt::Display for ContainerKind {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            Self::Lxc => "LXC",
-            Self::Openvz => "OpenVZ",
-            Self::Docker => "Docker",
-            Self::Podman => "Podman",
-            Self::SystemdNspawn => "systemd-nspawn",
-            Self::Wsl => "WSL",
-            Self::Other => "未知",
-        })
-    }
-}
-
 /// Network access a plugin needs; an unreachable one skips the plugin.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Net {
@@ -221,33 +88,6 @@ pub enum Net {
     Ipv4,
     /// IPv6 must be reachable.
     Ipv6,
-}
-
-/// A glibc version, such as 2.35. Versions compare by major, then minor number.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct GlibcVersion {
-    /// Major number, 2 for every glibc since 1997.
-    pub major: u32,
-    /// Minor number.
-    pub minor: u32,
-}
-
-impl fmt::Display for GlibcVersion {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}.{}", self.major, self.minor)
-    }
-}
-
-/// The host's C library, as far as programs built for glibc are concerned.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum Libc {
-    /// glibc of this version.
-    Glibc(GlibcVersion),
-    /// glibc whose version could not be read. Plugins that need glibc still run.
-    #[default]
-    GlibcUnknown,
-    /// No glibc loader for this architecture, as on musl systems such as Alpine.
-    NoGlibc,
 }
 
 /// A pinned external tool. Plugins that share a tool must declare identical specs.

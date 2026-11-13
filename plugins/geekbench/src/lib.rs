@@ -18,7 +18,6 @@ use std::time::Duration;
 
 use bench_api::Context;
 use bench_api::Descriptor;
-use bench_api::GlibcVersion;
 use bench_api::Net;
 use bench_api::Plugin;
 use bench_api::PluginError;
@@ -27,6 +26,7 @@ use bench_api::ToolAsset;
 use bench_api::ToolForm;
 use bench_api::ToolSpec;
 use bench_host::Root;
+use bench_host::glibc::GlibcVersion;
 use serde::Deserialize;
 use swap_file::SwapFile;
 

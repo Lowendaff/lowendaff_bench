@@ -3,8 +3,8 @@
 use std::time::Duration;
 
 use bench_api::Net;
-use bench_api::PlatformKind;
 use bench_api::Plugin;
+use bench_host::platform::PlatformKind;
 use plugin_disk_health::Smartctl;
 
 #[test]

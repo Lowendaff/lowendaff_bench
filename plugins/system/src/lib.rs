@@ -7,11 +7,11 @@ use std::time::Duration;
 
 use bench_api::Context;
 use bench_api::Descriptor;
-use bench_api::PlatformKind;
 use bench_api::Plugin;
 use bench_api::PluginError;
 use bench_api::Requirements;
 use bench_host::Root;
+use bench_host::platform::PlatformKind;
 use bench_host::storage;
 use bench_host::system::Counters;
 use serde::Deserialize;

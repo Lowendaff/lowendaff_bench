@@ -3,7 +3,7 @@
 use std::collections::BTreeSet;
 use std::mem;
 
-use bench_api::PlatformKind;
+use crate::platform::PlatformKind;
 
 use crate::Root;
 use crate::memory;

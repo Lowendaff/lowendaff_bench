@@ -104,6 +104,7 @@ dependencies = [
 name = "bench-api"
 version = "0.1.0"
 dependencies = [
+ "bench-host",
  "serde",
  "serde_json",
  "tokio",
@@ -114,7 +115,6 @@ dependencies = [
 name = "bench-host"
 version = "0.1.0"
 dependencies = [
- "bench-api",
  "rustix",
  "smbios-lib",
  "tempfile",
