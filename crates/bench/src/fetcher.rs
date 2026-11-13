@@ -8,6 +8,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use reqwest::Client;
+use reqwest::ClientBuilder;
 use reqwest::Proxy;
 use rustls::ClientConfig;
 use rustls::RootCertStore;
@@ -33,19 +34,9 @@ impl Fetcher {
 
     /// `proxy` replaces the environment's; the tests use it.
     fn build(proxy: Option<Proxy>) -> Result<Self, String> {
-        let roots = RootCertStore {
-            roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
-        };
-        let tls = ClientConfig::builder_with_provider(Arc::new(ring::default_provider()))
-            .with_safe_default_protocol_versions()
-            .map_err(|err| format!("TLS 初始化失败：{err}"))?
-            .with_root_certificates(roots)
-            .with_no_client_auth();
-        let mut builder = Client::builder()
-            .tls_backend_preconfigured(tls)
+        let mut builder = builder()?
             .connect_timeout(Duration::from_secs(10))
-            .read_timeout(Duration::from_secs(30))
-            .user_agent(concat!("lowendaff-bench/", env!("CARGO_PKG_VERSION")));
+            .read_timeout(Duration::from_secs(30));
         if let Some(proxy) = proxy {
             builder = builder.proxy(proxy);
         }
@@ -78,6 +69,22 @@ impl Fetcher {
             .map_err(move |err| io::Error::other(format!("{err}{read_hint}")));
         Ok(StreamReader::new(Box::pin(body)))
     }
+}
+
+/// A client builder with the program's TLS configuration (rustls with ring, and the bundled
+/// Mozilla roots) and its user agent, for the downloads and the network module alike.
+pub fn builder() -> Result<ClientBuilder, String> {
+    let roots = RootCertStore {
+        roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
+    };
+    let tls = ClientConfig::builder_with_provider(Arc::new(ring::default_provider()))
+        .with_safe_default_protocol_versions()
+        .map_err(|err| format!("TLS 初始化失败：{err}"))?
+        .with_root_certificates(roots)
+        .with_no_client_auth();
+    Ok(Client::builder()
+        .tls_backend_preconfigured(tls)
+        .user_agent(concat!("lowendaff-bench/", env!("CARGO_PKG_VERSION"))))
 }
 
 /// The end of a network error's reason: which proxy variable is set, or
