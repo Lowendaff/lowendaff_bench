@@ -42,6 +42,7 @@ deny = [
         "plugin-memory",
     ] },
     { crate = "bench-tool", reason = "the pinned tools, for the plugin crates", wrappers = [
+        "bench",
         "plugin-cpu",
         "plugin-disk",
         "plugin-disk-health",

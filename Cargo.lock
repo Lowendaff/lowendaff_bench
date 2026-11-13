@@ -76,6 +76,7 @@ version = "0.1.0"
 dependencies = [
  "bench-api",
  "bench-host",
+ "bench-tool",
  "clap",
  "comfy-table",
  "flate2",

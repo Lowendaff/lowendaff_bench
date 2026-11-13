@@ -697,4 +697,32 @@ fn the_list_keeps_each_group_together_in_the_reports_order() {
             "disk.fio"
         ]
     );
+    let cpu: Vec<&str> = text
+        .lines()
+        .filter(|line| line.starts_with("  cpu."))
+        .collect();
+    assert_eq!(
+        cpu,
+        [
+            "  cpu.sysbench  CPU 性能（工具：sysbench 1.0.20）",
+            "  cpu.geekbench  Geekbench 7（工具：geekbench 7.1.0）"
+        ],
+        "the reporter names the plugins of the typed contract"
+    );
+}
+
+#[test]
+fn the_plan_keeps_the_reporters_names() {
+    let planned = app::prepare(&cli(&["--only", "cpu"]), &registry::all()).unwrap();
+    let names: Vec<(&str, Option<&str>)> = planned
+        .iter()
+        .map(|planned| (planned.id(), planned.title()))
+        .collect();
+    assert_eq!(
+        names,
+        [
+            ("cpu.sysbench", Some("CPU 性能")),
+            ("cpu.geekbench", Some("Geekbench 7"))
+        ]
+    );
 }

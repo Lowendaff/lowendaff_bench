@@ -30,7 +30,7 @@ pub fn all() -> Vec<Entry> {
         // the disks are idle and fio's writes are not counted.
         legacy::<plugin_disk_health::Smartctl>(),
         // CPU 性能: sysbench, before fio's writes can disturb it.
-        legacy::<plugin_cpu::Sysbench>(),
+        entry::<plugin_cpu::sysbench::Sysbench>(Measured::CpuSysbench),
         // 内存性能: sysbench, STREAM and multichase, after CPU 性能 and before fio's writes.
         legacy::<plugin_memory::Memory>(),
         // 硬盘性能: fio with YABS's method, on every platform.

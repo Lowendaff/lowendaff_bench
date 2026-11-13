@@ -3,6 +3,7 @@
 
 use bench_api::Record;
 use bench_api::typed::Stop;
+use plugin_cpu::sysbench;
 
 /// A plugin's result, complete or as far as it got, and its own reason when it stopped short.
 #[derive(Debug, Clone, PartialEq)]
@@ -19,4 +20,6 @@ pub struct Report<O, F> {
 pub enum Measured {
     /// A plugin of the first contract: the records it emitted, and its reason in Chinese.
     Legacy(Report<Vec<Record>, String>),
+    /// CPU 性能 (`cpu.sysbench`).
+    CpuSysbench(Report<sysbench::Output, sysbench::Failure>),
 }

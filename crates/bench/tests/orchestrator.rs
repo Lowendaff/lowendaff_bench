@@ -350,6 +350,7 @@ async fn run(
 fn records(run: &Run<Measured>) -> &[Record] {
     match &run.result {
         Some(Measured::Legacy(report)) => report.output.as_deref().unwrap_or_default(),
+        Some(other) => panic!("only plugins of the first contract run here: {other:?}"),
         None => &[],
     }
 }
@@ -362,6 +363,7 @@ fn ids(run: &Run<Measured>) -> Vec<&str> {
 fn stop(run: &Run<Measured>) -> Option<&Stop<String>> {
     match &run.result {
         Some(Measured::Legacy(report)) => report.stop.as_ref(),
+        Some(other) => panic!("only plugins of the first contract run here: {other:?}"),
         None => None,
     }
 }
