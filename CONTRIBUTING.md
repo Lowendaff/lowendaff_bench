@@ -14,13 +14,17 @@ that work ends.
 
 ## Code
 
-Rust follows the Google Rust Style Guide, with these rules of this repository:
+Rust follows the [Google Rust Style Guide](https://google.github.io/styleguide/rustguide.html),
+formatted by `rustfmt` with its default settings (the guide's nightly-only options are not
+used), with these rules of this repository:
 
 - Call free functions through their module; import types unqualified, except common names such
-  as `io::Error`; import a trait inside the function that uses it; one item per `use` (ast-grep
-  rules `call-functions-through-module` and `use-one-item`).
-- Name a constructor that returns `Result` `try_new`. Implement `Display` instead of writing label
-  helpers. Name a module after its primary type, without abbreviations.
+  as `io::Error` and `toml::Value`; import a trait inside the function that uses it, unless the
+  whole file does; one item per `use` (ast-grep rules `call-functions-through-module` and
+  `use-one-item`).
+- Name constructors `new` or `new_*`, or `try_new` when they return a `Result`. Implement
+  `Display` instead of writing label helpers. Name a module after its primary type, without
+  abbreviations.
 - No combinator chains in `for` headers; prefer `let`-`else`; `expect("why")` instead of
   `unwrap()`, which only tests may use; an assertion's message says what was expected.
 - Public enums are not `#[non_exhaustive]` (rule `no-non-exhaustive`): every consumer lives in
@@ -36,6 +40,11 @@ Rust follows the Google Rust Style Guide, with these rules of this repository:
   `/proc`, is fine.
 - Code that reads the environment takes it as a parameter, so that tests need no
   `std::env::set_var`, which is `unsafe` in Rust 2024.
+- Besides clippy's defaults, the lint gate checks `must_use_candidate`, `needless_for_each`,
+  `unwrap_used` (allowed in tests by `clippy.toml`) and `wildcard_imports`; `bench-api`,
+  `bench-host` and `swap-file` document every public item (`missing_docs`).
+- A plugin's panic is contained by its task and reported as a failure: defense in depth, never
+  control flow.
 
 ## Tests and fixtures
 
@@ -70,8 +79,8 @@ Every commit also builds and passes the gates on its own, with `--locked`;
   with ` (#N)` appended it fits in 100 columns. The squash message lists the commit messages.
 - The body, in Chinese, follows `.github/pull_request_template.md`, with lines of at most 100
   columns.
-- A pull request is merged only with the owner's approval, given for that pull request, and with
-  every check green on its exact head.
+- A pull request is merged only with the owner's approval and with every check green on its
+  exact head; its branch is then deleted.
 - Once CI has passed, add further fixes as new commits on top instead of rewriting the branch.
   CI reuses an earlier full validation only for commits that descend from the validated one
   (README "Gates"), so a rewritten branch runs the whole suite again.
@@ -79,7 +88,9 @@ Every commit also builds and passes the gates on its own, with `--locked`;
   GitHub itself is rerun, once GitHub has recovered, and at most three times.
 - Dependabot's pull requests skip the commit check; their squash message is rewritten at merge,
   since their links exceed 100 columns.
-- A job that is added to CI or renamed is updated in the repository's ruleset as a required check.
+- A ruleset on `main`, which nobody can bypass, enforces this: pull requests only, squash merges,
+  every required check green on a branch that is up to date with `main`, and no force push or
+  deletion. A job that is added to CI or renamed is updated in it as a required check.
 
 ## Design documents
 

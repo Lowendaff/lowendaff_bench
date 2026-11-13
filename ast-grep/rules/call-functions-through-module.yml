@@ -3,7 +3,7 @@ language: rust
 severity: error
 message: Import the module and call the function through it, e.g. `orchestrator::plan(...)`.
 note: >-
-  README "Code style" (Google Rust Style Guide). Workspace crates have flat modules and
+  CONTRIBUTING "Code" (Google Rust Style Guide). Workspace crates have flat modules and
   `bench_api` has none, so a lowercase item below them is a function.
 rule:
   kind: use_declaration

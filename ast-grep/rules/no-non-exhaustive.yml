@@ -3,7 +3,7 @@ language: rust
 severity: error
 message: Do not mark items `#[non_exhaustive]`; every consumer is in this workspace.
 note: >-
-  README "Code style", deliberate interpretations. A `#[non_exhaustive]` `Record` would need a
+  CONTRIBUTING "Code". A `#[non_exhaustive]` `Record` would need a
   wildcard arm in the renderer, which would then drop new record kinds silently.
 rule:
   kind: attribute
