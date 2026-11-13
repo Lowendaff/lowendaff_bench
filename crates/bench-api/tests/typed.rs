@@ -7,11 +7,11 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use bench_api::CancellationToken;
-use bench_api::Env;
 use bench_api::typed::Channels;
 use bench_api::typed::Context;
 use bench_api::typed::Measurement;
 use bench_api::typed::ToolVersion;
+use bench_host::profile::HostProfile;
 use serde::Serialize;
 use tokio::time::Instant;
 
@@ -30,14 +30,16 @@ impl Measurement for Output {
 }
 
 fn context() -> (Context<Output>, Channels<Output>, CancellationToken) {
-    let env = Env {
-        tools: BTreeMap::from([("probe".to_owned(), PathBuf::from("/run/tools/probe"))]),
-        ..Env::default()
+    let tools = BTreeMap::from([("probe".to_owned(), PathBuf::from("/run/tools/probe"))]);
+    let host = HostProfile {
+        arch: "riscv64".to_owned(),
+        ..HostProfile::default()
     };
     let cancel = CancellationToken::new();
     let deadline = Instant::now() + Duration::from_secs(60);
     let (ctx, channels) = Context::new(
-        Arc::new(env),
+        Arc::new(host),
+        Arc::new(tools),
         deadline,
         PathBuf::from("/run/work"),
         cancel.clone(),
@@ -76,8 +78,9 @@ fn a_plugin_keeps_running_when_nobody_listens() {
 }
 
 #[test]
-fn the_context_hands_out_tools_directory_deadline_and_token() {
+fn the_context_hands_out_host_tools_directory_deadline_and_token() {
     let (ctx, _channels, cancel) = context();
+    assert_eq!(ctx.host().arch, "riscv64");
     assert_eq!(
         ctx.tool("probe"),
         Some(PathBuf::from("/run/tools/probe").as_path())
@@ -91,6 +94,5 @@ fn the_context_hands_out_tools_directory_deadline_and_token() {
         ctx.cancel_token().is_cancelled(),
         "the plugin sees the orchestrator's cancel"
     );
-    assert_eq!(ctx.env().tools.len(), 1);
     assert_eq!(Output { runs: 0 }.tools()[0].version, "1.0");
 }

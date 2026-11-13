@@ -1,14 +1,15 @@
-//! The terminal report, written once when every plugin is done: a section per group of plugins,
-//! in an order of its own, then the summary. Columns line up by display width, so CJK and ASCII
-//! line up, and tables wrap to the terminal's width when there is one.
+//! The terminal report, written once when every plugin is done: the host profile, a section per
+//! group of plugins, in an order of its own, then the summary. Columns line up by display width,
+//! so CJK and ASCII line up, and tables wrap to the terminal's width when there is one.
 
+mod host;
 mod legacy;
 mod summary;
 
 use std::fmt::Write;
 use std::time::Duration;
 
-use bench_host::platform::Platform;
+use bench_host::profile::HostProfile;
 use comfy_table::CellAlignment;
 use comfy_table::ContentArrangement;
 use comfy_table::Table;
@@ -17,6 +18,8 @@ use comfy_table::presets;
 use crate::orchestrator::Run;
 use crate::results::Measured;
 
+pub use host::family_text;
+pub use host::why_text;
 pub use summary::fault_text;
 pub use summary::run_status;
 use summary::status_text;
@@ -25,9 +28,9 @@ pub use summary::unmet_text;
 /// Labels pad to this display width, so that values line up.
 const LABEL_WIDTH: usize = 16;
 
-/// The sections, in the report's order: a group's id and its title.
-const SECTIONS: [(&str, &str); 4] = [
-    ("system", "系统信息"),
+/// The sections of the plugins, in the report's order, after the host's: a group's id and its
+/// title.
+const SECTIONS: [(&str, &str); 3] = [
     ("cpu", "CPU 性能"),
     ("memory", "内存性能"),
     ("disk", "硬盘"),
@@ -37,8 +40,10 @@ const SECTIONS: [(&str, &str); 4] = [
 pub struct Page<'a> {
     /// The program's version, on the first line.
     pub version: &'a str,
-    /// Where the program ran.
-    pub platform: Platform,
+    /// The host, as the run read it.
+    pub host: &'a HostProfile,
+    /// Whether to show the public addresses in full.
+    pub show_ip: bool,
     /// The titles of the test items made for other platforms only.
     pub not_applicable: &'a [&'a str],
     /// Every plugin's run, in the run order.
@@ -55,7 +60,8 @@ pub fn render(page: &Page, width: Option<u16>) -> String {
         width,
     };
     out.line(&format!("lowendaff-bench {}", page.version));
-    out.line(&format!("运行环境：{}", page.platform));
+    out.line(&format!("运行环境：{}", page.host.platform));
+    host::section(&mut out, page.host, page.show_ip);
     let known: Vec<&str> = SECTIONS.iter().map(|(group, _)| *group).collect();
     let mut sections: Vec<(&str, &str)> = SECTIONS.to_vec();
     for run in page.runs {

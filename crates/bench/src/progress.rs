@@ -6,6 +6,8 @@ use std::io;
 use std::time::Instant;
 
 use bench_api::ToolSpec;
+use bench_host::network::Network;
+use bench_host::profile::HostProfile;
 use tracing::Subscriber;
 use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::filter::Targets;
@@ -72,6 +74,20 @@ where
 pub fn init(verbose: bool) {
     // Only `main` installs it, once.
     let _ = tracing::subscriber::set_global_default(subscriber(io::stderr, verbose));
+}
+
+/// Logs where the program runs, once the host profile is read.
+pub fn host(profile: &HostProfile) {
+    tracing::info!("主机概况：{}，{}", profile.platform, profile.arch);
+}
+
+/// Logs each family's reachability and public address. The log masks addresses always: it is
+/// shared more readily than the report, which shows them in full on request.
+pub fn network(network: &Network) {
+    for (name, family) in [("IPv4", &network.ipv4), ("IPv6", &network.ipv6)] {
+        let text = report::terminal::family_text(family, name, false);
+        tracing::info!("网络：{name} {text}");
+    }
 }
 
 /// Logs how the tools' downloads went: the ready ones on one line, then each failure with its

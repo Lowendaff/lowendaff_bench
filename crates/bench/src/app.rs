@@ -13,6 +13,7 @@ use std::time::Instant;
 use bench_api::CancellationToken;
 use bench_api::Env;
 use bench_api::Registration;
+use bench_host::profile::HostProfile;
 
 use crate::fetcher::Fetcher;
 use crate::orchestrator;
@@ -58,6 +59,10 @@ pub struct Cli {
     /// 在进度日志中显示更多细节，如每个工具的下载地址
     #[arg(short, long)]
     pub verbose: bool,
+
+    /// 在报告中显示完整的公网地址（默认只显示前一部分）
+    #[arg(long)]
+    pub show_ip: bool,
 }
 
 impl Cli {
@@ -176,23 +181,33 @@ pub fn load_config(path: Option<&Path>) -> Result<BTreeMap<String, serde_json::V
     Ok(config)
 }
 
-/// Runs a prepared plan inside a fresh run directory under `work_dir`, which is removed
-/// afterwards. Returns the process exit code.
+/// Runs a prepared plan on the host that `host` describes, inside a fresh run directory under
+/// `work_dir`, which is removed afterwards, and writes the report to `out`: its tables wrap to
+/// `width`, and the public addresses show in full with `show_ip`. Returns the process exit code.
 pub async fn execute(
     planned: Vec<Planned<Measured>>,
-    mut env: Env,
+    host: HostProfile,
     work_dir: &Path,
     cancel: &CancellationToken,
     mut out: impl Write,
     width: Option<u16>,
+    show_ip: bool,
 ) -> Result<u8, String> {
     let started = Instant::now();
     let run_dir = tempfile::Builder::new()
         .prefix("lowendaff-bench-")
         .tempdir_in(work_dir)
         .map_err(|err| format!("无法在 {} 创建运行目录：{err}", work_dir.display()))?;
-    let platform = env.platform;
-    let (planned, not_applicable) = orchestrator::for_platform(planned, platform);
+    // The plugins of the first contract see the host through `Env`.
+    let mut env = Env {
+        arch: host.arch.clone(),
+        ipv4: host.network.ipv4.reachable(),
+        ipv6: host.network.ipv6.reachable(),
+        tools: BTreeMap::new(),
+        platform: host.platform,
+        libc: host.libc,
+    };
+    let (planned, not_applicable) = orchestrator::for_platform(planned, host.platform);
 
     // Only the tools of items this host can run, so that nothing is downloaded in vain, such
     // as Geekbench on a host without glibc or IPv4.
@@ -212,16 +227,19 @@ pub async fn execute(
         failed_tools = provisioned.failed;
     }
 
+    let host = Arc::new(host);
     let settings = Settings {
         grace: GRACE,
         work_root: run_dir.path().to_path_buf(),
         origin: tokio::time::Instant::from_std(started),
         failed_tools,
+        host: Arc::clone(&host),
     };
     let runs = orchestrator::run_plan(planned, Arc::new(env), cancel, &settings, &mut Log).await;
     let page = Page {
         version: env!("CARGO_PKG_VERSION"),
-        platform,
+        host: &host,
+        show_ip,
         not_applicable: &not_applicable,
         runs: &runs,
         total: started.elapsed(),

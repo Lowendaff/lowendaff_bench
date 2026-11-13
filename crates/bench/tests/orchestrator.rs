@@ -338,6 +338,7 @@ async fn run(
         work_root: work_root.path().to_path_buf(),
         origin: tokio::time::Instant::now(),
         failed_tools: BTreeMap::new(),
+        host: Arc::default(),
     };
     let runs =
         orchestrator::run_plan(planned, Arc::new(env), cancel, &settings, &mut recorder).await;
@@ -399,6 +400,7 @@ async fn work_dir_lives_under_the_run_root_and_is_removed() {
         work_root: work_root.path().to_path_buf(),
         origin: tokio::time::Instant::now(),
         failed_tools: BTreeMap::new(),
+        host: Arc::default(),
     };
     let runs = orchestrator::run_plan(
         planned,
@@ -652,6 +654,7 @@ async fn interrupt_and(fails: bool) -> Vec<Run<Measured>> {
         work_root: work_root.path().to_path_buf(),
         origin: tokio::time::Instant::now(),
         failed_tools: BTreeMap::new(),
+        host: Arc::default(),
     };
     orchestrator::run_plan(
         planned,

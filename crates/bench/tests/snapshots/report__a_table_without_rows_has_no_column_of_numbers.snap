@@ -3,7 +3,28 @@ source: crates/bench/tests/report.rs
 expression: "report::terminal::render(&page, Some(14))"
 ---
 lowendaff-bench 0.1.0
-运行环境：未检测到虚拟化
+运行环境：KVM 虚拟机
+
+【系统信息】
+  CPU 型号          Example CPU @ 2.00GHz
+  CPU 核心          2 个
+  CPU 频率          2000 MHz
+  CPU 缓存          L1d 32 KiB / L2 4 MiB
+  AES 指令          支持
+  硬件虚拟化        不支持
+  内存总量          2 GiB
+  内存已用          1 GiB
+  Swap              无
+  硬盘              不可用
+  文件系统          不可用
+  系统              Debian GNU/Linux 13 (trixie)
+  内核              6.12.73+deb13-amd64
+  架构              x86_64
+  运行时间          3 天 4 小时 0 分钟
+  负载              0.10 / 0.20 / 0.30
+  TCP 拥塞控制      bbr（队列 fq）
+  IPv4              可用；公网地址 203.0.*.*（来自 Cloudflare）
+  IPv6              不可用：本机没有 IPv6 路由
 
 【硬盘】
   空表

@@ -40,7 +40,6 @@ deny = [
         "plugin-disk-health",
         "plugin-geekbench",
         "plugin-memory",
-        "plugin-system",
     ] },
     { crate = "bench-tool", reason = "the pinned tools, for the plugin crates", wrappers = [
         "plugin-cpu",
@@ -62,9 +61,6 @@ deny = [
         "bench",
     ] },
     { crate = "plugin-memory", reason = "plugin crates are used by bench alone", wrappers = [
-        "bench",
-    ] },
-    { crate = "plugin-system", reason = "plugin crates are used by bench alone", wrappers = [
         "bench",
     ] },
     { crate = "comfy-table", reason = "only the reporter in bench formats", wrappers = [

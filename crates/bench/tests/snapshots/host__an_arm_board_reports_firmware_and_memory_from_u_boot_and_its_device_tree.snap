@@ -1,0 +1,42 @@
+---
+source: crates/bench/tests/host.rs
+expression: "captured(\"rock3a-debian13-aarch64\", Platform::Dedicated, (259, 2), None)"
+---
+lowendaff-bench 0.1.0
+运行环境：未检测到虚拟化
+
+【系统信息】
+  整机              Radxa ROCK 3A
+  主板              Radxa ROCK 3A
+  BIOS              U-Boot 2026.07-rc4-ga7830e87555a（2026-07-01）
+  BMC               未检测到
+  CPU 型号          ARM Cortex-A55
+  CPU 核心          4 线程（4 核）
+  CPU 频率          1992 MHz
+  CPU 缓存          L1d 32 KiB / L1i 32 KiB / L2 512 KiB
+  AES 指令          支持
+  硬件虚拟化        不适用
+  内存总量          1.92 GiB
+  内存已用          233.42 MiB
+  Swap              无
+  ECC               不可用：SMBIOS 里没有内存纠错信息，也没有 EDAC 驱动
+  内存条            板载内存 2.0 GiB（来自设备树）；没有可插拔内存条的信息
+  RAID 卡           无
+  硬盘
+  设备     接口  容量       介质  型号                      用途
+  nvme0n1  NVMe  119.2 GiB  固态  KBG40ZNS128G BG4A KIOXIA  系统盘（/）
+  文件系统
+  挂载点         类型  容量       已用     可用       所在硬盘
+  /（测试目录）  ext4  117.0 GiB  896 MiB  116.1 GiB  nvme0n1
+  系统              Debian GNU/Linux 13 (trixie)
+  内核              6.12.95+deb13-arm64
+  架构              aarch64
+  运行时间          8 分钟
+  负载              0.00 / 0.10 / 0.10
+  TCP 拥塞控制      cubic（队列 fq_codel）
+  IPv4              不可用
+  IPv6              不可用
+
+【汇总】
+
+共 0 项：完成 0，跳过 0，失败 0，超时 0，中断 0。总用时 1.0 秒

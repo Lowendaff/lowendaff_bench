@@ -7,7 +7,6 @@ appears there (README "Gates", Rules).
 
 | Chinese | English | Where it appears |
 |---------|---------|------------------|
-| 系统基础信息 | System information | an item's title |
 | 硬盘健康 | Disk health | an item's title |
 | CPU 性能 | CPU performance | an item's title; the report's CPU section, with Geekbench 7 |
 | 内存性能 | Memory performance | an item's title; the report's memory section |
@@ -38,6 +37,7 @@ appears there (README "Gates", Rules).
 | 宿主机 | Host | system information: an uptime or load that is the host's, seen from a container |
 | TCP 拥塞控制 | TCP congestion control | system information |
 | 测试目录 | Test directory | system information; disk performance |
+| 公网地址 | Public address | system information: the IPv4 and IPv6 lines |
 | 系统盘 | System disk | system information: the disk table |
 | 文件系统 | Filesystem | system information: the filesystem table |
 | 内存条 | Memory modules | system information on dedicated servers |

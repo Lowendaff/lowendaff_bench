@@ -4,10 +4,6 @@
 use bench_api::Registration;
 
 pub const REGISTRY: &[Registration] = &[
-    // 系统基础信息: one variant runs, chosen by the detected platform.
-    bench_api::register::<plugin_system::Dedicated>(),
-    bench_api::register::<plugin_system::Vm>(),
-    bench_api::register::<plugin_system::Container>(),
     // 硬盘健康: SMART through smartctl, on dedicated servers only. Before 硬盘性能, so that
     // the disks are idle and fio's writes are not counted.
     bench_api::register::<plugin_disk_health::Smartctl>(),
@@ -43,9 +39,6 @@ mod tests {
         assert_eq!(
             ids,
             [
-                "system.dedicated",
-                "system.vm",
-                "system.container",
                 "disk.health",
                 "cpu.sysbench",
                 "memory",

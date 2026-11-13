@@ -2,8 +2,10 @@
 # Smoke test for a static release binary: static linking, the root requirement, and a
 # full run in which no test item is skipped, fails or times out, and nothing is left behind.
 # A skip counts because every test item applies on the CI runners: 硬盘性能 skipped for want
-# of its tool would hide a broken download or pin. The report must come on stdout and the
-# progress log on stderr, and both are printed. CI runs it; README "Gates" documents it.
+# of its tool would hide a broken download or pin. The report must come on stdout, with the
+# host's public IPv4 address masked, and the progress log on stderr; both are printed. A second,
+# short run checks that the address never comes through a proxy. CI runs it; README "Gates"
+# documents it.
 #
 # Usage: scripts/smoke.sh <path to lowendaff-bench> [<argument>...]
 # Arguments after the path go to the full run, for example --skip disk.fio. Linux only, with
@@ -57,12 +59,30 @@ output=$($as_root "$bin" --work-dir "$work" "$@" 2>"$log") || {
 }
 cat "$log" >&2
 printf '%s\n' "$output"
-stamp='^\[[0-9][0-9]:[0-9][0-9]:[0-9][0-9]\] [a-z][a-z0-9.-]*'
-grep -q "$stamp 开始\$" "$log" || fail "stderr shows no test item starting"
-grep -q "$stamp 完成，用时 " "$log" || fail "stderr shows no test item completing"
+stamp='^\[[0-9][0-9]:[0-9][0-9]:[0-9][0-9]\] '
+grep -q "${stamp}主机概况：" "$log" || fail "stderr shows no host"
+grep -q "${stamp}网络：IPv4 " "$log" || fail "stderr shows no network"
+items=$(printf '%s\n' "$output" | sed -n 's/^共 \([0-9]*\) 项.*/\1/p')
+if [ "${items:-0}" -gt 0 ]; then
+    grep -q "${stamp}[a-z][a-z0-9.-]* 开始\$" "$log" || fail "stderr shows no test item starting"
+    grep -q "${stamp}[a-z][a-z0-9.-]* 完成，用时 " "$log" ||
+        fail "stderr shows no test item completing"
+fi
+# The runners reach the Internet over IPv4 only: its line shows a masked address and its source.
+masked='[0-9]+\.[0-9]+\.\*\.\*'
+sources='Cloudflare|ipify|icanhazip'
+printf '%s\n' "$output" | grep -Eq "^  IPv4 +可用；公网地址 $masked（来自 ($sources)）\$" ||
+    fail "the IPv4 line shows no masked public address and its source"
 if printf '%s\n' "$output" | grep -q '^\[[0-9][0-9]:'; then
     fail "progress lines on stdout"
 fi
+# The public address never comes through a proxy, which would report its own: with proxy
+# variables that point nowhere, the IPv4 line still shows one.
+proxied=$($as_root env HTTPS_PROXY=http://127.0.0.1:9 ALL_PROXY=http://127.0.0.1:9 \
+    "$bin" --work-dir "$work" --skip cpu,memory,disk 2>/dev/null) ||
+    fail "the run with a proxy set failed"
+printf '%s\n' "$proxied" | grep -Eq "^  IPv4 +可用；公网地址 $masked（来自 ($sources)）\$" ||
+    fail "the public address went through the proxy"
 printf '%s\n' "$output" | grep -q '^共 [0-9]* 项' || fail "root run printed no summary"
 printf '%s\n' "$output" | grep -q '，跳过 0，失败 0，超时 0，' ||
     fail "a test item was skipped, failed or timed out"

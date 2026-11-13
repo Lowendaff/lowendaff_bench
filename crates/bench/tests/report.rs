@@ -19,9 +19,121 @@ use bench_api::Net;
 use bench_api::Record;
 use bench_api::Table;
 use bench_api::typed::Stop;
+use bench_host::cpu::Cpu;
+use bench_host::cpu::Virtualization;
 use bench_host::glibc::GlibcVersion;
+use bench_host::glibc::Libc;
+use bench_host::network::Address;
+use bench_host::network::Family;
+use bench_host::network::Network;
+use bench_host::network::Reach;
 use bench_host::platform::Hypervisor;
 use bench_host::platform::Platform;
+use bench_host::profile::CpuFacts;
+use bench_host::profile::HostProfile;
+use bench_host::profile::MemoryFacts;
+use bench_host::profile::Read;
+use bench_host::profile::Seen;
+use bench_host::profile::StorageFacts;
+use bench_host::profile::SystemFacts;
+use bench_host::storage::Disk;
+use bench_host::storage::Filesystem;
+use bench_host::storage::Space;
+use bench_host::storage::Use;
+
+/// A small virtual machine, as the report starts with it: its IPv4 address is a documentation
+/// address, and it has no IPv6.
+fn host() -> HostProfile {
+    let cpu = Cpu {
+        model: Some("Example CPU @ 2.00GHz".to_owned()),
+        logical: Some(2),
+        mhz: Some(2000.0),
+        caches: vec![("L1d".to_owned(), 32 << 10), ("L2".to_owned(), 4 << 20)],
+        aes: Some(true),
+        virtualization: Virtualization::Absent,
+        ..Cpu::default()
+    };
+    let memory = MemoryFacts {
+        total: 2 << 30,
+        used: 1 << 30,
+        estimated: false,
+        swap_total: 0,
+        swap_used: 0,
+    };
+    let disk = Disk {
+        name: "vda".to_owned(),
+        interface: "virtio",
+        size: 40 << 30,
+        rotational: None,
+        model: None,
+        uses: vec![Use::Mount("/".to_owned())],
+    };
+    let root = Filesystem {
+        mount_point: "/".to_owned(),
+        fs_type: "ext4".to_owned(),
+        devices: vec![(254, 1)],
+        zfs_pool: None,
+        disks: vec!["vda".to_owned()],
+        space: Some(Space {
+            total: 39 << 30,
+            used: 10 << 30,
+            available: 27 << 30,
+        }),
+    };
+    let system = SystemFacts {
+        distribution: Some("Debian GNU/Linux 13 (trixie)".to_owned()),
+        kernel: Some("6.12.73+deb13-amd64".to_owned()),
+        uptime: Some(Seen {
+            value: Duration::from_secs(3 * 86_400 + 4 * 3600),
+            host: false,
+        }),
+        load: Some(Seen {
+            value: [0.1, 0.2, 0.3],
+            host: false,
+        }),
+        congestion_control: Some("bbr".to_owned()),
+        qdisc: Some("fq".to_owned()),
+    };
+    let target = |text: &str| text.parse().expect("a target");
+    HostProfile {
+        platform: Platform::Vm(Hypervisor::Kvm),
+        arch: "x86_64".to_owned(),
+        libc: Libc::Glibc(GlibcVersion {
+            major: 2,
+            minor: 41,
+        }),
+        cpu: Read::Done(CpuFacts {
+            cpu,
+            usable: Some(2),
+            quota: None,
+        }),
+        memory: Read::Done(Some(memory)),
+        storage: Read::Done(StorageFacts {
+            disks: vec![disk],
+            filesystems: vec![root],
+            raid: None,
+            work_dir: Some((254, 1)),
+        }),
+        system: Read::Done(system),
+        hardware: None,
+        network: Network {
+            ipv4: Family {
+                targets: vec![(target("1.1.1.1:443"), Reach::Connected)],
+                address: Address::Found {
+                    address: "203.0.113.7".parse().expect("an address"),
+                    source: "Cloudflare",
+                },
+            },
+            ipv6: Family {
+                targets: vec![
+                    (target("[2606:4700:4700::1111]:443"), Reach::NoRoute),
+                    (target("[2400:3200::1]:443"), Reach::NoRoute),
+                ],
+                address: Address::NotAsked,
+            },
+        },
+    }
+}
 
 /// A run of a plugin of the first contract.
 fn run(
@@ -61,17 +173,6 @@ fn table(id: &str, title: &str, headers: &[&str], rows: &[&[&str]]) -> Record {
 /// that the report does not know come last, in a section of their own.
 fn runs() -> Vec<Run<Measured>> {
     vec![
-        run(
-            "system.vm",
-            "系统基础信息",
-            Status::Completed,
-            Some(0.31),
-            Some(vec![
-                Record::fact("os", "系统", "Debian GNU/Linux 13 (trixie)"),
-                Record::fact("uptime", "运行时间", "3 天 4 小时（宿主机）"),
-            ]),
-            None,
-        ),
         run(
             "disk.health",
             "硬盘健康",
@@ -156,7 +257,8 @@ fn every_status_in_its_group() {
     let runs = runs();
     let page = Page {
         version: "0.1.0",
-        platform: Platform::Vm(Hypervisor::Kvm),
+        host: &host(),
+        show_ip: false,
         not_applicable: &["示例独服测试"],
         runs: &runs,
         total: Duration::from_secs_f64(137.8),
@@ -168,11 +270,11 @@ fn every_status_in_its_group() {
 fn a_run_with_one_plugin_per_section() {
     let runs = vec![
         run(
-            "system.vm",
-            "系统基础信息",
+            "disk.fio",
+            "硬盘性能",
             Status::Completed,
             Some(0.2),
-            Some(vec![Record::fact("os", "系统", "Alpine Linux v3.22")]),
+            Some(vec![Record::fact("dir", "测试目录", "/root（ext4）")]),
             None,
         ),
         run(
@@ -186,7 +288,8 @@ fn a_run_with_one_plugin_per_section() {
     ];
     let page = Page {
         version: "0.1.0",
-        platform: Platform::Dedicated,
+        host: &host(),
+        show_ip: false,
         not_applicable: &[],
         runs: &runs,
         total: Duration::from_secs(1),
@@ -212,7 +315,8 @@ fn tables_wrap_to_a_terminals_width_only() {
     )];
     let page = Page {
         version: "0.1.0",
-        platform: Platform::Dedicated,
+        host: &host(),
+        show_ip: false,
         not_applicable: &[],
         runs: &runs,
         total: Duration::from_secs(1),
@@ -243,7 +347,12 @@ fn a_table_without_rows_has_no_column_of_numbers() {
     )];
     let page = Page {
         version: "0.1.0",
-        platform: Platform::Dedicated,
+        // Without the host's tables, which a 14-column terminal would break up too.
+        host: &HostProfile {
+            storage: Read::Done(StorageFacts::default()),
+            ..host()
+        },
+        show_ip: false,
         not_applicable: &[],
         runs: &runs,
         total: Duration::from_secs(1),

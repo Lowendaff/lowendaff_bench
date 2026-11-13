@@ -19,6 +19,13 @@ use bench_api::Net;
 use bench_api::ToolAsset;
 use bench_api::ToolForm;
 use bench_api::ToolSpec;
+use bench_host::network::Address;
+use bench_host::network::Family;
+use bench_host::network::Network;
+use bench_host::network::Reach;
+use bench_host::platform::Hypervisor;
+use bench_host::platform::Platform;
+use bench_host::profile::HostProfile;
 use common::Captured;
 
 mod common;
@@ -135,5 +142,40 @@ fn verbose_adds_each_download_and_the_libraries_stay_silent() {
     assert_eq!(
         logged(true, download),
         ["下载 https://tools.example/download", result]
+    );
+}
+
+fn found(target: &str, address: &str, source: &'static str) -> Family {
+    Family {
+        targets: vec![(target.parse().expect("a target"), Reach::Connected)],
+        address: Address::Found {
+            address: address.parse().expect("an address"),
+            source,
+        },
+    }
+}
+
+#[test]
+fn the_host_and_its_network_are_logged_with_masked_addresses() {
+    let host = HostProfile {
+        platform: Platform::Vm(Hypervisor::Kvm),
+        arch: "x86_64".to_owned(),
+        network: Network {
+            ipv4: found("1.1.1.1:443", "203.0.113.7", "Cloudflare"),
+            ipv6: found("[2606:4700:4700::1111]:443", "2001:db8::7", "ipify"),
+        },
+        ..HostProfile::default()
+    };
+    let lines = logged(true, || {
+        progress::host(&host);
+        progress::network(&host.network);
+    });
+    assert_eq!(
+        lines,
+        [
+            "主机概况：KVM 虚拟机，x86_64",
+            "网络：IPv4 可用；公网地址 203.0.*.*（来自 Cloudflare）",
+            "网络：IPv6 可用；公网地址 2001:db8:*（来自 ipify）",
+        ]
     );
 }

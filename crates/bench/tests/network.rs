@@ -14,11 +14,15 @@ use std::time::Duration;
 use bench::network;
 use bench::network::Source;
 use bench_host::network::Address;
+use bench_host::network::Network;
 use bench_host::network::Reach;
 use bench_host::network::Why;
+use common::Captured;
 use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpListener;
+
+mod common;
 
 /// The requests the server has seen, by path.
 type Seen = Arc<Mutex<BTreeMap<String, usize>>>;
@@ -78,6 +82,19 @@ async fn serve() -> (SocketAddr, Seen) {
     (address, seen)
 }
 
+/// Probes as the program does, with the log captured at the debug level, so that no test logs
+/// while another listens (see `common`). Returns the network and the log's lines.
+async fn probe(
+    ipv4: &[SocketAddr],
+    ipv6: &[SocketAddr],
+    sources: &[Source],
+) -> (Network, Vec<String>) {
+    let (log, capturing) = Captured::start(true);
+    let network = network::probe_with(ipv4, ipv6, sources).await;
+    drop(capturing);
+    (network, log.lines())
+}
+
 /// A source at `path` of the server, for both families.
 fn source(name: &'static str, server: SocketAddr, path: &str, trace: bool) -> Source {
     let url: &'static str = Box::leak(format!("http://{server}{path}").into_boxed_str());
@@ -108,7 +125,7 @@ async fn the_first_valid_answer_wins_and_names_its_source() {
         source("never", server, "/whole", false),
     ];
 
-    let network = network::probe_with(&[server], &[], &sources).await;
+    let (network, _) = probe(&[server], &[], &sources).await;
 
     assert_eq!(
         network.ipv4.address,
@@ -132,6 +149,23 @@ async fn the_first_valid_answer_wins_and_names_its_source() {
 }
 
 #[tokio::test]
+async fn verbose_logs_each_answer_with_the_address_masked() {
+    let (server, _) = serve().await;
+    let sources = [
+        source("down", server, "/unavailable", false),
+        source("traced", server, "/trace", true),
+    ];
+
+    let (network, log) = probe(&[server], &[], &sources).await;
+
+    assert!(network.ipv4.reachable());
+    assert_eq!(
+        log,
+        ["网络：down 返回 HTTP 503", "网络：traced 返回 IPv4 8.8.*.*"]
+    );
+}
+
+#[tokio::test]
 async fn when_every_source_fails_each_one_says_why() {
     let (server, _) = serve().await;
     let sources = [
@@ -142,7 +176,7 @@ async fn when_every_source_fails_each_one_says_why() {
         source("slow", server, "/slow", false),
     ];
 
-    let network = network::probe_with(&[server], &[], &sources).await;
+    let (network, _) = probe(&[server], &[], &sources).await;
 
     assert_eq!(
         network.ipv4.address,
@@ -171,7 +205,7 @@ async fn a_client_reaches_addresses_of_its_own_family_only() {
 
     // The local server stands in for an IPv6 target too, so that both families ask.
     for sources in [literal, named] {
-        let network = network::probe_with(&[server], &[server], &sources).await;
+        let (network, _) = probe(&[server], &[server], &sources).await;
         assert_eq!(
             network.ipv4.address,
             Address::Found {
@@ -206,7 +240,7 @@ async fn a_source_for_one_family_only_is_skipped_for_the_other() {
     };
     let sources = [only_v6, source("v4", server, "/whole", false)];
 
-    let network = network::probe_with(&[server], &[], &sources).await;
+    let (network, _) = probe(&[server], &[], &sources).await;
 
     assert_eq!(
         network.ipv4.address,
