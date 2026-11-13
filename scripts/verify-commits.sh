@@ -64,6 +64,12 @@ for commit in $(git rev-list --reverse "$base..$head"); do
         ast-grep scan
         actionlint
         git ls-files -z '*.sh' | xargs -0 shellcheck
+        # The cases of the CI scripts, in the commits that have them.
+        for cases in scripts/ci-scope-cases.sh scripts/check-commits-cases.sh; do
+            if [ -x "$cases" ]; then
+                "$cases" > /dev/null
+            fi
+        done
         run_zizmor --persona pedantic .
     )
 done

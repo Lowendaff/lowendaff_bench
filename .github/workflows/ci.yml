@@ -94,6 +94,9 @@ jobs:
         run: actionlint
       - name: Shell scripts
         run: git ls-files -z '*.sh' | xargs -0 shellcheck
+      # The cases of the decision that the test jobs take first (scripts/ci-scope.sh).
+      - name: CI scope cases
+        run: scripts/ci-scope-cases.sh
 
   ast-grep:
     name: ast-grep rules
@@ -137,6 +140,7 @@ jobs:
     permissions:
       contents: read
       packages: read # pulls the distribution images from ghcr.io/lowendaff/mirror
+      actions: read # reads earlier validation records and their jobs' results (ci-scope.sh)
     env:
       TARGET: ${{ matrix.arch }}-unknown-linux-musl
       RUSTC_WRAPPER: sccache
@@ -146,47 +150,104 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          # The whole history, so that the scope step can compare this commit with earlier ones.
+          fetch-depth: 0
+      # Decides whether this job runs its other steps. It reuses an earlier run that validated an
+      # ancestor of this commit in full, with nothing but Markdown or LICENSE changed since, and
+      # skips a change made only of Markdown or LICENSE; anything else, or any doubt, runs
+      # everything. The gate below reads "unless the decision was to skip", so that a failure of
+      # this step runs everything too. The decision and its evidence go to the job summary.
+      - name: Scope
+        id: scope
+        continue-on-error: true
+        env:
+          EVENT: ${{ github.event_name }}
+          ARCH: ${{ matrix.arch }}
+          REPOSITORY: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BEFORE_SHA: ${{ github.event.before }}
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/ci-scope.sh decide
       - name: Install the pinned toolchain and the musl target
+        if: steps.scope.outputs.run != 'false'
         run: |
           rustup toolchain install
           rustup target add "$TARGET"
       # musl-gcc builds ring's C code for the musl target; mold links faster. Both come from
       # the Ubuntu 24.04 archive, so their versions follow the runner image.
       - name: Install musl-gcc and mold
+        if: steps.scope.outputs.run != 'false'
         run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends musl-tools mold
       - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+        if: steps.scope.outputs.run != 'false'
         with:
           version: v0.19.0
       - uses: taiki-e/install-action@3a3daafd3b7f23b8f65d9f5ba2db203fb59b79e2 # v2.90.2
+        if: steps.scope.outputs.run != 'false'
         with:
           tool: cargo-nextest@0.9.151
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        if: steps.scope.outputs.run != 'false'
       - name: Test
+        if: steps.scope.outputs.run != 'false'
         run: cargo nextest run --workspace --locked --no-fail-fast
       # Smoke only downloads the tools of items that apply and run on the runner (design
       # disk-health, §7.3); this checks every pin, smartctl's and Geekbench's included, and
       # unpacks the archives of Geekbench, STREAM and multichase.
       - name: Tool downloads
+        if: steps.scope.outputs.run != 'false'
         run: cargo nextest run -p bench --test tools --locked --run-ignored only
       - name: Static build
+        if: steps.scope.outputs.run != 'false'
         run: cargo build --release --locked --target "$TARGET" --bin lowendaff-bench
       # Turns a 64 MiB swap file on and off as root, which the tests cannot (design cpu, §9.3).
       - name: Swap round trip
+        if: steps.scope.outputs.run != 'false'
         run: |
           cargo build --release --locked --target "$TARGET" -p swap-file --example roundtrip
           sudo "target/$TARGET/release/examples/roundtrip" "$RUNNER_TEMP"
       # Geekbench would publish a result from every run and take minutes (design cpu, §9.3).
       - name: Smoke
+        if: steps.scope.outputs.run != 'false'
         run: scripts/smoke.sh "target/$TARGET/release/lowendaff-bench" --skip cpu.geekbench
       - name: Smoke mutants
+        if: steps.scope.outputs.run != 'false'
         run: scripts/smoke-mutants.sh "$TARGET"
       # The distribution images come from copies on GHCR (README "Gates"), pulled with this
       # job's token.
       - name: Log in to ghcr.io
+        if: steps.scope.outputs.run != 'false'
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           printf '%s' "$GITHUB_TOKEN" |
             docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
       - name: Distributions
+        if: steps.scope.outputs.run != 'false'
         run: scripts/distros.sh "target/$TARGET/release/lowendaff-bench" ghcr.io/lowendaff/mirror
+      # Reached only when every step above ran and succeeded: records what this job validated,
+      # for later runs to reuse (ci-scope.sh). A job that skipped its steps records nothing.
+      - name: Validation record
+        id: record
+        if: steps.scope.outputs.run != 'false'
+        env:
+          EVENT: ${{ github.event_name }}
+          ARCH: ${{ matrix.arch }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/validation"
+          scripts/ci-scope.sh record > "$RUNNER_TEMP/validation/validation.json"
+          scope=$(jq -r .scope "$RUNNER_TEMP/validation/validation.json")
+          printf 'name=validation-%s-%s\n' "$scope" "$ARCH" >> "$GITHUB_OUTPUT"
+      - name: Upload the validation record
+        if: steps.scope.outputs.run != 'false'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ steps.record.outputs.name }}
+          path: ${{ runner.temp }}/validation/validation.json
+          retention-days: 90
+          overwrite: true
