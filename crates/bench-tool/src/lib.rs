@@ -1,9 +1,13 @@
 //! The external tools of lowendaff-bench, each pinned to one build: the URL, SHA-256 and size of
 //! its download for each architecture. This repository builds and publishes every tool except
 //! Geekbench, whose own builds are downloaded from Primate Labs. Test items take the tools they
-//! need from here, so that items sharing a tool share its pin and none depends on another.
+//! need from here, so that items sharing a tool share its pin and none depends on another, and
+//! run them through the shared code of [`job`] and [`retried`].
 
 #![warn(missing_docs)]
+
+pub mod job;
+pub mod retried;
 
 use bench_api::ToolAsset;
 use bench_api::ToolForm;
