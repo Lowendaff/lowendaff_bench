@@ -25,9 +25,9 @@ mod common;
 
 /// Runs `events` with the program's subscriber writing into memory, and returns the lines.
 fn logged(verbose: bool, events: impl FnOnce()) -> Vec<String> {
-    let (captured, guard) = Captured::start(verbose);
+    let (captured, capturing) = Captured::start(verbose);
     events();
-    drop(guard);
+    drop(capturing);
     captured.lines()
 }
 

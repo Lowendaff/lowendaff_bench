@@ -8,6 +8,8 @@ use std::time::Duration;
 use bench::app;
 use bench::app::Cli;
 use bench::app::EXIT_INTERRUPTED;
+use bench::orchestrator::Planned;
+use bench::results::Measured;
 use bench_api::CancellationToken;
 use bench_api::Context;
 use bench_api::Descriptor;
@@ -112,6 +114,29 @@ fn ids(list: &[&str]) -> Vec<String> {
     list.iter().map(|id| (*id).to_owned()).collect()
 }
 
+/// Runs the plan as the program does, and returns the exit code, the report and the progress
+/// log, once the run directory is gone. Every run is captured, so that no test logs while
+/// another listens (see `common`).
+async fn execute(
+    planned: Vec<Planned<Measured>>,
+    env: Env,
+    cancel: &CancellationToken,
+) -> (u8, String, Vec<String>) {
+    let work = tempfile::tempdir().expect("a work directory for the run");
+    let mut out = Vec::new();
+    let (log, capturing) = Captured::start(false);
+    let code = app::execute(planned, env, work.path(), cancel, &mut out, None)
+        .await
+        .expect("the run starts");
+    drop(capturing);
+    let left = std::fs::read_dir(work.path())
+        .expect("the work directory stays")
+        .count();
+    assert_eq!(left, 0, "run directory must be removed");
+    let report = String::from_utf8(out).expect("the report is UTF-8");
+    (code, report, log.lines())
+}
+
 #[test]
 fn ids_are_comma_separated_and_work_dir_defaults_to_cwd() {
     let cli = cli(&["--only", "test.good,test.other", "--skip", "test.other"]);
@@ -207,7 +232,6 @@ fn config_file_holds_plugin_tables_only() {
 
 #[tokio::test]
 async fn a_run_prints_sections_and_summary_then_removes_its_directory() {
-    let work = tempfile::tempdir().unwrap();
     let dir = tempfile::tempdir().unwrap();
     let config = dir.path().join("bench.toml");
     std::fs::write(&config, "[plugins.\"test.good\"]\nsamples = 3\n").unwrap();
@@ -221,20 +245,9 @@ async fn a_run_prints_sections_and_summary_then_removes_its_directory() {
         REGISTRY,
     )
     .unwrap();
-    let mut out = Vec::new();
 
-    let code = app::execute(
-        planned,
-        Env::default(),
-        work.path(),
-        &CancellationToken::new(),
-        &mut out,
-        None,
-    )
-    .await
-    .unwrap();
+    let (code, text, _) = execute(planned, Env::default(), &CancellationToken::new()).await;
 
-    let text = String::from_utf8(out).unwrap();
     assert_eq!(code, 0);
     assert!(
         text.starts_with(&format!(
@@ -248,33 +261,16 @@ async fn a_run_prints_sections_and_summary_then_removes_its_directory() {
         text.contains("\n共 1 项：完成 1，跳过 0，失败 0，超时 0，中断 0。总用时 "),
         "{text}"
     );
-    assert_eq!(
-        std::fs::read_dir(work.path()).unwrap().count(),
-        0,
-        "run directory must be removed"
-    );
 }
 
 #[tokio::test]
 async fn an_interrupted_run_exits_130_and_still_lists_every_plugin() {
-    let work = tempfile::tempdir().unwrap();
     let cancel = CancellationToken::new();
     cancel.cancel();
     let planned = app::prepare(&cli(&[]), REGISTRY).unwrap();
-    let mut out = Vec::new();
 
-    let code = app::execute(
-        planned,
-        Env::default(),
-        work.path(),
-        &cancel,
-        &mut out,
-        None,
-    )
-    .await
-    .unwrap();
+    let (code, text, _) = execute(planned, Env::default(), &cancel).await;
 
-    let text = String::from_utf8(out).unwrap();
     assert_eq!(code, EXIT_INTERRUPTED);
     assert!(
         text.contains("【test】\n  示例测试\n    已中断\n  另一个测试\n    已中断\n"),
@@ -384,28 +380,14 @@ async fn only_plugins_for_the_detected_platform_run() {
         bench_api::validate_registry(PLATFORM_REGISTRY),
         Vec::<String>::new()
     );
-    let work = tempfile::tempdir().unwrap();
     let planned = app::prepare(&cli(&[]), PLATFORM_REGISTRY).unwrap();
     let env = Env {
         platform: Platform::Vm(Hypervisor::Kvm),
         ..Env::default()
     };
-    let mut out = Vec::new();
-    let (log, guard) = Captured::start(false);
 
-    let code = app::execute(
-        planned,
-        env,
-        work.path(),
-        &CancellationToken::new(),
-        &mut out,
-        None,
-    )
-    .await
-    .unwrap();
-    drop(guard);
+    let (code, text, log) = execute(planned, env, &CancellationToken::new()).await;
 
-    let text = String::from_utf8(out).unwrap();
     assert_eq!(code, 0);
     // The other variant of 系统信息 runs instead, so only 硬盘健康 is reported.
     assert!(
@@ -418,7 +400,6 @@ async fn only_plugins_for_the_detected_platform_run() {
     assert!(text.contains("  本机不适用：硬盘健康\n"), "{text}");
     assert!(text.contains("虚拟机版"), "{text}");
     assert!(!text.contains("独立服务器版"), "{text}");
-    let log = log.lines();
     assert!(
         !log.iter().any(|line| line.starts_with("准备工具")),
         "tools of plugins that do not apply must not be downloaded: {log:?}"
@@ -452,34 +433,20 @@ impl Plugin for NeedsSmartctl {
 #[tokio::test]
 async fn a_tool_that_cannot_be_provisioned_skips_its_plugins_with_the_reason() {
     let registry = [bench_api::register::<NeedsSmartctl>()];
-    let work = tempfile::tempdir().unwrap();
     let planned = app::prepare(&cli(&[]), &registry).unwrap();
     // No download is tried: the tool has no build for this architecture.
     let env = Env {
         arch: "riscv64".to_owned(),
         ..Env::default()
     };
-    let mut out = Vec::new();
-    let (log, guard) = Captured::start(false);
 
-    let code = app::execute(
-        planned,
-        env,
-        work.path(),
-        &CancellationToken::new(),
-        &mut out,
-        None,
-    )
-    .await
-    .unwrap();
-    drop(guard);
+    let (code, text, log) = execute(planned, env, &CancellationToken::new()).await;
 
-    let text = String::from_utf8(out).unwrap();
     assert_eq!(code, 0);
     let reason = "工具 smartctl 不可用：没有适用于 riscv64 的版本";
     assert!(text.contains(&format!("\n  跳过：{reason}\n")), "{text}");
     assert_eq!(
-        log.lines(),
+        log,
         [
             "准备工具：smartctl 7.4 失败：没有适用于 riscv64 的版本".to_owned(),
             format!("test.smartctl 跳过：{reason}"),
@@ -538,24 +505,9 @@ async fn tools_of_items_the_host_cannot_run_are_not_downloaded() {
         (without_ipv4, "需要 IPv4 网络连接"),
     ];
     for (env, reason) in cases {
-        let work = tempfile::tempdir().unwrap();
         let planned = app::prepare(&cli(&[]), &registry).unwrap();
-        let mut out = Vec::new();
-        let (log, guard) = Captured::start(false);
-        let code = app::execute(
-            planned,
-            env,
-            work.path(),
-            &CancellationToken::new(),
-            &mut out,
-            None,
-        )
-        .await
-        .unwrap();
-        drop(guard);
-        let text = String::from_utf8(out).unwrap();
+        let (code, text, log) = execute(planned, env, &CancellationToken::new()).await;
         assert_eq!(code, 0);
-        let log = log.lines();
         assert!(
             !log.iter().any(|line| line.starts_with("准备工具")),
             "nothing is downloaded for an item that is skipped anyway: {log:?}"
