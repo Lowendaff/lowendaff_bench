@@ -8,6 +8,10 @@ A comprehensive test tool for Linux servers (VPS), written in Rust:
 
 **Status:** the plugin framework (M0) is in place. Test items are added one at a time: 系统基础信息 (system information), 硬盘健康 (disk health), CPU 性能 (CPU performance), 内存性能 (memory performance), 硬盘性能 (disk performance) and Geekbench 7 so far. The design is in [`docs/design/plugin-system.md`](docs/design/plugin-system.md).
 
+The plugin model is being reworked, one pull request at a time; no test item is added meanwhile
+(the design's §17). The conventions for code, commits and pull requests are in
+[`CONTRIBUTING.md`](CONTRIBUTING.md).
+
 The tool first detects where it runs: a dedicated server, a virtual machine or a container. It prints this as 运行环境 and runs only the test items made for that platform. For example, 系统基础信息 has a variant for each platform (`system.dedicated`, `system.vm`, `system.container`), and exactly one of them runs. `--list` shows which platforms each item applies to.
 
 | Test item | Shows | Design |
