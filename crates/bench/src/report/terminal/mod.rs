@@ -38,6 +38,19 @@ const SECTIONS: [(&str, &str); 3] = [
     ("disk", "硬盘"),
 ];
 
+/// The names of the plugins of the typed contract, by id; the plugins of the first contract
+/// bring their titles.
+const NAMES: [(&str, &str); 0] = [];
+
+/// The reporter's name for a plugin of the typed contract, by its id.
+#[must_use]
+pub fn name(id: &str) -> Option<&'static str> {
+    NAMES
+        .iter()
+        .find(|(known, _)| *known == id)
+        .map(|(_, name)| *name)
+}
+
 /// Everything the report shows.
 pub struct Page<'a> {
     /// The program's version, on the first line.

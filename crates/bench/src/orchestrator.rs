@@ -18,7 +18,6 @@ use bench_api::Env;
 use bench_api::Net;
 use bench_api::PluginError;
 use bench_api::Record;
-use bench_api::Registration;
 use bench_api::Requirements;
 use bench_api::typed;
 use bench_api::typed::Stop;
@@ -30,6 +29,7 @@ use tokio::task::JoinError;
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
 
+use crate::registry::Entry;
 use crate::results::Measured;
 use crate::results::Report;
 
@@ -87,7 +87,7 @@ pub struct Run<R> {
     pub id: &'static str,
     /// The id's first segment, such as `cpu` for `cpu.sysbench`.
     pub group: &'static str,
-    /// The title of a plugin of the first contract.
+    /// The plugin's name: its title in the first contract, or the reporter's name for it.
     pub title: Option<&'static str>,
     /// When it started, counted from the start of the run; `None` when it never started.
     pub started: Option<Duration>,
@@ -108,7 +108,7 @@ pub fn group_of(id: &str) -> &str {
 /// A selected plugin, built from its configuration and ready to run.
 pub struct Planned<R> {
     id: &'static str,
-    title: Option<&'static str>,
+    pub(crate) title: Option<&'static str>,
     requires: Requirements,
     timeout: Duration,
     runner: Arc<dyn Runner<R>>,
@@ -157,7 +157,7 @@ impl<R> Planned<R> {
         self.id
     }
 
-    /// The title of a plugin of the first contract.
+    /// The plugin's name: its title in the first contract, or the reporter's name for it.
     #[must_use]
     pub fn title(&self) -> Option<&'static str> {
         self.title
@@ -199,37 +199,26 @@ pub struct Settings {
     pub host: Arc<HostProfile>,
 }
 
-/// Resolves the selection and builds every plugin of the first contract, so config errors
-/// surface before anything runs. All errors are returned together.
+/// Resolves the selection and builds every selected plugin, so config errors surface before
+/// anything runs. All errors are returned together.
 pub fn plan(
-    registry: &[Registration],
+    registry: &[Entry],
     selection: &[&str],
     config: &BTreeMap<String, serde_json::Value>,
 ) -> Result<Vec<Planned<Measured>>, Vec<String>> {
     let mut errors: Vec<String> = config
         .keys()
-        .filter(|key| {
-            !registry
-                .iter()
-                .any(|registration| registration.descriptor.id == key.as_str())
-        })
+        .filter(|key| !registry.iter().any(|entry| entry.id == key.as_str()))
         .map(|key| format!("配置文件中有未知测试项 `{key}`"))
         .collect();
     let mut planned = Vec::new();
     for id in selection {
-        let Some(registration) = registry
-            .iter()
-            .find(|registration| registration.descriptor.id == *id)
-        else {
+        let Some(entry) = registry.iter().find(|entry| entry.id == *id) else {
             errors.push(format!("未知测试项 `{id}`"));
             continue;
         };
-        match registration.build(config.get(*id)) {
-            Ok(plugin) => planned.push(Planned::legacy(
-                registration.descriptor,
-                plugin,
-                Measured::Legacy,
-            )),
+        match entry.build(config.get(*id)) {
+            Ok(plugin) => planned.push(plugin),
             Err(err) => errors.push(format!("测试项 {id} 的配置无效：{err}")),
         }
     }

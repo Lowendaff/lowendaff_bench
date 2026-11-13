@@ -5,14 +5,13 @@
 
 use bench::fetcher::Fetcher;
 use bench::provision;
-use bench::registry::REGISTRY;
+use bench::registry;
 
 #[tokio::test]
 #[ignore = "downloads every pinned tool; CI runs it with --run-ignored only"]
 async fn every_pinned_tool_downloads_and_verifies() {
-    let requirements = REGISTRY
-        .iter()
-        .map(|registration| registration.descriptor.requires);
+    let entries = registry::all();
+    let requirements = entries.iter().map(|entry| entry.requires);
     let tools = provision::required_tools(requirements);
     assert!(!tools.is_empty(), "the registry pins tools");
     let fetcher = Fetcher::try_new().expect("the HTTPS client builds");

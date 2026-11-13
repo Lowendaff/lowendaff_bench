@@ -12,7 +12,6 @@ use std::time::Instant;
 
 use bench_api::CancellationToken;
 use bench_api::Env;
-use bench_api::Registration;
 use bench_host::profile::HostProfile;
 
 use crate::fetcher::Fetcher;
@@ -21,6 +20,7 @@ use crate::orchestrator::Planned;
 use crate::orchestrator::Settings;
 use crate::progress::Log;
 use crate::provision;
+use crate::registry::Entry;
 use crate::report;
 use crate::report::terminal::Page;
 use crate::results::Measured;
@@ -77,25 +77,22 @@ impl Cli {
 
 /// Prints every registered plugin with its id, title, platforms and pinned tools, by group in
 /// the report's order, under each group's title and the name that `--only` and `--skip` take.
-pub fn list(registry: &[Registration], out: &mut impl Write) {
+pub fn list(registry: &[Entry], out: &mut impl Write) {
     let _ = writeln!(out, "共 {} 个测试项", registry.len());
-    let group = |registration: &Registration| orchestrator::group_of(registration.descriptor.id);
+    let group = |entry: &Entry| orchestrator::group_of(entry.id);
     let groups: Vec<&str> = registry.iter().map(group).collect();
     for (name, title) in report::terminal::sections(&groups) {
         let _ = writeln!(out, "【{title}】（分组：{name}）");
-        let members = registry
-            .iter()
-            .filter(|registration| group(registration) == name);
-        for registration in members {
-            item(registration, out);
+        let members = registry.iter().filter(|entry| group(entry) == name);
+        for entry in members {
+            item(entry, out);
         }
     }
 }
 
 /// One plugin's line in [`list`].
-fn item(registration: &Registration, out: &mut impl Write) {
-    let descriptor = registration.descriptor;
-    let platforms: Vec<&str> = descriptor
+fn item(entry: &Entry, out: &mut impl Write) {
+    let platforms: Vec<&str> = entry
         .requires
         .platforms
         .iter()
@@ -106,7 +103,7 @@ fn item(registration: &Registration, out: &mut impl Write) {
     } else {
         format!("（适用：{}）", platforms.join("、"))
     };
-    let tools: Vec<String> = descriptor
+    let tools: Vec<String> = entry
         .requires
         .tools
         .iter()
@@ -120,15 +117,13 @@ fn item(registration: &Registration, out: &mut impl Write) {
     let _ = writeln!(
         out,
         "  {}  {}{platforms}{tools}",
-        descriptor.id, descriptor.title
+        entry.id,
+        entry.title.unwrap_or(entry.id)
     );
 }
 
 /// Builds every selected plugin; all problems are reported together and nothing runs.
-pub fn prepare(
-    cli: &Cli,
-    registry: &[Registration],
-) -> Result<Vec<Planned<Measured>>, Vec<String>> {
+pub fn prepare(cli: &Cli, registry: &[Entry]) -> Result<Vec<Planned<Measured>>, Vec<String>> {
     let config = load_config(cli.config.as_deref()).map_err(|err| vec![err])?;
     let ids = select(registry, &cli.only, &cli.skip)?;
     orchestrator::plan(registry, &ids, &config)
@@ -137,17 +132,13 @@ pub fn prepare(
 /// Registry order, narrowed by `--only` and `--skip`, which take ids or group names; unknown
 /// names are errors.
 pub fn select(
-    registry: &[Registration],
+    registry: &[Entry],
     only: &[String],
     skip: &[String],
 ) -> Result<Vec<&'static str>, Vec<String>> {
     // A name is a whole id or a whole group, never a part of one.
     let names = |name: &str, id: &str| name == id || name == orchestrator::group_of(id);
-    let known = |name: &String| {
-        registry
-            .iter()
-            .any(|registration| names(name, registration.descriptor.id))
-    };
+    let known = |name: &String| registry.iter().any(|entry| names(name, entry.id));
     let errors: Vec<String> = only
         .iter()
         .chain(skip)
@@ -159,7 +150,7 @@ pub fn select(
     }
     Ok(registry
         .iter()
-        .map(|registration| registration.descriptor.id)
+        .map(|entry| entry.id)
         .filter(|id| only.is_empty() || only.iter().any(|wanted| names(wanted, id)))
         .filter(|id| !skip.iter().any(|skipped| names(skipped, id)))
         .collect())
