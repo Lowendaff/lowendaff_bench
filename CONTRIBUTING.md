@@ -71,6 +71,9 @@ Every commit also builds and passes the gates on its own, with `--locked`;
   columns.
 - A pull request is merged only with the owner's approval, given for that pull request, and with
   every check green on its exact head.
+- Once CI has passed, add further fixes as new commits on top instead of rewriting the branch.
+  CI reuses an earlier full validation only for commits that descend from the validated one
+  (README "Gates"), so a rewritten branch runs the whole suite again.
 - A failed check is investigated with its log, not retried. Only a failure caused by an outage of
   GitHub itself is rerun, once GitHub has recovered, and at most three times.
 - Dependabot's pull requests skip the commit check; their squash message is rewritten at merge,
