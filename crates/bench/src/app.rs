@@ -35,11 +35,11 @@ const GRACE: Duration = Duration::from_secs(5);
 #[derive(Debug, clap::Parser)]
 #[command(name = "lowendaff-bench", version)]
 pub struct Cli {
-    /// 只运行这些测试项（逗号分隔的 id）
+    /// 只运行这些测试项（逗号分隔的 id 或分组，如 cpu,disk.fio）
     #[arg(long, value_delimiter = ',')]
     pub only: Vec<String>,
 
-    /// 跳过这些测试项（逗号分隔的 id）
+    /// 跳过这些测试项（逗号分隔的 id 或分组）
     #[arg(long, value_delimiter = ',')]
     pub skip: Vec<String>,
 
@@ -115,22 +115,25 @@ pub fn prepare(
     orchestrator::plan(registry, &ids, &config)
 }
 
-/// Registry order, narrowed by `--only` and `--skip`; unknown ids are errors.
+/// Registry order, narrowed by `--only` and `--skip`, which take ids or group names; unknown
+/// names are errors.
 pub fn select(
     registry: &[Registration],
     only: &[String],
     skip: &[String],
 ) -> Result<Vec<&'static str>, Vec<String>> {
-    let known = |id: &String| {
+    // A name is a whole id or a whole group, never a part of one.
+    let names = |name: &str, id: &str| name == id || name == orchestrator::group_of(id);
+    let known = |name: &String| {
         registry
             .iter()
-            .any(|registration| registration.descriptor.id == id.as_str())
+            .any(|registration| names(name, registration.descriptor.id))
     };
     let errors: Vec<String> = only
         .iter()
         .chain(skip)
-        .filter(|id| !known(id))
-        .map(|id| format!("未知测试项 `{id}`"))
+        .filter(|name| !known(name))
+        .map(|name| format!("未知测试项或分组 `{name}`"))
         .collect();
     if !errors.is_empty() {
         return Err(errors);
@@ -138,8 +141,8 @@ pub fn select(
     Ok(registry
         .iter()
         .map(|registration| registration.descriptor.id)
-        .filter(|id| only.is_empty() || only.iter().any(|wanted| wanted == id))
-        .filter(|id| !skip.iter().any(|skipped| skipped == id))
+        .filter(|id| only.is_empty() || only.iter().any(|wanted| names(wanted, id)))
+        .filter(|id| !skip.iter().any(|skipped| names(skipped, id)))
         .collect())
 }
 

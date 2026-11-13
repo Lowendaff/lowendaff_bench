@@ -36,7 +36,7 @@ applies to.
 ```sh
 lowendaff-bench --list                      # list the test items
 sudo lowendaff-bench                        # run all of them
-sudo lowendaff-bench --only <id>,<id>       # run a subset; --skip excludes items
+sudo lowendaff-bench --only cpu,disk.fio    # run a subset by group or id; --skip excludes
 sudo lowendaff-bench --config bench.toml    # per-item settings: [plugins."<id>"]
 sudo lowendaff-bench -v                     # log more detail, such as each download's address
 ```
@@ -95,7 +95,7 @@ commands. Run them locally before pushing.
 | Static build | `cargo build --release --locked --target <arch>-unknown-linux-musl --bin lowendaff-bench` | Linux |
 | Swap round trip | `cargo build --release --locked --target <arch>-unknown-linux-musl -p swap-file --example roundtrip`, then `sudo target/<arch>-unknown-linux-musl/release/examples/roundtrip <dir>`: turns a 64 MiB swap file in `<dir>` on and off | Linux, with sudo, on a filesystem that holds swap files, such as ext4 |
 | Smoke | `scripts/smoke.sh target/<arch>-unknown-linux-musl/release/lowendaff-bench --skip cpu.geekbench`: a full run without Geekbench 7, which would publish a result, in which no test item is skipped, fails or times out, with the report on stdout and the progress log on stderr | Linux, as root or with sudo, with network access (it downloads sysbench, STREAM, multichase and fio) |
-| Smoke mutants | `scripts/smoke-mutants.sh <arch>-unknown-linux-musl`: smoke must reject deliberately broken builds; these runs skip CPU performance, memory performance, disk performance and Geekbench 7 | Linux, as root or with sudo |
+| Smoke mutants | `scripts/smoke-mutants.sh <arch>-unknown-linux-musl`: smoke must reject deliberately broken builds; these runs skip the groups cpu, memory and disk (`--skip cpu,memory,disk`) | Linux, as root or with sudo |
 | Distributions | `scripts/distros.sh target/<arch>-unknown-linux-musl/release/lowendaff-bench ghcr.io/lowendaff/mirror`: system information in the images of `scripts/distros.txt`, 12 distributions (13 on x86_64), pulled from their copies on GHCR, with the uptime and load marked as the host's, and Geekbench 7 there without a network, which must skip for the image's glibc; without the last argument, from the original registries | Linux or macOS with Docker; the copies need `docker login ghcr.io` |
 
 `<arch>` is `x86_64` or `aarch64`.

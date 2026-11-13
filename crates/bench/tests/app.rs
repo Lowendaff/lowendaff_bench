@@ -78,6 +78,29 @@ const REGISTRY: &[Registration] = &[
     bench_api::register::<Other>(),
 ];
 
+/// A group of one plugin, whose id is the group's name.
+#[derive(Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct Lone {}
+
+impl Plugin for Lone {
+    const DESCRIPTOR: Descriptor = Descriptor {
+        id: "lone",
+        title: "单独的测试",
+        ..Good::DESCRIPTOR
+    };
+
+    async fn run(&self, _ctx: &Context) -> Result<(), PluginError> {
+        Ok(())
+    }
+}
+
+const GROUPS: &[Registration] = &[
+    bench_api::register::<Good>(),
+    bench_api::register::<Lone>(),
+    bench_api::register::<Other>(),
+];
+
 fn cli(args: &[&str]) -> Cli {
     use clap::Parser;
 
@@ -113,7 +136,35 @@ fn selection_keeps_registry_order_and_rejects_unknown_ids() {
     );
     assert_eq!(
         app::select(REGISTRY, &ids(&["nope"]), &ids(&["nada"])).unwrap_err(),
-        ["未知测试项 `nope`", "未知测试项 `nada`"]
+        ["未知测试项或分组 `nope`", "未知测试项或分组 `nada`"]
+    );
+}
+
+#[test]
+fn a_group_name_selects_every_plugin_of_the_group() {
+    assert_eq!(bench_api::validate_registry(GROUPS), Vec::<String>::new());
+    assert_eq!(
+        app::select(GROUPS, &ids(&["test"]), &[]).unwrap(),
+        ["test.good", "test.other"]
+    );
+    assert_eq!(app::select(GROUPS, &[], &ids(&["test"])).unwrap(), ["lone"]);
+    assert_eq!(
+        app::select(GROUPS, &ids(&["test.other", "lone"]), &[]).unwrap(),
+        ["lone", "test.other"]
+    );
+    assert_eq!(
+        app::select(GROUPS, &ids(&["test"]), &ids(&["test.good"])).unwrap(),
+        ["test.other"]
+    );
+    assert_eq!(
+        app::select(GROUPS, &ids(&["tes", "test."]), &ids(&["good", "lon"])).unwrap_err(),
+        [
+            "未知测试项或分组 `tes`",
+            "未知测试项或分组 `test.`",
+            "未知测试项或分组 `good`",
+            "未知测试项或分组 `lon`",
+        ],
+        "a name is a whole id or group"
     );
 }
 

@@ -100,7 +100,7 @@ pub struct Run<R> {
 
 /// The id's first dot-separated segment.
 #[must_use]
-pub fn group_of(id: &'static str) -> &'static str {
+pub fn group_of(id: &str) -> &str {
     id.split('.').next().unwrap_or(id)
 }
 
