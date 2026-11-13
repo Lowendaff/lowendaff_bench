@@ -71,6 +71,10 @@ commands. Run them locally before pushing.
 
 `<arch>` is `x86_64` or `aarch64`.
 
+`GH_TOKEN=$(gh auth token) scripts/verify-commits.sh` runs the gates on every commit of a branch,
+each commit on its own, then checks the commit messages. It leaves to CI the gates that need Linux
+or root, and Tool downloads.
+
 CI pins these tool versions; install the same versions locally:
 
 - cargo-nextest 0.9.151;
