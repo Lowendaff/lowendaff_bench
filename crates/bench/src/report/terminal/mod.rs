@@ -67,18 +67,9 @@ pub fn render(page: &Page, width: Option<u16>) -> String {
         host::platform_text(page.host.platform)
     ));
     host::section(&mut out, page.host, page.show_ip);
-    let known: Vec<&str> = SECTIONS.iter().map(|(group, _)| *group).collect();
-    let mut sections: Vec<(&str, &str)> = SECTIONS.to_vec();
-    for run in page.runs {
-        if !known.contains(&run.group) && !sections.iter().any(|(group, _)| *group == run.group) {
-            sections.push((run.group, run.group));
-        }
-    }
-    for (group, title) in sections {
+    let groups: Vec<&str> = page.runs.iter().map(|run| run.group).collect();
+    for (group, title) in sections(&groups) {
         let runs: Vec<&Run<Measured>> = page.runs.iter().filter(|run| run.group == group).collect();
-        if runs.is_empty() {
-            continue;
-        }
         out.line(&format!("\n【{title}】"));
         let several = runs.len() > 1;
         for run in runs {
@@ -93,6 +84,22 @@ pub fn render(page: &Page, width: Option<u16>) -> String {
     }
     summary::section(&mut out, page);
     out.text
+}
+
+/// The sections of these groups, in the report's order: the groups it knows, in an order of
+/// their own, then any other group, in the order given and titled by its name.
+#[must_use]
+pub fn sections<'a>(groups: &[&'a str]) -> Vec<(&'a str, &'a str)> {
+    let mut sections: Vec<(&str, &str)> = SECTIONS
+        .into_iter()
+        .filter(|(group, _)| groups.contains(group))
+        .collect();
+    for group in groups {
+        if !sections.iter().any(|(known, _)| known == group) {
+            sections.push((group, group));
+        }
+    }
+    sections
 }
 
 /// One plugin's block: what it left, then how it ended.

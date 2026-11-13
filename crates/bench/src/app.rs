@@ -75,39 +75,53 @@ impl Cli {
     }
 }
 
-/// Prints every registered plugin with its id, title, platforms and pinned tools.
+/// Prints every registered plugin with its id, title, platforms and pinned tools, by group in
+/// the report's order, under each group's title and the name that `--only` and `--skip` take.
 pub fn list(registry: &[Registration], out: &mut impl Write) {
     let _ = writeln!(out, "共 {} 个测试项", registry.len());
-    for registration in registry {
-        let descriptor = registration.descriptor;
-        let platforms: Vec<&str> = descriptor
-            .requires
-            .platforms
+    let group = |registration: &Registration| orchestrator::group_of(registration.descriptor.id);
+    let groups: Vec<&str> = registry.iter().map(group).collect();
+    for (name, title) in report::terminal::sections(&groups) {
+        let _ = writeln!(out, "【{title}】（分组：{name}）");
+        let members = registry
             .iter()
-            .map(|kind| report::terminal::kind_text(*kind))
-            .collect();
-        let platforms = if platforms.is_empty() {
-            String::new()
-        } else {
-            format!("（适用：{}）", platforms.join("、"))
-        };
-        let tools: Vec<String> = descriptor
-            .requires
-            .tools
-            .iter()
-            .map(|tool| format!("{} {}", tool.name, tool.version))
-            .collect();
-        let tools = if tools.is_empty() {
-            String::new()
-        } else {
-            format!("（工具：{}）", tools.join("、"))
-        };
-        let _ = writeln!(
-            out,
-            "  {}  {}{platforms}{tools}",
-            descriptor.id, descriptor.title
-        );
+            .filter(|registration| group(registration) == name);
+        for registration in members {
+            item(registration, out);
+        }
     }
+}
+
+/// One plugin's line in [`list`].
+fn item(registration: &Registration, out: &mut impl Write) {
+    let descriptor = registration.descriptor;
+    let platforms: Vec<&str> = descriptor
+        .requires
+        .platforms
+        .iter()
+        .map(|kind| report::terminal::kind_text(*kind))
+        .collect();
+    let platforms = if platforms.is_empty() {
+        String::new()
+    } else {
+        format!("（适用：{}）", platforms.join("、"))
+    };
+    let tools: Vec<String> = descriptor
+        .requires
+        .tools
+        .iter()
+        .map(|tool| format!("{} {}", tool.name, tool.version))
+        .collect();
+    let tools = if tools.is_empty() {
+        String::new()
+    } else {
+        format!("（工具：{}）", tools.join("、"))
+    };
+    let _ = writeln!(
+        out,
+        "  {}  {}{platforms}{tools}",
+        descriptor.id, descriptor.title
+    );
 }
 
 /// Builds every selected plugin; all problems are reported together and nothing runs.

@@ -22,7 +22,7 @@ IPv6, with the public address of each. The report starts with this system inform
 memory and swap, disks and filesystems, distribution, kernel, uptime, load, TCP congestion
 control, and the two address families; on dedicated servers also the machine, board and
 firmware, the BMC, ECC, the memory modules and RAID cards. Only the test items made for the
-platform run; `--list` shows which platforms each item applies to.
+platform run; `--list` shows the items by group, and which platforms each applies to.
 
 | Test item | Shows |
 |-----------|-------|
@@ -35,7 +35,7 @@ platform run; `--list` shows which platforms each item applies to.
 ## Usage
 
 ```sh
-lowendaff-bench --list                      # list the test items
+lowendaff-bench --list                      # list the test items by group
 sudo lowendaff-bench                        # run all of them
 sudo lowendaff-bench --only cpu,disk.fio    # run a subset by group or id; --skip excludes
 sudo lowendaff-bench --config bench.toml    # per-item settings: [plugins."<id>"]

@@ -642,8 +642,52 @@ fn the_list_shows_where_each_plugin_applies() {
     assert_eq!(
         String::from_utf8(out).unwrap(),
         "共 3 个测试项\n\
+         【test】（分组：test）\n\
          \x20 test.info-dedicated  系统信息（适用：独立服务器）\n\
          \x20 test.info-vm  系统信息（适用：虚拟机）\n\
          \x20 test.disk-health  硬盘健康（适用：独立服务器）（工具：smartctl 7.4）\n"
+    );
+}
+
+#[test]
+fn the_list_keeps_each_group_together_in_the_reports_order() {
+    let mut out = Vec::new();
+    app::list(GROUPS, &mut out);
+    assert_eq!(
+        String::from_utf8(out).unwrap(),
+        "共 3 个测试项\n\
+         【test】（分组：test）\n\
+         \x20 test.good  示例测试\n\
+         \x20 test.other  另一个测试\n\
+         【lone】（分组：lone）\n\
+         \x20 lone  单独的测试\n"
+    );
+
+    let mut out = Vec::new();
+    app::list(bench::registry::REGISTRY, &mut out);
+    let text = String::from_utf8(out).unwrap();
+    let headings: Vec<&str> = text.lines().filter(|line| line.starts_with('【')).collect();
+    assert_eq!(
+        headings,
+        [
+            "【CPU 性能】（分组：cpu）",
+            "【内存性能】（分组：memory）",
+            "【硬盘】（分组：disk）"
+        ]
+    );
+    let ids: Vec<&str> = text
+        .lines()
+        .filter_map(|line| line.strip_prefix("  "))
+        .filter_map(|line| line.split_whitespace().next())
+        .collect();
+    assert_eq!(
+        ids,
+        [
+            "cpu.sysbench",
+            "cpu.geekbench",
+            "memory",
+            "disk.health",
+            "disk.fio"
+        ]
     );
 }
