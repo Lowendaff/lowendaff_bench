@@ -19,6 +19,8 @@ use crate::orchestrator::Run;
 use crate::results::Measured;
 
 pub use host::family_text;
+pub use host::kind_text;
+pub use host::platform_text;
 pub use host::why_text;
 pub use summary::fault_text;
 pub use summary::run_status;
@@ -60,7 +62,10 @@ pub fn render(page: &Page, width: Option<u16>) -> String {
         width,
     };
     out.line(&format!("lowendaff-bench {}", page.version));
-    out.line(&format!("运行环境：{}", page.host.platform));
+    out.line(&format!(
+        "运行环境：{}",
+        host::platform_text(page.host.platform)
+    ));
     host::section(&mut out, page.host, page.show_ip);
     let known: Vec<&str> = SECTIONS.iter().map(|(group, _)| *group).collect();
     let mut sections: Vec<(&str, &str)> = SECTIONS.to_vec();

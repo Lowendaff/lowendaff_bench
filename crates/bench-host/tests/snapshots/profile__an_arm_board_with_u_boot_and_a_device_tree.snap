@@ -10,7 +10,9 @@ HostProfile {
         CpuFacts {
             cpu: Cpu {
                 model: Some(
-                    "ARM Cortex-A55",
+                    Name(
+                        "ARM Cortex-A55",
+                    ),
                 ),
                 logical: Some(
                     4,

@@ -80,11 +80,11 @@ pub fn list(registry: &[Registration], out: &mut impl Write) {
     let _ = writeln!(out, "共 {} 个测试项", registry.len());
     for registration in registry {
         let descriptor = registration.descriptor;
-        let platforms: Vec<String> = descriptor
+        let platforms: Vec<&str> = descriptor
             .requires
             .platforms
             .iter()
-            .map(ToString::to_string)
+            .map(|kind| report::terminal::kind_text(*kind))
             .collect();
         let platforms = if platforms.is_empty() {
             String::new()

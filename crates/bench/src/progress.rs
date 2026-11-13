@@ -78,7 +78,8 @@ pub fn init(verbose: bool) {
 
 /// Logs where the program runs, once the host profile is read.
 pub fn host(profile: &HostProfile) {
-    tracing::info!("主机概况：{}，{}", profile.platform, profile.arch);
+    let platform = report::terminal::platform_text(profile.platform);
+    tracing::info!("主机概况：{platform}，{}", profile.arch);
 }
 
 /// Logs each family's reachability and public address. The log masks addresses always: it is

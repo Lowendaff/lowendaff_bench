@@ -20,6 +20,7 @@ use bench_api::Record;
 use bench_api::Table;
 use bench_api::typed::Stop;
 use bench_host::cpu::Cpu;
+use bench_host::cpu::Model;
 use bench_host::cpu::Virtualization;
 use bench_host::glibc::GlibcVersion;
 use bench_host::glibc::Libc;
@@ -45,7 +46,7 @@ use bench_host::storage::Use;
 /// address, and it has no IPv6.
 fn host() -> HostProfile {
     let cpu = Cpu {
-        model: Some("Example CPU @ 2.00GHz".to_owned()),
+        model: Some(Model::Name("Example CPU @ 2.00GHz".to_owned())),
         logical: Some(2),
         mhz: Some(2000.0),
         caches: vec![("L1d".to_owned(), 32 << 10), ("L2".to_owned(), 4 << 20)],

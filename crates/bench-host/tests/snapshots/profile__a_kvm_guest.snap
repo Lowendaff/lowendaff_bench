@@ -12,7 +12,9 @@ HostProfile {
         CpuFacts {
             cpu: Cpu {
                 model: Some(
-                    "Intel Xeon Processor (Skylake, IBRS)",
+                    Name(
+                        "Intel Xeon Processor (Skylake, IBRS)",
+                    ),
                 ),
                 logical: Some(
                     1,

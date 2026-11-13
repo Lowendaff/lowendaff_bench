@@ -10,7 +10,9 @@ HostProfile {
         CpuFacts {
             cpu: Cpu {
                 model: Some(
-                    "Intel(R) Xeon(R) Gold 6130 CPU @ 2.10GHz",
+                    Name(
+                        "Intel(R) Xeon(R) Gold 6130 CPU @ 2.10GHz",
+                    ),
                 ),
                 logical: Some(
                     64,

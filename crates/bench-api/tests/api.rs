@@ -388,7 +388,7 @@ fn a_plugin_applies_to_the_kinds_it_declares() {
     ] {
         assert!(
             Requirements::NONE.applies_to(platform),
-            "an empty list means every platform, including {platform}"
+            "an empty list means every platform, including {platform:?}"
         );
     }
 }

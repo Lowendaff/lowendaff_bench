@@ -2,8 +2,6 @@
 //! systemd-detect-virt uses: containers first, then virtual machines. Only files and CPUID are
 //! read.
 
-use std::fmt;
-
 use crate::Root;
 
 /// Where the program runs, detected once by the orchestrator.
@@ -30,20 +28,6 @@ impl Platform {
     }
 }
 
-impl fmt::Display for Platform {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Dedicated => f.write_str("未检测到虚拟化"),
-            Self::Vm(Hypervisor::Qemu) => f.write_str("QEMU 虚拟机（纯软件模拟）"),
-            Self::Vm(Hypervisor::Other) => f.write_str("虚拟机（类型未知）"),
-            Self::Vm(hypervisor) => write!(f, "{hypervisor} 虚拟机"),
-            Self::Container(ContainerKind::Wsl) => f.write_str("WSL"),
-            Self::Container(ContainerKind::Other) => f.write_str("容器（类型未知）"),
-            Self::Container(container) => write!(f, "{container} 容器"),
-        }
-    }
-}
-
 /// Kind of platform, as declared by plugins.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlatformKind {
@@ -53,16 +37,6 @@ pub enum PlatformKind {
     Vm,
     /// Any container.
     Container,
-}
-
-impl fmt::Display for PlatformKind {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            Self::Dedicated => "独立服务器",
-            Self::Vm => "虚拟机",
-            Self::Container => "容器",
-        })
-    }
 }
 
 /// Hypervisor of a virtual machine.
@@ -92,9 +66,11 @@ pub enum Hypervisor {
     Other,
 }
 
-impl fmt::Display for Hypervisor {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
+impl Hypervisor {
+    /// The product's name; `None` for one that was not recognized.
+    #[must_use]
+    pub fn name(self) -> Option<&'static str> {
+        Some(match self {
             Self::Kvm => "KVM",
             Self::Qemu => "QEMU",
             Self::Xen => "Xen",
@@ -105,7 +81,7 @@ impl fmt::Display for Hypervisor {
             Self::AmazonEc2 => "Amazon EC2",
             Self::GoogleCompute => "Google Compute Engine",
             Self::Bhyve => "bhyve",
-            Self::Other => "未知",
+            Self::Other => return None,
         })
     }
 }
@@ -129,16 +105,18 @@ pub enum ContainerKind {
     Other,
 }
 
-impl fmt::Display for ContainerKind {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
+impl ContainerKind {
+    /// The product's name; `None` for one that was not recognized.
+    #[must_use]
+    pub fn name(self) -> Option<&'static str> {
+        Some(match self {
             Self::Lxc => "LXC",
             Self::Openvz => "OpenVZ",
             Self::Docker => "Docker",
             Self::Podman => "Podman",
             Self::SystemdNspawn => "systemd-nspawn",
             Self::Wsl => "WSL",
-            Self::Other => "未知",
+            Self::Other => return None,
         })
     }
 }

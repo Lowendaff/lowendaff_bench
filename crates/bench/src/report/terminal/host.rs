@@ -10,6 +10,7 @@ use std::time::Duration;
 use bench_host::bmc;
 use bench_host::bmc::Bmc;
 use bench_host::bmc::InterfaceKind;
+use bench_host::cpu::Model;
 use bench_host::cpu::Virtualization;
 use bench_host::hardware::Hardware;
 use bench_host::machine::Firmware;
@@ -19,6 +20,9 @@ use bench_host::network::Family;
 use bench_host::network::Network;
 use bench_host::network::Reach;
 use bench_host::network::Why;
+use bench_host::platform::ContainerKind;
+use bench_host::platform::Hypervisor;
+use bench_host::platform::Platform;
 use bench_host::platform::PlatformKind;
 use bench_host::profile::CpuFacts;
 use bench_host::profile::HostProfile;
@@ -78,6 +82,34 @@ pub(super) fn section(out: &mut Out, host: &HostProfile, show_ip: bool) {
     self::network(out, &host.network, show_ip);
 }
 
+/// Where the program runs, as the report's 运行环境 line and the log name it.
+#[must_use]
+pub fn platform_text(platform: Platform) -> String {
+    match platform {
+        Platform::Dedicated => "未检测到虚拟化".to_owned(),
+        Platform::Vm(Hypervisor::Qemu) => "QEMU 虚拟机（纯软件模拟）".to_owned(),
+        Platform::Vm(hypervisor) => match hypervisor.name() {
+            Some(name) => format!("{name} 虚拟机"),
+            None => "虚拟机（类型未知）".to_owned(),
+        },
+        Platform::Container(ContainerKind::Wsl) => "WSL".to_owned(),
+        Platform::Container(container) => match container.name() {
+            Some(name) => format!("{name} 容器"),
+            None => "容器（类型未知）".to_owned(),
+        },
+    }
+}
+
+/// A kind of platform, as `--list` names the ones a plugin applies to.
+#[must_use]
+pub fn kind_text(kind: PlatformKind) -> &'static str {
+    match kind {
+        PlatformKind::Dedicated => "独立服务器",
+        PlatformKind::Vm => "虚拟机",
+        PlatformKind::Container => "容器",
+    }
+}
+
 /// The words for a section that is missing.
 fn missing_text<T>(read: &Read<T>) -> String {
     match read {
@@ -88,11 +120,7 @@ fn missing_text<T>(read: &Read<T>) -> String {
 
 fn cpu(out: &mut Out, facts: &CpuFacts, kind: PlatformKind) {
     let cpu = &facts.cpu;
-    out.field(
-        INDENT,
-        "CPU 型号",
-        cpu.model.as_deref().unwrap_or(UNAVAILABLE),
-    );
+    out.field(INDENT, "CPU 型号", &model(cpu.model.as_ref()));
     out.field(INDENT, "CPU 核心", &cores(facts, kind));
     let mhz = cpu.mhz.map_or_else(
         || UNAVAILABLE.to_owned(),
@@ -115,6 +143,23 @@ fn cpu(out: &mut Out, facts: &CpuFacts, kind: PlatformKind) {
             Virtualization::NotApplicable => "不适用",
         };
         out.field(INDENT, "硬件虚拟化", virtualization);
+    }
+}
+
+/// An ARM CPU that the table of codes does not know shows its codes rather than a wrong name.
+fn model(model: Option<&Model>) -> String {
+    match model {
+        Some(Model::Name(name)) => name.clone(),
+        Some(Model::UnknownPart { vendor, part }) => format!("{vendor}（型号代码 {part:#05x}）"),
+        Some(Model::UnknownVendor {
+            implementer,
+            part: Some(part),
+        }) => format!("ARM 处理器（厂商代码 {implementer:#04x}，型号代码 {part:#05x}）"),
+        Some(Model::UnknownVendor {
+            implementer,
+            part: None,
+        }) => format!("ARM 处理器（厂商代码 {implementer:#04x}）"),
+        None => UNAVAILABLE.to_owned(),
     }
 }
 

@@ -12,7 +12,10 @@ HostProfile {
         CpuFacts {
             cpu: Cpu {
                 model: Some(
-                    "Apple（型号代码 0x000）",
+                    UnknownPart {
+                        vendor: "Apple",
+                        part: 0,
+                    },
                 ),
                 logical: Some(
                     10,

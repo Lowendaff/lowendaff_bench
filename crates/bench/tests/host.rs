@@ -14,6 +14,8 @@ use bench_host::Root;
 use bench_host::bmc::Bmc;
 use bench_host::bmc::Interface;
 use bench_host::bmc::InterfaceKind;
+use bench_host::cpu::Cpu;
+use bench_host::cpu::Model;
 use bench_host::edac::Edac;
 use bench_host::glibc::Libc;
 use bench_host::hardware::Hardware;
@@ -28,6 +30,8 @@ use bench_host::network::Why;
 use bench_host::platform::ContainerKind;
 use bench_host::platform::Hypervisor;
 use bench_host::platform::Platform;
+use bench_host::platform::PlatformKind;
+use bench_host::profile::CpuFacts;
 use bench_host::profile::HostProfile;
 use bench_host::profile::Read;
 use bench_host::profile::Sources;
@@ -498,6 +502,8 @@ fn a_section_that_did_not_answer_says_so() {
         ..HostProfile::default()
     };
     let text = render(&host, false);
+    let unknown = render(&HostProfile::default(), false);
+    assert_eq!(field(&unknown, "架构"), ["不可用"], "{unknown}");
     for (label, value) in [
         ("硬件", "不可用（超时）"),
         ("CPU", "不可用（超时）"),
@@ -581,6 +587,11 @@ fn each_family_says_whether_it_works_and_where_its_address_came_from() {
         "不可用：连接 1.1.1.1 超时，223.5.5.5 拒绝连接，没有到 8.8.8.8 的路由，无法连接 9.9.9.9"
     );
     assert_eq!(text(&Family::default(), "IPv4"), "不可用", "not probed");
+    let not_asked = Family {
+        targets: vec![(target("1.1.1.1:443"), Reach::Connected)],
+        address: Address::NotAsked,
+    };
+    assert_eq!(text(&not_asked, "IPv4"), "可用");
 }
 
 #[test]
@@ -726,4 +737,100 @@ fn a_proxmox_container_reports_what_lxcfs_shows() {
         (0, 75),
         Some(5_322_667)
     ));
+}
+
+#[test]
+fn platforms_are_named_in_chinese() {
+    let names = [
+        (Platform::Dedicated, "未检测到虚拟化"),
+        (Platform::Vm(Hypervisor::Kvm), "KVM 虚拟机"),
+        (Platform::Vm(Hypervisor::Qemu), "QEMU 虚拟机（纯软件模拟）"),
+        (Platform::Vm(Hypervisor::Xen), "Xen 虚拟机"),
+        (Platform::Vm(Hypervisor::Vmware), "VMware 虚拟机"),
+        (Platform::Vm(Hypervisor::HyperV), "Hyper-V 虚拟机"),
+        (Platform::Vm(Hypervisor::VirtualBox), "VirtualBox 虚拟机"),
+        (Platform::Vm(Hypervisor::Parallels), "Parallels 虚拟机"),
+        (Platform::Vm(Hypervisor::AmazonEc2), "Amazon EC2 虚拟机"),
+        (
+            Platform::Vm(Hypervisor::GoogleCompute),
+            "Google Compute Engine 虚拟机",
+        ),
+        (Platform::Vm(Hypervisor::Bhyve), "bhyve 虚拟机"),
+        (Platform::Vm(Hypervisor::Other), "虚拟机（类型未知）"),
+        (Platform::Container(ContainerKind::Lxc), "LXC 容器"),
+        (Platform::Container(ContainerKind::Openvz), "OpenVZ 容器"),
+        (Platform::Container(ContainerKind::Docker), "Docker 容器"),
+        (Platform::Container(ContainerKind::Podman), "Podman 容器"),
+        (
+            Platform::Container(ContainerKind::SystemdNspawn),
+            "systemd-nspawn 容器",
+        ),
+        (Platform::Container(ContainerKind::Wsl), "WSL"),
+        (
+            Platform::Container(ContainerKind::Other),
+            "容器（类型未知）",
+        ),
+    ];
+    for (platform, name) in names {
+        assert_eq!(report::terminal::platform_text(platform), name);
+        let host = HostProfile {
+            platform,
+            ..HostProfile::default()
+        };
+        assert!(
+            render(&host, false).contains(&format!("\n运行环境：{name}\n")),
+            "{name}"
+        );
+    }
+    let kinds = [
+        (PlatformKind::Dedicated, "独立服务器"),
+        (PlatformKind::Vm, "虚拟机"),
+        (PlatformKind::Container, "容器"),
+    ];
+    for (kind, name) in kinds {
+        assert_eq!(report::terminal::kind_text(kind), name);
+    }
+}
+
+#[test]
+fn an_arm_cpu_unknown_to_the_table_shows_its_codes() {
+    let model = |model| {
+        let host = HostProfile {
+            cpu: Read::Done(CpuFacts {
+                cpu: Cpu {
+                    model,
+                    ..Cpu::default()
+                },
+                ..CpuFacts::default()
+            }),
+            ..HostProfile::default()
+        };
+        field(&render(&host, false), "CPU 型号")
+    };
+    assert_eq!(
+        model(Some(Model::Name("ARM Neoverse-N1".to_owned()))),
+        ["ARM Neoverse-N1"]
+    );
+    assert_eq!(
+        model(Some(Model::UnknownPart {
+            vendor: "Apple",
+            part: 0
+        })),
+        ["Apple（型号代码 0x000）"]
+    );
+    assert_eq!(
+        model(Some(Model::UnknownVendor {
+            implementer: 0x99,
+            part: Some(1)
+        })),
+        ["ARM 处理器（厂商代码 0x99，型号代码 0x001）"]
+    );
+    assert_eq!(
+        model(Some(Model::UnknownVendor {
+            implementer: 0x99,
+            part: None
+        })),
+        ["ARM 处理器（厂商代码 0x99）"]
+    );
+    assert_eq!(model(None), ["不可用"]);
 }

@@ -8,7 +8,6 @@ use bench_host::platform;
 use bench_host::platform::ContainerKind;
 use bench_host::platform::Hypervisor;
 use bench_host::platform::Platform;
-use bench_host::platform::PlatformKind;
 use common::Layout;
 use tempfile::TempDir;
 
@@ -298,49 +297,8 @@ fn cpuid_exists_exactly_on_x86_64() {
 }
 
 #[test]
-fn platforms_are_named_in_chinese() {
-    let names = [
-        (Platform::Dedicated, "未检测到虚拟化"),
-        (Platform::Vm(Hypervisor::Kvm), "KVM 虚拟机"),
-        (Platform::Vm(Hypervisor::Qemu), "QEMU 虚拟机（纯软件模拟）"),
-        (Platform::Vm(Hypervisor::Xen), "Xen 虚拟机"),
-        (Platform::Vm(Hypervisor::Vmware), "VMware 虚拟机"),
-        (Platform::Vm(Hypervisor::HyperV), "Hyper-V 虚拟机"),
-        (Platform::Vm(Hypervisor::VirtualBox), "VirtualBox 虚拟机"),
-        (Platform::Vm(Hypervisor::Parallels), "Parallels 虚拟机"),
-        (Platform::Vm(Hypervisor::AmazonEc2), "Amazon EC2 虚拟机"),
-        (
-            Platform::Vm(Hypervisor::GoogleCompute),
-            "Google Compute Engine 虚拟机",
-        ),
-        (Platform::Vm(Hypervisor::Bhyve), "bhyve 虚拟机"),
-        (Platform::Vm(Hypervisor::Other), "虚拟机（类型未知）"),
-        (Platform::Container(ContainerKind::Lxc), "LXC 容器"),
-        (Platform::Container(ContainerKind::Openvz), "OpenVZ 容器"),
-        (Platform::Container(ContainerKind::Docker), "Docker 容器"),
-        (Platform::Container(ContainerKind::Podman), "Podman 容器"),
-        (
-            Platform::Container(ContainerKind::SystemdNspawn),
-            "systemd-nspawn 容器",
-        ),
-        (Platform::Container(ContainerKind::Wsl), "WSL"),
-        (
-            Platform::Container(ContainerKind::Other),
-            "容器（类型未知）",
-        ),
-    ];
-    for (platform, name) in names {
-        assert_eq!(platform.to_string(), name);
-    }
-    assert_eq!(Hypervisor::Other.to_string(), "未知");
-    assert_eq!(ContainerKind::Other.to_string(), "未知");
-    let kinds = [
-        (PlatformKind::Dedicated, "独立服务器"),
-        (PlatformKind::Vm, "虚拟机"),
-        (PlatformKind::Container, "容器"),
-    ];
-    for (kind, name) in kinds {
-        assert_eq!(kind.to_string(), name);
-    }
+fn a_host_without_a_detected_platform_counts_as_dedicated() {
     assert_eq!(Platform::default(), Platform::Dedicated);
+    assert_eq!(Hypervisor::Other.name(), None);
+    assert_eq!(ContainerKind::Other.name(), None);
 }
