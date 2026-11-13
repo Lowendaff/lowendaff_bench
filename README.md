@@ -75,6 +75,19 @@ commands. Run them locally before pushing.
 
 `<arch>` is `x86_64` or `aarch64`.
 
+The two `test, static build and smoke` jobs first run `scripts/ci-scope.sh`, which decides whether
+the rest of the job runs. A job skips its other steps, and still passes, in two cases:
+
+- an earlier run validated an ancestor of the commit in full, on the same base and runner image,
+  and only Markdown or `LICENSE` changed since;
+- the whole change (a pull request against its base, or a push against the commit before it)
+  touches only Markdown or `LICENSE`.
+
+Anything else, or any doubt, runs every step. A job that ran every step successfully uploads a
+validation record (`validation-pr<N>-<arch>` or `validation-main-<arch>`, kept 90 days), and the
+decision with its evidence appears in the job summary. The workflow audit job, which runs "Shell
+scripts", also runs this decision's cases: `scripts/ci-scope-cases.sh`.
+
 `GH_TOKEN=$(gh auth token) scripts/verify-commits.sh` runs the gates on every commit of a branch,
 each commit on its own, then checks the commit messages. It leaves to CI the gates that need Linux
 or root, and Tool downloads.
