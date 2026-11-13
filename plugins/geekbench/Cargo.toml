@@ -9,6 +9,7 @@ license.workspace = true
 [dependencies]
 bench-api.workspace = true
 bench-host.workspace = true
+bench-tool.workspace = true
 rustix = { version = "1", features = ["process"] }
 serde.workspace = true
 swap-file.workspace = true

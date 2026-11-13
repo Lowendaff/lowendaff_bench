@@ -15,45 +15,15 @@ use bench_api::Descriptor;
 use bench_api::Plugin;
 use bench_api::PluginError;
 use bench_api::Requirements;
-use bench_api::ToolAsset;
-use bench_api::ToolForm;
-use bench_api::ToolSpec;
 use bench_host::Root;
 use bench_host::cpu;
+use bench_tool::SYSBENCH;
 use serde::Deserialize;
 
 use crate::sysbench::AttemptError;
 use crate::sysbench::Rate;
 use crate::sysbench::RunError;
 use crate::sysbench::Success;
-
-/// sysbench 1.0.20 from the release `sysbench-1.0.20-1`, which the tools workflow built and
-/// published.
-pub const SYSBENCH: ToolSpec = ToolSpec {
-    name: "sysbench",
-    version: "1.0.20",
-    form: ToolForm::Executable,
-    assets: &[
-        ToolAsset {
-            arch: "x86_64",
-            url: concat!(
-                "https://github.com/Lowendaff/lowendaff_bench/releases/download/",
-                "sysbench-1.0.20-1/sysbench-x86_64"
-            ),
-            sha256: "a090a82b15b74efaffa2d80c8e1a74c28127ce38c4f8512e7fddcc13d3b5fd78",
-            size: 1_779_416,
-        },
-        ToolAsset {
-            arch: "aarch64",
-            url: concat!(
-                "https://github.com/Lowendaff/lowendaff_bench/releases/download/",
-                "sysbench-1.0.20-1/sysbench-aarch64"
-            ),
-            sha256: "0d132f10716254e24ada1b9c4e7b0d37c5cadfc42e32bfaf9a7483ee8789569f",
-            size: 1_879_248,
-        },
-    ],
-};
 
 /// An attempt runs for 20 seconds; the rest is room to start and to stop.
 const ATTEMPT_LIMIT: Duration = Duration::from_secs(60);

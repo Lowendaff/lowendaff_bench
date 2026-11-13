@@ -9,15 +9,13 @@ use std::time::Duration;
 
 use bench_api::Context;
 use bench_api::Descriptor;
-use bench_api::PlatformKind;
 use bench_api::Plugin;
 use bench_api::PluginError;
 use bench_api::Record;
 use bench_api::Requirements;
-use bench_api::ToolAsset;
-use bench_api::ToolForm;
-use bench_api::ToolSpec;
 use bench_host::Root;
+use bench_host::platform::PlatformKind;
+use bench_tool::SMARTCTL;
 use serde::Deserialize;
 
 use crate::nodes::Nodes;
@@ -30,34 +28,6 @@ pub mod nodes;
 pub mod output;
 pub mod reading;
 pub mod report;
-
-/// smartctl 7.5 from the release `smartctl-7.5-1`, which the smartctl workflow built and
-/// published.
-const SMARTCTL: ToolSpec = ToolSpec {
-    name: "smartctl",
-    version: "7.5",
-    form: ToolForm::Executable,
-    assets: &[
-        ToolAsset {
-            arch: "x86_64",
-            url: concat!(
-                "https://github.com/Lowendaff/lowendaff_bench/releases/download/smartctl-7.5-1/",
-                "smartctl-x86_64"
-            ),
-            sha256: "dbf17079b2b8469ede7002a7b15ac4b65f833cae658f229a3ba8ed158e4d6345",
-            size: 7_447_664,
-        },
-        ToolAsset {
-            arch: "aarch64",
-            url: concat!(
-                "https://github.com/Lowendaff/lowendaff_bench/releases/download/smartctl-7.5-1/",
-                "smartctl-aarch64"
-            ),
-            sha256: "ea4c64b5c38678fc40847598d83537395b7749ee7f274e8c228dd09172ae962f",
-            size: 7_359_608,
-        },
-    ],
-};
 
 /// 硬盘健康. It has no settings.
 #[derive(Debug, Default, Deserialize)]

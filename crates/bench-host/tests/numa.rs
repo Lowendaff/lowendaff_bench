@@ -4,7 +4,6 @@
 
 mod common;
 
-use bench_api::PlatformKind;
 use bench_host::Root;
 use bench_host::cache;
 use bench_host::cache::Cache;
@@ -13,6 +12,7 @@ use bench_host::cpu;
 use bench_host::memory;
 use bench_host::numa;
 use bench_host::numa::Node;
+use bench_host::platform::PlatformKind;
 
 const KIB: u64 = 1024;
 

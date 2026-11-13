@@ -9,7 +9,7 @@ license.workspace = true
 [dependencies]
 bench-api.workspace = true
 bench-host.workspace = true
-plugin-cpu.workspace = true
+bench-tool.workspace = true
 serde.workspace = true
 tokio = { workspace = true, features = ["macros", "process", "rt", "sync", "time"] }
 

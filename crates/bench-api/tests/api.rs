@@ -7,17 +7,12 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use bench_api::CancellationToken;
-use bench_api::ContainerKind;
 use bench_api::Context;
 use bench_api::Descriptor;
 use bench_api::Env;
-use bench_api::GlibcVersion;
-use bench_api::Hypervisor;
 use bench_api::Measurement;
 use bench_api::Missing;
 use bench_api::Net;
-use bench_api::Platform;
-use bench_api::PlatformKind;
 use bench_api::Plugin;
 use bench_api::PluginError;
 use bench_api::Record;
@@ -26,6 +21,11 @@ use bench_api::Table;
 use bench_api::ToolAsset;
 use bench_api::ToolForm;
 use bench_api::ToolSpec;
+use bench_host::glibc::GlibcVersion;
+use bench_host::platform::ContainerKind;
+use bench_host::platform::Hypervisor;
+use bench_host::platform::Platform;
+use bench_host::platform::PlatformKind;
 use serde::Deserialize;
 
 const SHA: &str = "4f2d1c0b9a8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a392817060504";
@@ -391,27 +391,4 @@ fn a_plugin_applies_to_the_kinds_it_declares() {
             "an empty list means every platform, including {platform}"
         );
     }
-}
-
-#[test]
-fn platforms_are_named_in_chinese() {
-    let names = [
-        (Platform::Dedicated, "未检测到虚拟化"),
-        (Platform::Vm(Hypervisor::Kvm), "KVM 虚拟机"),
-        (Platform::Vm(Hypervisor::Qemu), "QEMU 虚拟机（纯软件模拟）"),
-        (Platform::Vm(Hypervisor::HyperV), "Hyper-V 虚拟机"),
-        (Platform::Vm(Hypervisor::Other), "虚拟机（类型未知）"),
-        (Platform::Container(ContainerKind::Lxc), "LXC 容器"),
-        (Platform::Container(ContainerKind::Openvz), "OpenVZ 容器"),
-        (Platform::Container(ContainerKind::Wsl), "WSL"),
-        (
-            Platform::Container(ContainerKind::Other),
-            "容器（类型未知）",
-        ),
-    ];
-    for (platform, name) in names {
-        assert_eq!(platform.to_string(), name);
-    }
-    assert_eq!(PlatformKind::Dedicated.to_string(), "独立服务器");
-    assert_eq!(Platform::default(), Platform::Dedicated);
 }

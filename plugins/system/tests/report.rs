@@ -6,13 +6,13 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use bench_api::ContainerKind;
 use bench_api::Env;
-use bench_api::Hypervisor;
-use bench_api::Platform;
-use bench_api::PlatformKind;
 use bench_api::Record;
 use bench_host::Root;
+use bench_host::platform::ContainerKind;
+use bench_host::platform::Hypervisor;
+use bench_host::platform::Platform;
+use bench_host::platform::PlatformKind;
 use bench_host::storage::Space;
 use bench_host::system;
 use bench_host::system::Counters;

@@ -3,12 +3,9 @@
 
 use std::time::Duration;
 
-use bench_api::ContainerKind;
 use bench_api::Env;
 use bench_api::Measurement;
 use bench_api::Missing;
-use bench_api::Platform;
-use bench_api::PlatformKind;
 use bench_api::Record;
 use bench_api::RecordError;
 use bench_api::Table;
@@ -19,6 +16,9 @@ use bench_host::cpu::Virtualization;
 use bench_host::memory;
 use bench_host::memory::CgroupLimits;
 use bench_host::os;
+use bench_host::platform::ContainerKind;
+use bench_host::platform::Platform;
+use bench_host::platform::PlatformKind;
 use bench_host::raid;
 use bench_host::storage;
 use bench_host::storage::Filesystem;

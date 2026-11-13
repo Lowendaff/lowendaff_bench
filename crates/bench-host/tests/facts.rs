@@ -6,13 +6,13 @@ mod common;
 use std::fs;
 use std::time::Duration;
 
-use bench_api::PlatformKind;
 use bench_host::Root;
 use bench_host::cpu;
 use bench_host::cpu::Topology;
 use bench_host::cpu::Virtualization;
 use bench_host::memory;
 use bench_host::os;
+use bench_host::platform::PlatformKind;
 use bench_host::system;
 use bench_host::system::Counters;
 use common::Layout;

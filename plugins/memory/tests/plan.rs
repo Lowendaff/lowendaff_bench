@@ -3,11 +3,11 @@
 
 use std::path::Path;
 
-use bench_api::PlatformKind;
 use bench_host::Root;
 use bench_host::cache::Cache;
 use bench_host::cache::CacheKind;
 use bench_host::numa::Node;
+use bench_host::platform::PlatformKind;
 use plugin_memory::plan::Cell;
 use plugin_memory::plan::GIB;
 use plugin_memory::plan::Host;

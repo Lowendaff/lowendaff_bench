@@ -1,12 +1,37 @@
-//! The host's glibc, as a program built for glibc would find it. Only files
+//! The host's C library: its types, and how a program built for glibc would find it. Only files
 //! are read; no host program runs.
 
 use std::collections::VecDeque;
-
-use bench_api::GlibcVersion;
-use bench_api::Libc;
+use std::fmt;
 
 use crate::Root;
+
+/// A glibc version, such as 2.35. Versions compare by major, then minor number.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct GlibcVersion {
+    /// Major number, 2 for every glibc since 1997.
+    pub major: u32,
+    /// Minor number.
+    pub minor: u32,
+}
+
+impl fmt::Display for GlibcVersion {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}.{}", self.major, self.minor)
+    }
+}
+
+/// The host's C library, as far as programs built for glibc are concerned.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Libc {
+    /// glibc of this version.
+    Glibc(GlibcVersion),
+    /// glibc whose version could not be read. Plugins that need glibc still run.
+    #[default]
+    GlibcUnknown,
+    /// No glibc loader for this architecture, as on musl systems such as Alpine.
+    NoGlibc,
+}
 
 /// Symbolic links followed before a path counts as broken, as the kernel's `MAXSYMLINKS`.
 const MAX_LINKS: usize = 40;

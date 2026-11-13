@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use bench_api::PlatformKind;
+use crate::platform::PlatformKind;
 
 use crate::Root;
 
