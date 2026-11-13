@@ -1,0 +1,18 @@
+id: no-chinese-outside-the-reporter
+valid:
+  - |
+    fn f() { let vendor = "Apple"; }
+  - |
+    fn f(ctx: &Context) { ctx.progress("单线程测试"); }
+  - |
+    fn f(ctx: &Context) { ctx.progress(format!("第 {count} 次")); }
+  - |
+    // 注释里的中文不是输出
+    fn f() { let separator = '、'; }
+invalid:
+  - |
+    fn f() { let text = "不可用"; }
+  - |
+    fn f() { let text = r"原始"; }
+  - |
+    fn f(part: u32) { let text = format!("型号代码 {part:#05x}"); }

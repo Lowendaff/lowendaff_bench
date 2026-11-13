@@ -44,7 +44,12 @@ used), with these rules of this repository:
   ← `bench`, and a plugin crate is used by `bench` alone. `deny.toml` names the crates that may
   depend on each of them; a new dependency along the direction is added there.
 - Plugins and the shared crates return data, and the reporter in `bench` formats it: `deny.toml`
-  allows comfy-table, which draws the report's tables, in `bench` only.
+  allows comfy-table, which draws the report's tables, in `bench` only. The words the user reads
+  are the reporter's too: `bench-host` and `bench-tool` hold no Chinese string (rule
+  `no-chinese-outside-the-reporter`), except in progress lines, and each plugin crate joins the
+  rule once its text has moved.
+- Only `bench` connects anywhere: it downloads the tools and asks for the public addresses, and
+  `deny.toml` allows reqwest there only. Host facts are read from files.
 - Besides clippy's defaults, the lint gate checks `must_use_candidate`, `needless_for_each`,
   `unwrap_used` (allowed in tests by `clippy.toml`) and `wildcard_imports`; `bench-api`,
   `bench-host`, `bench-tool` and `swap-file` document every public item (`missing_docs`).
