@@ -40,7 +40,10 @@ const SECTIONS: [(&str, &str); 3] = [
 
 /// The names of the plugins of the typed contract, by id; the plugins of the first contract
 /// bring their titles.
-const NAMES: [(&str, &str); 1] = [("cpu.sysbench", "CPU 性能")];
+const NAMES: [(&str, &str); 2] = [
+    ("cpu.sysbench", "CPU 性能"),
+    ("cpu.geekbench", "Geekbench 7"),
+];
 
 /// The reporter's name for a plugin of the typed contract, by its id.
 #[must_use]
@@ -120,6 +123,7 @@ fn plugin(out: &mut Out, run: &Run<Measured>, indent: &str) {
     match &run.result {
         Some(Measured::Legacy(report)) => legacy::block(out, report, indent),
         Some(Measured::CpuSysbench(report)) => cpu::sysbench(out, report, indent),
+        Some(Measured::CpuGeekbench(report)) => cpu::geekbench(out, report, indent),
         None => {}
     }
     out.line(&format!("{indent}{}", run_status(run)));

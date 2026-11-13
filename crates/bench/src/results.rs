@@ -3,6 +3,7 @@
 
 use bench_api::Record;
 use bench_api::typed::Stop;
+use plugin_cpu::geekbench;
 use plugin_cpu::sysbench;
 
 /// A plugin's result, complete or as far as it got, and its own reason when it stopped short.
@@ -22,4 +23,6 @@ pub enum Measured {
     Legacy(Report<Vec<Record>, String>),
     /// CPU 性能 (`cpu.sysbench`).
     CpuSysbench(Report<sysbench::Output, sysbench::Failure>),
+    /// Geekbench 7 (`cpu.geekbench`).
+    CpuGeekbench(Report<geekbench::Output, geekbench::Failure>),
 }

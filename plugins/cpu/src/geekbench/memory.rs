@@ -1,11 +1,9 @@
-//! Memory for Geekbench: what it is estimated to need, what the host has
-//! for it, and how much temporary swap it gets.
+//! Memory for Geekbench: what it is estimated to need, what the host has for it, how much
+//! temporary swap it gets, and the kernel's count of processes killed for lack of memory.
 
-use std::num::NonZeroUsize;
 use std::path::Path;
 
 use bench_host::Root;
-use bench_host::cpu;
 use bench_host::memory;
 use bench_host::memory::CgroupLimits;
 use bench_host::memory::Memory;
@@ -32,17 +30,11 @@ pub struct Host {
 }
 
 impl Host {
-    /// Reads the host under `root` on a platform of `kind`, with `work_dir` as the work
-    /// directory.
+    /// Reads the host under `root` on a platform of `kind`, for Geekbench with `threads`
+    /// threads and `work_dir` as the work directory. Memory and free space change during a run,
+    /// so they are read now rather than taken from the host profile.
     #[must_use]
-    pub fn read(root: &Root, kind: PlatformKind, work_dir: &Path) -> Self {
-        let threads = cpu::usable_threads(root, kind)
-            .or_else(|| {
-                std::thread::available_parallelism()
-                    .ok()
-                    .map(NonZeroUsize::get)
-            })
-            .unwrap_or(1);
+    pub fn read(root: &Root, threads: usize, kind: PlatformKind, work_dir: &Path) -> Self {
         let limits = (kind == PlatformKind::Container).then(|| memory::cgroup_limits(root));
         Self {
             threads,
@@ -122,4 +114,16 @@ pub fn plan(need: u64, available: u64, free_space: Option<u64>, swap_unused: boo
         0 => Plan::NoRoom,
         gib => Plan::Swap(gib),
     }
+}
+
+/// The kernel's count of processes killed for lack of memory, from `/proc/vmstat`; `None` before
+/// Linux 4.13, which does not count them.
+#[must_use]
+pub fn oom_kills(root: &Root) -> Option<u64> {
+    root.read("/proc/vmstat")?
+        .lines()
+        .find_map(|line| line.strip_prefix("oom_kill "))?
+        .trim()
+        .parse()
+        .ok()
 }

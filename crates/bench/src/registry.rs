@@ -37,7 +37,7 @@ pub fn all() -> Vec<Entry> {
         legacy::<plugin_disk::Fio>(),
         // Geekbench 7: last, being the longest, with a download, an upload and perhaps swap that
         // must not disturb the disk test.
-        legacy::<plugin_cpu::geekbench::Geekbench>(),
+        entry::<plugin_cpu::geekbench::Geekbench>(Measured::CpuGeekbench),
     ]
 }
 

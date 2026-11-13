@@ -5,7 +5,6 @@ pub mod measure;
 pub mod parse;
 pub mod result;
 
-use std::num::NonZeroUsize;
 use std::time::Duration;
 
 use bench_api::Requirements;
@@ -13,7 +12,6 @@ use bench_api::typed::Context;
 use bench_api::typed::Descriptor;
 use bench_api::typed::Plugin;
 use bench_api::typed::Stop;
-use bench_host::profile::Read;
 use bench_tool::SYSBENCH;
 use serde::Deserialize;
 
@@ -44,25 +42,10 @@ impl Plugin for Sysbench {
             .tool(SYSBENCH.name)
             .expect("the orchestrator runs a plugin only when its tools are ready")
             .to_path_buf();
-        measure::measure(ctx, &program, threads(ctx), |job| async move {
+        let threads = crate::usable_threads(ctx.host());
+        measure::measure(ctx, &program, threads, |job| async move {
             job.run(ctx).await.ended
         })
         .await
     }
-}
-
-/// The CPUs a run can use, as the host profile counts them; the scheduler's count when the
-/// profile has none, and one at least.
-fn threads(ctx: &Context<Output>) -> usize {
-    let usable = match &ctx.host().cpu {
-        Read::Done(facts) => facts.usable,
-        Read::TimedOut | Read::Failed => None,
-    };
-    usable
-        .or_else(|| {
-            std::thread::available_parallelism()
-                .ok()
-                .map(NonZeroUsize::get)
-        })
-        .unwrap_or(1)
 }

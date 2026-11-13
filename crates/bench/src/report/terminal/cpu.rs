@@ -1,8 +1,13 @@
-//! The CPU group's words: CPU 性能 (sysbench) and why it stopped short.
+//! The CPU group's words: CPU 性能 (sysbench) and Geekbench 7, and why each stopped short.
 
 use std::time::Duration;
 
 use bench_tool::job;
+use bench_tool::job::Adjustment;
+use plugin_cpu::geekbench;
+use plugin_cpu::geekbench::memory::GIB;
+use plugin_cpu::geekbench::result::Memory;
+use plugin_cpu::geekbench::result::NoSwap;
 use plugin_cpu::sysbench;
 use plugin_cpu::sysbench::measure::MAX_PRIME;
 use plugin_cpu::sysbench::measure::SECONDS;
@@ -98,4 +103,131 @@ fn tool_fault(tool: &str, fault: &job::Fault, limit: fn(Duration) -> String) -> 
 /// A limit in seconds, such as `60 秒`.
 fn seconds(limit: Duration) -> String {
     format!("{} 秒", limit.as_secs())
+}
+
+/// A limit in minutes, such as `60 分钟`.
+fn minutes(limit: Duration) -> String {
+    format!("{} 分钟", limit.as_secs() / 60)
+}
+
+/// Geekbench 7: the version that ran, the scores and the result link, then a note on memory, on
+/// the kernel's first choice, on runs again after failed uploads, and on swap left on.
+pub(super) fn geekbench(
+    out: &mut Out,
+    report: &Report<geekbench::Output, geekbench::Failure>,
+    indent: &str,
+) {
+    let Some(output) = &report.output else {
+        return;
+    };
+    if let Some(scores) = &output.scores {
+        if let Some(version) = &scores.version {
+            out.line(&format!("{indent}Geekbench {version}"));
+        }
+        out.field(indent, "单核", &scores.single.to_string());
+        out.field(indent, "多核", &scores.multi.to_string());
+        out.field(
+            indent,
+            "结果链接",
+            scores.url.as_deref().unwrap_or("不可用"),
+        );
+    }
+    if let Some(memory) = &output.memory {
+        out.field(indent, "说明", &memory_note(memory));
+    }
+    if let Some(note) = output.first_to_go.as_ref().and_then(first_to_go_note) {
+        out.field(indent, "说明", &note);
+    }
+    if output.scores.is_some()
+        && let Some(last) = output.uploads.last()
+    {
+        let count = output.uploads.len();
+        let note = format!("上传失败 {count} 次后重跑成功，失败原因：{last}");
+        out.field(indent, "说明", &note);
+    }
+    if let Some(left) = &output.swap_left {
+        let note = format!(
+            "无法关闭临时 swap：{}；请手动执行 swapoff {}，再删除这个文件",
+            left.error,
+            left.path.display()
+        );
+        out.field(indent, "说明", &note);
+    }
+}
+
+/// Why Geekbench 7 has no scores.
+pub(super) fn geekbench_failure(failure: &geekbench::Failure) -> String {
+    match failure {
+        geekbench::Failure::Upload(reason) => {
+            format!("上传失败（{reason}），免费版只有上传成功才给出分数")
+        }
+        geekbench::Failure::Run(geekbench::Fault::Tool(fault)) => {
+            tool_fault("Geekbench", fault, minutes)
+        }
+        geekbench::Failure::Run(geekbench::Fault::NoScores) => "Geekbench 没有输出分数".to_owned(),
+        geekbench::Failure::OutOfMemory => "运行中因内存不足被系统终止".to_owned(),
+        geekbench::Failure::Cancelled => "已中断".to_owned(),
+    }
+}
+
+/// What was done about memory, when it may be short.
+fn memory_note(memory: &Memory) -> String {
+    match memory {
+        Memory::Swapped {
+            need,
+            available,
+            gib,
+        } => format!(
+            "可用内存不足（{}），临时加了 {gib} GiB swap，分数可能偏低",
+            estimate(*need, *available)
+        ),
+        Memory::Short {
+            need,
+            available,
+            why,
+        } => format!(
+            "可用内存可能不足（{}），无法临时加 swap：{}",
+            estimate(*need, *available),
+            no_swap(why)
+        ),
+    }
+}
+
+/// Why no temporary swap was added.
+fn no_swap(why: &NoSwap) -> String {
+    match why {
+        NoSwap::Unused => "本机 vm.swappiness 为 0，内核不会把内存换出到 swap".to_owned(),
+        NoSwap::NoRoom(Some(free)) => format!("运行目录所在的磁盘只剩 {} GiB", tenths(*free)),
+        NoSwap::NoRoom(None) => "无法读取运行目录所在磁盘的剩余空间".to_owned(),
+        NoSwap::Denied => "没有权限（容器里通常不允许）".to_owned(),
+        NoSwap::Unsupported => "运行目录所在的文件系统不支持 swap 文件".to_owned(),
+        NoSwap::Error(error) => error.clone(),
+    }
+}
+
+/// A note when Geekbench could not be made the kernel's first choice, or when the program kept
+/// that choice for itself.
+fn first_to_go_note(adjustment: &Adjustment) -> Option<String> {
+    match adjustment {
+        Adjustment::Done => None,
+        Adjustment::NotSet(error) => {
+            Some(format!("无法让 Geekbench 在内存耗尽时优先被结束：{error}"))
+        }
+        Adjustment::NotRestored(error) => Some(format!("无法恢复本程序的 oom_score_adj：{error}")),
+    }
+}
+
+/// `估计需要 5 GiB，可用 1.6 GiB`.
+fn estimate(need: u64, available: u64) -> String {
+    format!(
+        "估计需要 {} GiB，可用 {} GiB",
+        need / GIB,
+        tenths(available)
+    )
+}
+
+/// Bytes in GiB with one decimal, rounded down, so that nothing looks larger than it is.
+fn tenths(bytes: u64) -> String {
+    let tenths = bytes * 10 / GIB;
+    format!("{}.{}", tenths / 10, tenths % 10)
 }

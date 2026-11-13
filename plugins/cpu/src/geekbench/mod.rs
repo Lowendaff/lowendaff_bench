@@ -1,60 +1,37 @@
 //! Geekbench 7: Primate Labs' own build, downloaded at run time because its license forbids
 //! redistribution, and run as the free version, which uploads its result. Temporary swap helps
 //! when memory is short, and the kernel kills Geekbench first when memory runs out anyway. Only
-//! a failed upload is retried: it published nothing, and its cause is usually the network.
+//! a failed upload is run again: it published nothing, and its cause is usually the network.
 
+pub mod measure;
 pub mod memory;
-pub mod output;
-pub mod process;
-pub mod report;
+pub mod parse;
+pub mod result;
 
-use std::future::Future;
 use std::io;
-use std::path::Path;
-use std::process::Stdio;
-use std::sync::atomic::AtomicBool;
-use std::sync::atomic::Ordering;
 use std::time::Duration;
 
-use bench_api::Context;
-use bench_api::Descriptor;
 use bench_api::Net;
-use bench_api::Plugin;
-use bench_api::PluginError;
 use bench_api::Requirements;
+use bench_api::typed::Context;
+use bench_api::typed::Descriptor;
+use bench_api::typed::Plugin;
+use bench_api::typed::Stop;
 use bench_host::Root;
 use bench_host::glibc::GlibcVersion;
 use bench_tool::GEEKBENCH;
 use serde::Deserialize;
 use swap_file::SwapFile;
 
-use crate::geekbench::memory::Plan;
-use crate::geekbench::output::Scores;
-use crate::geekbench::output::Verdict;
+use measure::Ran;
+use memory::Plan;
+use result::Memory;
+use result::NoSwap;
+use result::SwapLeft;
 
-/// The longest one run may take.
-const RUN_LIMIT: Duration = Duration::from_secs(60 * 60);
-
-/// Runs: the first one and 3 more after failed uploads.
-pub const ATTEMPTS: usize = 4;
-
-/// The wait before running again after a failed upload.
-pub const RETRY_WAIT: Duration = Duration::from_secs(30);
-
-/// Why a run ended without scores.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum AttemptError {
-    /// The benchmark ran, but the upload failed for this reason; worth another run.
-    UploadFailed(String),
-    /// Geekbench failed for this reason.
-    Failed(String),
-    /// The kernel killed it for lack of memory.
-    OutOfMemory,
-    /// It went over [`RUN_LIMIT`].
-    TimedOut,
-    /// The item was cancelled.
-    Cancelled,
-}
+pub use result::Failure;
+pub use result::Fault;
+pub use result::Output;
 
 /// Geekbench 7. It has no settings.
 #[derive(Debug, Default, Deserialize)]
@@ -62,10 +39,10 @@ pub enum AttemptError {
 pub struct Geekbench {}
 
 impl Plugin for Geekbench {
+    type Output = Output;
+    type Failure = Failure;
     const DESCRIPTOR: Descriptor = Descriptor {
         id: "cpu.geekbench",
-        title: "Geekbench 7",
-        version: "0.1.0",
         requires: Requirements {
             tools: &[GEEKBENCH],
             // cdn.geekbench.com has IPv4 addresses only.
@@ -80,81 +57,74 @@ impl Plugin for Geekbench {
         timeout: Duration::from_secs(250 * 60),
     };
 
-    async fn run(&self, ctx: &Context) -> Result<(), PluginError> {
-        let geekbench = ctx.tool("geekbench")?.to_path_buf();
-        let kind = ctx.env().platform.kind();
+    async fn run(&self, ctx: &Context<Output>) -> Result<Output, Stop<Failure>> {
+        let program = ctx
+            .tool(GEEKBENCH.name)
+            .expect("the orchestrator runs a plugin only when its tools are ready")
+            .to_path_buf();
+        let threads = crate::usable_threads(ctx.host());
+        let kind = ctx.host().platform.kind();
         let work_dir = ctx.work_dir().to_path_buf();
         let host = tokio::task::spawn_blocking(move || {
-            memory::Host::read(&Root::system(), kind, &work_dir)
+            memory::Host::read(&Root::system(), threads, kind, &work_dir)
         })
-        .await?;
-        let swap = add_swap(ctx, &host).await?;
-        let warned = AtomicBool::new(false);
-        let result = measure(ctx, || run_geekbench(ctx, &geekbench, &warned)).await;
-        if let Some(swap) = swap {
-            remove_swap(ctx, swap).await;
-        }
-        result
-    }
-}
-
-/// Runs Geekbench through `attempt` until it gives scores, again after a failed upload up to
-/// [`ATTEMPTS`] runs in all, and emits the records.
-pub async fn measure<F, Fut>(ctx: &Context, attempt: F) -> Result<(), PluginError>
-where
-    F: Fn() -> Fut,
-    Fut: Future<Output = Result<Scores, AttemptError>>,
-{
-    let mut uploads = Vec::new();
-    loop {
-        let reason = match attempt().await {
-            Ok(scores) => {
-                for record in report::scores(&scores) {
-                    ctx.emit(record);
-                }
-                if let Some(note) = report::retried(&uploads) {
-                    ctx.emit(note);
-                }
-                return Ok(());
+        .await
+        .expect("reading memory and free space does not panic");
+        let mut output = Output::default();
+        let swap = prepare(ctx, &host, &mut output)
+            .await
+            .map_err(Stop::Failed)?;
+        ctx.publish(&output);
+        let root = Root::system();
+        let (mut output, result) = measure::measure(ctx, output, &program, |job| {
+            let root = &root;
+            async move {
+                let before = memory::oom_kills(root);
+                let outcome = job.run(ctx).await;
+                let after = memory::oom_kills(root);
+                let killed =
+                    matches!((before, after), (Some(before), Some(after)) if after > before);
+                Ran { outcome, killed }
             }
-            Err(AttemptError::UploadFailed(reason)) => reason,
-            Err(AttemptError::Failed(reason)) => return Err(PluginError::fail(reason)),
-            Err(AttemptError::OutOfMemory) => return Err(PluginError::fail(report::OUT_OF_MEMORY)),
-            Err(AttemptError::TimedOut) => return Err(PluginError::fail(report::TIMED_OUT)),
-            Err(AttemptError::Cancelled) => return Err(PluginError::fail(report::CANCELLED)),
-        };
-        if uploads.len() + 1 == ATTEMPTS {
-            return Err(PluginError::fail(report::upload_failed(&reason)));
+        })
+        .await;
+        if let Some(swap) = swap {
+            output.swap_left = remove_swap(swap).await;
         }
-        uploads.push(reason);
-        let cancel = ctx.cancel_token();
-        tokio::select! {
-            () = tokio::time::sleep(RETRY_WAIT) => {}
-            () = cancel.cancelled() => return Err(PluginError::fail(report::CANCELLED)),
+        match result {
+            Ok(()) => Ok(output),
+            Err(failure) => {
+                ctx.publish(&output);
+                Err(Stop::Failed(failure))
+            }
         }
     }
 }
 
-/// Temporary swap when Geekbench's estimated need exceeds what the host has, with a note
-/// whenever memory is short.
-async fn add_swap(ctx: &Context, host: &memory::Host) -> Result<Option<SwapFile>, PluginError> {
+/// Adds temporary swap when Geekbench's estimated need exceeds what the host has, and notes in
+/// `output` whenever memory may be short.
+async fn prepare(
+    ctx: &Context<Output>,
+    host: &memory::Host,
+    output: &mut Output,
+) -> Result<Option<SwapFile>, Failure> {
     let Some(available) = host.available else {
         return Ok(None);
     };
     let need = memory::need(host.threads);
+    let short = |why| Memory::Short {
+        need,
+        available,
+        why,
+    };
     let gib = match memory::plan(need, available, host.free_space, host.swap_unused) {
         Plan::Enough => return Ok(None),
         Plan::Unused => {
-            ctx.emit(report::swap_impossible(
-                need,
-                available,
-                report::SWAP_UNUSED,
-            ));
+            output.memory = Some(short(NoSwap::Unused));
             return Ok(None);
         }
         Plan::NoRoom => {
-            let reason = report::no_room(host.free_space);
-            ctx.emit(report::swap_impossible(need, available, &reason));
+            output.memory = Some(short(NoSwap::NoRoom(host.free_space)));
             return Ok(None);
         }
         Plan::Swap(gib) => gib,
@@ -164,97 +134,33 @@ async fn add_swap(ctx: &Context, host: &memory::Host) -> Result<Option<SwapFile>
     let created = tokio::task::spawn_blocking(move || {
         SwapFile::try_new(&path, gib * memory::GIB, &|| cancel.is_cancelled())
     })
-    .await?;
+    .await
+    .unwrap_or_else(|err| Err(io::Error::other(err.to_string())));
     match created {
         Ok(swap) => {
-            ctx.emit(report::swap_added(need, available, gib));
+            output.memory = Some(Memory::Swapped {
+                need,
+                available,
+                gib,
+            });
             Ok(Some(swap))
         }
-        Err(err) if err.kind() == io::ErrorKind::Interrupted => {
-            Err(PluginError::fail(report::CANCELLED))
-        }
+        Err(err) if err.kind() == io::ErrorKind::Interrupted => Err(Failure::Cancelled),
         Err(err) => {
-            let reason = report::swap_error(&err);
-            ctx.emit(report::swap_impossible(need, available, &reason));
+            output.memory = Some(short(measure::no_swap(&err)));
             Ok(None)
         }
     }
 }
 
-/// Turns the swap off and removes it, or says what to do by hand.
-async fn remove_swap(ctx: &Context, swap: SwapFile) {
+/// Turns the swap off and removes it; what to tell the user when it cannot.
+async fn remove_swap(swap: SwapFile) -> Option<SwapLeft> {
     let path = swap.path().to_path_buf();
     let removed = tokio::task::spawn_blocking(move || swap.remove())
         .await
         .unwrap_or_else(|err| Err(io::Error::other(err.to_string())));
-    if let Err(err) = removed {
-        ctx.emit(report::swap_left_on(&path, &err));
-    }
-}
-
-/// One run of Geekbench, without a shell, in a process group of its own and with
-/// `oom_score_adj` 1000. The group is killed as a whole on cancellation and after
-/// [`RUN_LIMIT`]. `warned` keeps the note on `oom_score_adj` to one per item.
-async fn run_geekbench(
-    ctx: &Context,
-    geekbench: &Path,
-    warned: &AtomicBool,
-) -> Result<Scores, AttemptError> {
-    let root = Root::system();
-    let kills_before = process::oom_kills(&root);
-    let mut command = tokio::process::Command::new(geekbench);
-    command
-        .args(["--cpu", "--upload"])
-        .current_dir(ctx.work_dir())
-        // English output, which is what `output` reads.
-        .env("LC_ALL", "C")
-        .env("LANG", "C")
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .process_group(0)
-        .kill_on_drop(true);
-    let (child, adjustment) = process::spawn_first_to_go(&mut command);
-    if let Some(note) = report::oom(&adjustment)
-        && !warned.swap(true, Ordering::Relaxed)
-    {
-        ctx.emit(note);
-    }
-    let child = child.map_err(|err| AttemptError::Failed(format!("无法运行 Geekbench：{err}")))?;
-    let group = process::Group::of(&child);
-    let cancel = ctx.cancel_token();
-    // The group is killed while its leader still lives, so that its id cannot have been
-    // taken by another group yet.
-    let output = tokio::select! {
-        finished = tokio::time::timeout(RUN_LIMIT, child.wait_with_output()) => match finished {
-            Ok(Ok(output)) => output,
-            Ok(Err(err)) => {
-                group.kill();
-                return Err(AttemptError::Failed(format!("无法读取 Geekbench 的输出：{err}")));
-            }
-            Err(_) => {
-                group.kill();
-                return Err(AttemptError::TimedOut);
-            }
-        },
-        () = cancel.cancelled() => {
-            group.kill();
-            return Err(AttemptError::Cancelled);
-        }
-    };
-    group.disarm();
-    let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
-    text.push_str(&String::from_utf8_lossy(&output.stderr));
-    let verdict = output::verdict(output.status.code(), &text);
-    let killed = matches!(
-        (kills_before, process::oom_kills(&root)),
-        (Some(before), Some(after)) if after > before
-    );
-    match verdict {
-        Verdict::Scores(scores) => Ok(scores),
-        // The kernel kills the worker, so the launcher's own end does not show it.
-        _ if killed => Err(AttemptError::OutOfMemory),
-        Verdict::UploadFailed(reason) => Err(AttemptError::UploadFailed(reason)),
-        Verdict::Failed(reason) => Err(AttemptError::Failed(reason)),
-    }
+    removed.err().map(|err| SwapLeft {
+        path,
+        error: err.to_string(),
+    })
 }

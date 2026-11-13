@@ -48,6 +48,10 @@ fn reason(run: &Run<Measured>) -> Option<String> {
             .stop
             .as_ref()
             .map(|stop| cpu::sysbench_failure(failure(stop))),
+        Some(Measured::CpuGeekbench(report)) => report
+            .stop
+            .as_ref()
+            .map(|stop| cpu::geekbench_failure(failure(stop))),
         None => None,
     }
 }
