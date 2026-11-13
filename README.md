@@ -46,7 +46,8 @@ cargo build --release --locked --target x86_64-unknown-linux-musl --bin lowendaf
 
 ## Gates
 
-CI (`.github/workflows/ci.yml`) runs exactly these commands. Run them locally before pushing.
+CI (`.github/workflows/ci.yml`, and `commits.yml` for the commit messages) runs exactly these
+commands. Run them locally before pushing.
 
 | Gate | Command | Runs on |
 |------|---------|---------|
@@ -58,6 +59,8 @@ CI (`.github/workflows/ci.yml`) runs exactly these commands. Run them locally be
 | Workflows | `zizmor --persona pedantic .` (config in `.github/zizmor.yml`) | any host |
 | Workflow lint | `actionlint`, which runs shellcheck over the `run:` scripts too | any host |
 | Shell scripts | `git ls-files -z '*.sh' \| xargs -0 shellcheck` | any host |
+| Checker cases | `scripts/check-commits-cases.sh` | any host |
+| Commit messages | `scripts/check-commits.sh origin/main HEAD`; CI adds the title | any host |
 | Rule tests | `ast-grep test` (cases in `ast-grep/tests/`) | any host |
 | Rules | `ast-grep scan` (rules in `ast-grep/rules/`, config in `sgconfig.yml`) | any host |
 | Static build | `cargo build --release --locked --target <arch>-unknown-linux-musl --bin lowendaff-bench` | Linux |
