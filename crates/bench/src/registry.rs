@@ -15,7 +15,7 @@ pub const REGISTRY: &[Registration] = &[
     bench_api::register::<plugin_disk::Fio>(),
     // Geekbench 7: last, being the longest, with a download, an upload and perhaps swap that
     // must not disturb the disk test.
-    bench_api::register::<plugin_geekbench::Geekbench>(),
+    bench_api::register::<plugin_cpu::geekbench::Geekbench>(),
 ];
 
 #[cfg(test)]

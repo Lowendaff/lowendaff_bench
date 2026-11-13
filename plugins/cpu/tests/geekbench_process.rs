@@ -1,7 +1,7 @@
 //! The kernel's count of processes killed for lack of memory.
 
 use bench_host::Root;
-use plugin_geekbench::process;
+use plugin_cpu::geekbench::process;
 
 #[test]
 fn the_oom_kill_count_comes_from_vmstat() {

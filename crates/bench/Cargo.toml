@@ -16,7 +16,6 @@ bench-host.workspace = true
 plugin-cpu.workspace = true
 plugin-disk.workspace = true
 plugin-disk-health.workspace = true
-plugin-geekbench.workspace = true
 plugin-memory.workspace = true
 clap = { version = "4", features = ["derive"] }
 comfy-table = { version = "8.0.1", default-features = false }

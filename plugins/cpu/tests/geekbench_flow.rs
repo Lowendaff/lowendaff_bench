@@ -13,11 +13,11 @@ use bench_api::Context;
 use bench_api::Env;
 use bench_api::PluginError;
 use bench_api::Record;
-use plugin_geekbench::AttemptError;
-use plugin_geekbench::memory::GIB;
-use plugin_geekbench::output::Scores;
-use plugin_geekbench::process::Adjustment;
-use plugin_geekbench::report;
+use plugin_cpu::geekbench::AttemptError;
+use plugin_cpu::geekbench::memory::GIB;
+use plugin_cpu::geekbench::output::Scores;
+use plugin_cpu::geekbench::process::Adjustment;
+use plugin_cpu::geekbench::report;
 use tokio::time::Instant;
 
 struct Outcome {
@@ -63,7 +63,7 @@ async fn measure(script: Vec<Result<Scores, AttemptError>>, cancel_after_first: 
     );
     let script = RefCell::new(VecDeque::from(script));
     let runs = Cell::new(0);
-    let result = plugin_geekbench::measure(&ctx, || {
+    let result = plugin_cpu::geekbench::measure(&ctx, || {
         runs.set(runs.get() + 1);
         if cancel_after_first {
             cancel.cancel();

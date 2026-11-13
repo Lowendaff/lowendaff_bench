@@ -2,9 +2,9 @@
 
 use std::path::Path;
 
-use plugin_geekbench::output;
-use plugin_geekbench::output::Scores;
-use plugin_geekbench::output::Verdict;
+use plugin_cpu::geekbench::output;
+use plugin_cpu::geekbench::output::Scores;
+use plugin_cpu::geekbench::output::Verdict;
 
 fn fixture(name: &str) -> String {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))

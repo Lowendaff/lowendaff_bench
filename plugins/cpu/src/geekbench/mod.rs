@@ -28,9 +28,9 @@ use bench_tool::GEEKBENCH;
 use serde::Deserialize;
 use swap_file::SwapFile;
 
-use crate::memory::Plan;
-use crate::output::Scores;
-use crate::output::Verdict;
+use crate::geekbench::memory::Plan;
+use crate::geekbench::output::Scores;
+use crate::geekbench::output::Verdict;
 
 /// The longest one run may take.
 const RUN_LIMIT: Duration = Duration::from_secs(60 * 60);

@@ -84,7 +84,6 @@ dependencies = [
  "plugin-cpu",
  "plugin-disk",
  "plugin-disk-health",
- "plugin-geekbench",
  "plugin-memory",
  "reqwest",
  "rustix",
@@ -905,7 +904,9 @@ dependencies = [
  "bench-api",
  "bench-host",
  "bench-tool",
+ "rustix",
  "serde",
+ "swap-file",
  "tempfile",
  "tokio",
 ]
@@ -930,20 +931,6 @@ dependencies = [
  "bench-tool",
  "serde",
  "serde_json",
- "tempfile",
- "tokio",
-]
-
-[[package]]
-name = "plugin-geekbench"
-version = "0.1.0"
-dependencies = [
- "bench-api",
- "bench-host",
- "bench-tool",
- "rustix",
- "serde",
- "swap-file",
  "tempfile",
  "tokio",
 ]

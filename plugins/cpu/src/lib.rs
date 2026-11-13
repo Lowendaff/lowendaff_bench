@@ -1,6 +1,8 @@
-//! CPU 性能: sysbench's CPU test with one thread and with every usable
-//! thread, as the owner's `linux_bench` runs it, with retries.
+//! The CPU test items: CPU 性能, sysbench's CPU test with one thread and with every usable
+//! thread, as the owner's `linux_bench` runs it, with retries; and Geekbench 7, in
+//! [`geekbench`].
 
+pub mod geekbench;
 pub mod report;
 pub mod sysbench;
 

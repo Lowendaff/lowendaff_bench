@@ -6,9 +6,9 @@ use std::path::Path;
 
 use bench_api::Record;
 
-use crate::memory::GIB;
-use crate::output::Scores;
-use crate::process::Adjustment;
+use crate::geekbench::memory::GIB;
+use crate::geekbench::output::Scores;
+use crate::geekbench::process::Adjustment;
 
 /// The reason when Geekbench was killed for lack of memory.
 pub const OUT_OF_MEMORY: &str = "运行中因内存不足被系统终止";

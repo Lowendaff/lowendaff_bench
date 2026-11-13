@@ -3,9 +3,9 @@
 use bench_host::Root;
 use bench_host::memory::CgroupLimits;
 use bench_host::memory::Memory;
-use plugin_geekbench::memory;
-use plugin_geekbench::memory::GIB;
-use plugin_geekbench::memory::Plan;
+use plugin_cpu::geekbench::memory;
+use plugin_cpu::geekbench::memory::GIB;
+use plugin_cpu::geekbench::memory::Plan;
 
 const MIB: u64 = 1 << 20;
 
