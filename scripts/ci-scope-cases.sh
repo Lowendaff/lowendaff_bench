@@ -205,6 +205,28 @@ expect true "the job did not succeed" "$unconfirmed" \
 
 fresh
 validated_at pr7 "$validated" "$base"
+# Two jobs of the leg's name, the second one failed: the leg is not confirmed.
+jobs_file=$answers/repos_o_r_actions_runs_501_attempts_1_jobs_per_page_100.json
+jq '.jobs += [.jobs[0] | .conclusion = "failure"]' "$jobs_file" > "$scratch/jobs.json"
+mv "$scratch/jobs.json" "$jobs_file"
+# shellcheck disable=SC2086 # $pr holds two assignments
+expect true "two jobs of the leg's name" "$unconfirmed" \
+    $pr BASE_SHA="$base" HEAD_SHA="$markdown"
+
+fresh
+validated_at pr7 "$validated" "$base"
+# A record whose attempt is not a number, which would steer the lookup of its jobs elsewhere:
+# the answer at the steered path is a success, and must not be consulted.
+jq '.run_attempt = "1/../2"' "$answers/artifact-11.json" > "$scratch/record.json"
+mv "$scratch/record.json" "$answers/artifact-11.json"
+jobs_file=$answers/repos_o_r_actions_runs_501_attempts_1_jobs_per_page_100.json
+cp "$jobs_file" "$answers/repos_o_r_actions_runs_501_attempts_1_.._2_jobs_per_page_100.json"
+# shellcheck disable=SC2086 # $pr holds two assignments
+expect true "a record whose attempt is not a number" "$unconfirmed" \
+    $pr BASE_SHA="$base" HEAD_SHA="$markdown"
+
+fresh
+validated_at pr7 "$validated" "$base"
 record 11 pr7 x86_64 "$validated" "$base" 20261101.360.1 999
 # shellcheck disable=SC2086 # $pr holds two assignments
 expect true "a record that names another run" "$unconfirmed" \
