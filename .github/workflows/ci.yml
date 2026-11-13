@@ -124,6 +124,10 @@ jobs:
         run: ast-grep test
       - name: Rules
         run: ast-grep scan
+      - name: Documentation cases
+        run: scripts/check-docs-cases.sh
+      - name: Documentation rules
+        run: scripts/check-docs.sh
 
   linux:
     name: test, static build and smoke (${{ matrix.arch }})

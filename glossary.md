@@ -2,7 +2,8 @@
 
 The program prints its results in Chinese. This table gives the English term that the README,
 the code and the commit messages use for each word that it prints often. The Chinese column is
-copied from the program's source, character for character.
+copied from the program's source, character for character, and CI checks that each term still
+appears there (README "Gates", Rules).
 
 | Chinese | English | Where it appears |
 |---------|---------|------------------|
@@ -11,7 +12,7 @@ copied from the program's source, character for character.
 | CPU 性能 | CPU performance | an item's title |
 | 内存性能 | Memory performance | an item's title |
 | 硬盘性能 | Disk performance | an item's title |
-| 准备工具 | Tool preparation | the section in which the tools are downloaded, before the items run |
+| 准备工具 | Tool preparation | the section that downloads the tools, before the items run |
 | 运行环境 | Environment | the line that says where the program runs |
 | 独立服务器 | Dedicated server | `--list`: the platforms that an item applies to |
 | 虚拟机 | Virtual machine | the environment line; `--list` |

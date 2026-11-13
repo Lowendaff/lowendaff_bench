@@ -83,7 +83,7 @@ commands. Run them locally before pushing.
 | Checker cases | `scripts/check-commits-cases.sh` | any host |
 | Commit messages | `scripts/check-commits.sh origin/main HEAD`; CI adds the title | any host |
 | Rule tests | `ast-grep test` (cases in `ast-grep/tests/`) | any host |
-| Rules | `ast-grep scan` (rules in `ast-grep/rules/`, config in `sgconfig.yml`) | any host |
+| Rules | `ast-grep scan` (rules in `ast-grep/rules/`, config in `sgconfig.yml`), then `scripts/check-docs-cases.sh` and `scripts/check-docs.sh`: every term of `glossary.md` still appears in the program's source, this README, `CONTRIBUTING.md` and the pull request template hold no CJK characters, and no tracked file outside the fixture data points into the design documents | any host |
 | Static build | `cargo build --release --locked --target <arch>-unknown-linux-musl --bin lowendaff-bench` | Linux |
 | Swap round trip | `cargo build --release --locked --target <arch>-unknown-linux-musl -p swap-file --example roundtrip`, then `sudo target/<arch>-unknown-linux-musl/release/examples/roundtrip <dir>`: turns a 64 MiB swap file in `<dir>` on and off | Linux, with sudo, on a filesystem that holds swap files, such as ext4 |
 | Smoke | `scripts/smoke.sh target/<arch>-unknown-linux-musl/release/lowendaff-bench --skip cpu.geekbench`: a full run without Geekbench 7, which would publish a result, in which no test item is skipped, fails or times out | Linux, as root or with sudo, with network access (it downloads sysbench, STREAM, multichase and fio) |
