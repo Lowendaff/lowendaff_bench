@@ -27,7 +27,10 @@ use bench_host::glibc::Libc;
 use bench_host::platform::Hypervisor;
 use bench_host::platform::Platform;
 use bench_host::platform::PlatformKind;
+use common::Captured;
 use serde::Deserialize;
+
+mod common;
 
 #[derive(Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -226,6 +229,7 @@ async fn an_interrupted_run_exits_130_and_still_lists_every_plugin() {
         text.contains("【test】\n  示例测试\n    已中断\n  另一个测试\n    已中断\n"),
         "two plugins of one group share a section: {text}"
     );
+    assert_eq!(text.matches("【test】").count(), 1, "{text}");
     assert!(
         text.contains("共 2 项：完成 0，跳过 0，失败 0，超时 0，中断 2。"),
         "{text}"
@@ -336,6 +340,7 @@ async fn only_plugins_for_the_detected_platform_run() {
         ..Env::default()
     };
     let mut out = Vec::new();
+    let (log, guard) = Captured::start(false);
 
     let code = app::execute(
         planned,
@@ -347,6 +352,7 @@ async fn only_plugins_for_the_detected_platform_run() {
     )
     .await
     .unwrap();
+    drop(guard);
 
     let text = String::from_utf8(out).unwrap();
     assert_eq!(code, 0);
@@ -361,13 +367,72 @@ async fn only_plugins_for_the_detected_platform_run() {
     assert!(text.contains("  本机不适用：硬盘健康\n"), "{text}");
     assert!(text.contains("虚拟机版"), "{text}");
     assert!(!text.contains("独立服务器版"), "{text}");
+    let log = log.lines();
     assert!(
-        !text.contains("【准备工具】"),
-        "tools of plugins that do not apply must not be downloaded: {text}"
+        !log.iter().any(|line| line.starts_with("准备工具")),
+        "tools of plugins that do not apply must not be downloaded: {log:?}"
     );
     assert!(
         text.contains("\n共 1 项：完成 1，跳过 0，失败 0，超时 0，中断 0。"),
         "{text}"
+    );
+}
+
+#[derive(Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct NeedsSmartctl {}
+
+impl Plugin for NeedsSmartctl {
+    const DESCRIPTOR: Descriptor = Descriptor {
+        id: "test.smartctl",
+        title: "需要工具的测试",
+        requires: Requirements {
+            tools: &[SMARTCTL],
+            ..Requirements::NONE
+        },
+        ..Good::DESCRIPTOR
+    };
+
+    async fn run(&self, _ctx: &Context) -> Result<(), PluginError> {
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn a_tool_that_cannot_be_provisioned_skips_its_plugins_with_the_reason() {
+    let registry = [bench_api::register::<NeedsSmartctl>()];
+    let work = tempfile::tempdir().unwrap();
+    let planned = app::prepare(&cli(&[]), &registry).unwrap();
+    // No download is tried: the tool has no build for this architecture.
+    let env = Env {
+        arch: "riscv64".to_owned(),
+        ..Env::default()
+    };
+    let mut out = Vec::new();
+    let (log, guard) = Captured::start(false);
+
+    let code = app::execute(
+        planned,
+        env,
+        work.path(),
+        &CancellationToken::new(),
+        &mut out,
+        None,
+    )
+    .await
+    .unwrap();
+    drop(guard);
+
+    let text = String::from_utf8(out).unwrap();
+    assert_eq!(code, 0);
+    let reason = "工具 smartctl 不可用：没有适用于 riscv64 的版本";
+    assert!(text.contains(&format!("\n  跳过：{reason}\n")), "{text}");
+    assert_eq!(
+        log.lines(),
+        [
+            "准备工具：smartctl 7.4 失败：没有适用于 riscv64 的版本".to_owned(),
+            format!("test.smartctl 跳过：{reason}"),
+        ]
     );
 }
 
@@ -425,6 +490,7 @@ async fn tools_of_items_the_host_cannot_run_are_not_downloaded() {
         let work = tempfile::tempdir().unwrap();
         let planned = app::prepare(&cli(&[]), &registry).unwrap();
         let mut out = Vec::new();
+        let (log, guard) = Captured::start(false);
         let code = app::execute(
             planned,
             env,
@@ -435,11 +501,13 @@ async fn tools_of_items_the_host_cannot_run_are_not_downloaded() {
         )
         .await
         .unwrap();
+        drop(guard);
         let text = String::from_utf8(out).unwrap();
         assert_eq!(code, 0);
+        let log = log.lines();
         assert!(
-            !text.contains("【准备工具】"),
-            "nothing is downloaded for an item that is skipped anyway: {text}"
+            !log.iter().any(|line| line.starts_with("准备工具")),
+            "nothing is downloaded for an item that is skipped anyway: {log:?}"
         );
         assert!(text.contains(&format!("跳过：{reason}")), "{text}");
     }

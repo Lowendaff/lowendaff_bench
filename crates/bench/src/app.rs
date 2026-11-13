@@ -17,8 +17,8 @@ use bench_api::Registration;
 use crate::fetcher::Fetcher;
 use crate::orchestrator;
 use crate::orchestrator::Planned;
-use crate::orchestrator::Quiet;
 use crate::orchestrator::Settings;
+use crate::progress::Log;
 use crate::provision;
 use crate::report;
 use crate::report::terminal::Page;
@@ -54,6 +54,10 @@ pub struct Cli {
     /// 列出全部测试项后退出
     #[arg(long)]
     pub list: bool,
+
+    /// 在进度日志中显示更多细节，如每个工具的下载地址
+    #[arg(short, long)]
+    pub verbose: bool,
 }
 
 impl Cli {
@@ -194,34 +198,28 @@ pub async fn execute(
         .map(|planned| *planned.requires())
         .filter(|requires| orchestrator::check_host(requires, &env).is_ok());
     let tools = provision::required_tools(runnable);
-    let mut provisioned = None;
+    let mut failed_tools = BTreeMap::new();
     if !tools.is_empty() {
         let tools_dir = run_dir.path().join("tools");
         fs::create_dir(&tools_dir).map_err(|err| format!("无法创建工具目录：{err}"))?;
         let fetcher = Fetcher::try_new()?;
-        let result =
+        let provisioned =
             provision::provision_all(&tools, &env.arch, &tools_dir, |url| fetcher.open(url)).await;
-        env.tools.clone_from(&result.ready);
-        provisioned = Some(result);
+        env.tools = provisioned.ready;
+        failed_tools = provisioned.failed;
     }
 
     let settings = Settings {
         grace: GRACE,
         work_root: run_dir.path().to_path_buf(),
         origin: tokio::time::Instant::from_std(started),
-        failed_tools: provisioned
-            .as_ref()
-            .map(|provisioned| provisioned.failed.clone())
-            .unwrap_or_default(),
+        failed_tools,
     };
-    let runs = orchestrator::run_plan(planned, Arc::new(env), cancel, &settings, &mut Quiet).await;
+    let runs = orchestrator::run_plan(planned, Arc::new(env), cancel, &settings, &mut Log).await;
     let page = Page {
         version: env!("CARGO_PKG_VERSION"),
         platform,
         not_applicable: &not_applicable,
-        tools: provisioned
-            .as_ref()
-            .map(|provisioned| (tools.as_slice(), provisioned)),
         runs: &runs,
         total: started.elapsed(),
     };

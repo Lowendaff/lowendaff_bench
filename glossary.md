@@ -9,23 +9,26 @@ appears there (README "Gates", Rules).
 |---------|---------|------------------|
 | 系统基础信息 | System information | an item's title |
 | 硬盘健康 | Disk health | an item's title |
-| CPU 性能 | CPU performance | an item's title |
-| 内存性能 | Memory performance | an item's title |
+| CPU 性能 | CPU performance | an item's title; the report's CPU section, with Geekbench 7 |
+| 内存性能 | Memory performance | an item's title; the report's memory section |
 | 硬盘性能 | Disk performance | an item's title |
-| 准备工具 | Tool preparation | the section that downloads the tools, before the items run |
+| 系统信息 | System | the report's first section, with system information |
+| 汇总 | Summary | the report's last section: how each item ended |
+| 准备工具 | Tool preparation | the progress log: the tools' downloads, before the items run |
 | 运行环境 | Environment | the line that says where the program runs |
 | 独立服务器 | Dedicated server | `--list`: the platforms that an item applies to |
 | 虚拟机 | Virtual machine | the environment line; `--list` |
 | 容器 | Container | the environment line; `--list` |
 | 未检测到虚拟化 | No virtualization detected | the environment line of a dedicated server |
-| 本机不适用 | Not applicable here | the line that names the items made for other platforms |
+| 本机不适用 | Not applicable here | the summary: the items made for other platforms |
 | 就绪 | Ready | tool preparation: a tool that downloaded and verified |
-| 完成 | Completed | an item's last line; the summary |
-| 跳过 | Skipped | an item's last line; the summary |
-| 失败 | Failed | an item's last line; the summary; tool preparation |
-| 超时 | Timed out | an item's last line; the summary |
-| 已中断 | Interrupted | an item's last line (中断 in the summary) |
-| 用时 | Elapsed | an item's last line |
+| 开始 | Started | the progress log: an item that starts |
+| 完成 | Completed | an item's last line; the summary; the progress log |
+| 跳过 | Skipped | an item's last line; the summary; the progress log |
+| 失败 | Failed | an item's last line; the summary; the progress log, also for a tool |
+| 超时 | Timed out | an item's last line; the summary; the progress log |
+| 已中断 | Interrupted | an item's last line; the progress log (中断 in the summary) |
+| 用时 | Elapsed | an item's last line; the progress log |
 | 总用时 | Total time | the summary |
 | 说明 | Note | a line under a table that explains it |
 | 不可用 | Unavailable | a value that could not be read, followed by the reason |
@@ -44,7 +47,7 @@ appears there (README "Gates", Rules).
 | 整机 | Machine | system information on dedicated servers |
 | 主板 | Board | system information on dedicated servers |
 | RAID 卡 | RAID card | system information; disk health |
-| 硬盘 | Disk | the disk tables of system information and disk health |
+| 硬盘 | Disk | the report's disk section; the disk tables of system information and disk health |
 | 健康 | Health | disk health: the column with SMART's verdict |
 | 通过 | Passed | disk health: SMART's verdict |
 | 未通过 | Not passed | disk health: SMART's verdict |

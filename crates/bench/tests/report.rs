@@ -2,8 +2,6 @@
 //! status, numbers aligned right, wrapping to a terminal's width, and the summary. Whole reports
 //! are compared with snapshots in `tests/snapshots/`.
 
-use std::collections::BTreeMap;
-use std::path::PathBuf;
 use std::time::Duration;
 
 use bench::orchestrator;
@@ -11,7 +9,6 @@ use bench::orchestrator::Fault;
 use bench::orchestrator::Run;
 use bench::orchestrator::Status;
 use bench::orchestrator::Unmet;
-use bench::provision::Provisioned;
 use bench::report;
 use bench::report::terminal::Page;
 use bench::results::Measured;
@@ -21,8 +18,6 @@ use bench_api::Missing;
 use bench_api::Net;
 use bench_api::Record;
 use bench_api::Table;
-use bench_api::ToolForm;
-use bench_api::ToolSpec;
 use bench_api::typed::Stop;
 use bench_host::glibc::GlibcVersion;
 use bench_host::platform::Hypervisor;
@@ -62,21 +57,8 @@ fn table(id: &str, title: &str, headers: &[&str], rows: &[&[&str]]) -> Record {
     Record::Table(Table::try_new(id, title, headers, rows).expect("rows as wide as the headers"))
 }
 
-const SYSBENCH: ToolSpec = ToolSpec {
-    name: "sysbench",
-    version: "1.0.20",
-    form: ToolForm::Executable,
-    assets: &[],
-};
-
-const FIO: ToolSpec = ToolSpec {
-    name: "fio",
-    version: "3.43",
-    form: ToolForm::Executable,
-    assets: &[],
-};
-
-/// One plugin per group and status, in the run order, which differs from the report's.
+/// Every status, in the run order, which differs from the report's; the two plugins of a group
+/// that the report does not know come last, in a section of their own.
 fn runs() -> Vec<Run<Measured>> {
     vec![
         run(
@@ -150,32 +132,36 @@ fn runs() -> Vec<Run<Measured>> {
             None,
             None,
         ),
+        run(
+            "test.own-skip",
+            "自行跳过的测试",
+            Status::Skipped(None),
+            Some(0.1),
+            Some(Vec::new()),
+            Some(Stop::Skipped("测试目录在内存盘上".to_owned())),
+        ),
+        run(
+            "test.panic",
+            "崩溃的测试",
+            Status::Failed(Some(Fault::Panic("index out of bounds".to_owned()))),
+            Some(0.2),
+            None,
+            None,
+        ),
     ]
-}
-
-fn page<'a>(runs: &'a [Run<Measured>], provisioned: &'a Provisioned) -> Page<'a> {
-    Page {
-        version: "0.1.0",
-        platform: Platform::Vm(Hypervisor::Kvm),
-        not_applicable: &["示例独服测试"],
-        tools: Some((&[SYSBENCH, FIO], provisioned)),
-        runs,
-        total: Duration::from_secs_f64(137.8),
-    }
-}
-
-fn provisioned() -> Provisioned {
-    Provisioned {
-        ready: BTreeMap::from([("sysbench".to_owned(), PathBuf::from("/run/tools/sysbench"))]),
-        failed: BTreeMap::from([("fio".to_owned(), "下载失败：HTTP 404".to_owned())]),
-    }
 }
 
 #[test]
 fn every_status_in_its_group() {
     let runs = runs();
-    let provisioned = provisioned();
-    insta::assert_snapshot!(report::terminal::render(&page(&runs, &provisioned), None));
+    let page = Page {
+        version: "0.1.0",
+        platform: Platform::Vm(Hypervisor::Kvm),
+        not_applicable: &["示例独服测试"],
+        runs: &runs,
+        total: Duration::from_secs_f64(137.8),
+    };
+    insta::assert_snapshot!(report::terminal::render(&page, None));
 }
 
 #[test]
@@ -202,7 +188,6 @@ fn a_run_with_one_plugin_per_section() {
         version: "0.1.0",
         platform: Platform::Dedicated,
         not_applicable: &[],
-        tools: None,
         runs: &runs,
         total: Duration::from_secs(1),
     };
@@ -229,7 +214,6 @@ fn tables_wrap_to_a_terminals_width_only() {
         version: "0.1.0",
         platform: Platform::Dedicated,
         not_applicable: &[],
-        tools: None,
         runs: &runs,
         total: Duration::from_secs(1),
     };
@@ -244,6 +228,27 @@ fn tables_wrap_to_a_terminals_width_only() {
         "on a 40-column terminal the cell wraps: {narrow}"
     );
     insta::assert_snapshot!(narrow);
+}
+
+#[test]
+fn a_table_without_rows_has_no_column_of_numbers() {
+    // Its headers stay on the left, which shows once they wrap.
+    let runs = vec![run(
+        "disk.fio",
+        "硬盘性能",
+        Status::Completed,
+        Some(1.0),
+        Some(vec![table("empty", "空表", &["项目说明 甲乙", "x"], &[])]),
+        None,
+    )];
+    let page = Page {
+        version: "0.1.0",
+        platform: Platform::Dedicated,
+        not_applicable: &[],
+        runs: &runs,
+        total: Duration::from_secs(1),
+    };
+    insta::assert_snapshot!(report::terminal::render(&page, Some(14)));
 }
 
 #[test]
@@ -274,7 +279,14 @@ fn requirements_and_faults_are_written_in_chinese() {
         (
             Unmet::Tool {
                 name: "fio",
-                why: "HTTP 404".to_owned(),
+                why: "下载失败：HTTP 404".to_owned(),
+            },
+            "工具 fio 不可用：下载失败：HTTP 404",
+        ),
+        (
+            Unmet::Tool {
+                name: "fio",
+                why: String::new(),
             },
             "工具 fio 不可用",
         ),

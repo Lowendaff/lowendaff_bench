@@ -18,7 +18,7 @@ pub(super) fn section(out: &mut Out, page: &Page) {
     out.line("\n【汇总】");
     for run in page.runs {
         let label = pad(run.title.unwrap_or(run.id), LABEL_WIDTH);
-        out.line(&format!("  {label}  {}", status_text(run, reason(run))));
+        out.line(&format!("  {label}  {}", run_status(run)));
     }
     if !page.not_applicable.is_empty() {
         out.line(&format!("  本机不适用：{}", page.not_applicable.join("、")));
@@ -51,9 +51,15 @@ fn reason(run: &Run<Measured>) -> Option<&str> {
     }
 }
 
+/// How a plugin ended, with its own reason when it stopped short.
+#[must_use]
+pub fn run_status(run: &Run<Measured>) -> String {
+    status_text(run, reason(run))
+}
+
 /// How a plugin ended; `reason` is the plugin's own when it stopped short.
 #[must_use]
-pub fn status_text<R>(run: &Run<R>, reason: Option<&str>) -> String {
+pub(super) fn status_text<R>(run: &Run<R>, reason: Option<&str>) -> String {
     let reason = reason.unwrap_or_default();
     match &run.status {
         // A plugin that completed has run, so its time is known.
@@ -85,7 +91,8 @@ pub fn unmet_text(unmet: &Unmet) -> String {
         Unmet::Network(Net::Ipv4) => "需要 IPv4 网络连接".to_owned(),
         Unmet::Network(Net::Ipv6) => "需要 IPv6 网络连接".to_owned(),
         Unmet::Network(Net::Any | Net::None) => "需要网络连接".to_owned(),
-        Unmet::Tool { name, .. } => format!("工具 {name} 不可用"),
+        Unmet::Tool { name, why } if why.is_empty() => format!("工具 {name} 不可用"),
+        Unmet::Tool { name, why } => format!("工具 {name} 不可用：{why}"),
     }
 }
 

@@ -1,13 +1,9 @@
 ---
 source: crates/bench/tests/report.rs
-expression: "report::terminal::render(&page(&runs, &provisioned), None)"
+expression: "report::terminal::render(&page, None)"
 ---
 lowendaff-bench 0.1.0
 运行环境：KVM 虚拟机
-
-【准备工具】
-  sysbench 1.0.20   就绪
-  fio 3.43          失败：下载失败：HTTP 404
 
 【系统信息】
   系统              Debian GNU/Linux 13 (trixie)
@@ -36,15 +32,23 @@ lowendaff-bench 0.1.0
     sda   通过  25 °C
     超时，已保留超时前的结果
   硬盘性能
-    跳过：工具 fio 不可用
+    跳过：工具 fio 不可用：下载失败：HTTP 404
+
+【test】
+  自行跳过的测试
+    跳过：测试目录在内存盘上
+  崩溃的测试
+    失败：插件崩溃：index out of bounds
 
 【汇总】
   系统基础信息      完成，用时 0.3 秒
   硬盘健康          超时，已保留超时前的结果
   CPU 性能          完成，用时 41.2 秒
   内存性能          失败：STREAM 出错
-  硬盘性能          跳过：工具 fio 不可用
+  硬盘性能          跳过：工具 fio 不可用：下载失败：HTTP 404
   Geekbench 7       已中断
+  自行跳过的测试    跳过：测试目录在内存盘上
+  崩溃的测试        失败：插件崩溃：index out of bounds
   本机不适用：示例独服测试
 
-共 6 项：完成 2，跳过 1，失败 1，超时 1，中断 1。总用时 137.8 秒
+共 8 项：完成 2，跳过 2，失败 2，超时 1，中断 1。总用时 137.8 秒

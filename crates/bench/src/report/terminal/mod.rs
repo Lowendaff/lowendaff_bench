@@ -8,7 +8,6 @@ mod summary;
 use std::fmt::Write;
 use std::time::Duration;
 
-use bench_api::ToolSpec;
 use bench_host::platform::Platform;
 use comfy_table::CellAlignment;
 use comfy_table::ContentArrangement;
@@ -16,11 +15,11 @@ use comfy_table::Table;
 use comfy_table::presets;
 
 use crate::orchestrator::Run;
-use crate::provision::Provisioned;
 use crate::results::Measured;
 
 pub use summary::fault_text;
-pub use summary::status_text;
+pub use summary::run_status;
+use summary::status_text;
 pub use summary::unmet_text;
 
 /// Labels pad to this display width, so that values line up.
@@ -42,8 +41,6 @@ pub struct Page<'a> {
     pub platform: Platform,
     /// The titles of the test items made for other platforms only.
     pub not_applicable: &'a [&'a str],
-    /// The tools that were provisioned, with their results.
-    pub tools: Option<(&'a [ToolSpec], &'a Provisioned)>,
     /// Every plugin's run, in the run order.
     pub runs: &'a [Run<Measured>],
     /// The whole run's time.
@@ -59,16 +56,6 @@ pub fn render(page: &Page, width: Option<u16>) -> String {
     };
     out.line(&format!("lowendaff-bench {}", page.version));
     out.line(&format!("运行环境：{}", page.platform));
-    if let Some((tools, provisioned)) = page.tools {
-        out.line("\n【准备工具】");
-        for tool in tools {
-            let result = match provisioned.failed.get(tool.name) {
-                Some(reason) => format!("失败：{reason}"),
-                None => "就绪".to_owned(),
-            };
-            out.field("  ", &format!("{} {}", tool.name, tool.version), &result);
-        }
-    }
     let known: Vec<&str> = SECTIONS.iter().map(|(group, _)| *group).collect();
     let mut sections: Vec<(&str, &str)> = SECTIONS.to_vec();
     for run in page.runs {
