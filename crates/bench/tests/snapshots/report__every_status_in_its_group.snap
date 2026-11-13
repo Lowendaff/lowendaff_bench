@@ -6,9 +6,29 @@ lowendaff-bench 0.1.0
 运行环境：KVM 虚拟机
 
 【系统信息】
+  CPU 型号          Example CPU @ 2.00GHz
+  CPU 核心          2 个
+  CPU 频率          2000 MHz
+  CPU 缓存          L1d 32 KiB / L2 4 MiB
+  AES 指令          支持
+  硬件虚拟化        不支持
+  内存总量          2 GiB
+  内存已用          1 GiB
+  Swap              无
+  硬盘
+  设备  接口    容量      型号  用途
+  vda   virtio  40.0 GiB  —     系统盘（/）
+  文件系统
+  挂载点         类型  容量      已用      可用      所在硬盘
+  /（测试目录）  ext4  39.0 GiB  10.0 GiB  27.0 GiB  vda
   系统              Debian GNU/Linux 13 (trixie)
-  运行时间          3 天 4 小时（宿主机）
-  完成，用时 0.3 秒
+  内核              6.12.73+deb13-amd64
+  架构              x86_64
+  运行时间          3 天 4 小时 0 分钟
+  负载              0.10 / 0.20 / 0.30
+  TCP 拥塞控制      bbr（队列 fq）
+  IPv4              可用；公网地址 203.0.*.*（来自 Cloudflare）
+  IPv6              不可用：本机没有 IPv6 路由
 
 【CPU 性能】
   CPU 性能
@@ -41,7 +61,6 @@ lowendaff-bench 0.1.0
     失败：插件崩溃：index out of bounds
 
 【汇总】
-  系统基础信息      完成，用时 0.3 秒
   硬盘健康          超时，已保留超时前的结果
   CPU 性能          完成，用时 41.2 秒
   内存性能          失败：STREAM 出错
@@ -51,4 +70,4 @@ lowendaff-bench 0.1.0
   崩溃的测试        失败：插件崩溃：index out of bounds
   本机不适用：示例独服测试
 
-共 8 项：完成 2，跳过 2，失败 2，超时 1，中断 1。总用时 137.8 秒
+共 7 项：完成 1，跳过 2，失败 2，超时 1，中断 1。总用时 137.8 秒

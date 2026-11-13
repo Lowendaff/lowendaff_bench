@@ -30,7 +30,8 @@ allow-wildcard-paths = true
 # names, so a dependency against the direction, or from one plugin crate on another, fails this
 # check; a new dependency along the direction is added to its entry. bench-host may be used by
 # every crate, and swap-file is a leaf of the CPU items. comfy-table draws the report's tables
-# and belongs to bench alone: the other crates return data and leave the formatting to it.
+# and belongs to bench alone: the other crates return data and leave the formatting to it. So
+# does reqwest: only the program downloads tools and asks for the public addresses.
 deny = [
     { crate = "bench-api", reason = "the plugin contract, below bench-host only", wrappers = [
         "bench",
@@ -40,7 +41,6 @@ deny = [
         "plugin-disk-health",
         "plugin-geekbench",
         "plugin-memory",
-        "plugin-system",
     ] },
     { crate = "bench-tool", reason = "the pinned tools, for the plugin crates", wrappers = [
         "plugin-cpu",
@@ -64,10 +64,10 @@ deny = [
     { crate = "plugin-memory", reason = "plugin crates are used by bench alone", wrappers = [
         "bench",
     ] },
-    { crate = "plugin-system", reason = "plugin crates are used by bench alone", wrappers = [
+    { crate = "comfy-table", reason = "only the reporter in bench formats", wrappers = [
         "bench",
     ] },
-    { crate = "comfy-table", reason = "only the reporter in bench formats", wrappers = [
+    { crate = "reqwest", reason = "only the program in bench connects anywhere", wrappers = [
         "bench",
     ] },
 ]

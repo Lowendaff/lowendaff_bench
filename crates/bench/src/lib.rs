@@ -3,8 +3,8 @@
 
 pub mod app;
 pub mod fetcher;
+pub mod network;
 pub mod orchestrator;
-pub mod probe;
 pub mod progress;
 pub mod provision;
 pub mod registry;

@@ -86,7 +86,6 @@ dependencies = [
  "plugin-disk-health",
  "plugin-geekbench",
  "plugin-memory",
- "plugin-system",
  "reqwest",
  "rustix",
  "rustls",
@@ -119,6 +118,7 @@ dependencies = [
 name = "bench-host"
 version = "0.1.0"
 dependencies = [
+ "insta",
  "rustix",
  "smbios-lib",
  "tempfile",
@@ -951,16 +951,6 @@ dependencies = [
  "bench-host",
  "bench-tool",
  "rustix",
- "serde",
- "tokio",
-]
-
-[[package]]
-name = "plugin-system"
-version = "0.1.0"
-dependencies = [
- "bench-api",
- "bench-host",
  "serde",
  "tokio",
 ]

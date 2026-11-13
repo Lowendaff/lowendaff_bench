@@ -1,7 +1,7 @@
 #!/bin/sh
-# Runs the 系统基础信息 item in containers of many distributions.
-# In each, the 系统 line must equal the image's own os-release PRETTY_NAME, the item must
-# complete, and its uptime and load must be marked as the host's, which Docker shares.
+# Reads the host in containers of many distributions, with every test item skipped: the report
+# must name Docker as the platform, its 系统 line must equal the image's own os-release
+# PRETTY_NAME, and its uptime and load must be marked as the host's, which Docker shares.
 # Then Geekbench 7 runs without a network, so that nothing is downloaded or uploaded:
 # its reason to skip must fit the image's own glibc. CI runs it on both
 # architectures; README "Gates" documents it.
@@ -38,12 +38,11 @@ for image in $images; do
     expected=$(docker run --rm --entrypoint sh "$image" -c '. /etc/os-release && printf %s "$PRETTY_NAME"') ||
         fail "$name: cannot read os-release"
     output=$(docker run --rm -v "$bin:/usr/local/bin/lowendaff-bench:ro" -w /root "$image" \
-        lowendaff-bench --only system.container 2>&1) || fail "$name: exited with $?: $output"
+        lowendaff-bench --skip cpu,memory,disk 2>&1) || fail "$name: exited with $?: $output"
     printf '%s\n' "$output" | grep -qx '运行环境：Docker 容器' ||
         fail "$name: the platform was not detected as Docker: $output"
     reported=$(printf '%s\n' "$output" | sed -n 's/^  系统  *//p')
     [ "$reported" = "$expected" ] || fail "$name: 系统 is \"$reported\", expected \"$expected\""
-    printf '%s\n' "$output" | grep -q '^  完成，用时' || fail "$name: the item did not complete: $output"
     # Docker shares the kernel's uptime and load, so both are the host's.
     for label in 运行时间 负载; do
         printf '%s\n' "$output" | grep -q "^  $label  *.*（宿主机）\$" ||

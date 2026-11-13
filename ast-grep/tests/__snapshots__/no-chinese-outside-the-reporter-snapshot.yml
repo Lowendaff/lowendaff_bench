@@ -1,0 +1,20 @@
+id: no-chinese-outside-the-reporter
+snapshots:
+  "fn f() { let text = \"不可用\"; }\n":
+    labels:
+    - source: "\"不可用\""
+      style: primary
+      start: 20
+      end: 31
+  "fn f() { let text = r\"原始\"; }\n":
+    labels:
+    - source: r"原始"
+      style: primary
+      start: 20
+      end: 29
+  "fn f(part: u32) { let text = format!(\"型号代码 {part:#05x}\"); }\n":
+    labels:
+    - source: "\"型号代码 {part:#05x}\""
+      style: primary
+      start: 37
+      end: 63

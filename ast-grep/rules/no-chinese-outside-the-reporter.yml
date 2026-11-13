@@ -1,0 +1,20 @@
+id: no-chinese-outside-the-reporter
+language: rust
+severity: error
+message: Write the words in the reporter, in `crates/bench`; return data here, or write a progress line.
+note: >-
+  CONTRIBUTING "Code". The crates below the reporter return data, and the reporter writes every
+  word the user reads, so that another report can show the same results. A crate joins this rule
+  once its text has moved to the reporter. Progress lines are a log, not the report.
+files:
+  - crates/bench-host/src/**/*.rs
+  - crates/bench-tool/src/**/*.rs
+rule:
+  any:
+    - kind: string_literal
+    - kind: raw_string_literal
+  regex: '\p{Han}'
+  not:
+    inside:
+      stopBy: end
+      pattern: $CTX.progress($$$ARGS)

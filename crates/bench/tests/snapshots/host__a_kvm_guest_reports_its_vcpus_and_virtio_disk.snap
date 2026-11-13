@@ -1,0 +1,35 @@
+---
+source: crates/bench/tests/host.rs
+expression: "captured(\"kvm-debian13-x86_64\", Platform::Vm(Hypervisor::Kvm), (254, 1), None)"
+---
+lowendaff-bench 0.1.0
+运行环境：KVM 虚拟机
+
+【系统信息】
+  CPU 型号          Intel Xeon Processor (Skylake, IBRS)
+  CPU 核心          1 个
+  CPU 频率          1995 MHz
+  CPU 缓存          L1d 32 KiB / L1i 32 KiB / L2 4 MiB / L3 16 MiB
+  AES 指令          支持
+  硬件虚拟化        支持（VT-x）
+  内存总量          929.08 MiB
+  内存已用          364.82 MiB
+  Swap              无
+  硬盘
+  设备  接口    容量      型号  用途
+  vda   virtio  20.0 GiB  —     系统盘（/）
+  文件系统
+  挂载点         类型  容量      已用      可用     所在硬盘
+  /（测试目录）  ext4  19.6 GiB  11.0 GiB  7.7 GiB  vda
+  系统              Debian GNU/Linux 13 (trixie)
+  内核              6.12.73+deb13-amd64
+  架构              x86_64
+  运行时间          2 天 9 小时 53 分钟
+  负载              0.14 / 0.08 / 0.08
+  TCP 拥塞控制      bbr（队列 fq）
+  IPv4              不可用
+  IPv6              不可用
+
+【汇总】
+
+共 0 项：完成 0，跳过 0，失败 0，超时 0，中断 0。总用时 1.0 秒

@@ -3,12 +3,14 @@
 //! orchestrator and the reporter do the rest. Plugins move to it group by group; it stays in this
 //! module, beside the first contract at the crate root, until every plugin has moved.
 
+use std::collections::BTreeMap;
 use std::future::Future;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
+use bench_host::profile::HostProfile;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use tokio::sync::mpsc;
@@ -18,7 +20,6 @@ use tokio::sync::watch;
 use tokio::time::Instant;
 
 use crate::CancellationToken;
-use crate::Env;
 use crate::Requirements;
 
 /// Static facts about a plugin type.
@@ -73,7 +74,8 @@ pub trait Plugin: DeserializeOwned + Default + Send + Sync + 'static {
 
 /// What a plugin gets for one run.
 pub struct Context<O> {
-    env: Arc<Env>,
+    host: Arc<HostProfile>,
+    tools: Arc<BTreeMap<String, PathBuf>>,
     cancel: CancellationToken,
     deadline: Instant,
     work_dir: PathBuf,
@@ -90,10 +92,12 @@ pub struct Channels<O> {
 }
 
 impl<O: Measurement> Context<O> {
-    /// A context for one run, and the orchestrator's end of its channels.
+    /// A context for one run, with the tools that were provisioned, and the orchestrator's end of
+    /// its channels.
     #[must_use]
     pub fn new(
-        env: Arc<Env>,
+        host: Arc<HostProfile>,
+        tools: Arc<BTreeMap<String, PathBuf>>,
         deadline: Instant,
         work_dir: PathBuf,
         cancel: CancellationToken,
@@ -101,7 +105,8 @@ impl<O: Measurement> Context<O> {
         let (progress, progress_receiver) = mpsc::unbounded_channel();
         let (published, published_receiver) = watch::channel(None);
         let ctx = Self {
-            env,
+            host,
+            tools,
             cancel,
             deadline,
             work_dir,
@@ -115,17 +120,17 @@ impl<O: Measurement> Context<O> {
         (ctx, channels)
     }
 
-    /// The host as the orchestrator probed it.
+    /// The host, as the run read it before any plugin ran.
     #[must_use]
-    pub fn env(&self) -> &Env {
-        &self.env
+    pub fn host(&self) -> &HostProfile {
+        &self.host
     }
 
     /// The path of a provisioned tool; `None` for a tool the plugin did not declare, since the
     /// orchestrator runs a plugin only when every declared tool is ready.
     #[must_use]
     pub fn tool(&self, name: &str) -> Option<&Path> {
-        self.env.tools.get(name).map(PathBuf::as_path)
+        self.tools.get(name).map(PathBuf::as_path)
     }
 
     /// A directory of the plugin's own, removed after the run.

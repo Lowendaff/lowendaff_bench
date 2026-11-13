@@ -234,6 +234,7 @@ async fn run_observed(
         work_root: work_root.path().to_path_buf(),
         origin: tokio::time::Instant::now(),
         failed_tools: BTreeMap::new(),
+        host: Arc::default(),
     };
     orchestrator::run_plan(plan, Arc::new(Env::default()), cancel, &settings, observer).await
 }

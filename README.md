@@ -11,20 +11,21 @@ A comprehensive test tool for Linux servers, virtual or dedicated, written in Ru
 The program prints its results in Chinese. [`glossary.md`](glossary.md) gives the English term
 that this README, the code and the commit messages use for each word it prints often.
 
-**Status:** the plugin framework is in place, with six test items so far: system information,
-disk health, CPU performance, memory performance, disk performance and Geekbench 7. The plugin
-model is being reworked, one pull request at a time; no test item is added meanwhile. The
-conventions for code, commits and pull requests are in [`CONTRIBUTING.md`](CONTRIBUTING.md).
+**Status:** the plugin framework is in place, with five test items so far: disk health, CPU
+performance, memory performance, disk performance and Geekbench 7. The plugin model is being
+reworked, one pull request at a time; no test item is added meanwhile. The conventions for code,
+commits and pull requests are in [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
-The tool first detects where it runs: a dedicated server, a virtual machine or a container. It
-prints this on its environment line and runs only the test items made for that platform. For
-example, system information has a variant for each platform (`system.dedicated`, `system.vm`,
-`system.container`), and exactly one of them runs. `--list` shows which platforms each item
-applies to.
+The tool first reads its host: where it runs (a dedicated server, a virtual machine or a
+container), its CPU, memory, disks and system, and whether it reaches the Internet over IPv4 and
+IPv6, with the public address of each. The report starts with this system information: CPU,
+memory and swap, disks and filesystems, distribution, kernel, uptime, load, TCP congestion
+control, and the two address families; on dedicated servers also the machine, board and
+firmware, the BMC, ECC, the memory modules and RAID cards. Only the test items made for the
+platform run; `--list` shows the items by group, and which platforms each applies to.
 
 | Test item | Shows |
 |-----------|-------|
-| System information | CPU, memory and swap, disks and filesystems, distribution, kernel, uptime, load, TCP congestion control, IPv4/IPv6 reachability; on dedicated servers also the machine, board and firmware, the BMC, ECC, the memory modules and RAID cards |
 | Disk health | Dedicated servers only: each physical disk's SMART health as smartctl judges it, with power-on time, temperature, endurance used, data written, bad blocks and interface errors. Disks behind MegaRAID and 3SNIC RAID cards are included |
 | CPU performance | sysbench's CPU test (primes up to 10000), 20 seconds with one thread and 20 seconds with every usable thread: events per second, and how many times the single-thread rate the multi-thread one is |
 | Memory performance | sysbench's read and write bandwidth and STREAM's Copy, Scale, Add and Triad, each with one thread and with every usable thread; multichase's latency in each cache level and in memory; on machines with several NUMA nodes, the bandwidth (multiload's stream-triad) and latency from each node's CPUs to each node's memory. Every run fits in half of the available memory |
@@ -34,18 +35,24 @@ applies to.
 ## Usage
 
 ```sh
-lowendaff-bench --list                      # list the test items
+lowendaff-bench --list                      # list the test items by group
 sudo lowendaff-bench                        # run all of them
 sudo lowendaff-bench --only cpu,disk.fio    # run a subset by group or id; --skip excludes
 sudo lowendaff-bench --config bench.toml    # per-item settings: [plugins."<id>"]
 sudo lowendaff-bench -v                     # log more detail, such as each download's address
+sudo lowendaff-bench --show-ip              # show the public addresses in full
 ```
 
 - **Output.** The progress log on stderr has one line per event, after the time since the start:
-  the tools' downloads, and each item's start and end. The report follows on stdout once every
-  item is done: a section for each group (system, CPU, memory, disks) and a summary of how each
-  item ended. On a terminal, its tables wrap to the terminal's width. After Ctrl-C the report
-  holds what finished, and the rest is marked interrupted.
+  the host and its network, the tools' downloads, and each item's start and end. The report
+  follows on stdout once every item is done: the system information, a section for each group
+  (CPU, memory, disks) and a summary of how each item ended. On a terminal, its tables wrap to
+  the terminal's width. After Ctrl-C the report holds what finished, and the rest is marked
+  interrupted.
+- **Public addresses.** Each address family that reaches the Internet asks Cloudflare, ipify and
+  icanhazip in turn, without a proxy, for the address they see; the first valid answer counts.
+  Behind NAT that is the shared address. The report masks it, keeping two octets of IPv4 and the
+  first 32 bits of IPv6, unless `--show-ip` is given; the progress log masks it always.
 
 - **Run directory.** The tool creates its run directory under the current directory, or under
   `--work-dir`, and removes it at exit. Avoid `/tmp`: it may be RAM-backed or mounted `noexec`.
@@ -60,7 +67,7 @@ sudo lowendaff-bench -v                     # log more detail, such as each down
   `sudo ALL_PROXY=socks5h://127.0.0.1:1080 lowendaff-bench` uses it: put the variable after
   `sudo`, which drops most of the caller's environment. A proxy cannot change a tool, since each
   is pinned by SHA-256 and size. A download that fails on the network names the proxy variable
-  that is set, or suggests setting one. The IPv4/IPv6 check at start connects directly.
+  that is set, or suggests setting one. The network checks at start connect directly.
 
 ## Build
 
@@ -94,9 +101,9 @@ commands. Run them locally before pushing.
 | Rules | `ast-grep scan` (rules in `ast-grep/rules/`, config in `sgconfig.yml`), then `scripts/check-docs-cases.sh` and `scripts/check-docs.sh`: every term of `glossary.md` still appears in the program's source, this README, `CONTRIBUTING.md` and the pull request template hold no CJK characters, and no tracked file outside the fixture data points into the design documents | any host |
 | Static build | `cargo build --release --locked --target <arch>-unknown-linux-musl --bin lowendaff-bench` | Linux |
 | Swap round trip | `cargo build --release --locked --target <arch>-unknown-linux-musl -p swap-file --example roundtrip`, then `sudo target/<arch>-unknown-linux-musl/release/examples/roundtrip <dir>`: turns a 64 MiB swap file in `<dir>` on and off | Linux, with sudo, on a filesystem that holds swap files, such as ext4 |
-| Smoke | `scripts/smoke.sh target/<arch>-unknown-linux-musl/release/lowendaff-bench --skip cpu.geekbench`: a full run without Geekbench 7, which would publish a result, in which no test item is skipped, fails or times out, with the report on stdout and the progress log on stderr | Linux, as root or with sudo, with network access (it downloads sysbench, STREAM, multichase and fio) |
+| Smoke | `scripts/smoke.sh target/<arch>-unknown-linux-musl/release/lowendaff-bench --skip cpu.geekbench`: a full run without Geekbench 7, which would publish a result, in which no test item is skipped, fails or times out, with the report on stdout and the progress log on stderr, then a short run that must find the public IPv4 address without the proxy that the environment names | Linux, as root or with sudo, with network access (it downloads sysbench, STREAM, multichase and fio) |
 | Smoke mutants | `scripts/smoke-mutants.sh <arch>-unknown-linux-musl`: smoke must reject deliberately broken builds; these runs skip the groups cpu, memory and disk (`--skip cpu,memory,disk`) | Linux, as root or with sudo |
-| Distributions | `scripts/distros.sh target/<arch>-unknown-linux-musl/release/lowendaff-bench ghcr.io/lowendaff/mirror`: system information in the images of `scripts/distros.txt`, 12 distributions (13 on x86_64), pulled from their copies on GHCR, with the uptime and load marked as the host's, and Geekbench 7 there without a network, which must skip for the image's glibc; without the last argument, from the original registries | Linux or macOS with Docker; the copies need `docker login ghcr.io` |
+| Distributions | `scripts/distros.sh target/<arch>-unknown-linux-musl/release/lowendaff-bench ghcr.io/lowendaff/mirror`: the system information of a run with every test item skipped, in the images of `scripts/distros.txt`, 12 distributions (13 on x86_64), pulled from their copies on GHCR, with the uptime and load marked as the host's, and Geekbench 7 there without a network, which must skip for the image's glibc; without the last argument, from the original registries | Linux or macOS with Docker; the copies need `docker login ghcr.io` |
 
 `<arch>` is `x86_64` or `aarch64`.
 

@@ -25,6 +25,7 @@ use bench_api::typed::Stop;
 use bench_host::glibc::GlibcVersion;
 use bench_host::glibc::Libc;
 use bench_host::platform::Platform;
+use bench_host::profile::HostProfile;
 use tokio::task::JoinError;
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
@@ -194,6 +195,8 @@ pub struct Settings {
     pub origin: Instant,
     /// Why each tool that could not be provisioned failed.
     pub failed_tools: BTreeMap<String, String>,
+    /// The host, as the run read it, for the plugins of the typed contract.
+    pub host: Arc<HostProfile>,
 }
 
 /// Resolves the selection and builds every plugin of the first contract, so config errors
@@ -370,6 +373,7 @@ async fn run_one<R: Send + 'static>(
     let launch = Launch {
         id: planned.id,
         env,
+        host: Arc::clone(&settings.host),
         deadline: Instant::now() + planned.timeout,
         work_dir: work.path().to_path_buf(),
         token: global.child_token(),
@@ -386,6 +390,7 @@ async fn run_one<R: Send + 'static>(
 struct Launch<'a, R> {
     id: &'static str,
     env: Arc<Env>,
+    host: Arc<HostProfile>,
     deadline: Instant,
     work_dir: PathBuf,
     /// The plugin's own token, a child of `global`.
@@ -481,8 +486,10 @@ struct TypedRunner<P: typed::Plugin, R> {
 impl<P: typed::Plugin, R: Send + 'static> Runner<R> for TypedRunner<P, R> {
     fn run<'a>(&'a self, launch: Launch<'a, R>) -> Running<'a, R> {
         Box::pin(async move {
+            let tools = Arc::new(launch.env.tools.clone());
             let (ctx, mut channels) = typed::Context::<P::Output>::new(
-                launch.env,
+                launch.host,
+                tools,
                 launch.deadline,
                 launch.work_dir,
                 launch.token.clone(),

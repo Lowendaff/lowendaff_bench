@@ -6,10 +6,11 @@ use std::thread;
 
 use bench::app;
 use bench::app::Cli;
-use bench::probe;
+use bench::network;
 use bench::progress;
 use bench::registry::REGISTRY;
 use bench_api::CancellationToken;
+use bench_host::profile::HostProfile;
 use tokio::runtime;
 use tokio::signal;
 
@@ -49,8 +50,28 @@ fn main() -> ExitCode {
     let cancel = CancellationToken::new();
     runtime.spawn(watch_interrupt(cancel.clone()));
     let result = runtime.block_on(async {
-        let env = probe::probe().await;
-        app::execute(planned, env, &cli.work_dir, &cancel, io::stdout(), width()).await
+        // The network takes longer than the files, so both start at once.
+        let network = tokio::spawn(network::probe());
+        let work_dir = cli.work_dir.clone();
+        let mut host = tokio::task::spawn_blocking(move || HostProfile::collect(&work_dir))
+            .await
+            .map_err(|err| format!("无法读取主机概况：{err}"))?;
+        progress::host(&host);
+        host.network = network
+            .await
+            .map_err(|err| format!("无法探测网络：{err}"))?;
+        progress::network(&host.network);
+        let out = io::stdout();
+        app::execute(
+            planned,
+            host,
+            &cli.work_dir,
+            &cancel,
+            out,
+            width(),
+            cli.show_ip,
+        )
+        .await
     });
     match result {
         Ok(code) => ExitCode::from(code),

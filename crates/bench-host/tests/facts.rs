@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use bench_host::Root;
 use bench_host::cpu;
+use bench_host::cpu::Model;
 use bench_host::cpu::Topology;
 use bench_host::cpu::Virtualization;
 use bench_host::memory;
@@ -43,8 +44,8 @@ fn x86_cpus_match_lscpu() {
         let cpu = cpu::read(&common::fixture(name));
         let lscpu = common::truth(name, "lscpu");
         assert_eq!(
-            cpu.model.as_deref(),
-            Some(field(&lscpu, "Model name")),
+            cpu.model,
+            Some(Model::Name(field(&lscpu, "Model name").to_owned())),
             "{name}"
         );
         assert_eq!(
@@ -95,7 +96,13 @@ fn x86_cpus_match_lscpu() {
 fn arm_cpus_are_named_from_their_part_codes() {
     // Apple's hypervisor hides the part; the code is shown rather than a wrong name.
     let apple = cpu::read(&common::fixture("docker-debian13-aarch64"));
-    assert_eq!(apple.model.as_deref(), Some("Apple（型号代码 0x000）"));
+    assert_eq!(
+        apple.model,
+        Some(Model::UnknownPart {
+            vendor: "Apple",
+            part: 0
+        })
+    );
     assert_eq!(apple.logical, Some(10));
     assert_eq!(
         apple.mhz, None,
@@ -105,18 +112,22 @@ fn arm_cpus_are_named_from_their_part_codes() {
     assert_eq!(apple.aes, Some(true));
     assert_eq!(apple.virtualization, Virtualization::NotApplicable);
 
+    let name = |name: &str| Model::Name(name.to_owned());
     let cases = [
-        ("0x41", "0xd0c", "ARM Neoverse-N1"),
-        ("0xc0", "0xac3", "Ampere-1"),
-        ("0x6d", "0xd49", "Microsoft Azure-Cobalt-100"),
-        ("0x48", "0xd01", "HiSilicon Kunpeng-920"),
+        ("0x41", "0xd0c", name("ARM Neoverse-N1")),
+        ("0xc0", "0xac3", name("Ampere-1")),
+        ("0x6d", "0xd49", name("Microsoft Azure-Cobalt-100")),
+        ("0x48", "0xd01", name("HiSilicon Kunpeng-920")),
         (
             "0x99",
             "0x001",
-            "ARM 处理器（厂商代码 0x99，型号代码 0x001）",
+            Model::UnknownVendor {
+                implementer: 0x99,
+                part: Some(1),
+            },
         ),
     ];
-    for (implementer, part, name) in cases {
+    for (implementer, part, model) in cases {
         let dir = common::host((&[], &[]));
         let cpuinfo = format!(
             "processor\t: 0\nFeatures\t: fp asimd\nCPU implementer\t: {implementer}\n\
@@ -125,7 +136,7 @@ fn arm_cpus_are_named_from_their_part_codes() {
         fs::create_dir_all(dir.path().join("proc")).expect("proc");
         fs::write(dir.path().join("proc/cpuinfo"), cpuinfo).expect("cpuinfo");
         let cpu = cpu::read(&Root::new(dir.path()));
-        assert_eq!(cpu.model.as_deref(), Some(name));
+        assert_eq!(cpu.model, Some(model));
         assert_eq!(cpu.aes, Some(false), "no aes in Features");
     }
 }

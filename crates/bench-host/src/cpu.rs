@@ -14,7 +14,7 @@ use crate::memory;
 pub struct Cpu {
     /// Model name. On ARM it is decoded from the implementer and part codes, the way
     /// `lscpu` does, because `/proc/cpuinfo` has no model name there.
-    pub model: Option<String>,
+    pub model: Option<Model>,
     /// Logical CPUs online.
     pub logical: Option<usize>,
     /// Physical packages (sockets) and cores, from the topology files.
@@ -28,6 +28,27 @@ pub struct Cpu {
     pub aes: Option<bool>,
     /// Hardware support for running virtual machines.
     pub virtualization: Virtualization,
+}
+
+/// What a CPU is called.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Model {
+    /// Its name, such as `Intel(R) Xeon(R) Gold 6130 CPU @ 2.10GHz` or `ARM Neoverse-N1`.
+    Name(String),
+    /// An ARM CPU of a vendor in the table, with a part code that the table does not know.
+    UnknownPart {
+        /// The vendor, such as `Apple`.
+        vendor: &'static str,
+        /// The part code.
+        part: u32,
+    },
+    /// An ARM CPU whose implementer code the table does not know.
+    UnknownVendor {
+        /// The implementer code.
+        implementer: u32,
+        /// The part code, when there is one.
+        part: Option<u32>,
+    },
 }
 
 /// Sockets and physical cores.
@@ -95,7 +116,7 @@ pub fn read(root: &Root) -> Cpu {
     let has = |word: &str| words.split_whitespace().any(|flag| flag == word);
     Cpu {
         model: field(first, "model name")
-            .map(str::to_owned)
+            .map(|name| Model::Name(name.to_owned()))
             .or_else(|| arm_model(first)),
         logical: root
             .read_line("/sys/devices/system/cpu/online")
@@ -228,7 +249,7 @@ pub(crate) fn bytes(text: &str) -> Option<u64> {
 
 /// The vendor and core name for ARM CPUs, from util-linux's table of implementer and
 /// part codes (ARMv8 and later parts only).
-fn arm_model(block: &[(String, String)]) -> Option<String> {
+fn arm_model(block: &[(String, String)]) -> Option<Model> {
     let code = |key: &str| {
         let value = field(block, key)?;
         u32::from_str_radix(value.strip_prefix("0x")?, 16).ok()
@@ -240,12 +261,7 @@ fn arm_model(block: &[(String, String)]) -> Option<String> {
         .find(|(id, _, _)| *id == implementer)
         .map(|(_, vendor, parts)| (*vendor, *parts))
     else {
-        return Some(match part {
-            Some(part) => {
-                format!("ARM 处理器（厂商代码 {implementer:#04x}，型号代码 {part:#05x}）")
-            }
-            None => format!("ARM 处理器（厂商代码 {implementer:#04x}）"),
-        });
+        return Some(Model::UnknownVendor { implementer, part });
     };
     let name = part.and_then(|part| {
         parts
@@ -254,10 +270,10 @@ fn arm_model(block: &[(String, String)]) -> Option<String> {
             .map(|(_, name)| *name)
     });
     Some(match (name, part) {
-        (Some(name), _) if name.starts_with(vendor) => name.to_owned(),
-        (Some(name), _) => format!("{vendor} {name}"),
-        (None, Some(part)) => format!("{vendor}（型号代码 {part:#05x}）"),
-        (None, None) => vendor.to_owned(),
+        (Some(name), _) if name.starts_with(vendor) => Model::Name(name.to_owned()),
+        (Some(name), _) => Model::Name(format!("{vendor} {name}")),
+        (None, Some(part)) => Model::UnknownPart { vendor, part },
+        (None, None) => Model::Name(vendor.to_owned()),
     })
 }
 

@@ -3,17 +3,42 @@ source: crates/bench/tests/report.rs
 expression: "report::terminal::render(&page, None)"
 ---
 lowendaff-bench 0.1.0
-运行环境：未检测到虚拟化
+运行环境：KVM 虚拟机
 
 【系统信息】
-  系统              Alpine Linux v3.22
-  完成，用时 0.2 秒
+  CPU 型号          Example CPU @ 2.00GHz
+  CPU 核心          2 个
+  CPU 频率          2000 MHz
+  CPU 缓存          L1d 32 KiB / L2 4 MiB
+  AES 指令          支持
+  硬件虚拟化        不支持
+  内存总量          2 GiB
+  内存已用          1 GiB
+  Swap              无
+  硬盘
+  设备  接口    容量      型号  用途
+  vda   virtio  40.0 GiB  —     系统盘（/）
+  文件系统
+  挂载点         类型  容量      已用      可用      所在硬盘
+  /（测试目录）  ext4  39.0 GiB  10.0 GiB  27.0 GiB  vda
+  系统              Debian GNU/Linux 13 (trixie)
+  内核              6.12.73+deb13-amd64
+  架构              x86_64
+  运行时间          3 天 4 小时 0 分钟
+  负载              0.10 / 0.20 / 0.30
+  TCP 拥塞控制      bbr（队列 fq）
+  IPv4              可用；公网地址 203.0.*.*（来自 Cloudflare）
+  IPv6              不可用：本机没有 IPv6 路由
 
 【CPU 性能】
   跳过：需要 IPv4 网络连接
 
+【硬盘】
+  测试目录          /root（ext4）
+  完成，用时 0.2 秒
+
 【汇总】
-  系统基础信息      完成，用时 0.2 秒
+  硬盘性能          完成，用时 0.2 秒
   Geekbench 7       跳过：需要 IPv4 网络连接
 
 共 2 项：完成 1，跳过 1，失败 0，超时 0，中断 0。总用时 1.0 秒

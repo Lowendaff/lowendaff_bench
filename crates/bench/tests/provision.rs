@@ -258,6 +258,7 @@ async fn a_plugin_runs_the_tool_it_was_provisioned_with() {
         work_root: run_dir.path().to_path_buf(),
         origin: tokio::time::Instant::now(),
         failed_tools: BTreeMap::new(),
+        host: Arc::default(),
     };
 
     let runs = orchestrator::run_plan(

@@ -1,0 +1,145 @@
+---
+source: crates/bench-host/tests/profile.rs
+expression: "proxmox(&[[2.40, 2.43, 2.52]; 2])"
+---
+HostProfile {
+    platform: Container(
+        Lxc,
+    ),
+    arch: "x86_64",
+    libc: GlibcUnknown,
+    cpu: Done(
+        CpuFacts {
+            cpu: Cpu {
+                model: Some(
+                    Name(
+                        "Intel(R) Xeon(R) Gold 6130 CPU @ 2.10GHz",
+                    ),
+                ),
+                logical: Some(
+                    2,
+                ),
+                topology: Some(
+                    Topology {
+                        sockets: 2,
+                        cores: 32,
+                    },
+                ),
+                mhz: Some(
+                    3700.0,
+                ),
+                caches: [
+                    (
+                        "L1d",
+                        32768,
+                    ),
+                    (
+                        "L1i",
+                        32768,
+                    ),
+                    (
+                        "L2",
+                        1048576,
+                    ),
+                    (
+                        "L3",
+                        23068672,
+                    ),
+                ],
+                aes: Some(
+                    true,
+                ),
+                virtualization: IntelVtX,
+            },
+            usable: Some(
+                2,
+            ),
+            quota: None,
+        },
+    ),
+    memory: Done(
+        Some(
+            MemoryFacts {
+                total: 1073741824,
+                used: 30800896,
+                estimated: false,
+                swap_total: 536870912,
+                swap_used: 0,
+            },
+        ),
+    ),
+    storage: Done(
+        StorageFacts {
+            disks: [],
+            filesystems: [
+                Filesystem {
+                    mount_point: "/",
+                    fs_type: "zfs",
+                    devices: [
+                        (
+                            0,
+                            75,
+                        ),
+                    ],
+                    zfs_pool: None,
+                    disks: [],
+                    space: Some(
+                        Space {
+                            total: 8589934592,
+                            used: 368443392,
+                            available: 8221491200,
+                        },
+                    ),
+                },
+            ],
+            raid: None,
+            work_dir: Some(
+                (
+                    0,
+                    75,
+                ),
+            ),
+        },
+    ),
+    system: Done(
+        SystemFacts {
+            distribution: Some(
+                "Debian GNU/Linux 13 (trixie)",
+            ),
+            kernel: Some(
+                "7.0.14-15-pve",
+            ),
+            uptime: Some(
+                Seen {
+                    value: 13.43s,
+                    host: false,
+                },
+            ),
+            load: Some(
+                Seen {
+                    value: [
+                        2.4,
+                        2.43,
+                        2.52,
+                    ],
+                    host: true,
+                },
+            ),
+            congestion_control: Some(
+                "cubic",
+            ),
+            qdisc: None,
+        },
+    ),
+    hardware: None,
+    network: Network {
+        ipv4: Family {
+            targets: [],
+            address: NotAsked,
+        },
+        ipv6: Family {
+            targets: [],
+            address: NotAsked,
+        },
+    },
+}

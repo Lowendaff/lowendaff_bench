@@ -11,6 +11,7 @@ rustix = { version = "1", features = ["fs", "system", "time"] }
 smbios-lib.workspace = true
 
 [dev-dependencies]
+insta = { version = "1.49.0", default-features = false }
 tempfile.workspace = true
 
 [lints]
