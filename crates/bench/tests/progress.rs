@@ -1,6 +1,6 @@
 //! The progress log on stderr: one line per event after the time since the start, the tools'
-//! downloads, each plugin's start and end in the report's words, the debug events of `-v`, and
-//! nothing from the libraries.
+//! downloads, each plugin's start and end in the report's words, the debug events of `-v` with
+//! each tool's run, and nothing from the libraries.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -19,6 +19,8 @@ use bench_api::Net;
 use bench_api::ToolAsset;
 use bench_api::ToolForm;
 use bench_api::ToolSpec;
+use bench_api::typed::ToolEnd;
+use bench_api::typed::ToolRun;
 use bench_host::network::Address;
 use bench_host::network::Family;
 use bench_host::network::Network;
@@ -116,6 +118,54 @@ fn plugins_are_logged_by_id_in_the_reports_words() {
             "cpu.geekbench 跳过：需要 IPv4 网络连接",
         ]
     );
+}
+
+#[test]
+fn tool_runs_are_logged_with_v_only() {
+    let run = ToolRun {
+        command: ["sysbench", "cpu", "--threads=1"]
+            .map(str::to_owned)
+            .to_vec(),
+        end: ToolEnd::Exit(1),
+        tail: vec!["FATAL: bad option".to_owned(), "second".to_owned()],
+    };
+    assert!(logged(false, || Log.on_tool("cpu.sysbench", &run)).is_empty());
+    assert_eq!(
+        logged(true, || Log.on_tool("cpu.sysbench", &run)),
+        [
+            "cpu.sysbench 运行 sysbench cpu --threads=1：退出码 1",
+            "cpu.sysbench 输出：FATAL: bad option",
+            "cpu.sysbench 输出：second",
+        ]
+    );
+    let ends = [
+        (ToolEnd::Exit(0), "退出码 0"),
+        (ToolEnd::Signal, "被信号终止"),
+        (
+            ToolEnd::TimedOut(Duration::from_secs(60)),
+            "超过 60 秒仍未结束，已停止",
+        ),
+        (ToolEnd::Cancelled, "已中断"),
+        (
+            ToolEnd::Spawn("No such file or directory (os error 2)".to_owned()),
+            "无法运行：No such file or directory (os error 2)",
+        ),
+        (
+            ToolEnd::Read("Broken pipe (os error 32)".to_owned()),
+            "无法读取输出：Broken pipe (os error 32)",
+        ),
+    ];
+    for (end, words) in ends {
+        let run = ToolRun {
+            command: vec!["fio".to_owned()],
+            end,
+            tail: Vec::new(),
+        };
+        assert_eq!(
+            logged(true, || Log.on_tool("disk.fio", &run)),
+            [format!("disk.fio 运行 fio：{words}")]
+        );
+    }
 }
 
 /// Provisions one tool whose download fails, and lets two libraries log meanwhile.

@@ -1,5 +1,6 @@
 //! Running a tool once: what it printed and how it ended, its limit, cancellation, its directory
-//! and environment, and on Linux its process group and its `oom_score_adj`.
+//! and environment, its report for the log, and on Linux its process group and its
+//! `oom_score_adj`.
 
 use std::collections::BTreeMap;
 #[cfg(target_os = "linux")]
@@ -8,8 +9,12 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use bench_api::CancellationToken;
+use bench_api::typed::Channels;
 use bench_api::typed::Context;
 use bench_api::typed::Measurement;
+use bench_api::typed::Progress;
+use bench_api::typed::ToolEnd;
+use bench_api::typed::ToolRun;
 use bench_api::typed::ToolVersion;
 use bench_host::profile::HostProfile;
 use bench_tool::job::Fault;
@@ -28,16 +33,30 @@ impl Measurement for Nothing {
     }
 }
 
-fn context(cancel: CancellationToken) -> Context<Nothing> {
+fn context(cancel: CancellationToken) -> (Context<Nothing>, Channels<Nothing>) {
     let deadline = Instant::now() + Duration::from_secs(60);
-    let (ctx, _channels) = Context::new(
+    Context::new(
         Arc::new(HostProfile::default()),
         Arc::new(BTreeMap::new()),
         deadline,
         ".".into(),
         cancel,
-    );
-    ctx
+    )
+}
+
+/// The runs reported so far.
+fn reported(channels: &mut Channels<Nothing>) -> Vec<ToolRun> {
+    let mut runs = Vec::new();
+    while let Ok(progress) = channels.progress.try_recv() {
+        if let Progress::Tool(run) = progress {
+            runs.push(run);
+        }
+    }
+    runs
+}
+
+fn words(words: &[&str]) -> Vec<String> {
+    words.iter().map(|word| (*word).to_owned()).collect()
 }
 
 fn shell(script: &str, limit: Duration) -> Job {
@@ -46,7 +65,7 @@ fn shell(script: &str, limit: Duration) -> Job {
 
 #[tokio::test]
 async fn a_run_gives_its_output_then_its_errors_and_its_exit_code() {
-    let ctx = context(CancellationToken::new());
+    let (ctx, _channels) = context(CancellationToken::new());
     let mut job = shell(
         "echo \"$LC_ALL $EXTRA\"; echo oops >&2; echo done; exit 3",
         Duration::from_secs(30),
@@ -65,7 +84,7 @@ async fn a_run_gives_its_output_then_its_errors_and_its_exit_code() {
 
 #[tokio::test]
 async fn the_tool_runs_in_its_directory() {
-    let ctx = context(CancellationToken::new());
+    let (ctx, _channels) = context(CancellationToken::new());
     let dir = tempfile::tempdir().expect("a temporary directory");
     let mut job = shell("pwd -P", Duration::from_secs(30));
     job.dir = Some(dir.path().to_path_buf());
@@ -78,7 +97,7 @@ async fn the_tool_runs_in_its_directory() {
 
 #[tokio::test]
 async fn a_run_past_its_limit_is_stopped() {
-    let ctx = context(CancellationToken::new());
+    let (ctx, _channels) = context(CancellationToken::new());
     let started = std::time::Instant::now();
     let job = Job::new("/bin/sleep", ["30"], Duration::from_secs(1));
     assert_eq!(
@@ -94,7 +113,7 @@ async fn a_run_past_its_limit_is_stopped() {
 #[tokio::test]
 async fn a_cancelled_run_stops_at_once() {
     let cancel = CancellationToken::new();
-    let ctx = context(cancel.clone());
+    let (ctx, mut channels) = context(cancel.clone());
     let started = std::time::Instant::now();
     let canceller = tokio::spawn(async move {
         tokio::time::sleep(Duration::from_millis(200)).await;
@@ -107,12 +126,20 @@ async fn a_cancelled_run_stops_at_once() {
         "it did not wait for sleep"
     );
     canceller.await.expect("the canceller ends");
+    assert_eq!(
+        reported(&mut channels),
+        [ToolRun {
+            command: words(&["sleep", "30"]),
+            end: ToolEnd::Cancelled,
+            tail: Vec::new(),
+        }]
+    );
 }
 
 #[tokio::test]
 async fn a_run_cancelled_before_it_starts_never_starts() {
     let cancel = CancellationToken::new();
-    let ctx = context(cancel.clone());
+    let (ctx, _channels) = context(cancel.clone());
     cancel.cancel();
     let dir = tempfile::tempdir().expect("a temporary directory");
     let marker = dir.path().join("started");
@@ -126,7 +153,7 @@ async fn a_run_cancelled_before_it_starts_never_starts() {
 
 #[tokio::test]
 async fn a_missing_program_cannot_start() {
-    let ctx = context(CancellationToken::new());
+    let (ctx, _channels) = context(CancellationToken::new());
     let job = Job::new("/nonexistent/tool", [""; 0], Duration::from_secs(5));
     let ended = job.run(&ctx).await.ended;
     let Err(RunError::Fault(Fault::Spawn(reason))) = ended else {
@@ -155,6 +182,78 @@ fn a_fault_quotes_the_last_line_with_text() {
         "a signal, and nothing printed"
     );
     assert_eq!(output(Some(0), "a\nb\n").last_line(), Some("b"));
+}
+
+#[tokio::test]
+async fn each_run_is_reported_with_its_command_its_end_and_its_last_lines() {
+    let (ctx, mut channels) = context(CancellationToken::new());
+    let script = "echo one; echo two; echo; echo three >&2; echo four; exit 3";
+    shell(script, Duration::from_secs(30)).run(&ctx).await;
+    assert_eq!(
+        reported(&mut channels),
+        [ToolRun {
+            command: words(&["sh", "-c", script]),
+            end: ToolEnd::Exit(3),
+            tail: words(&["two", "four", "three"]),
+        }]
+    );
+
+    shell("echo fine", Duration::from_secs(30)).run(&ctx).await;
+    let mut quiet = shell("echo the claim link; exit 1", Duration::from_secs(30));
+    quiet.quotable = false;
+    quiet.run(&ctx).await;
+    let ends: Vec<(ToolEnd, Vec<String>)> = reported(&mut channels)
+        .into_iter()
+        .map(|run| (run.end, run.tail))
+        .collect();
+    assert_eq!(
+        ends,
+        [
+            (ToolEnd::Exit(0), Vec::new()),
+            (ToolEnd::Exit(1), Vec::new())
+        ],
+        "no lines after a success, nor from a tool whose output may not be quoted"
+    );
+}
+
+#[tokio::test]
+async fn runs_that_do_not_finish_are_reported_too() {
+    let (ctx, mut channels) = context(CancellationToken::new());
+    Job::new("/bin/sleep", ["30"], Duration::from_secs(1))
+        .run(&ctx)
+        .await;
+    Job::new("/nonexistent/tool", ["--fast"], Duration::from_secs(5))
+        .run(&ctx)
+        .await;
+    let runs = reported(&mut channels);
+    assert_eq!(
+        runs.first(),
+        Some(&ToolRun {
+            command: words(&["sleep", "30"]),
+            end: ToolEnd::TimedOut(Duration::from_secs(1)),
+            tail: Vec::new(),
+        })
+    );
+    let Some(ToolRun {
+        command,
+        end: ToolEnd::Spawn(reason),
+        ..
+    }) = runs.get(1)
+    else {
+        panic!("the missing program is reported: {runs:?}");
+    };
+    assert_eq!(command, &words(&["tool", "--fast"]));
+    assert!(!reason.is_empty(), "the system's reason");
+    assert_eq!(runs.len(), 2);
+
+    let cancel = CancellationToken::new();
+    let (ctx, mut channels) = context(cancel.clone());
+    cancel.cancel();
+    shell("echo never", Duration::from_secs(30)).run(&ctx).await;
+    assert!(
+        reported(&mut channels).is_empty(),
+        "a run that never started is not reported"
+    );
 }
 
 /// The state letter of a process from `/proc/<pid>/stat`, or `None` when it is gone.
@@ -200,7 +299,7 @@ fn worker(dir: &Path) -> String {
 #[cfg(target_os = "linux")]
 #[tokio::test]
 async fn a_tool_in_a_group_of_its_own_is_stopped_with_its_workers() {
-    let ctx = context(CancellationToken::new());
+    let (ctx, _channels) = context(CancellationToken::new());
     let dir = tempfile::tempdir().expect("a temporary directory");
     let ended_by = with_worker(dir.path(), true).run(&ctx).await.ended;
     assert_eq!(
@@ -216,8 +315,34 @@ async fn a_tool_in_a_group_of_its_own_is_stopped_with_its_workers() {
 
 #[cfg(target_os = "linux")]
 #[tokio::test]
+async fn a_group_whose_leader_ends_on_its_own_is_left_alone() {
+    let (ctx, _channels) = context(CancellationToken::new());
+    let dir = tempfile::tempdir().expect("a temporary directory");
+    // The worker writes nowhere, so the leader's end closes the output and the run finishes.
+    let script = format!(
+        "sleep 30 > /dev/null 2>&1 & echo $! > '{}/worker'",
+        dir.path().display()
+    );
+    let mut job = shell(&script, Duration::from_secs(10));
+    job.group = true;
+    let ended = job.run(&ctx).await.ended;
+    let pid = worker(dir.path());
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let alive = !matches!(state(&pid), None | Some('Z'));
+    let number: i32 = pid.parse().expect("a pid");
+    let process = rustix::process::Pid::from_raw(number).expect("a positive pid");
+    let _ = rustix::process::kill_process(process, rustix::process::Signal::KILL);
+    assert!(ended.is_ok(), "{ended:?}");
+    assert!(
+        alive,
+        "the leader was reaped, so its group's id may be another's: nothing is killed"
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[tokio::test]
 async fn without_a_group_of_its_own_the_workers_outlive_the_tool() {
-    let ctx = context(CancellationToken::new());
+    let (ctx, _channels) = context(CancellationToken::new());
     let dir = tempfile::tempdir().expect("a temporary directory");
     with_worker(dir.path(), false).run(&ctx).await;
     let pid = worker(dir.path());
@@ -237,7 +362,7 @@ async fn without_a_group_of_its_own_the_workers_outlive_the_tool() {
 async fn a_tool_that_goes_first_starts_with_oom_score_adj_1000() {
     use bench_tool::job::Adjustment;
 
-    let ctx = context(CancellationToken::new());
+    let (ctx, _channels) = context(CancellationToken::new());
     let own = std::fs::read_to_string("/proc/self/oom_score_adj").expect("our own value");
     let mut job = shell(
         "read value < /proc/$$/oom_score_adj; echo $value",
@@ -259,7 +384,7 @@ async fn a_tool_that_goes_first_starts_with_oom_score_adj_1000() {
 async fn without_proc_a_tool_that_goes_first_starts_all_the_same() {
     use bench_tool::job::Adjustment;
 
-    let ctx = context(CancellationToken::new());
+    let (ctx, _channels) = context(CancellationToken::new());
     let mut job = shell("echo ran", Duration::from_secs(30));
     job.first_to_go = true;
     let outcome = job.run(&ctx).await;

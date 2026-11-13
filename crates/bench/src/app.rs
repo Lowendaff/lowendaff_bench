@@ -56,7 +56,7 @@ pub struct Cli {
     #[arg(long)]
     pub list: bool,
 
-    /// 在进度日志中显示更多细节，如每个工具的下载地址
+    /// 在进度日志中显示更多细节：每个工具的下载地址，以及每次运行的命令和退出码
     #[arg(short, long)]
     pub verbose: bool,
 

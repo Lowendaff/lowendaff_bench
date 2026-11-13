@@ -10,6 +10,7 @@ use std::time::Duration;
 
 use bench_api::CancellationToken;
 use bench_api::typed::Context;
+use bench_api::typed::Progress;
 use bench_api::typed::Stop;
 use bench_host::profile::HostProfile;
 use bench_tool::job;
@@ -69,8 +70,10 @@ async fn measure(threads: usize, script: Vec<Result<job::Output, RunError>>) -> 
     .await;
     assert!(script.borrow().is_empty(), "every scripted attempt ran");
     let mut progress = Vec::new();
-    while let Ok(line) = channels.progress.try_recv() {
-        progress.push(line);
+    while let Ok(item) = channels.progress.try_recv() {
+        if let Progress::Line(line) = item {
+            progress.push(line);
+        }
     }
     let published = channels.published.borrow().clone();
     Outcome {

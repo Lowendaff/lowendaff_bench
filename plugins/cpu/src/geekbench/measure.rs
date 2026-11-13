@@ -38,6 +38,7 @@ pub const RETRY_WAIT: Duration = Duration::from_secs(30);
 /// A run of `program`: the CPU benchmark, uploaded, since the free version shows scores only
 /// after an upload; in `work_dir`, in English, which `parse` reads, in a process group of its
 /// own, since Geekbench starts a worker, and as the kernel's first choice when memory runs out.
+/// The log never quotes its output, which can hold the link that claims the result.
 #[must_use]
 pub fn attempt(program: &Path, work_dir: &Path) -> Job {
     let mut job = Job::new(program, ["--cpu", "--upload"], RUN_LIMIT);
@@ -45,6 +46,7 @@ pub fn attempt(program: &Path, work_dir: &Path) -> Job {
     job.dir = Some(work_dir.to_path_buf());
     job.group = true;
     job.first_to_go = true;
+    job.quotable = false;
     job
 }
 

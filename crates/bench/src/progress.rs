@@ -6,6 +6,8 @@ use std::io;
 use std::time::Instant;
 
 use bench_api::ToolSpec;
+use bench_api::typed::ToolEnd;
+use bench_api::typed::ToolRun;
 use bench_host::network::Network;
 use bench_host::profile::HostProfile;
 use tracing::Subscriber;
@@ -109,7 +111,8 @@ pub fn tools(tools: &[ToolSpec], provisioned: &Provisioned) {
     }
 }
 
-/// Logs each plugin's start, its progress lines and how it ended, in the report's words.
+/// Logs each plugin's start, its progress lines, its tools' runs with `-v`, and how it ended, in
+/// the report's words.
 pub struct Log;
 
 impl Observer<Measured> for Log {
@@ -121,8 +124,31 @@ impl Observer<Measured> for Log {
         tracing::info!("{id} {line}");
     }
 
+    fn on_tool(&mut self, id: &'static str, run: &ToolRun) {
+        tracing::debug!(
+            "{id} 运行 {}：{}",
+            run.command.join(" "),
+            end_text(&run.end)
+        );
+        for line in &run.tail {
+            tracing::debug!("{id} 输出：{line}");
+        }
+    }
+
     fn on_finish(&mut self, run: &Run<Measured>) {
         tracing::info!("{} {}", run.id, report::terminal::run_status(run));
+    }
+}
+
+/// How a tool's run ended, in the log's words.
+fn end_text(end: &ToolEnd) -> String {
+    match end {
+        ToolEnd::Exit(code) => format!("退出码 {code}"),
+        ToolEnd::Signal => "被信号终止".to_owned(),
+        ToolEnd::TimedOut(limit) => format!("超过 {} 秒仍未结束，已停止", limit.as_secs()),
+        ToolEnd::Cancelled => "已中断".to_owned(),
+        ToolEnd::Spawn(error) => format!("无法运行：{error}"),
+        ToolEnd::Read(error) => format!("无法读取输出：{error}"),
     }
 }
 

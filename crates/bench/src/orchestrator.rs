@@ -20,7 +20,9 @@ use bench_api::PluginError;
 use bench_api::Record;
 use bench_api::Requirements;
 use bench_api::typed;
+use bench_api::typed::Progress;
 use bench_api::typed::Stop;
+use bench_api::typed::ToolRun;
 use bench_host::glibc::GlibcVersion;
 use bench_host::glibc::Libc;
 use bench_host::platform::Platform;
@@ -176,6 +178,8 @@ pub trait Observer<R>: Send {
     fn on_start(&mut self, _id: &'static str) {}
     /// A plugin reports progress.
     fn on_progress(&mut self, _id: &'static str, _line: &str) {}
+    /// A plugin ran a tool.
+    fn on_tool(&mut self, _id: &'static str, _run: &ToolRun) {}
     /// A plugin's run is over, or it never started.
     fn on_finish(&mut self, _run: &Run<R>) {}
 }
@@ -498,13 +502,13 @@ impl<P: typed::Plugin, R: Send + 'static> Runner<R> for TypedRunner<P, R> {
                         stop(&mut task, &launch.token, launch.grace).await;
                         break Ending::Cancelled;
                     }
-                    Some(line) = channels.progress.recv() => {
-                        launch.observer.on_progress(launch.id, &line);
+                    Some(progress) = channels.progress.recv() => {
+                        tell(launch.observer, launch.id, progress);
                     }
                 }
             };
-            while let Ok(line) = channels.progress.try_recv() {
-                launch.observer.on_progress(launch.id, &line);
+            while let Ok(progress) = channels.progress.try_recv() {
+                tell(launch.observer, launch.id, progress);
             }
             let published = channels.published.borrow().clone();
             // A plugin that stops short once the run is interrupted stops because of it.
@@ -559,6 +563,14 @@ impl<P: typed::Plugin, R: Send + 'static> Runner<R> for TypedRunner<P, R> {
             };
             (status, Some((self.wrap)(report)))
         })
+    }
+}
+
+/// Hands a plugin's progress to the observer.
+fn tell<R>(observer: &mut dyn Observer<R>, id: &'static str, progress: Progress) {
+    match progress {
+        Progress::Line(line) => observer.on_progress(id, &line),
+        Progress::Tool(run) => observer.on_tool(id, &run),
     }
 }
 

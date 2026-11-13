@@ -10,6 +10,7 @@ use std::time::Duration;
 
 use bench_api::CancellationToken;
 use bench_api::typed::Context;
+use bench_api::typed::Progress;
 use bench_host::profile::HostProfile;
 use bench_tool::job;
 use bench_tool::job::Adjustment;
@@ -68,8 +69,10 @@ async fn measure(script: Vec<Ran>, cancel_after_first: bool) -> Outcome {
         "every scripted run happened"
     );
     let mut progress = Vec::new();
-    while let Ok(line) = channels.progress.try_recv() {
-        progress.push(line);
+    while let Ok(item) = channels.progress.try_recv() {
+        if let Progress::Line(line) = item {
+            progress.push(line);
+        }
     }
     let published = channels.published.borrow().clone();
     Outcome {
@@ -142,6 +145,7 @@ fn geekbench_runs_its_cpu_benchmark_with_an_upload() {
             limit: Duration::from_secs(3600),
             group: true,
             first_to_go: true,
+            quotable: false,
         }
     );
 }

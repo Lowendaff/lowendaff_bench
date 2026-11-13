@@ -1,7 +1,8 @@
 //! Running a tool once, as every test item does: without a shell, in the C locale, with what it
 //! prints read in full, within a time limit, and stopped when the plugin is cancelled. A tool that
 //! starts workers of its own runs in a process group of its own, which is killed as a whole; a
-//! tool that may exhaust memory starts as the kernel's first choice to kill.
+//! tool that may exhaust memory starts as the kernel's first choice to kill. Each run is reported
+//! to the plugin's context, for the progress log with `-v`.
 
 use std::ffi::OsString;
 use std::io;
@@ -12,6 +13,8 @@ use std::time::Duration;
 use bench_api::CancellationToken;
 use bench_api::typed::Context;
 use bench_api::typed::Measurement;
+use bench_api::typed::ToolEnd;
+use bench_api::typed::ToolRun;
 use rustix::process::Pid;
 use rustix::process::Signal;
 use serde::Serialize;
@@ -20,6 +23,9 @@ use tokio::process::Command;
 
 /// The program's own OOM score adjustment.
 const OOM_SCORE_ADJ: &str = "/proc/self/oom_score_adj";
+
+/// The lines of a failed run's output that the log quotes.
+const TAIL: usize = 3;
 
 /// One run of a tool.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -40,6 +46,8 @@ pub struct Job {
     /// Whether it starts with `oom_score_adj` 1000, so that the kernel kills it, rather than
     /// the program, when memory runs out.
     pub first_to_go: bool,
+    /// Whether the log may quote what it printed, when it fails.
+    pub quotable: bool,
 }
 
 impl Job {
@@ -58,11 +66,13 @@ impl Job {
             limit,
             group: false,
             first_to_go: false,
+            quotable: true,
         }
     }
 
-    /// Runs the tool once and reads what it printed. A run past its limit, or cancelled, is
-    /// stopped; a run cancelled before it starts never starts.
+    /// Runs the tool once, reads what it printed, and reports the run to `ctx`. A run past its
+    /// limit, or cancelled, is stopped; a run cancelled before it starts never starts, and is not
+    /// reported.
     pub async fn run<O: Measurement>(&self, ctx: &Context<O>) -> Outcome {
         let cancel = ctx.cancel_token();
         if cancel.is_cancelled() {
@@ -96,7 +106,43 @@ impl Job {
             Ok(child) => self.wait(child, &cancel).await,
             Err(err) => Err(RunError::Fault(Fault::Spawn(err.to_string()))),
         };
+        ctx.ran(self.report(&ended));
         Outcome { ended, adjustment }
+    }
+
+    /// What the log shows of a run with `-v`: the program's file name and its arguments, how it
+    /// ended, and the last lines it printed when it did not exit with 0.
+    fn report(&self, ended: &Result<Output, RunError>) -> ToolRun {
+        let name = self.program.file_name().unwrap_or(self.program.as_os_str());
+        let mut command = vec![name.to_string_lossy().into_owned()];
+        command.extend(
+            self.args
+                .iter()
+                .map(|arg| arg.to_string_lossy().into_owned()),
+        );
+        let (end, tail) = match ended {
+            Ok(output) => {
+                let end = output.code.map_or(ToolEnd::Signal, ToolEnd::Exit);
+                let tail = if output.code == Some(0) || !self.quotable {
+                    Vec::new()
+                } else {
+                    output.tail(TAIL)
+                };
+                (end, tail)
+            }
+            Err(RunError::Cancelled) => (ToolEnd::Cancelled, Vec::new()),
+            Err(RunError::Fault(fault)) => {
+                let end = match fault {
+                    Fault::Spawn(error) => ToolEnd::Spawn(error.clone()),
+                    Fault::Read(error) => ToolEnd::Read(error.clone()),
+                    Fault::TimedOut(limit) => ToolEnd::TimedOut(*limit),
+                    Fault::Exit { code, .. } => ToolEnd::Exit(*code),
+                    Fault::Signal { .. } => ToolEnd::Signal,
+                };
+                (end, Vec::new())
+            }
+        };
+        ToolRun { command, end, tail }
     }
 
     /// Waits for `child` within the limit, or until `cancel` fires, and kills its group when it
@@ -161,6 +207,21 @@ impl Output {
             .rev()
             .map(str::trim)
             .find(|line| !line.is_empty())
+    }
+
+    /// The last `count` lines with text, trimmed, oldest first.
+    fn tail(&self, count: usize) -> Vec<String> {
+        let mut tail: Vec<String> = self
+            .text
+            .lines()
+            .rev()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .take(count)
+            .map(str::to_owned)
+            .collect();
+        tail.reverse();
+        tail
     }
 
     /// The fault of a run that did not exit with 0, quoting its last line; `None` when it did.

@@ -58,6 +58,7 @@ fn the_command_is_linux_benchs_cpu_test() {
         !attempt.group && !attempt.first_to_go,
         "sysbench starts no workers"
     );
+    assert!(attempt.quotable, "the log may quote sysbench's errors");
 }
 
 #[test]
