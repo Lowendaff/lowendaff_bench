@@ -28,6 +28,8 @@ use tokio::time::Instant;
 
 pub use tokio_util::sync::CancellationToken;
 
+pub mod typed;
+
 /// Architectures every pinned tool must cover.
 pub const RELEASE_ARCHES: [&str; 2] = ["x86_64", "aarch64"];
 
