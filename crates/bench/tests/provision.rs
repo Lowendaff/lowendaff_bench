@@ -7,10 +7,12 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use bench::orchestrator;
-use bench::orchestrator::Observer;
-use bench::orchestrator::Outcome;
+use bench::orchestrator::Quiet;
 use bench::orchestrator::Settings;
+use bench::orchestrator::Status;
 use bench::provision;
+use bench::results::Measured;
+use bench::results::Report;
 use bench_api::CancellationToken;
 use bench_api::Context;
 use bench_api::Descriptor;
@@ -194,8 +196,8 @@ fn required_tools_are_unique_and_in_plan_order() {
         timeout: Duration::from_secs(1),
     };
     let tools = provision::required_tools([
-        descriptor(&[FIO, SYSBENCH]),
-        descriptor(&[SYSBENCH, IPERF3_ARM_ONLY]),
+        descriptor(&[FIO, SYSBENCH]).requires,
+        descriptor(&[SYSBENCH, IPERF3_ARM_ONLY]).requires,
     ]);
 
     assert_eq!(
@@ -236,16 +238,12 @@ impl Plugin for RunsFio {
     }
 }
 
-struct Quiet;
-
-impl Observer for Quiet {}
-
 #[tokio::test]
 async fn a_plugin_runs_the_tool_it_was_provisioned_with() {
     let run_dir = tempfile::tempdir().unwrap();
     let registry = [bench_api::register::<RunsFio>()];
     let planned = orchestrator::plan(&registry, &["disk.fio"], &BTreeMap::new()).unwrap();
-    let tools = provision::required_tools(planned.iter().map(|planned| planned.descriptor()));
+    let tools = provision::required_tools(planned.iter().map(|planned| *planned.requires()));
     let provisioned =
         provision::provision_all(&tools, std::env::consts::ARCH, run_dir.path(), |_| async {
             Ok::<_, String>(SCRIPT)
@@ -258,6 +256,8 @@ async fn a_plugin_runs_the_tool_it_was_provisioned_with() {
     let settings = Settings {
         grace: Duration::from_secs(1),
         work_root: run_dir.path().to_path_buf(),
+        origin: tokio::time::Instant::now(),
+        failed_tools: BTreeMap::new(),
     };
 
     let runs = orchestrator::run_plan(
@@ -269,9 +269,12 @@ async fn a_plugin_runs_the_tool_it_was_provisioned_with() {
     )
     .await;
 
-    assert_eq!(runs[0].outcome, Outcome::Completed);
+    assert_eq!(runs[0].status, Status::Completed);
     assert_eq!(
-        runs[0].records,
-        [Record::fact("version", "版本", "fio-3.39")]
+        runs[0].result,
+        Some(Measured::Legacy(Report {
+            output: Some(vec![Record::fact("version", "版本", "fio-3.39")]),
+            stop: None,
+        }))
     );
 }

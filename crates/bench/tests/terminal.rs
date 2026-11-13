@@ -5,27 +5,42 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use bench::orchestrator::Observer;
-use bench::orchestrator::Outcome;
+use bench::orchestrator::Fault;
 use bench::orchestrator::Run;
+use bench::orchestrator::Status;
+use bench::orchestrator::Unmet;
 use bench::provision::Provisioned;
+use bench::results::Measured;
+use bench::results::Report;
+use bench::terminal;
 use bench::terminal::Terminal;
-use bench_api::Descriptor;
 use bench_api::Measurement;
 use bench_api::Missing;
+use bench_api::Net;
 use bench_api::Record;
-use bench_api::Requirements;
 use bench_api::Table;
 use bench_api::ToolForm;
 use bench_api::ToolSpec;
+use bench_api::typed::Stop;
+use bench_host::glibc::GlibcVersion;
 
-const DISK: Descriptor = Descriptor {
-    id: "disk.fio",
-    title: "磁盘（fio）",
-    version: "0.1.0",
-    requires: Requirements::NONE,
-    timeout: Duration::from_secs(60),
-};
+/// A run of the test item 磁盘（fio）.
+fn disk(status: Status, elapsed: Option<Duration>, records: Option<Vec<Record>>) -> Run<Measured> {
+    Run {
+        id: "disk.fio",
+        group: "disk",
+        title: Some("磁盘（fio）"),
+        started: elapsed.map(|_| Duration::ZERO),
+        elapsed,
+        status,
+        result: records.map(|records| {
+            Measured::Legacy(Report {
+                output: Some(records),
+                stop: None,
+            })
+        }),
+    }
+}
 
 fn text(terminal: Terminal<Vec<u8>>) -> String {
     String::from_utf8(terminal.into_inner()).expect("the terminal writes UTF-8")
@@ -37,29 +52,28 @@ fn spaces(n: usize) -> String {
 
 #[test]
 fn records_line_up_by_display_width() {
-    let mut terminal = Terminal::new(Vec::new());
-    terminal.on_start(&DISK);
-    terminal.on_record(&DISK, &Record::fact("version", "版本", "fio-3.39"));
-    terminal.on_record(
-        &DISK,
-        &Record::metric(
-            "read-4k",
-            "4K 随机读",
-            Measurement::try_new(171.01, "MB/s").unwrap(),
-        ),
-    );
-    terminal.on_record(
-        &DISK,
-        &Record::metric("node-2", "节点 2", Measurement::new_missing(Missing::Busy)),
-    );
     let rows = vec![
         vec!["4k".into(), "171.01 MB/s".into()],
         vec!["1m".into(), "980 MB/s".into()],
     ];
     let table =
         Table::try_new("rw", "随机读写", vec!["块大小".into(), "读取".into()], rows).unwrap();
-    terminal.on_record(&DISK, &Record::Table(table));
-    terminal.on_finish(&DISK, &Outcome::Completed);
+    let records = vec![
+        Record::fact("version", "版本", "fio-3.39"),
+        Record::metric(
+            "read-4k",
+            "4K 随机读",
+            Measurement::try_new(171.01, "MB/s").unwrap(),
+        ),
+        Record::metric("node-2", "节点 2", Measurement::new_missing(Missing::Busy)),
+        Record::Table(table),
+    ];
+    let mut terminal = Terminal::new(Vec::new());
+    terminal.run(&disk(
+        Status::Completed,
+        Some(Duration::from_millis(1_500)),
+        Some(records),
+    ));
 
     let output = text(terminal);
     let lines: Vec<&str> = output.lines().collect();
@@ -76,21 +90,17 @@ fn records_line_up_by_display_width() {
         format!("  1m{}  980 MB/s", spaces(4)),
     ];
     assert_eq!(lines[..expected.len()], expected);
-    assert!(
-        lines[expected.len()].starts_with("  完成，用时 "),
-        "{output}"
-    );
+    assert_eq!(lines[expected.len()], "  完成，用时 1.5 秒", "{output}");
 }
 
 #[test]
 fn a_plugin_that_never_started_still_gets_its_section() {
+    let unmet = Unmet::Tool {
+        name: "fio",
+        why: "HTTP 404".to_owned(),
+    };
     let mut terminal = Terminal::new(Vec::new());
-    terminal.on_finish(
-        &DISK,
-        &Outcome::Skipped {
-            reason: "工具 fio 不可用".into(),
-        },
-    );
+    terminal.run(&disk(Status::Skipped(Some(unmet)), None, None));
 
     assert_eq!(
         text(terminal),
@@ -129,23 +139,14 @@ fn tool_section_shows_each_tool_with_its_result() {
 
 #[test]
 fn summary_counts_every_outcome() {
-    let run = |outcome| Run {
-        plugin: "x",
-        outcome,
-        elapsed: None,
-        records: Vec::new(),
-    };
+    let run = |status| disk(status, None, None);
     let runs = [
-        run(Outcome::Completed),
-        run(Outcome::Skipped {
-            reason: String::new(),
-        }),
-        run(Outcome::Failed {
-            error: String::new(),
-        }),
-        run(Outcome::TimedOut),
-        run(Outcome::Cancelled),
-        run(Outcome::Completed),
+        run(Status::Completed),
+        run(Status::Skipped(None)),
+        run(Status::Failed(None)),
+        run(Status::TimedOut),
+        run(Status::Cancelled),
+        run(Status::Completed),
     ];
     let mut terminal = Terminal::new(Vec::new());
     terminal.summary(&runs, Duration::from_millis(12_340));
@@ -153,5 +154,70 @@ fn summary_counts_every_outcome() {
     assert_eq!(
         text(terminal),
         "\n共 6 项：完成 2，跳过 1，失败 1，超时 1，中断 1。总用时 12.3 秒\n"
+    );
+}
+
+#[test]
+fn requirements_and_faults_are_written_in_chinese() {
+    let needed = GlibcVersion {
+        major: 2,
+        minor: 35,
+    };
+    let found = Some(GlibcVersion {
+        major: 2,
+        minor: 34,
+    });
+    let texts = [
+        (
+            Unmet::Glibc { needed, found },
+            "需要 glibc 2.35 或更新，本机是 2.34",
+        ),
+        (
+            Unmet::Glibc {
+                needed,
+                found: None,
+            },
+            "需要 glibc 2.35 或更新，本机没有 glibc",
+        ),
+        (Unmet::Network(Net::Ipv4), "需要 IPv4 网络连接"),
+        (Unmet::Network(Net::Ipv6), "需要 IPv6 网络连接"),
+        (Unmet::Network(Net::Any), "需要网络连接"),
+        (
+            Unmet::Tool {
+                name: "fio",
+                why: "HTTP 404".to_owned(),
+            },
+            "工具 fio 不可用",
+        ),
+    ];
+    for (unmet, text) in texts {
+        assert_eq!(terminal::unmet_text(&unmet), text);
+    }
+    assert_eq!(
+        terminal::fault_text(&Fault::Panic("boom".into())),
+        "插件崩溃：boom"
+    );
+    assert_eq!(
+        terminal::fault_text(&Fault::WorkDir("No space left on device".into())),
+        "无法创建工作目录：No space left on device"
+    );
+    assert_eq!(
+        terminal::fault_text(&Fault::Aborted("task was cancelled".into())),
+        "任务异常结束：task was cancelled"
+    );
+}
+
+#[test]
+fn a_stop_shows_the_plugins_own_reason() {
+    let mut run = disk(Status::Failed(None), Some(Duration::from_secs(2)), None);
+    run.result = Some(Measured::Legacy(Report {
+        output: Some(Vec::new()),
+        stop: Some(Stop::Failed("fio 报告错误 28".to_owned())),
+    }));
+    let mut terminal = Terminal::new(Vec::new());
+    terminal.run(&run);
+    assert_eq!(
+        text(terminal),
+        "\n【磁盘（fio）】\n  失败：fio 报告错误 28\n"
     );
 }

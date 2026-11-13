@@ -9,7 +9,7 @@ use std::io;
 use std::path::Path;
 use std::path::PathBuf;
 
-use bench_api::Descriptor;
+use bench_api::Requirements;
 use bench_api::ToolAsset;
 use bench_api::ToolForm;
 use bench_api::ToolSpec;
@@ -29,10 +29,10 @@ pub struct Provisioned {
 }
 
 /// Unique tools needed by the planned plugins, in plan order.
-pub fn required_tools(descriptors: impl IntoIterator<Item = Descriptor>) -> Vec<ToolSpec> {
+pub fn required_tools(requirements: impl IntoIterator<Item = Requirements>) -> Vec<ToolSpec> {
     let mut tools: Vec<ToolSpec> = Vec::new();
-    for descriptor in descriptors {
-        for tool in descriptor.requires.tools {
+    for requires in requirements {
+        for tool in requires.tools {
             if !tools.iter().any(|known| known.name == tool.name) {
                 tools.push(*tool);
             }

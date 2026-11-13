@@ -17,8 +17,10 @@ use bench_api::Registration;
 use crate::fetcher::Fetcher;
 use crate::orchestrator;
 use crate::orchestrator::Planned;
+use crate::orchestrator::Quiet;
 use crate::orchestrator::Settings;
 use crate::provision;
+use crate::results::Measured;
 use crate::terminal::Terminal;
 
 /// Exit code for usage, config or environment errors, and for not running as root.
@@ -99,7 +101,10 @@ pub fn list(registry: &[Registration], out: &mut impl Write) {
 }
 
 /// Builds every selected plugin; all problems are reported together and nothing runs.
-pub fn prepare(cli: &Cli, registry: &[Registration]) -> Result<Vec<Planned>, Vec<String>> {
+pub fn prepare(
+    cli: &Cli,
+    registry: &[Registration],
+) -> Result<Vec<Planned<Measured>>, Vec<String>> {
     let config = load_config(cli.config.as_deref()).map_err(|err| vec![err])?;
     let ids = select(registry, &cli.only, &cli.skip)?;
     orchestrator::plan(registry, &ids, &config)
@@ -166,7 +171,7 @@ pub fn load_config(path: Option<&Path>) -> Result<BTreeMap<String, serde_json::V
 /// Runs a prepared plan inside a fresh run directory under `work_dir`, which is removed
 /// afterwards. Returns the process exit code.
 pub async fn execute(
-    planned: Vec<Planned>,
+    planned: Vec<Planned<Measured>>,
     mut env: Env,
     work_dir: &Path,
     cancel: &CancellationToken,
@@ -187,9 +192,10 @@ pub async fn execute(
     // as Geekbench on a host without glibc or IPv4.
     let runnable = planned
         .iter()
-        .map(Planned::descriptor)
-        .filter(|descriptor| orchestrator::check_host(&descriptor.requires, &env).is_ok());
+        .map(|planned| *planned.requires())
+        .filter(|requires| orchestrator::check_host(requires, &env).is_ok());
     let tools = provision::required_tools(runnable);
+    let mut failed_tools = BTreeMap::new();
     if !tools.is_empty() {
         let tools_dir = run_dir.path().join("tools");
         fs::create_dir(&tools_dir).map_err(|err| format!("无法创建工具目录：{err}"))?;
@@ -198,14 +204,19 @@ pub async fn execute(
             provision::provision_all(&tools, &env.arch, &tools_dir, |url| fetcher.open(url)).await;
         terminal.tools(&tools, &provisioned);
         env.tools = provisioned.ready;
+        failed_tools = provisioned.failed;
     }
 
     let settings = Settings {
         grace: GRACE,
         work_root: run_dir.path().to_path_buf(),
+        origin: tokio::time::Instant::from_std(started),
+        failed_tools,
     };
-    let runs =
-        orchestrator::run_plan(planned, Arc::new(env), cancel, &settings, &mut terminal).await;
+    let runs = orchestrator::run_plan(planned, Arc::new(env), cancel, &settings, &mut Quiet).await;
+    for run in &runs {
+        terminal.run(run);
+    }
     terminal.summary(&runs, started.elapsed());
     drop(run_dir);
     Ok(if cancel.is_cancelled() {

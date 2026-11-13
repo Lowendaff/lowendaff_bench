@@ -7,4 +7,5 @@ pub mod orchestrator;
 pub mod probe;
 pub mod provision;
 pub mod registry;
+pub mod results;
 pub mod terminal;

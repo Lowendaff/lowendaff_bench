@@ -10,8 +10,10 @@ use bench::registry::REGISTRY;
 #[tokio::test]
 #[ignore = "downloads every pinned tool; CI runs it with --run-ignored only"]
 async fn every_pinned_tool_downloads_and_verifies() {
-    let descriptors = REGISTRY.iter().map(|registration| registration.descriptor);
-    let tools = provision::required_tools(descriptors);
+    let requirements = REGISTRY
+        .iter()
+        .map(|registration| registration.descriptor.requires);
+    let tools = provision::required_tools(requirements);
     assert!(!tools.is_empty(), "the registry pins tools");
     let fetcher = Fetcher::try_new().expect("the HTTPS client builds");
     let dir = tempfile::tempdir().expect("a temporary directory");

@@ -20,6 +20,16 @@ snapshots:
       style: secondary
       start: 4
       end: 23
+  "use bench_api::typed::helper;":
+    labels:
+    - source: use bench_api::typed::helper;
+      style: primary
+      start: 0
+      end: 29
+    - source: bench_api::typed::helper
+      style: secondary
+      start: 4
+      end: 28
   "use crate::orchestrator::plan;":
     labels:
     - source: use crate::orchestrator::plan;
