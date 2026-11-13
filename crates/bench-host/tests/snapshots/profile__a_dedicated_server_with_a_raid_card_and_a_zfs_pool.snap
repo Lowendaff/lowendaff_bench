@@ -1,0 +1,790 @@
+---
+source: crates/bench-host/tests/profile.rs
+expression: "profile(\"dedicated-pve-x86_64\", Platform::Dedicated, (252, 1),)"
+---
+HostProfile {
+    platform: Dedicated,
+    arch: "x86_64",
+    libc: GlibcUnknown,
+    cpu: Done(
+        CpuFacts {
+            cpu: Cpu {
+                model: Some(
+                    "Intel(R) Xeon(R) Gold 6130 CPU @ 2.10GHz",
+                ),
+                logical: Some(
+                    64,
+                ),
+                topology: Some(
+                    Topology {
+                        sockets: 2,
+                        cores: 32,
+                    },
+                ),
+                mhz: Some(
+                    3700.0,
+                ),
+                caches: [
+                    (
+                        "L1d",
+                        32768,
+                    ),
+                    (
+                        "L1i",
+                        32768,
+                    ),
+                    (
+                        "L2",
+                        1048576,
+                    ),
+                    (
+                        "L3",
+                        23068672,
+                    ),
+                ],
+                aes: Some(
+                    true,
+                ),
+                virtualization: IntelVtX,
+            },
+            usable: Some(
+                64,
+            ),
+            quota: None,
+        },
+    ),
+    memory: Done(
+        Some(
+            MemoryFacts {
+                total: 202422702080,
+                used: 54261022720,
+                estimated: false,
+                swap_total: 8589930496,
+                swap_used: 4340830208,
+            },
+        ),
+    ),
+    storage: Done(
+        StorageFacts {
+            disks: [
+                Disk {
+                    name: "sda",
+                    interface: "SATA",
+                    size: 250059350016,
+                    rotational: Some(
+                        false,
+                    ),
+                    model: Some(
+                        "Samsung SSD 860 EVO 250GB",
+                    ),
+                    uses: [
+                        Mount(
+                            "/",
+                        ),
+                        Swap,
+                    ],
+                },
+                Disk {
+                    name: "sdb",
+                    interface: "SATA",
+                    size: 1000204886016,
+                    rotational: Some(
+                        false,
+                    ),
+                    model: Some(
+                        "Samsung SSD 870 EVO 1TB",
+                    ),
+                    uses: [
+                        ZfsPool(
+                            "Volume1",
+                        ),
+                    ],
+                },
+                Disk {
+                    name: "sdc",
+                    interface: "SATA",
+                    size: 1000204886016,
+                    rotational: Some(
+                        false,
+                    ),
+                    model: Some(
+                        "Samsung SSD 860 EVO 1TB",
+                    ),
+                    uses: [
+                        ZfsPool(
+                            "Volume1",
+                        ),
+                    ],
+                },
+                Disk {
+                    name: "sdd",
+                    interface: "SATA",
+                    size: 1000204886016,
+                    rotational: Some(
+                        false,
+                    ),
+                    model: Some(
+                        "Samsung SSD 870 EVO 1TB",
+                    ),
+                    uses: [
+                        ZfsPool(
+                            "Volume1",
+                        ),
+                    ],
+                },
+            ],
+            filesystems: [
+                Filesystem {
+                    mount_point: "/",
+                    fs_type: "ext4",
+                    devices: [
+                        (
+                            252,
+                            1,
+                        ),
+                    ],
+                    zfs_pool: None,
+                    disks: [
+                        "sda",
+                    ],
+                    space: Some(
+                        Space {
+                            total: 236019163136,
+                            used: 58717700096,
+                            available: 174880763904,
+                        },
+                    ),
+                },
+                Filesystem {
+                    mount_point: "/Volume1",
+                    fs_type: "zfs",
+                    devices: [
+                        (
+                            0,
+                            41,
+                        ),
+                    ],
+                    zfs_pool: Some(
+                        "Volume1",
+                    ),
+                    disks: [
+                        "sdb",
+                        "sdc",
+                        "sdd",
+                    ],
+                    space: Some(
+                        Space {
+                            total: 1517345177600,
+                            used: 262144,
+                            available: 1517344915456,
+                        },
+                    ),
+                },
+            ],
+            raid: Some(
+                [
+                    Card {
+                        address: "0000:5e:00.0",
+                        ids: Ids {
+                            vendor: 4096,
+                            device: 93,
+                            subsystem: Some(
+                                (
+                                    4096,
+                                    37729,
+                                ),
+                            ),
+                        },
+                        name: Some(
+                            "MegaRAID SAS 9361-8i",
+                        ),
+                        driver: Some(
+                            "megaraid_sas",
+                        ),
+                        disks: [
+                            (
+                                "sda",
+                                PassThrough,
+                            ),
+                            (
+                                "sdb",
+                                PassThrough,
+                            ),
+                            (
+                                "sdc",
+                                PassThrough,
+                            ),
+                            (
+                                "sdd",
+                                PassThrough,
+                            ),
+                        ],
+                    },
+                ],
+            ),
+            work_dir: Some(
+                (
+                    252,
+                    1,
+                ),
+            ),
+        },
+    ),
+    system: Done(
+        SystemFacts {
+            distribution: Some(
+                "Debian GNU/Linux 13 (trixie)",
+            ),
+            kernel: Some(
+                "7.0.14-15-pve",
+            ),
+            uptime: Some(
+                Seen {
+                    value: 5084877.65s,
+                    host: false,
+                },
+            ),
+            load: Some(
+                Seen {
+                    value: [
+                        2.69,
+                        2.58,
+                        2.7,
+                    ],
+                    host: false,
+                },
+            ),
+            congestion_control: Some(
+                "cubic",
+            ),
+            qdisc: Some(
+                "fq_codel",
+            ),
+        },
+    ),
+    hardware: Some(
+        Done(
+            Hardware {
+                smbios: Ok(
+                    Smbios {
+                        slots: [
+                            Slot {
+                                name: Some(
+                                    "CPU0_C0D0",
+                                ),
+                                capacity: Disabled,
+                                generation: Some(
+                                    "DDR4",
+                                ),
+                                form: Some(
+                                    "LRDIMM",
+                                ),
+                                speed: Some(
+                                    2133,
+                                ),
+                                configured_speed: Some(
+                                    2133,
+                                ),
+                                manufacturer: Some(
+                                    "Samsung",
+                                ),
+                                part_number: Some(
+                                    "M386A4G40DM0-CPB",
+                                ),
+                            },
+                            Slot {
+                                name: Some(
+                                    "CPU0_C0D1",
+                                ),
+                                capacity: Empty,
+                                generation: None,
+                                form: None,
+                                speed: None,
+                                configured_speed: None,
+                                manufacturer: None,
+                                part_number: None,
+                            },
+                            Slot {
+                                name: Some(
+                                    "CPU0_C1D0",
+                                ),
+                                capacity: Disabled,
+                                generation: Some(
+                                    "DDR4",
+                                ),
+                                form: Some(
+                                    "LRDIMM",
+                                ),
+                                speed: Some(
+                                    2133,
+                                ),
+                                configured_speed: Some(
+                                    2133,
+                                ),
+                                manufacturer: Some(
+                                    "Samsung",
+                                ),
+                                part_number: Some(
+                                    "M386A4G40DM0-CPB",
+                                ),
+                            },
+                            Slot {
+                                name: Some(
+                                    "CPU0_C1D1",
+                                ),
+                                capacity: Empty,
+                                generation: None,
+                                form: None,
+                                speed: None,
+                                configured_speed: None,
+                                manufacturer: None,
+                                part_number: None,
+                            },
+                            Slot {
+                                name: Some(
+                                    "CPU0_C2D0",
+                                ),
+                                capacity: Empty,
+                                generation: None,
+                                form: None,
+                                speed: None,
+                                configured_speed: None,
+                                manufacturer: None,
+                                part_number: None,
+                            },
+                            Slot {
+                                name: Some(
+                                    "CPU0_C2D1",
+                                ),
+                                capacity: Empty,
+                                generation: None,
+                                form: None,
+                                speed: None,
+                                configured_speed: None,
+                                manufacturer: None,
+                                part_number: None,
+                            },
+                            Slot {
+                                name: Some(
+                                    "CPU0_C3D0",
+                                ),
+                                capacity: Kilobytes(
+                                    33554432,
+                                ),
+                                generation: Some(
+                                    "DDR4",
+                                ),
+                                form: Some(
+                                    "LRDIMM",
+                                ),
+                                speed: Some(
+                                    2133,
+                                ),
+                                configured_speed: Some(
+                                    2133,
+                                ),
+                                manufacturer: Some(
+                                    "Samsung",
+                                ),
+                                part_number: Some(
+                                    "M386A4G40DM0-CPB",
+                                ),
+                            },
+                            Slot {
+                                name: Some(
+                                    "CPU0_C3D1",
+                                ),
+                                capacity: Empty,
+                                generation: None,
+                                form: None,
+                                speed: None,
+                                configured_speed: None,
+                                manufacturer: None,
+                                part_number: None,
+                            },
+                            Slot {
+                                name: Some(
+                                    "CPU0_C4D0",
+                                ),
+                                capacity: Kilobytes(
+                                    33554432,
+                                ),
+                                generation: Some(
+                                    "DDR4",
+                                ),
+                                form: Some(
+                                    "LRDIMM",
+                                ),
+                                speed: Some(
+                                    2133,
+                                ),
+                                configured_speed: Some(
+                                    2133,
+                                ),
+                                manufacturer: Some(
+                                    "Samsung",
+                                ),
+                                part_number: Some(
+                                    "M386A4G40DM0-CPB",
+                                ),
+                            },
+                            Slot {
+                                name: Some(
+                                    "CPU0_C4D1",
+                                ),
+                                capacity: Empty,
+                                generation: None,
+                                form: None,
+                                speed: None,
+                                configured_speed: None,
+                                manufacturer: None,
+                                part_number: None,
+                            },
+                            Slot {
+                                name: Some(
+                                    "CPU0_C5D0",
+                                ),
+                                capacity: Empty,
+                                generation: None,
+                                form: None,
+                                speed: None,
+                                configured_speed: None,
+                                manufacturer: None,
+                                part_number: None,
+                            },
+                            Slot {
+                                name: Some(
+                                    "CPU0_C5D1",
+                                ),
+                                capacity: Empty,
+                                generation: None,
+                                form: None,
+                                speed: None,
+                                configured_speed: None,
+                                manufacturer: None,
+                                part_number: None,
+                            },
+                            Slot {
+                                name: Some(
+                                    "CPU1_C0D0",
+                                ),
+                                capacity: Kilobytes(
+                                    33554432,
+                                ),
+                                generation: Some(
+                                    "DDR4",
+                                ),
+                                form: Some(
+                                    "LRDIMM",
+                                ),
+                                speed: Some(
+                                    2133,
+                                ),
+                                configured_speed: Some(
+                                    2133,
+                                ),
+                                manufacturer: Some(
+                                    "Samsung",
+                                ),
+                                part_number: Some(
+                                    "M386A4G40DM0-CPB",
+                                ),
+                            },
+                            Slot {
+                                name: Some(
+                                    "CPU1_C0D1",
+                                ),
+                                capacity: Empty,
+                                generation: None,
+                                form: None,
+                                speed: None,
+                                configured_speed: None,
+                                manufacturer: None,
+                                part_number: None,
+                            },
+                            Slot {
+                                name: Some(
+                                    "CPU1_C1D0",
+                                ),
+                                capacity: Kilobytes(
+                                    33554432,
+                                ),
+                                generation: Some(
+                                    "DDR4",
+                                ),
+                                form: Some(
+                                    "LRDIMM",
+                                ),
+                                speed: Some(
+                                    2133,
+                                ),
+                                configured_speed: Some(
+                                    2133,
+                                ),
+                                manufacturer: Some(
+                                    "Samsung",
+                                ),
+                                part_number: Some(
+                                    "M386A4G40DM0-CPB",
+                                ),
+                            },
+                            Slot {
+                                name: Some(
+                                    "CPU1_C1D1",
+                                ),
+                                capacity: Empty,
+                                generation: None,
+                                form: None,
+                                speed: None,
+                                configured_speed: None,
+                                manufacturer: None,
+                                part_number: None,
+                            },
+                            Slot {
+                                name: Some(
+                                    "CPU1_C2D0",
+                                ),
+                                capacity: Empty,
+                                generation: None,
+                                form: None,
+                                speed: None,
+                                configured_speed: None,
+                                manufacturer: None,
+                                part_number: None,
+                            },
+                            Slot {
+                                name: Some(
+                                    "CPU1_C2D1",
+                                ),
+                                capacity: Empty,
+                                generation: None,
+                                form: None,
+                                speed: None,
+                                configured_speed: None,
+                                manufacturer: None,
+                                part_number: None,
+                            },
+                            Slot {
+                                name: Some(
+                                    "CPU1_C3D0",
+                                ),
+                                capacity: Kilobytes(
+                                    33554432,
+                                ),
+                                generation: Some(
+                                    "DDR4",
+                                ),
+                                form: Some(
+                                    "LRDIMM",
+                                ),
+                                speed: Some(
+                                    2133,
+                                ),
+                                configured_speed: Some(
+                                    2133,
+                                ),
+                                manufacturer: Some(
+                                    "Samsung",
+                                ),
+                                part_number: Some(
+                                    "M386A4G40DM0-CPB",
+                                ),
+                            },
+                            Slot {
+                                name: Some(
+                                    "CPU1_C3D1",
+                                ),
+                                capacity: Empty,
+                                generation: None,
+                                form: None,
+                                speed: None,
+                                configured_speed: None,
+                                manufacturer: None,
+                                part_number: None,
+                            },
+                            Slot {
+                                name: Some(
+                                    "CPU1_C4D0",
+                                ),
+                                capacity: Kilobytes(
+                                    33554432,
+                                ),
+                                generation: Some(
+                                    "DDR4",
+                                ),
+                                form: Some(
+                                    "LRDIMM",
+                                ),
+                                speed: Some(
+                                    2133,
+                                ),
+                                configured_speed: Some(
+                                    2133,
+                                ),
+                                manufacturer: Some(
+                                    "Samsung",
+                                ),
+                                part_number: Some(
+                                    "M386A4G40DM0-CPB",
+                                ),
+                            },
+                            Slot {
+                                name: Some(
+                                    "CPU1_C4D1",
+                                ),
+                                capacity: Empty,
+                                generation: None,
+                                form: None,
+                                speed: None,
+                                configured_speed: None,
+                                manufacturer: None,
+                                part_number: None,
+                            },
+                            Slot {
+                                name: Some(
+                                    "CPU1_C5D0",
+                                ),
+                                capacity: Empty,
+                                generation: None,
+                                form: None,
+                                speed: None,
+                                configured_speed: None,
+                                manufacturer: None,
+                                part_number: None,
+                            },
+                            Slot {
+                                name: Some(
+                                    "CPU1_C5D1",
+                                ),
+                                capacity: Empty,
+                                generation: None,
+                                form: None,
+                                speed: None,
+                                configured_speed: None,
+                                manufacturer: None,
+                                part_number: None,
+                            },
+                        ],
+                        ecc: [
+                            SingleBit,
+                        ],
+                        bmc: Some(
+                            Interface {
+                                kind: Some(
+                                    Kcs,
+                                ),
+                                version: Some(
+                                    (
+                                        2,
+                                        0,
+                                    ),
+                                ),
+                            },
+                        ),
+                        system: Line {
+                            vendor: Some(
+                                "Inspur",
+                            ),
+                            name: Some(
+                                "SSINSPURY32-XI5-25D-1",
+                            ),
+                            detail: None,
+                        },
+                        board: Line {
+                            vendor: Some(
+                                "Inspur",
+                            ),
+                            name: Some(
+                                "YZMB-00870-105",
+                            ),
+                            detail: Some(
+                                "SA5112M5",
+                            ),
+                        },
+                        bios: Line {
+                            vendor: Some(
+                                "American Megatrends Inc.",
+                            ),
+                            name: Some(
+                                "4.1.19",
+                            ),
+                            detail: Some(
+                                "02/07/2022",
+                            ),
+                        },
+                    },
+                ),
+                machine: Machine {
+                    system: Line {
+                        vendor: Some(
+                            "Inspur",
+                        ),
+                        name: Some(
+                            "SSINSPURY32-XI5-25D-1",
+                        ),
+                        detail: None,
+                    },
+                    board: Line {
+                        vendor: Some(
+                            "Inspur",
+                        ),
+                        name: Some(
+                            "YZMB-00870-105",
+                        ),
+                        detail: Some(
+                            "SA5112M5",
+                        ),
+                    },
+                    firmware: Some(
+                        Bios(
+                            Line {
+                                vendor: Some(
+                                    "American Megatrends Inc.",
+                                ),
+                                name: Some(
+                                    "4.1.19",
+                                ),
+                                detail: Some(
+                                    "02/07/2022",
+                                ),
+                            },
+                        ),
+                    ),
+                },
+                bmc: Some(
+                    Driver {
+                        vendor: Some(
+                            37945,
+                        ),
+                        firmware: Some(
+                            "4.18",
+                        ),
+                        ipmi: Some(
+                            "2.0",
+                        ),
+                    },
+                ),
+                edac: Some(
+                    Edac {
+                        corrected: 0,
+                        uncorrected: 0,
+                        modes: [
+                            SingleBit,
+                        ],
+                    },
+                ),
+                board_memory: None,
+            },
+        ),
+    ),
+    network: Network {
+        ipv4: Family {
+            targets: [],
+            address: NotAsked,
+        },
+        ipv6: Family {
+            targets: [],
+            address: NotAsked,
+        },
+    },
+}

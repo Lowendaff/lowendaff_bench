@@ -1,0 +1,241 @@
+---
+source: crates/bench-host/tests/profile.rs
+expression: "profile(\"rock3a-debian13-aarch64\", Platform::Dedicated, (259, 2),)"
+---
+HostProfile {
+    platform: Dedicated,
+    arch: "aarch64",
+    libc: GlibcUnknown,
+    cpu: Done(
+        CpuFacts {
+            cpu: Cpu {
+                model: Some(
+                    "ARM Cortex-A55",
+                ),
+                logical: Some(
+                    4,
+                ),
+                topology: Some(
+                    Topology {
+                        sockets: 1,
+                        cores: 4,
+                    },
+                ),
+                mhz: Some(
+                    1992.0,
+                ),
+                caches: [
+                    (
+                        "L1d",
+                        32768,
+                    ),
+                    (
+                        "L1i",
+                        32768,
+                    ),
+                    (
+                        "L2",
+                        524288,
+                    ),
+                ],
+                aes: Some(
+                    true,
+                ),
+                virtualization: NotApplicable,
+            },
+            usable: Some(
+                4,
+            ),
+            quota: None,
+        },
+    ),
+    memory: Done(
+        Some(
+            MemoryFacts {
+                total: 2064982016,
+                used: 244756480,
+                estimated: false,
+                swap_total: 0,
+                swap_used: 0,
+            },
+        ),
+    ),
+    storage: Done(
+        StorageFacts {
+            disks: [
+                Disk {
+                    name: "nvme0n1",
+                    interface: "NVMe",
+                    size: 128035676160,
+                    rotational: Some(
+                        false,
+                    ),
+                    model: Some(
+                        "KBG40ZNS128G BG4A KIOXIA",
+                    ),
+                    uses: [
+                        Mount(
+                            "/",
+                        ),
+                    ],
+                },
+            ],
+            filesystems: [
+                Filesystem {
+                    mount_point: "/",
+                    fs_type: "ext4",
+                    devices: [
+                        (
+                            259,
+                            2,
+                        ),
+                    ],
+                    zfs_pool: None,
+                    disks: [
+                        "nvme0n1",
+                    ],
+                    space: Some(
+                        Space {
+                            total: 125644845056,
+                            used: 939614208,
+                            available: 124688453632,
+                        },
+                    ),
+                },
+            ],
+            raid: Some(
+                [],
+            ),
+            work_dir: Some(
+                (
+                    259,
+                    2,
+                ),
+            ),
+        },
+    ),
+    system: Done(
+        SystemFacts {
+            distribution: Some(
+                "Debian GNU/Linux 13 (trixie)",
+            ),
+            kernel: Some(
+                "6.12.95+deb13-arm64",
+            ),
+            uptime: Some(
+                Seen {
+                    value: 508.54s,
+                    host: false,
+                },
+            ),
+            load: Some(
+                Seen {
+                    value: [
+                        0.0,
+                        0.1,
+                        0.1,
+                    ],
+                    host: false,
+                },
+            ),
+            congestion_control: Some(
+                "cubic",
+            ),
+            qdisc: Some(
+                "fq_codel",
+            ),
+        },
+    ),
+    hardware: Some(
+        Done(
+            Hardware {
+                smbios: Ok(
+                    Smbios {
+                        slots: [],
+                        ecc: [],
+                        bmc: None,
+                        system: Line {
+                            vendor: Some(
+                                "radxa",
+                            ),
+                            name: Some(
+                                "Radxa ROCK 3A",
+                            ),
+                            detail: None,
+                        },
+                        board: Line {
+                            vendor: Some(
+                                "radxa",
+                            ),
+                            name: Some(
+                                "Radxa ROCK 3A",
+                            ),
+                            detail: None,
+                        },
+                        bios: Line {
+                            vendor: Some(
+                                "U-Boot",
+                            ),
+                            name: Some(
+                                "2026.07-rc4-ga7830e87555a",
+                            ),
+                            detail: Some(
+                                "07/01/2026",
+                            ),
+                        },
+                    },
+                ),
+                machine: Machine {
+                    system: Line {
+                        vendor: Some(
+                            "radxa",
+                        ),
+                        name: Some(
+                            "Radxa ROCK 3A",
+                        ),
+                        detail: None,
+                    },
+                    board: Line {
+                        vendor: Some(
+                            "radxa",
+                        ),
+                        name: Some(
+                            "Radxa ROCK 3A",
+                        ),
+                        detail: None,
+                    },
+                    firmware: Some(
+                        Bios(
+                            Line {
+                                vendor: Some(
+                                    "U-Boot",
+                                ),
+                                name: Some(
+                                    "2026.07-rc4-ga7830e87555a",
+                                ),
+                                detail: Some(
+                                    "07/01/2026",
+                                ),
+                            },
+                        ),
+                    ),
+                },
+                bmc: None,
+                edac: None,
+                board_memory: Some(
+                    2145386496,
+                ),
+            },
+        ),
+    ),
+    network: Network {
+        ipv4: Family {
+            targets: [],
+            address: NotAsked,
+        },
+        ipv6: Family {
+            targets: [],
+            address: NotAsked,
+        },
+    },
+}

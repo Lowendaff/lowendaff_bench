@@ -1,0 +1,162 @@
+---
+source: crates/bench-host/tests/profile.rs
+expression: "profile(\"kvm-debian13-x86_64\", Platform::Vm(Hypervisor::Kvm), (254, 1),)"
+---
+HostProfile {
+    platform: Vm(
+        Kvm,
+    ),
+    arch: "x86_64",
+    libc: GlibcUnknown,
+    cpu: Done(
+        CpuFacts {
+            cpu: Cpu {
+                model: Some(
+                    "Intel Xeon Processor (Skylake, IBRS)",
+                ),
+                logical: Some(
+                    1,
+                ),
+                topology: Some(
+                    Topology {
+                        sockets: 1,
+                        cores: 1,
+                    },
+                ),
+                mhz: Some(
+                    1995.311,
+                ),
+                caches: [
+                    (
+                        "L1d",
+                        32768,
+                    ),
+                    (
+                        "L1i",
+                        32768,
+                    ),
+                    (
+                        "L2",
+                        4194304,
+                    ),
+                    (
+                        "L3",
+                        16777216,
+                    ),
+                ],
+                aes: Some(
+                    true,
+                ),
+                virtualization: IntelVtX,
+            },
+            usable: Some(
+                1,
+            ),
+            quota: None,
+        },
+    ),
+    memory: Done(
+        Some(
+            MemoryFacts {
+                total: 974209024,
+                used: 382541824,
+                estimated: false,
+                swap_total: 0,
+                swap_used: 0,
+            },
+        ),
+    ),
+    storage: Done(
+        StorageFacts {
+            disks: [
+                Disk {
+                    name: "vda",
+                    interface: "virtio",
+                    size: 21474836480,
+                    rotational: Some(
+                        true,
+                    ),
+                    model: None,
+                    uses: [
+                        Mount(
+                            "/",
+                        ),
+                    ],
+                },
+            ],
+            filesystems: [
+                Filesystem {
+                    mount_point: "/",
+                    fs_type: "ext4",
+                    devices: [
+                        (
+                            254,
+                            1,
+                        ),
+                    ],
+                    zfs_pool: None,
+                    disks: [
+                        "vda",
+                    ],
+                    space: Some(
+                        Space {
+                            total: 21023531008,
+                            used: 11768406016,
+                            available: 8272138240,
+                        },
+                    ),
+                },
+            ],
+            raid: None,
+            work_dir: Some(
+                (
+                    254,
+                    1,
+                ),
+            ),
+        },
+    ),
+    system: Done(
+        SystemFacts {
+            distribution: Some(
+                "Debian GNU/Linux 13 (trixie)",
+            ),
+            kernel: Some(
+                "6.12.73+deb13-amd64",
+            ),
+            uptime: Some(
+                Seen {
+                    value: 208398.7s,
+                    host: false,
+                },
+            ),
+            load: Some(
+                Seen {
+                    value: [
+                        0.14,
+                        0.08,
+                        0.08,
+                    ],
+                    host: false,
+                },
+            ),
+            congestion_control: Some(
+                "bbr",
+            ),
+            qdisc: Some(
+                "fq",
+            ),
+        },
+    ),
+    hardware: None,
+    network: Network {
+        ipv4: Family {
+            targets: [],
+            address: NotAsked,
+        },
+        ipv6: Family {
+            targets: [],
+            address: NotAsked,
+        },
+    },
+}

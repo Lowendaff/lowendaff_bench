@@ -1,0 +1,124 @@
+---
+source: crates/bench-host/tests/profile.rs
+expression: "profile(\"docker-debian13-aarch64\", Platform::Container(ContainerKind::Docker),\n(0, 69),)"
+---
+HostProfile {
+    platform: Container(
+        Docker,
+    ),
+    arch: "aarch64",
+    libc: GlibcUnknown,
+    cpu: Done(
+        CpuFacts {
+            cpu: Cpu {
+                model: Some(
+                    "Apple（型号代码 0x000）",
+                ),
+                logical: Some(
+                    10,
+                ),
+                topology: Some(
+                    Topology {
+                        sockets: 1,
+                        cores: 10,
+                    },
+                ),
+                mhz: None,
+                caches: [],
+                aes: Some(
+                    true,
+                ),
+                virtualization: NotApplicable,
+            },
+            usable: Some(
+                10,
+            ),
+            quota: None,
+        },
+    ),
+    memory: Done(
+        Some(
+            MemoryFacts {
+                total: 8319438848,
+                used: 1454788608,
+                estimated: false,
+                swap_total: 1073737728,
+                swap_used: 0,
+            },
+        ),
+    ),
+    storage: Done(
+        StorageFacts {
+            disks: [],
+            filesystems: [
+                Filesystem {
+                    mount_point: "/",
+                    fs_type: "overlay",
+                    devices: [
+                        (
+                            0,
+                            69,
+                        ),
+                    ],
+                    zfs_pool: None,
+                    disks: [],
+                    space: Some(
+                        Space {
+                            total: 977843695616,
+                            used: 15669985280,
+                            available: 912426487808,
+                        },
+                    ),
+                },
+            ],
+            raid: None,
+            work_dir: Some(
+                (
+                    0,
+                    69,
+                ),
+            ),
+        },
+    ),
+    system: Done(
+        SystemFacts {
+            distribution: Some(
+                "Debian GNU/Linux 13 (trixie)",
+            ),
+            kernel: Some(
+                "7.0.14-linuxkit",
+            ),
+            uptime: Some(
+                Seen {
+                    value: 246077.93s,
+                    host: true,
+                },
+            ),
+            load: Some(
+                Seen {
+                    value: [
+                        0.01,
+                        0.08,
+                        0.09,
+                    ],
+                    host: true,
+                },
+            ),
+            congestion_control: Some(
+                "cubic",
+            ),
+            qdisc: None,
+        },
+    ),
+    hardware: None,
+    network: Network {
+        ipv4: Family {
+            targets: [],
+            address: NotAsked,
+        },
+        ipv6: Family {
+            targets: [],
+            address: NotAsked,
+        },
+    },
+}
