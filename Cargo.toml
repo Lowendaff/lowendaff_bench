@@ -17,6 +17,7 @@ plugin-disk-health = { path = "plugins/disk-health" }
 plugin-memory = { path = "plugins/memory" }
 plugin-system = { path = "plugins/system" }
 bench-api = { path = "crates/bench-api" }
+bench-tool = { path = "crates/bench-tool" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.11"

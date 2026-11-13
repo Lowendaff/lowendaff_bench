@@ -18,11 +18,10 @@ use bench_api::Plugin;
 use bench_api::PluginError;
 use bench_api::Record;
 use bench_api::Requirements;
-use bench_api::ToolAsset;
-use bench_api::ToolForm;
-use bench_api::ToolSpec;
 use bench_host::Root;
-use plugin_cpu::SYSBENCH;
+use bench_tool::MULTICHASE;
+use bench_tool::STREAM;
+use bench_tool::SYSBENCH;
 use serde::Deserialize;
 
 use crate::output::AttemptError;
@@ -31,65 +30,6 @@ use crate::output::Output;
 use crate::plan::Host;
 use crate::plan::Plan;
 use crate::process::Job;
-
-/// STREAM 5.10 from the release `stream-5.10-1`: six programs of one size each, the smallest
-/// named; the plugin runs the others beside it.
-pub const STREAM: ToolSpec = ToolSpec {
-    name: "stream",
-    version: "5.10",
-    form: ToolForm::TarGz {
-        executable: "stream-2m",
-    },
-    assets: &[
-        ToolAsset {
-            arch: "x86_64",
-            url: concat!(
-                "https://github.com/Lowendaff/lowendaff_bench/releases/download/",
-                "stream-5.10-1/stream-x86_64.tar.gz"
-            ),
-            sha256: "cd0bba47b10c6ef5e02cb7a5218ad65183d83f23061b0cc71cf0128b0a1e585f",
-            size: 1_609_410,
-        },
-        ToolAsset {
-            arch: "aarch64",
-            url: concat!(
-                "https://github.com/Lowendaff/lowendaff_bench/releases/download/",
-                "stream-5.10-1/stream-aarch64.tar.gz"
-            ),
-            sha256: "3f422aef2895bd424071c0d2d398c379c2cb391ac671b018ec3b033087c43fa7",
-            size: 1_686_248,
-        },
-    ],
-};
-
-/// multichase and multiload from the release `multichase-2026.10.01-1`.
-pub const MULTICHASE: ToolSpec = ToolSpec {
-    name: "multichase",
-    version: "2026.10.01",
-    form: ToolForm::TarGz {
-        executable: "multichase",
-    },
-    assets: &[
-        ToolAsset {
-            arch: "x86_64",
-            url: concat!(
-                "https://github.com/Lowendaff/lowendaff_bench/releases/download/",
-                "multichase-2026.10.01-1/multichase-x86_64.tar.gz"
-            ),
-            sha256: "8a2cb5f805c2faa194852e2504f7e563592ced3d3a5da74c04b14428d4bc00d0",
-            size: 976_234,
-        },
-        ToolAsset {
-            arch: "aarch64",
-            url: concat!(
-                "https://github.com/Lowendaff/lowendaff_bench/releases/download/",
-                "multichase-2026.10.01-1/multichase-aarch64.tar.gz"
-            ),
-            sha256: "5d4188157c5579c88994a9de8df5ddcd96cfef639da5510066a61f2892aee915",
-            size: 885_268,
-        },
-    ],
-};
 
 /// Attempts per run: the first one and 3 retries.
 pub const ATTEMPTS: usize = 4;

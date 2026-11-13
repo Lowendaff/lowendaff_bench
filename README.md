@@ -161,8 +161,8 @@ each tool with `scripts/build-<tool>.sh` in the image that the script names on i
 that changes a build runs every build without publishing anything. To publish a new build,
 update the script's `RELEASE` (the tool's version and the build number) and, for a new version,
 the sources and their SHA-256; merge, run `gh workflow run tools.yml --ref main -f tool=<tool>`,
-and then update the plugin's pins. The builds are reproducible bit for bit while the images'
-packages stay the same.
+and then update the tool's pin in `crates/bench-tool`. The builds are reproducible bit for bit
+while the images' packages stay the same.
 
 Geekbench 7.1.0, for Geekbench 7 (`cpu.geekbench`), is the exception. It is closed source and
 its license forbids redistribution, so the program downloads Primate Labs' own archive from

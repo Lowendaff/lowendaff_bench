@@ -121,6 +121,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "bench-tool"
+version = "0.1.0"
+dependencies = [
+ "bench-api",
+]
+
+[[package]]
 name = "bitflags"
 version = "2.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -861,6 +868,7 @@ version = "0.1.0"
 dependencies = [
  "bench-api",
  "bench-host",
+ "bench-tool",
  "serde",
  "tempfile",
  "tokio",
@@ -872,6 +880,7 @@ version = "0.1.0"
 dependencies = [
  "bench-api",
  "bench-host",
+ "bench-tool",
  "serde",
  "tokio",
 ]
@@ -882,6 +891,7 @@ version = "0.1.0"
 dependencies = [
  "bench-api",
  "bench-host",
+ "bench-tool",
  "serde",
  "serde_json",
  "tempfile",
@@ -894,6 +904,7 @@ version = "0.1.0"
 dependencies = [
  "bench-api",
  "bench-host",
+ "bench-tool",
  "rustix",
  "serde",
  "swap-file",
@@ -907,7 +918,7 @@ version = "0.1.0"
 dependencies = [
  "bench-api",
  "bench-host",
- "plugin-cpu",
+ "bench-tool",
  "rustix",
  "serde",
  "tokio",

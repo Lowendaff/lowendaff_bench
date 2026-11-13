@@ -22,41 +22,15 @@ use bench_api::Net;
 use bench_api::Plugin;
 use bench_api::PluginError;
 use bench_api::Requirements;
-use bench_api::ToolAsset;
-use bench_api::ToolForm;
-use bench_api::ToolSpec;
 use bench_host::Root;
 use bench_host::glibc::GlibcVersion;
+use bench_tool::GEEKBENCH;
 use serde::Deserialize;
 use swap_file::SwapFile;
 
 use crate::memory::Plan;
 use crate::output::Scores;
 use crate::output::Verdict;
-
-/// Geekbench 7.1.0 for Linux as Primate Labs publishes it: the release for x86_64 and the
-/// preview for aarch64.
-const GEEKBENCH: ToolSpec = ToolSpec {
-    name: "geekbench",
-    version: "7.1.0",
-    form: ToolForm::TarGz {
-        executable: "geekbench7",
-    },
-    assets: &[
-        ToolAsset {
-            arch: "x86_64",
-            url: "https://cdn.geekbench.com/Geekbench-7.1.0-Linux.tar.gz",
-            sha256: "411b72a9c851b69e6f91d390649d419e2e625f475e3983880169651ca27a8672",
-            size: 484_515_924,
-        },
-        ToolAsset {
-            arch: "aarch64",
-            url: "https://cdn.geekbench.com/Geekbench-7.1.0-LinuxARMPreview.tar.gz",
-            sha256: "bb6abc61a68a9b33fecf1f3c0b800050dd76e93666a13eaabfa52cbd26ad3319",
-            size: 419_635_785,
-        },
-    ],
-};
 
 /// The longest one run may take.
 const RUN_LIMIT: Duration = Duration::from_secs(60 * 60);
