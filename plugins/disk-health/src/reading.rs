@@ -1,4 +1,4 @@
-//! One disk's health and values from `smartctl --json -x` (design disk-health, §5.4, §5.6).
+//! One disk's health and values from `smartctl --json -x`.
 
 use std::fmt;
 use std::time::Duration;
@@ -185,7 +185,7 @@ impl Reading {
 }
 
 impl Values {
-    /// The values, from the fields of the disk's protocol (design §5.4).
+    /// The values, from the fields of the disk's protocol.
     fn read(json: &Output) -> Self {
         let common = Self {
             hours: json.u64_at("/power_on_time/hours"),

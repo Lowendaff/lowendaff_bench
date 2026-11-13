@@ -1,4 +1,4 @@
-//! The 硬盘 table and its 说明 lines (design disk-health, §5.3, §5.5).
+//! The 硬盘 table and its 说明 lines.
 
 use bench_api::Record;
 use bench_api::RecordError;

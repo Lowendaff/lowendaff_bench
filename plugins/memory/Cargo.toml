@@ -13,7 +13,7 @@ plugin-cpu.workspace = true
 serde.workspace = true
 tokio = { workspace = true, features = ["macros", "process", "rt", "sync", "time"] }
 
-# Places the NUMA matrix's tools on a node's CPUs (design memory, §7); Linux only.
+# Places the NUMA matrix's tools on a node's CPUs; Linux only.
 [target.'cfg(target_os = "linux")'.dependencies]
 rustix = { version = "1", features = ["thread"] }
 

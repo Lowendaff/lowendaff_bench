@@ -1,4 +1,4 @@
-//! Chinese terminal output (design D-15): one live section per plugin, columns aligned by
+//! Chinese terminal output: one live section per plugin, columns aligned by
 //! display width so CJK and ASCII line up.
 
 use std::io::Write;

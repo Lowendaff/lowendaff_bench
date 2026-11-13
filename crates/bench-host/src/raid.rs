@@ -1,4 +1,4 @@
-//! RAID cards (system information design §9.5): the PCI devices of class 0x0104, named by the
+//! RAID cards: the PCI devices of class 0x0104, named by the
 //! host's `pci.ids`, and how the disks of the 硬盘 table attach to them.
 
 use std::fs::File;
@@ -104,8 +104,7 @@ pub fn read(root: &Root, disks: &[String]) -> Vec<Card> {
 }
 
 /// How a disk attaches, from its card's driver and the SCSI channel in its sysfs path, which
-/// ends `…/host0/target0:0:18/0:0:18:0/block/sda`. The channels follow each driver's source
-/// (design §9.5).
+/// ends `…/host0/target0:0:18/0:0:18:0/block/sda`. The channels follow each driver's source.
 fn attachment(driver: Option<&str>, segments: &[&str]) -> Attachment {
     let channel = segments
         .iter()

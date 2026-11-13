@@ -37,5 +37,5 @@ unwrap_used = "warn"
 wildcard_imports = "warn"
 
 [profile.release]
-# The orchestrator contains plugin panics only when panics unwind (design §6).
+# The orchestrator contains plugin panics only when panics unwind.
 panic = "unwind"

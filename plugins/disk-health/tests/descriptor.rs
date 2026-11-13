@@ -1,4 +1,4 @@
-//! The item's identity and requirements (design disk-health, §5.1).
+//! The item's identity and requirements.
 
 use std::time::Duration;
 

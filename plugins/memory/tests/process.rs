@@ -1,4 +1,4 @@
-//! Running a tool once (design memory, §5.8, §7): what it printed, its time limit,
+//! Running a tool once: what it printed, its time limit,
 //! cancellation, and on Linux the CPUs it runs on.
 
 use std::path::PathBuf;

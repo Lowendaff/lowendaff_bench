@@ -3,7 +3,7 @@ language: rust
 severity: error
 message: Keep files on the tested disk, under `ctx.work_dir()`, not in /tmp or the system temp directory.
 note: >-
-  Design D-14. /tmp is often tmpfs (Debian 13) or mounted noexec (CIS), so files there measure
+  /tmp is often tmpfs (Debian 13) or mounted noexec (CIS), so files there measure
   memory or cannot run. Tests may use temp directories; this rule covers `src/` only.
 files:
   - crates/*/src/**/*.rs

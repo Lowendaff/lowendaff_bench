@@ -1,8 +1,8 @@
-//! The disks that smartctl's scan finds (design disk-health, §5.2).
+//! The disks that smartctl's scan finds.
 
 use crate::output::Output;
 
-/// smartctl's scan, as in the design: it opens every device to detect its type.
+/// smartctl's scan, which opens every device to detect its type.
 pub const SCAN_ARGS: [&str; 2] = ["--scan-open", "--json"];
 
 /// One device from the scan, read back with `-d <kind> <name>`.

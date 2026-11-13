@@ -1,4 +1,4 @@
-//! Reading what the tools printed (design memory, §5.3–§5.6, §5.8), from their real output on
+//! Reading what the tools printed, from their real output on
 //! both architectures (tests/fixtures/README.md), and from damaged output.
 
 use std::path::Path;

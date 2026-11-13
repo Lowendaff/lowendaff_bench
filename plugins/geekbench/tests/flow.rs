@@ -1,5 +1,4 @@
-//! The item's runs and records with scripted runs instead of Geekbench, and its notes (design
-//! cpu, §6.4, §6.6, §7).
+//! The item's runs and records with scripted runs instead of Geekbench, and its notes.
 
 use std::cell::Cell;
 use std::cell::RefCell;

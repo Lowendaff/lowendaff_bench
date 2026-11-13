@@ -62,7 +62,7 @@ pub fn read(root: &Root) -> Option<Memory> {
     })
 }
 
-/// Memory a test may use without swapping (design memory, §5.2): `MemAvailable` and, in a
+/// Memory a test may use without swapping: `MemAvailable` and, in a
 /// container, at most its cgroup's limit minus its usage. `None` without `/proc/meminfo`.
 #[must_use]
 pub fn usable(root: &Root, kind: PlatformKind) -> Option<u64> {

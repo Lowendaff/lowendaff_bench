@@ -1,4 +1,4 @@
-//! Running a tool once (design memory, §5.8, §7): without a shell, in the C locale, within a
+//! Running a tool once: without a shell, in the C locale, within a
 //! time limit, killed on cancellation, and for the NUMA matrix on the CPUs of one node.
 
 use std::io;
@@ -72,7 +72,7 @@ pub async fn run(ctx: &Context, job: Job) -> Result<Output, AttemptError> {
 }
 
 /// Starts `command` from a new thread that first moves itself to `cpus`, so that the child
-/// inherits them while the runtime's own threads keep theirs (§7).
+/// inherits them while the runtime's own threads keep theirs.
 #[cfg(target_os = "linux")]
 async fn spawn_on(mut command: Command, cpus: Vec<usize>) -> io::Result<Child> {
     let runtime = tokio::runtime::Handle::current();

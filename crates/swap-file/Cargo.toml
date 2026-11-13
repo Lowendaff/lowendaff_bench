@@ -14,7 +14,7 @@ rustix = { version = "1", features = ["param"] }
 tempfile.workspace = true
 
 # The workspace's lints, except that unsafe code is denied rather than forbidden: the two
-# functions that call swapon and swapoff allow it (design cpu, §7.2; CP-07).
+# functions that call swapon and swapoff allow it.
 [lints.rust]
 unsafe_code = "deny"
 

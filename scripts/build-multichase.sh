@@ -1,7 +1,7 @@
 #!/bin/sh
-# Builds static multichase and multiload for the 内存性能 test item (design memory, §4) from the
+# Builds static multichase and multiload for the 内存性能 test item from the
 # source pinned by SHA-256. Unlike the other tools it builds in Debian and links glibc statically:
-# multichase uses glibc's random_r, which musl lacks (ME-15). It runs inside the image named
+# multichase uses glibc's random_r, which musl lacks. It runs inside the image named
 # below on the architecture it builds for; the tools workflow (.github/workflows/tools.yml)
 # starts it and publishes what it writes as RELEASE.
 #

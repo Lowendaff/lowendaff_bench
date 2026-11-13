@@ -6,22 +6,22 @@ A comprehensive test tool for Linux servers (VPS), written in Rust:
 - An orchestrator selects the plugins, downloads the pinned tools they need, runs them in order with timeouts, and prints the results in Chinese.
 - It must run as root.
 
-**Status:** the plugin framework (M0) is in place. Test items are added one at a time: 系统基础信息 (system information), 硬盘健康 (disk health), CPU 性能 (CPU performance), 内存性能 (memory performance), 硬盘性能 (disk performance) and Geekbench 7 so far. The design is in [`docs/design/plugin-system.md`](docs/design/plugin-system.md).
+**Status:** the plugin framework (M0) is in place. Test items are added one at a time: 系统基础信息 (system information), 硬盘健康 (disk health), CPU 性能 (CPU performance), 内存性能 (memory performance), 硬盘性能 (disk performance) and Geekbench 7 so far.
 
-The plugin model is being reworked, one pull request at a time; no test item is added meanwhile
-(the design's §17). The conventions for code, commits and pull requests are in
+The plugin model is being reworked, one pull request at a time; no test item is added
+meanwhile. The conventions for code, commits and pull requests are in
 [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 The tool first detects where it runs: a dedicated server, a virtual machine or a container. It prints this as 运行环境 and runs only the test items made for that platform. For example, 系统基础信息 has a variant for each platform (`system.dedicated`, `system.vm`, `system.container`), and exactly one of them runs. `--list` shows which platforms each item applies to.
 
-| Test item | Shows | Design |
-|-----------|-------|--------|
-| 系统基础信息 | CPU, memory and swap, disks and filesystems, distribution, kernel, uptime, load, TCP congestion control, IPv4/IPv6 reachability; on dedicated servers also the machine, board and firmware, the BMC, ECC, the memory modules and RAID cards | [`docs/design/system-info.md`](docs/design/system-info.md) |
-| 硬盘健康 | Dedicated servers only: each physical disk's SMART health as smartctl judges it, with power-on time, temperature, endurance used, data written, bad blocks and interface errors. Disks behind MegaRAID and 3SNIC RAID cards are included | [`docs/design/disk-health.md`](docs/design/disk-health.md) |
-| CPU 性能 | sysbench's CPU test (primes up to 10000), 20 seconds with one thread and 20 seconds with every usable thread: events per second, and how many times the single-thread rate the multi-thread one is | [`docs/design/cpu.md`](docs/design/cpu.md) |
-| 内存性能 | sysbench's read and write bandwidth and STREAM's Copy, Scale, Add and Triad, each with one thread and with every usable thread; multichase's latency in each cache level and in memory; on machines with several NUMA nodes, the bandwidth (multiload's stream-triad) and latency from each node's CPUs to each node's memory. Every run fits in half of the available memory | [`docs/design/memory.md`](docs/design/memory.md) |
-| 硬盘性能 | Speed and IOPS of the test directory's filesystem, measured with fio exactly as YABS does: mixed random reads and writes (50/50) at 4K, 64K, 512K and 1M. Skipped on a RAM disk or without enough free space | [`docs/design/disk.md`](docs/design/disk.md) |
-| Geekbench 7 | Geekbench 7's single- and multi-core scores and the public result link. The free version uploads every result to the Geekbench Browser; `--skip cpu.geekbench` leaves it out. Needs IPv4 and glibc 2.35 or later, and adds temporary swap when memory is short | [`docs/design/cpu.md`](docs/design/cpu.md) |
+| Test item | Shows |
+|-----------|-------|
+| 系统基础信息 | CPU, memory and swap, disks and filesystems, distribution, kernel, uptime, load, TCP congestion control, IPv4/IPv6 reachability; on dedicated servers also the machine, board and firmware, the BMC, ECC, the memory modules and RAID cards |
+| 硬盘健康 | Dedicated servers only: each physical disk's SMART health as smartctl judges it, with power-on time, temperature, endurance used, data written, bad blocks and interface errors. Disks behind MegaRAID and 3SNIC RAID cards are included |
+| CPU 性能 | sysbench's CPU test (primes up to 10000), 20 seconds with one thread and 20 seconds with every usable thread: events per second, and how many times the single-thread rate the multi-thread one is |
+| 内存性能 | sysbench's read and write bandwidth and STREAM's Copy, Scale, Add and Triad, each with one thread and with every usable thread; multichase's latency in each cache level and in memory; on machines with several NUMA nodes, the bandwidth (multiload's stream-triad) and latency from each node's CPUs to each node's memory. Every run fits in half of the available memory |
+| 硬盘性能 | Speed and IOPS of the test directory's filesystem, measured with fio exactly as YABS does: mixed random reads and writes (50/50) at 4K, 64K, 512K and 1M. Skipped on a RAM disk or without enough free space |
+| Geekbench 7 | Geekbench 7's single- and multi-core scores and the public result link. The free version uploads every result to the Geekbench Browser; `--skip cpu.geekbench` leaves it out. Needs IPv4 and glibc 2.35 or later, and adds temporary swap when memory is short |
 
 ## Usage
 
@@ -37,7 +37,7 @@ sudo lowendaff-bench --config bench.toml    # per-item settings: [plugins."<id>"
   - `0`: the run finished;
   - `2`: usage or config error, or not root;
   - `130`: interrupted.
-- **Proxies.** Tool downloads go through the proxy that `HTTPS_PROXY` or `ALL_PROXY` names (lowercase names work too); `NO_PROXY` exempts hosts. HTTP and SOCKS5 proxies work, and with `socks5h://` the proxy resolves the names. On a server that reaches GitHub poorly, for example, `ssh -D 1080 <a host abroad>` opens a SOCKS5 proxy, and `sudo ALL_PROXY=socks5h://127.0.0.1:1080 lowendaff-bench` uses it: put the variable after `sudo`, which drops most of the caller's environment. A proxy cannot change a tool, since each is pinned by SHA-256 and size. A download that fails on the network names the proxy variable that is set, or suggests setting one. The IPv4/IPv6 check at start connects directly. Design: [`docs/design/plugin-system.md`](docs/design/plugin-system.md) §9.1.
+- **Proxies.** Tool downloads go through the proxy that `HTTPS_PROXY` or `ALL_PROXY` names (lowercase names work too); `NO_PROXY` exempts hosts. HTTP and SOCKS5 proxies work, and with `socks5h://` the proxy resolves the names. On a server that reaches GitHub poorly, for example, `ssh -D 1080 <a host abroad>` opens a SOCKS5 proxy, and `sudo ALL_PROXY=socks5h://127.0.0.1:1080 lowendaff-bench` uses it: put the variable after `sudo`, which drops most of the caller's environment. A proxy cannot change a tool, since each is pinned by SHA-256 and size. A download that fails on the network names the proxy variable that is set, or suggests setting one. The IPv4/IPv6 check at start connects directly.
 
 ## Build
 
@@ -113,7 +113,7 @@ Dependabot (`.github/dependabot.yml`) proposes weekly update PRs for cargo and f
 
 ## Third-party tools
 
-Some test items run external tools. The program downloads each tool as a pinned build and checks its SHA-256 and size before use; it never uses a tool already installed on the host (design P-11). This repository builds the tools and publishes them as immutable GitHub releases (design P-10), except Geekbench.
+Some test items run external tools. The program downloads each tool as a pinned build and checks its SHA-256 and size before use; it never uses a tool already installed on the host. This repository builds the tools and publishes them as immutable GitHub releases, except Geekbench.
 
 | Tool | Version | License | Used by | Release |
 |------|---------|---------|---------|---------|
@@ -125,7 +125,7 @@ Some test items run external tools. The program downloads each tool as a pinned 
 
 Each release holds the binaries for x86_64 and aarch64, the exact sources they were built from, the build script, the license texts (also that of the C library linked statically: musl's, which `fio-3.43-1` lacked, or glibc's for multichase) and `SHA256SUMS`. The workflow `tools` builds each tool with `scripts/build-<tool>.sh` in the image that the script names on its `IMAGE` and `IMAGE_DIGEST` lines: Alpine 3.22, or Debian 13 for multichase, which needs glibc. A pull request that changes a build runs every build without publishing anything. To publish a new build, update the script's `RELEASE` (the tool's version and the build number) and, for a new version, the sources and their SHA-256; merge, run `gh workflow run tools.yml --ref main -f tool=<tool>`, and then update the plugin's pins. The builds are reproducible bit for bit while the images' packages stay the same.
 
-Geekbench 7.1.0, for Geekbench 7 (`cpu.geekbench`), is the exception (design cpu, CP-02). It is closed source and its license forbids redistribution, so the program downloads Primate Labs' own archive from `cdn.geekbench.com`, pinned by SHA-256 and size, and unpacks it. The free license allows personal, non-commercial use on one's own devices only, requires every result to be uploaded to the Geekbench Browser, and forbids automated use; the owner accepted that risk (design cpu, §10).
+Geekbench 7.1.0, for Geekbench 7 (`cpu.geekbench`), is the exception. It is closed source and its license forbids redistribution, so the program downloads Primate Labs' own archive from `cdn.geekbench.com`, pinned by SHA-256 and size, and unpacks it. The free license allows personal, non-commercial use on one's own devices only, requires every result to be uploaded to the Geekbench Browser, and forbids automated use; the owner accepted that risk.
 
 ## Code style
 
@@ -159,9 +159,9 @@ The ast-grep rules in `ast-grep/rules/` cover what rustc, clippy and rustfmt can
 
 - one item per `use` statement, and free functions called through their module;
 - no `#[non_exhaustive]` (see below);
-- no files in /tmp or the system temp directory (design D-14);
-- no programs started by name from the host instead of pinned tools (design D-13, P-11);
-- no printing from the library crates (`bench-api`, `bench-host`) or plugins, which report through `ctx.emit` (design D-05, D-06).
+- no files in /tmp or the system temp directory;
+- no programs started by name from the host instead of pinned tools;
+- no printing from the library crates (`bench-api`, `bench-host`) or plugins, which report through `ctx.emit`.
 
 **Deliberate interpretations:**
 

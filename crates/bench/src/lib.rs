@@ -1,5 +1,5 @@
 //! lowendaff-bench orchestrator: plans plugins, provisions their tools, runs them in
-//! order and prints the results. Design: `docs/design/plugin-system.md`.
+//! order and prints the results.
 
 pub mod app;
 pub mod fetcher;

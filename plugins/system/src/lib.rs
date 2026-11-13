@@ -1,4 +1,4 @@
-//! 系统基础信息 (design `docs/design/system-info.md`): one plugin per kind of platform.
+//! 系统基础信息: one plugin per kind of platform.
 //! They share everything except the parts that differ between dedicated servers,
 //! virtual machines and containers.
 

@@ -1,5 +1,5 @@
 #!/bin/sh
-# Checks commit messages against CONTRIBUTING.md "Commits" (design plugin-system, §15): every
+# Checks commit messages against CONTRIBUTING.md "Commits": every
 # commit of <base>..<head> and, when PR_TITLE is set, the pull request's title, which becomes the
 # header of its squash commit on main. PR_NUMBER, when set, counts in the title's width, since
 # GitHub appends " (#N)" to it.

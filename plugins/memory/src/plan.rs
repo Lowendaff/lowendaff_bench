@@ -1,4 +1,4 @@
-//! What 内存性能 runs, and with how much memory (design memory, §5.2–§5.6), worked out from
+//! What 内存性能 runs, and with how much memory, worked out from
 //! the host facts alone.
 
 use std::num::NonZeroUsize;
@@ -22,16 +22,16 @@ pub const MIB: u64 = 1 << 20;
 /// One GiB, in bytes.
 pub const GIB: u64 = 1 << 30;
 
-/// The last-level caches assumed when the kernel does not describe the caches (§5.2).
+/// The last-level caches assumed when the kernel does not describe the caches.
 pub const UNKNOWN_CACHE: u64 = 32 * MIB;
 
-/// STREAM's sizes, in millions of elements per array (§4).
+/// STREAM's sizes, in millions of elements per array.
 pub const STREAM_SIZES: [u64; 6] = [2, 4, 8, 16, 32, 64];
 
 /// No buffer is halved below a page.
 const PAGE: u64 = 4 * KIB;
 
-/// What the plugin reads about the host (§5.2).
+/// What the plugin reads about the host.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Host {
     /// Memory a test may use without swapping (A).
@@ -97,7 +97,7 @@ pub struct Cell {
     pub latency: u64,
 }
 
-/// The NUMA matrix (§5.6): threads on the rows' nodes, memory on the columns' nodes.
+/// The NUMA matrix: threads on the rows' nodes, memory on the columns' nodes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Matrix {
     /// The nodes with CPUs this process may use.
@@ -108,7 +108,7 @@ pub struct Matrix {
     pub cells: Vec<Vec<Cell>>,
 }
 
-/// Every run of the item and its buffers (§5.2–§5.6).
+/// Every run of the item and its buffers.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Plan {
     /// The threads of the multi-thread runs; with one, there are none.
@@ -190,7 +190,7 @@ fn fit(start: u64, count: u64, budget: u64) -> u64 {
     size
 }
 
-/// The buffer of each of `threads` threads (§5.3, §5.6): the smallest power of two of at least
+/// The buffer of each of `threads` threads: the smallest power of two of at least
 /// 4 × `cache` ÷ `threads` and at least 1 MiB, halved until all of them fit in `budget`.
 fn per_thread(cache: u64, threads: usize, budget: u64) -> u64 {
     let threads = threads as u64;
@@ -199,7 +199,7 @@ fn per_thread(cache: u64, threads: usize, budget: u64) -> u64 {
 }
 
 /// The total of the highest level's instances, counting only those that serve `cpus` when
-/// given (§5.2); `None` when there is none.
+/// given; `None` when there is none.
 fn last_level(caches: &[Cache], cpus: Option<&[usize]>) -> Option<u64> {
     let holds_data = |cache: &&Cache| cache.kind != CacheKind::Instruction;
     let level = caches
@@ -217,7 +217,7 @@ fn last_level(caches: &[Cache], cpus: Option<&[usize]>) -> Option<u64> {
     (total > 0).then_some(total)
 }
 
-/// The latency rows (§5.5): half of one instance of L1d, L2 and L3, then memory with `memory`
+/// The latency rows: half of one instance of L1d, L2 and L3, then memory with `memory`
 /// bytes; and the cache levels without a size.
 fn levels(caches: &[Cache], memory: u64) -> (Vec<Level>, Vec<&'static str>) {
     let mut levels = Vec::new();
@@ -241,7 +241,7 @@ fn levels(caches: &[Cache], memory: u64) -> (Vec<Level>, Vec<&'static str>) {
     (levels, missing)
 }
 
-/// STREAM's size (§5.4): the smallest whose array is at least 4 × `cache`, else the largest;
+/// STREAM's size: the smallest whose array is at least 4 × `cache`, else the largest;
 /// then the largest no bigger whose three arrays fit in `budget`. `None` when none fits.
 fn stream(cache: u64, budget: u64) -> Option<u64> {
     let four = cache.saturating_mul(4);
@@ -256,7 +256,7 @@ fn stream(cache: u64, budget: u64) -> Option<u64> {
         .find(|&millions| 3 * array_bytes(millions) <= budget)
 }
 
-/// The NUMA matrix (§5.6): a row for each node with CPUs this process may use, a column for
+/// The NUMA matrix: a row for each node with CPUs this process may use, a column for
 /// each node with memory it may allocate on; `None` with fewer than two cells or when the
 /// allowed CPUs are unknown.
 fn matrix(host: &Host, cache: u64, budget: u64) -> Option<Matrix> {

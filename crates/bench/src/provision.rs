@@ -1,4 +1,4 @@
-//! Tool provisioning (design D-13): download every pinned tool the plan needs before the
+//! Tool provisioning: download every pinned tool the plan needs before the
 //! first test, verify size and SHA-256, and only then make it executable or unpack it.
 
 use std::collections::BTreeMap;
@@ -76,8 +76,8 @@ where
 }
 
 /// Streams `body` into `dir` and installs it as `tool.form` says: an executable becomes
-/// `dir/<name>`, and an archive is unpacked into the directory `dir/<name>` (design cpu,
-/// §6.3). The size limit is enforced while reading, the SHA-256 is checked before anything
+/// `dir/<name>`, and an archive is unpacked into the directory `dir/<name>`. The size limit
+/// is enforced while reading, the SHA-256 is checked before anything
 /// becomes executable or is unpacked, and on any failure the partial files are removed.
 /// Returns the path of the executable.
 pub async fn install<R: AsyncRead + Unpin>(

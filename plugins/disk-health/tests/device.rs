@@ -1,4 +1,4 @@
-//! The scan (design disk-health, §5.2).
+//! The scan.
 
 mod common;
 

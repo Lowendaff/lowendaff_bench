@@ -1,4 +1,4 @@
-//! Every pinned tool downloads and verifies (design disk-health, §7.3). Smoke cannot see a
+//! Every pinned tool downloads and verifies. Smoke cannot see a
 //! wrong pin of a tool whose item does not apply on the CI runners, such as smartctl on
 //! virtual machines. Skipped by default because it downloads; CI runs it on both
 //! architectures.

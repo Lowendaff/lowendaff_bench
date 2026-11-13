@@ -1,4 +1,4 @@
-//! The kernel's count of processes killed for lack of memory (design cpu, §6.5).
+//! The kernel's count of processes killed for lack of memory.
 
 use bench_host::Root;
 use plugin_geekbench::process;

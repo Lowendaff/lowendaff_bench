@@ -1,4 +1,4 @@
-//! Tools that come as archives (design cpu, §6.3): checked before unpacking, unpacked without
+//! Tools that come as archives: checked before unpacking, unpacked without
 //! their top-level directory, and refused when an entry could land outside the tool's
 //! directory.
 

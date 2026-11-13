@@ -1,7 +1,7 @@
-//! HTTPS download for tool provisioning (design §9): rustls with the ring provider only,
+//! HTTPS download for tool provisioning: rustls with the ring provider only,
 //! and bundled Mozilla roots so minimal images without `ca-certificates` still work.
 //! Integrity comes from the pinned SHA-256, not from TLS. Downloads go through the proxy the
-//! standard environment variables name, SOCKS5 included (design §9.1, P-13 and P-15).
+//! standard environment variables name, SOCKS5 included.
 
 use std::io;
 use std::sync::Arc;
@@ -80,7 +80,7 @@ impl Fetcher {
     }
 }
 
-/// The end of a network error's reason (design §9.1, P-16): which proxy variable is set, or
+/// The end of a network error's reason: which proxy variable is set, or
 /// how to set one. It names the variable only, never its value, which may hold a password.
 /// `lookup` reads a variable.
 #[must_use]

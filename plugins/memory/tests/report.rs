@@ -1,4 +1,4 @@
-//! Texts of 内存性能 (design memory, §5.7, §5.8) beyond those the flow's tests show.
+//! Texts of 内存性能 beyond those the flow's tests show.
 
 use plugin_memory::plan::GIB;
 use plugin_memory::plan::KIB;

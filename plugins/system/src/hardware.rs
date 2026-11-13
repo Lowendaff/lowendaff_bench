@@ -1,5 +1,5 @@
-//! The hardware lines of dedicated servers (system information design §9), placed by the report
-//! as S-16 says: machine, board, firmware and BMC before the CPU; ECC and the memory modules
+//! The hardware lines of dedicated servers, placed by the report next to what they belong
+//! to: machine, board, firmware and BMC before the CPU; ECC and the memory modules
 //! after Swap; RAID cards before the disks.
 
 use bench_api::Record;

@@ -1,5 +1,5 @@
-//! CPU 性能 (design cpu, §5): sysbench's CPU test with one thread and with every usable
-//! thread, as the owner's `linux_bench` runs it (CP-04), with retries (CP-14).
+//! CPU 性能: sysbench's CPU test with one thread and with every usable
+//! thread, as the owner's `linux_bench` runs it, with retries.
 
 pub mod report;
 pub mod sysbench;
@@ -28,7 +28,7 @@ use crate::sysbench::RunError;
 use crate::sysbench::Success;
 
 /// sysbench 1.0.20 from the release `sysbench-1.0.20-1`, which the tools workflow built and
-/// published (design cpu, §4).
+/// published.
 pub const SYSBENCH: ToolSpec = ToolSpec {
     name: "sysbench",
     version: "1.0.20",
@@ -58,7 +58,7 @@ pub const SYSBENCH: ToolSpec = ToolSpec {
 /// An attempt runs for 20 seconds; the rest is room to start and to stop.
 const ATTEMPT_LIMIT: Duration = Duration::from_secs(60);
 
-/// CPU 性能. It has no settings: every parameter is `linux_bench`'s (CP-04).
+/// CPU 性能. It has no settings: every parameter is `linux_bench`'s.
 #[derive(Debug, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Sysbench {}
@@ -72,7 +72,7 @@ impl Plugin for Sysbench {
             tools: &[SYSBENCH],
             ..Requirements::NONE
         },
-        // Two runs of up to four attempts of up to 60 seconds each (CP-14).
+        // Two runs of up to four attempts of up to 60 seconds each.
         timeout: Duration::from_secs(10 * 60),
     };
 

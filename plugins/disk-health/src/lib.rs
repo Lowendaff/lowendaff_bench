@@ -1,4 +1,4 @@
-//! 硬盘健康 (design `docs/design/disk-health.md`): the SMART health of every physical disk
+//! 硬盘健康: the SMART health of every physical disk
 //! of a dedicated server, read with smartctl.
 
 use std::future::Future;
@@ -32,7 +32,7 @@ pub mod reading;
 pub mod report;
 
 /// smartctl 7.5 from the release `smartctl-7.5-1`, which the smartctl workflow built and
-/// published (design disk-health, §4).
+/// published.
 const SMARTCTL: ToolSpec = ToolSpec {
     name: "smartctl",
     version: "7.5",
@@ -84,7 +84,7 @@ impl Plugin for Smartctl {
     }
 }
 
-/// The item's flow (design §5.2), with smartctl injected: the item runs the pinned binary,
+/// The item's flow, with smartctl injected: the item runs the pinned binary,
 /// tests return fixtures. `smartctl` gets the arguments and returns the standard output.
 /// Device nodes are looked up and removed under `root`.
 pub async fn check<F, Fut>(ctx: &Context, root: &Root, smartctl: F) -> Result<(), PluginError>

@@ -1,4 +1,4 @@
-//! Every outcome the orchestrator must produce (design §8), ported from the spike.
+//! Every outcome the orchestrator must produce, ported from the spike.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;

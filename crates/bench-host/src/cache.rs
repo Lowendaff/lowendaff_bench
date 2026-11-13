@@ -1,4 +1,4 @@
-//! CPU caches: every instance once, with the CPUs that share it (design memory, §6).
+//! CPU caches: every instance once, with the CPUs that share it.
 
 use std::collections::BTreeSet;
 

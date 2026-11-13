@@ -1,4 +1,4 @@
-//! fio as YABS v2026-10-31 runs it (design disk, §5): the jobs, their arguments and their
+//! fio as YABS v2026-10-31 runs it: the jobs, their arguments and their
 //! terse results.
 
 use std::ffi::OsString;

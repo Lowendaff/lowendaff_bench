@@ -1,14 +1,14 @@
 # Contributing
 
 This guide holds the conventions that every change follows; CI enforces most of them (README
-"Gates"). The decisions behind them are in `docs/design/`. The plugin model is being reworked
-(`docs/design/plugin-system.md`, §17); the crate layout and the steps to add a plugin join this
-guide when that work ends.
+"Gates"). The decisions behind them are in `docs/design/`. The plugin model is being reworked,
+one pull request at a time; the crate layout and the steps to add a plugin join this guide when
+that work ends.
 
 ## Languages
 
 - Code, identifiers, comments, documents and commit messages are English.
-- Text that the program shows its users is Chinese (P-05); messages for developers, such as the
+- Text that the program shows its users is Chinese; messages for developers, such as the
   registry checks, are English.
 - Pull request bodies are Chinese, in the sections of the template.
 
@@ -25,14 +25,15 @@ Rust follows the Google Rust Style Guide, with these rules of this repository:
   `unwrap()`, which only tests may use; an assertion's message says what was expected.
 - Public enums are not `#[non_exhaustive]` (rule `no-non-exhaustive`): every consumer lives in
   the workspace, so a new variant is a compile error instead of a silent default.
-- `unsafe` is forbidden, except in `crates/swap-file` (`docs/design/cpu.md`, CP-07).
+- `unsafe` is forbidden, except in `crates/swap-file`, whose two calls turn swap on and off.
 - Lines are at most 100 columns; a CJK character counts as two.
 - Library crates and plugins never print (rule `no-print-in-plugins`); they report through the
   plugin context.
 - No system temp directory in `src/` (rule `no-temp-dir`): Debian keeps `/tmp` in memory, and
   hardened hosts mount it `noexec`.
-- No program from the host (rule `no-host-tools`, P-11): external tools are pinned builds
-  (`docs/design/plugin-system.md`, §9). Reading the host's files, such as `/proc`, is fine.
+- No program from the host (rule `no-host-tools`): external tools are pinned builds, so that
+  results do not depend on what a server has installed. Reading the host's files, such as
+  `/proc`, is fine.
 - Code that reads the environment takes it as a parameter, so that tests need no
   `std::env::set_var`, which is `unsafe` in Rust 2024.
 

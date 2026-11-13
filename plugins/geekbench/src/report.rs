@@ -1,4 +1,4 @@
-//! What Geekbench 7 shows (design cpu, §6.6): the scores and the result link, and notes on
+//! What Geekbench 7 shows: the scores and the result link, and notes on
 //! memory, swap and retries.
 
 use std::io;
@@ -19,7 +19,7 @@ pub const TIMED_OUT: &str = "超过 60 分钟仍未结束，已停止";
 /// The reason when the item was cancelled.
 pub const CANCELLED: &str = "已中断";
 
-/// Why no swap is added when the kernel would not use it (CP-18).
+/// Why no swap is added when the kernel would not use it.
 pub const SWAP_UNUSED: &str = "本机 vm.swappiness 为 0，内核不会把内存换出到 swap";
 
 /// 单核, 多核 and 结果链接.

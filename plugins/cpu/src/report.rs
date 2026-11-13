@@ -1,4 +1,4 @@
-//! What CPU 性能 shows (design cpu, §5.3, §5.4): the runs in a table, the ratio between them,
+//! What CPU 性能 shows: the runs in a table, the ratio between them,
 //! and notes on retries.
 
 use bench_api::Record;

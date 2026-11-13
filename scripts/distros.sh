@@ -1,9 +1,9 @@
 #!/bin/sh
-# Runs the 系统基础信息 item in containers of many distributions (design system-info, S-05).
+# Runs the 系统基础信息 item in containers of many distributions.
 # In each, the 系统 line must equal the image's own os-release PRETTY_NAME, the item must
-# complete, and its uptime and load must be marked as the host's, which Docker shares (S-22).
+# complete, and its uptime and load must be marked as the host's, which Docker shares.
 # Then Geekbench 7 runs without a network, so that nothing is downloaded or uploaded:
-# its reason to skip must fit the image's own glibc (design cpu, §9.3). CI runs it on both
+# its reason to skip must fit the image's own glibc. CI runs it on both
 # architectures; README "Gates" documents it.
 #
 # Usage: scripts/distros.sh <path to a static lowendaff-bench> [<mirror>]
@@ -44,7 +44,7 @@ for image in $images; do
     reported=$(printf '%s\n' "$output" | sed -n 's/^  系统  *//p')
     [ "$reported" = "$expected" ] || fail "$name: 系统 is \"$reported\", expected \"$expected\""
     printf '%s\n' "$output" | grep -q '^  完成，用时' || fail "$name: the item did not complete: $output"
-    # Docker shares the kernel's uptime and load, so both are the host's (design system-info, S-22).
+    # Docker shares the kernel's uptime and load, so both are the host's.
     for label in 运行时间 负载; do
         printf '%s\n' "$output" | grep -q "^  $label  *.*（宿主机）\$" ||
             fail "$name: $label is not marked as the host's: $output"

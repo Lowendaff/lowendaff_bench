@@ -1,4 +1,4 @@
-//! The SMBIOS table (system information design §9.4, §9.6): what the captured hosts' tables
+//! The SMBIOS table: what the captured hosts' tables
 //! hold, each source the table can come from, and the rules for synthetic structures.
 
 mod common;
@@ -316,7 +316,7 @@ fn an_unreadable_dev_mem_says_why() {
     assert!(matches!(read(&dir, "x86_64"), Err(Unreadable::DevMem(_))));
 }
 
-/// The rules of design §9.4 on structures of SMBIOS 3.3 and later.
+/// A table of SMBIOS 3.3 or later, for the rules on memory modules and ECC.
 fn synthetic() -> Smbios {
     let ddr5 = Device {
         array: 0x10,
@@ -455,7 +455,7 @@ fn memory_devices_follow_the_rules_of_design_9_4() {
                 part_number: Some("M393A4K40CB2-CTD".to_owned()),
                 ..slot(Some("DIMM 1"), Capacity::Empty)
             },
-            // Installed but not in use (design S-20).
+            // Installed but not in use.
             Slot {
                 name: Some("DIMM 2".to_owned()),
                 capacity: Capacity::Disabled,

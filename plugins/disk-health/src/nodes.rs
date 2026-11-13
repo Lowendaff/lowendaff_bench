@@ -1,4 +1,4 @@
-//! The device nodes that smartctl creates to reach MegaRAID disks (design disk-health, §6).
+//! The device nodes that smartctl creates to reach MegaRAID disks.
 
 use std::fs;
 use std::io;

@@ -53,7 +53,7 @@ pub enum Virtualization {
     NotApplicable,
 }
 
-/// Threads a test can run at once (design cpu, §5.2): the logical CPUs, or in a container
+/// Threads a test can run at once: the logical CPUs, or in a container
 /// the CPUs of its cpuset when it has one. 系统基础信息 shows the same number.
 #[must_use]
 pub fn threads(logical: usize, kind: PlatformKind, cpuset: Option<usize>) -> usize {
@@ -75,7 +75,7 @@ pub fn usable_threads(root: &Root, kind: PlatformKind) -> Option<usize> {
     Some(threads(logical, kind, cpuset))
 }
 
-/// The CPUs this process may run on (design memory, §5.2), from `Cpus_allowed_list` in
+/// The CPUs this process may run on, from `Cpus_allowed_list` in
 /// `/proc/self/status`: its affinity, within a container's cpuset, in the kernel's numbering,
 /// which the NUMA nodes use too. `None` when it is missing.
 #[must_use]

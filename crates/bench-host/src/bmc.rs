@@ -1,4 +1,4 @@
-//! The BMC (system information design §9.3): from the IPMI driver, else the interface that
+//! The BMC: from the IPMI driver, else the interface that
 //! SMBIOS type 38 or ACPI's SPMI table describes, else ACPI's IPMI device alone. No IPMI
 //! command is sent.
 
@@ -54,7 +54,7 @@ pub fn read(root: &Root, smbios: Option<&Smbios>) -> Option<Bmc> {
         .or_else(|| acpi_device(root).then_some(Bmc::Present))
 }
 
-/// The vendor an IANA enterprise number names, for the server and BMC vendors of design §9.3.
+/// The vendor an IANA enterprise number names, for the server and BMC makers listed here.
 /// Checked against IANA's registry, last updated 2026-11-06, on 2026-11-09.
 #[must_use]
 pub fn vendor(number: u32) -> Option<&'static str> {

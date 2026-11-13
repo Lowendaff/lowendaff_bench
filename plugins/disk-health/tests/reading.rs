@@ -1,4 +1,4 @@
-//! One disk's health and values (design disk-health, §5.4, §5.6).
+//! One disk's health and values.
 
 mod common;
 

@@ -1,7 +1,6 @@
 # Geekbench fixtures
 
-Console output of Geekbench 7.1.0 (`geekbench7 --cpu`), as the design describes (design cpu,
-§3.2). All four were captured on 2026-11-09.
+Console output of Geekbench 7.1.0 (`geekbench7 --cpu`). All four were captured on 2026-11-09.
 
 | File | Where | Network | Output |
 |---|---|---|---|

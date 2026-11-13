@@ -1,4 +1,4 @@
-//! 内存性能 (design memory): sysbench's read and write bandwidth, STREAM, the latency of each
+//! 内存性能: sysbench's read and write bandwidth, STREAM, the latency of each
 //! cache level and of memory, and on machines with several NUMA nodes the bandwidth and latency
 //! between them, each in a chapter of its own.
 
@@ -33,7 +33,7 @@ use crate::plan::Plan;
 use crate::process::Job;
 
 /// STREAM 5.10 from the release `stream-5.10-1`: six programs of one size each, the smallest
-/// named; the plugin runs the others beside it (design memory, §4, §5.1).
+/// named; the plugin runs the others beside it.
 pub const STREAM: ToolSpec = ToolSpec {
     name: "stream",
     version: "5.10",
@@ -62,7 +62,7 @@ pub const STREAM: ToolSpec = ToolSpec {
     ],
 };
 
-/// multichase and multiload from the release `multichase-2026.10.01-1` (design memory, §4).
+/// multichase and multiload from the release `multichase-2026.10.01-1`.
 pub const MULTICHASE: ToolSpec = ToolSpec {
     name: "multichase",
     version: "2026.10.01",
@@ -91,19 +91,19 @@ pub const MULTICHASE: ToolSpec = ToolSpec {
     ],
 };
 
-/// Attempts per run: the first one and 3 retries (§5.3, §5.4).
+/// Attempts per run: the first one and 3 retries.
 pub const ATTEMPTS: usize = 4;
 
-/// The half-second samples of each multichase run: 2.5 seconds (§5.5).
+/// The half-second samples of each multichase run: 2.5 seconds.
 pub const LATENCY_SAMPLES: u32 = 5;
 
-/// The samples of each multiload run (§5.6).
+/// The samples of each multiload run.
 pub const BANDWIDTH_SAMPLES: u32 = 3;
 
-/// A sysbench run lasts 10 seconds; the rest is room to start and to stop (§5.3).
+/// A sysbench run lasts 10 seconds; the rest is room to start and to stop.
 const SYSBENCH_LIMIT: Duration = Duration::from_secs(60);
 
-/// A STREAM run with the largest arrays takes seconds; the limit is the design's (§5.4).
+/// A STREAM run with the largest arrays takes seconds; the limit leaves ample room.
 const STREAM_LIMIT: Duration = Duration::from_secs(180);
 
 /// A multichase or multiload run samples for a few seconds after filling its buffer.
@@ -123,7 +123,7 @@ impl Plugin for Memory {
             tools: &[SYSBENCH, STREAM, MULTICHASE],
             ..Requirements::NONE
         },
-        // Enough for the matrix of up to 13 nodes (§5.1).
+        // Enough for the matrix of up to 13 nodes.
         timeout: Duration::from_secs(30 * 60),
     };
 
@@ -152,7 +152,7 @@ pub struct Tools {
     pub multichase: PathBuf,
 }
 
-/// Runs the four chapters of `plan` and emits the records; `run` runs one job (§5.8). A chapter
+/// Runs the four chapters of `plan` and emits the records; `run` runs one job. A chapter
 /// that fails leaves the others running, and the item then fails.
 pub async fn measure<F, Fut>(
     ctx: &Context,
@@ -300,7 +300,7 @@ fn notes(ctx: &Context, id: &str, notes: Vec<String>) {
     }
 }
 
-/// sysbench's chapter (§5.3): reading and writing, with one thread and with all of them.
+/// sysbench's chapter: reading and writing, with one thread and with all of them.
 async fn sysbench<F, Fut>(
     ctx: &Context,
     tools: &Tools,
@@ -388,7 +388,7 @@ where
     Ok(end)
 }
 
-/// STREAM's chapter (§5.4): its four kernels with one thread and with all of them.
+/// STREAM's chapter: its four kernels with one thread and with all of them.
 async fn stream<F, Fut>(
     ctx: &Context,
     tools: &Tools,
@@ -461,7 +461,7 @@ where
     Ok(end)
 }
 
-/// The latency chapter (§5.5): one multichase run per cache level and one in memory.
+/// The latency chapter: one multichase run per cache level and one in memory.
 async fn latency<F, Fut>(
     ctx: &Context,
     tools: &Tools,
@@ -525,7 +525,7 @@ where
     Ok(end)
 }
 
-/// The NUMA chapter (§5.6): bandwidth and latency from each node's CPUs to each node's memory.
+/// The NUMA chapter: bandwidth and latency from each node's CPUs to each node's memory.
 async fn numa<F, Fut>(
     ctx: &Context,
     tools: &Tools,

@@ -1,4 +1,4 @@
-//! The estimate, the available memory and the temporary swap (design cpu, §7.1; CP-06).
+//! The estimate, the available memory and the temporary swap.
 
 use bench_host::Root;
 use bench_host::memory::CgroupLimits;
