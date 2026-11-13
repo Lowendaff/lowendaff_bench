@@ -10,7 +10,7 @@ that work ends.
 - Code, identifiers, comments, documents and commit messages are English.
 - Text that the program shows its users is Chinese; messages for developers, such as the
   registry checks, are English.
-- Pull request bodies are Chinese, in the sections of the template.
+- Pull request bodies are English, in the sections of the template.
 
 ## Code
 
@@ -77,8 +77,8 @@ Every commit also builds and passes the gates on its own, with `--locked`;
 - Work on a branch; `main` takes pull requests only, merged by squash.
 - The title becomes the header of the squash commit on `main`, so it follows the header rule, and
   with ` (#N)` appended it fits in 100 columns. The squash message lists the commit messages.
-- The body, in Chinese, follows `.github/pull_request_template.md`, with lines of at most 100
-  columns.
+- The body follows `.github/pull_request_template.md`, in the sections Background, Changes,
+  Verification and Remaining issues, with lines of at most 100 columns.
 - A pull request is merged only with the owner's approval and with every check green on its
   exact head; its branch is then deleted.
 - Once CI has passed, add further fixes as new commits on top instead of rewriting the branch.
