@@ -8,6 +8,8 @@ use std::time::Duration;
 use bench::app;
 use bench::app::Cli;
 use bench::app::EXIT_INTERRUPTED;
+use bench::orchestrator::Planned;
+use bench::results::Measured;
 use bench_api::CancellationToken;
 use bench_api::Context;
 use bench_api::Descriptor;
@@ -27,7 +29,10 @@ use bench_host::glibc::Libc;
 use bench_host::platform::Hypervisor;
 use bench_host::platform::Platform;
 use bench_host::platform::PlatformKind;
+use common::Captured;
 use serde::Deserialize;
+
+mod common;
 
 #[derive(Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -75,6 +80,29 @@ const REGISTRY: &[Registration] = &[
     bench_api::register::<Other>(),
 ];
 
+/// A group of one plugin, whose id is the group's name.
+#[derive(Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct Lone {}
+
+impl Plugin for Lone {
+    const DESCRIPTOR: Descriptor = Descriptor {
+        id: "lone",
+        title: "单独的测试",
+        ..Good::DESCRIPTOR
+    };
+
+    async fn run(&self, _ctx: &Context) -> Result<(), PluginError> {
+        Ok(())
+    }
+}
+
+const GROUPS: &[Registration] = &[
+    bench_api::register::<Good>(),
+    bench_api::register::<Lone>(),
+    bench_api::register::<Other>(),
+];
+
 fn cli(args: &[&str]) -> Cli {
     use clap::Parser;
 
@@ -84,6 +112,29 @@ fn cli(args: &[&str]) -> Cli {
 
 fn ids(list: &[&str]) -> Vec<String> {
     list.iter().map(|id| (*id).to_owned()).collect()
+}
+
+/// Runs the plan as the program does, and returns the exit code, the report and the progress
+/// log, once the run directory is gone. Every run is captured, so that no test logs while
+/// another listens (see `common`).
+async fn execute(
+    planned: Vec<Planned<Measured>>,
+    env: Env,
+    cancel: &CancellationToken,
+) -> (u8, String, Vec<String>) {
+    let work = tempfile::tempdir().expect("a work directory for the run");
+    let mut out = Vec::new();
+    let (log, capturing) = Captured::start(false);
+    let code = app::execute(planned, env, work.path(), cancel, &mut out, None)
+        .await
+        .expect("the run starts");
+    drop(capturing);
+    let left = std::fs::read_dir(work.path())
+        .expect("the work directory stays")
+        .count();
+    assert_eq!(left, 0, "run directory must be removed");
+    let report = String::from_utf8(out).expect("the report is UTF-8");
+    (code, report, log.lines())
 }
 
 #[test]
@@ -110,7 +161,35 @@ fn selection_keeps_registry_order_and_rejects_unknown_ids() {
     );
     assert_eq!(
         app::select(REGISTRY, &ids(&["nope"]), &ids(&["nada"])).unwrap_err(),
-        ["未知测试项 `nope`", "未知测试项 `nada`"]
+        ["未知测试项或分组 `nope`", "未知测试项或分组 `nada`"]
+    );
+}
+
+#[test]
+fn a_group_name_selects_every_plugin_of_the_group() {
+    assert_eq!(bench_api::validate_registry(GROUPS), Vec::<String>::new());
+    assert_eq!(
+        app::select(GROUPS, &ids(&["test"]), &[]).unwrap(),
+        ["test.good", "test.other"]
+    );
+    assert_eq!(app::select(GROUPS, &[], &ids(&["test"])).unwrap(), ["lone"]);
+    assert_eq!(
+        app::select(GROUPS, &ids(&["test.other", "lone"]), &[]).unwrap(),
+        ["lone", "test.other"]
+    );
+    assert_eq!(
+        app::select(GROUPS, &ids(&["test"]), &ids(&["test.good"])).unwrap(),
+        ["test.other"]
+    );
+    assert_eq!(
+        app::select(GROUPS, &ids(&["tes", "test."]), &ids(&["good", "lon"])).unwrap_err(),
+        [
+            "未知测试项或分组 `tes`",
+            "未知测试项或分组 `test.`",
+            "未知测试项或分组 `good`",
+            "未知测试项或分组 `lon`",
+        ],
+        "a name is a whole id or group"
     );
 }
 
@@ -153,7 +232,6 @@ fn config_file_holds_plugin_tables_only() {
 
 #[tokio::test]
 async fn a_run_prints_sections_and_summary_then_removes_its_directory() {
-    let work = tempfile::tempdir().unwrap();
     let dir = tempfile::tempdir().unwrap();
     let config = dir.path().join("bench.toml");
     std::fs::write(&config, "[plugins.\"test.good\"]\nsamples = 3\n").unwrap();
@@ -167,23 +245,13 @@ async fn a_run_prints_sections_and_summary_then_removes_its_directory() {
         REGISTRY,
     )
     .unwrap();
-    let mut out = Vec::new();
 
-    let code = app::execute(
-        planned,
-        Env::default(),
-        work.path(),
-        &CancellationToken::new(),
-        &mut out,
-    )
-    .await
-    .unwrap();
+    let (code, text, _) = execute(planned, Env::default(), &CancellationToken::new()).await;
 
-    let text = String::from_utf8(out).unwrap();
     assert_eq!(code, 0);
     assert!(
         text.starts_with(&format!(
-            "lowendaff-bench {}\n运行环境：未检测到虚拟化\n\n【示例测试】\n",
+            "lowendaff-bench {}\n运行环境：未检测到虚拟化\n\n【test】\n",
             env!("CARGO_PKG_VERSION")
         )),
         "{text}"
@@ -193,29 +261,22 @@ async fn a_run_prints_sections_and_summary_then_removes_its_directory() {
         text.contains("\n共 1 项：完成 1，跳过 0，失败 0，超时 0，中断 0。总用时 "),
         "{text}"
     );
-    assert_eq!(
-        std::fs::read_dir(work.path()).unwrap().count(),
-        0,
-        "run directory must be removed"
-    );
 }
 
 #[tokio::test]
 async fn an_interrupted_run_exits_130_and_still_lists_every_plugin() {
-    let work = tempfile::tempdir().unwrap();
     let cancel = CancellationToken::new();
     cancel.cancel();
     let planned = app::prepare(&cli(&[]), REGISTRY).unwrap();
-    let mut out = Vec::new();
 
-    let code = app::execute(planned, Env::default(), work.path(), &cancel, &mut out)
-        .await
-        .unwrap();
+    let (code, text, _) = execute(planned, Env::default(), &cancel).await;
 
-    let text = String::from_utf8(out).unwrap();
     assert_eq!(code, EXIT_INTERRUPTED);
-    assert!(text.contains("【示例测试】\n  已中断\n"), "{text}");
-    assert!(text.contains("【另一个测试】\n  已中断\n"), "{text}");
+    assert!(
+        text.contains("【test】\n  示例测试\n    已中断\n  另一个测试\n    已中断\n"),
+        "two plugins of one group share a section: {text}"
+    );
+    assert_eq!(text.matches("【test】").count(), 1, "{text}");
     assert!(
         text.contains("共 2 项：完成 0，跳过 0，失败 0，超时 0，中断 2。"),
         "{text}"
@@ -319,43 +380,77 @@ async fn only_plugins_for_the_detected_platform_run() {
         bench_api::validate_registry(PLATFORM_REGISTRY),
         Vec::<String>::new()
     );
-    let work = tempfile::tempdir().unwrap();
     let planned = app::prepare(&cli(&[]), PLATFORM_REGISTRY).unwrap();
     let env = Env {
         platform: Platform::Vm(Hypervisor::Kvm),
         ..Env::default()
     };
-    let mut out = Vec::new();
 
-    let code = app::execute(
-        planned,
-        env,
-        work.path(),
-        &CancellationToken::new(),
-        &mut out,
-    )
-    .await
-    .unwrap();
+    let (code, text, log) = execute(planned, env, &CancellationToken::new()).await;
 
-    let text = String::from_utf8(out).unwrap();
     assert_eq!(code, 0);
     // The other variant of 系统信息 runs instead, so only 硬盘健康 is reported.
     assert!(
         text.starts_with(&format!(
-            "lowendaff-bench {}\n运行环境：KVM 虚拟机\n本机不适用：硬盘健康\n\n【系统信息】\n",
+            "lowendaff-bench {}\n运行环境：KVM 虚拟机\n\n【test】\n",
             env!("CARGO_PKG_VERSION")
         )),
         "{text}"
     );
+    assert!(text.contains("  本机不适用：硬盘健康\n"), "{text}");
     assert!(text.contains("虚拟机版"), "{text}");
     assert!(!text.contains("独立服务器版"), "{text}");
     assert!(
-        !text.contains("【准备工具】"),
-        "tools of plugins that do not apply must not be downloaded: {text}"
+        !log.iter().any(|line| line.starts_with("准备工具")),
+        "tools of plugins that do not apply must not be downloaded: {log:?}"
     );
     assert!(
         text.contains("\n共 1 项：完成 1，跳过 0，失败 0，超时 0，中断 0。"),
         "{text}"
+    );
+}
+
+#[derive(Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct NeedsSmartctl {}
+
+impl Plugin for NeedsSmartctl {
+    const DESCRIPTOR: Descriptor = Descriptor {
+        id: "test.smartctl",
+        title: "需要工具的测试",
+        requires: Requirements {
+            tools: &[SMARTCTL],
+            ..Requirements::NONE
+        },
+        ..Good::DESCRIPTOR
+    };
+
+    async fn run(&self, _ctx: &Context) -> Result<(), PluginError> {
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn a_tool_that_cannot_be_provisioned_skips_its_plugins_with_the_reason() {
+    let registry = [bench_api::register::<NeedsSmartctl>()];
+    let planned = app::prepare(&cli(&[]), &registry).unwrap();
+    // No download is tried: the tool has no build for this architecture.
+    let env = Env {
+        arch: "riscv64".to_owned(),
+        ..Env::default()
+    };
+
+    let (code, text, log) = execute(planned, env, &CancellationToken::new()).await;
+
+    assert_eq!(code, 0);
+    let reason = "工具 smartctl 不可用：没有适用于 riscv64 的版本";
+    assert!(text.contains(&format!("\n  跳过：{reason}\n")), "{text}");
+    assert_eq!(
+        log,
+        [
+            "准备工具：smartctl 7.4 失败：没有适用于 riscv64 的版本".to_owned(),
+            format!("test.smartctl 跳过：{reason}"),
+        ]
     );
 }
 
@@ -410,23 +505,12 @@ async fn tools_of_items_the_host_cannot_run_are_not_downloaded() {
         (without_ipv4, "需要 IPv4 网络连接"),
     ];
     for (env, reason) in cases {
-        let work = tempfile::tempdir().unwrap();
         let planned = app::prepare(&cli(&[]), &registry).unwrap();
-        let mut out = Vec::new();
-        let code = app::execute(
-            planned,
-            env,
-            work.path(),
-            &CancellationToken::new(),
-            &mut out,
-        )
-        .await
-        .unwrap();
-        let text = String::from_utf8(out).unwrap();
+        let (code, text, log) = execute(planned, env, &CancellationToken::new()).await;
         assert_eq!(code, 0);
         assert!(
-            !text.contains("【准备工具】"),
-            "nothing is downloaded for an item that is skipped anyway: {text}"
+            !log.iter().any(|line| line.starts_with("准备工具")),
+            "nothing is downloaded for an item that is skipped anyway: {log:?}"
         );
         assert!(text.contains(&format!("跳过：{reason}")), "{text}");
     }

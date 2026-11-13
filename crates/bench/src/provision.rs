@@ -9,7 +9,7 @@ use std::io;
 use std::path::Path;
 use std::path::PathBuf;
 
-use bench_api::Descriptor;
+use bench_api::Requirements;
 use bench_api::ToolAsset;
 use bench_api::ToolForm;
 use bench_api::ToolSpec;
@@ -18,8 +18,11 @@ use tokio::fs;
 use tokio::fs::File;
 use tokio::io::AsyncRead;
 
+use crate::progress;
+
 /// Verified tools by name, plus the user-facing reason for every tool that failed
-/// (the renderer prints it next to the tool's name and version).
+/// (the progress log shows it next to the tool's name and version, and a plugin that needs
+/// the tool is skipped with it).
 #[derive(Debug, Default)]
 pub struct Provisioned {
     /// Paths of verified, executable tools.
@@ -29,10 +32,10 @@ pub struct Provisioned {
 }
 
 /// Unique tools needed by the planned plugins, in plan order.
-pub fn required_tools(descriptors: impl IntoIterator<Item = Descriptor>) -> Vec<ToolSpec> {
+pub fn required_tools(requirements: impl IntoIterator<Item = Requirements>) -> Vec<ToolSpec> {
     let mut tools: Vec<ToolSpec> = Vec::new();
-    for descriptor in descriptors {
-        for tool in descriptor.requires.tools {
+    for requires in requirements {
+        for tool in requires.tools {
             if !tools.iter().any(|known| known.name == tool.name) {
                 tools.push(*tool);
             }
@@ -41,8 +44,9 @@ pub fn required_tools(descriptors: impl IntoIterator<Item = Descriptor>) -> Vec<
     tools
 }
 
-/// Installs every tool into `dir`. `fetch` opens the download for a URL (HTTPS in
-/// production, an in-memory body in tests) and returns a user-facing error on failure.
+/// Installs every tool into `dir`, and logs how each one went. `fetch` opens the download for a
+/// URL (HTTPS in production, an in-memory body in tests) and returns a user-facing error on
+/// failure.
 pub async fn provision_all<F, Fut, R>(
     tools: &[ToolSpec],
     arch: &str,
@@ -58,10 +62,13 @@ where
     for tool in tools {
         let installed = match tool.asset_for(arch) {
             None => Err(format!("没有适用于 {arch} 的版本")),
-            Some(asset) => match fetch(asset.url).await {
-                Ok(body) => install(body, tool, asset, dir).await,
-                Err(err) => Err(err),
-            },
+            Some(asset) => {
+                tracing::debug!("下载 {}", asset.url);
+                match fetch(asset.url).await {
+                    Ok(body) => install(body, tool, asset, dir).await,
+                    Err(err) => Err(err),
+                }
+            }
         };
         match installed {
             Ok(path) => {
@@ -72,6 +79,7 @@ where
             }
         }
     }
+    progress::tools(tools, &result);
     result
 }
 

@@ -43,9 +43,11 @@ used), with these rules of this repository:
 - Crates depend in one direction: `bench-host` ← `bench-api` ← `bench-tool` ← the plugin crates
   ← `bench`, and a plugin crate is used by `bench` alone. `deny.toml` names the crates that may
   depend on each of them; a new dependency along the direction is added there.
+- Plugins and the shared crates return data, and the reporter in `bench` formats it: `deny.toml`
+  allows comfy-table, which draws the report's tables, in `bench` only.
 - Besides clippy's defaults, the lint gate checks `must_use_candidate`, `needless_for_each`,
   `unwrap_used` (allowed in tests by `clippy.toml`) and `wildcard_imports`; `bench-api`,
-  `bench-host` and `swap-file` document every public item (`missing_docs`).
+  `bench-host`, `bench-tool` and `swap-file` document every public item (`missing_docs`).
 - A plugin's panic is contained by its task and reported as a failure: defense in depth, never
   control flow.
 
@@ -53,6 +55,9 @@ used), with these rules of this repository:
 
 - Parsers are tested against recorded tool output in `tests/fixtures/`, and host facts against
   captures of real hosts (`crates/bench-host/tests/fixtures/README.md`).
+- Whole reports are compared with insta snapshots in `crates/bench/tests/snapshots/`. A change to
+  the report shows in its snapshots, which the pull request holds for review:
+  `INSTA_UPDATE=always` rewrites them locally, and CI writes none, so a difference fails there.
 - Captures and fixtures never hold hostnames, IP addresses, MAC addresses, serials, WWNs, UUIDs,
   asset tags or BMC GUIDs, nor a device tree's serial number or boot arguments. Geekbench result
   links with a claim key never appear anywhere.

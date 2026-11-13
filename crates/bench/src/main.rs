@@ -7,6 +7,7 @@ use std::thread;
 use bench::app;
 use bench::app::Cli;
 use bench::probe;
+use bench::progress;
 use bench::registry::REGISTRY;
 use bench_api::CancellationToken;
 use tokio::runtime;
@@ -22,6 +23,7 @@ fn main() -> ExitCode {
         eprintln!("lowendaff-bench 必须以 root 身份运行");
         return ExitCode::from(app::EXIT_USAGE);
     }
+    progress::init(cli.verbose);
     let planned = match app::prepare(&cli, REGISTRY) {
         Ok(planned) => planned,
         Err(errors) => {
@@ -48,7 +50,7 @@ fn main() -> ExitCode {
     runtime.spawn(watch_interrupt(cancel.clone()));
     let result = runtime.block_on(async {
         let env = probe::probe().await;
-        app::execute(planned, env, &cli.work_dir, &cancel, io::stdout()).await
+        app::execute(planned, env, &cli.work_dir, &cancel, io::stdout(), width()).await
     });
     match result {
         Ok(code) => ExitCode::from(code),
@@ -59,6 +61,18 @@ fn main() -> ExitCode {
     }
 }
 
+/// The terminal's width when stdout is one; the report's tables wrap to it.
+fn width() -> Option<u16> {
+    let stdout = io::stdout();
+    if !rustix::termios::isatty(&stdout) {
+        return None;
+    }
+    rustix::termios::tcgetwinsize(&stdout)
+        .ok()
+        .map(|size| size.ws_col)
+        .filter(|columns| *columns > 0)
+}
+
 /// First Ctrl-C stops the current test and skips the rest; a second one exits at once
 /// (the run directory is then left behind).
 async fn watch_interrupt(cancel: CancellationToken) {
@@ -66,7 +80,7 @@ async fn watch_interrupt(cancel: CancellationToken) {
         return;
     }
     cancel.cancel();
-    eprintln!("\n收到中断信号，正在停止当前测试；再按一次 Ctrl-C 立即退出");
+    tracing::info!("收到中断信号，正在停止当前测试；再按一次 Ctrl-C 立即退出");
     if signal::ctrl_c().await.is_ok() {
         std::process::exit(i32::from(app::EXIT_INTERRUPTED));
     }

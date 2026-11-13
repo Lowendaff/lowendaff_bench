@@ -18,8 +18,11 @@ use crate::fetcher::Fetcher;
 use crate::orchestrator;
 use crate::orchestrator::Planned;
 use crate::orchestrator::Settings;
+use crate::progress::Log;
 use crate::provision;
-use crate::terminal::Terminal;
+use crate::report;
+use crate::report::terminal::Page;
+use crate::results::Measured;
 
 /// Exit code for usage, config or environment errors, and for not running as root.
 pub const EXIT_USAGE: u8 = 2;
@@ -32,11 +35,11 @@ const GRACE: Duration = Duration::from_secs(5);
 #[derive(Debug, clap::Parser)]
 #[command(name = "lowendaff-bench", version)]
 pub struct Cli {
-    /// 只运行这些测试项（逗号分隔的 id）
+    /// 只运行这些测试项（逗号分隔的 id 或分组，如 cpu,disk.fio）
     #[arg(long, value_delimiter = ',')]
     pub only: Vec<String>,
 
-    /// 跳过这些测试项（逗号分隔的 id）
+    /// 跳过这些测试项（逗号分隔的 id 或分组）
     #[arg(long, value_delimiter = ',')]
     pub skip: Vec<String>,
 
@@ -51,6 +54,10 @@ pub struct Cli {
     /// 列出全部测试项后退出
     #[arg(long)]
     pub list: bool,
+
+    /// 在进度日志中显示更多细节，如每个工具的下载地址
+    #[arg(short, long)]
+    pub verbose: bool,
 }
 
 impl Cli {
@@ -99,28 +106,34 @@ pub fn list(registry: &[Registration], out: &mut impl Write) {
 }
 
 /// Builds every selected plugin; all problems are reported together and nothing runs.
-pub fn prepare(cli: &Cli, registry: &[Registration]) -> Result<Vec<Planned>, Vec<String>> {
+pub fn prepare(
+    cli: &Cli,
+    registry: &[Registration],
+) -> Result<Vec<Planned<Measured>>, Vec<String>> {
     let config = load_config(cli.config.as_deref()).map_err(|err| vec![err])?;
     let ids = select(registry, &cli.only, &cli.skip)?;
     orchestrator::plan(registry, &ids, &config)
 }
 
-/// Registry order, narrowed by `--only` and `--skip`; unknown ids are errors.
+/// Registry order, narrowed by `--only` and `--skip`, which take ids or group names; unknown
+/// names are errors.
 pub fn select(
     registry: &[Registration],
     only: &[String],
     skip: &[String],
 ) -> Result<Vec<&'static str>, Vec<String>> {
-    let known = |id: &String| {
+    // A name is a whole id or a whole group, never a part of one.
+    let names = |name: &str, id: &str| name == id || name == orchestrator::group_of(id);
+    let known = |name: &String| {
         registry
             .iter()
-            .any(|registration| registration.descriptor.id == id.as_str())
+            .any(|registration| names(name, registration.descriptor.id))
     };
     let errors: Vec<String> = only
         .iter()
         .chain(skip)
-        .filter(|id| !known(id))
-        .map(|id| format!("未知测试项 `{id}`"))
+        .filter(|name| !known(name))
+        .map(|name| format!("未知测试项或分组 `{name}`"))
         .collect();
     if !errors.is_empty() {
         return Err(errors);
@@ -128,8 +141,8 @@ pub fn select(
     Ok(registry
         .iter()
         .map(|registration| registration.descriptor.id)
-        .filter(|id| only.is_empty() || only.iter().any(|wanted| wanted == id))
-        .filter(|id| !skip.iter().any(|skipped| skipped == id))
+        .filter(|id| only.is_empty() || only.iter().any(|wanted| names(wanted, id)))
+        .filter(|id| !skip.iter().any(|skipped| names(skipped, id)))
         .collect())
 }
 
@@ -166,47 +179,55 @@ pub fn load_config(path: Option<&Path>) -> Result<BTreeMap<String, serde_json::V
 /// Runs a prepared plan inside a fresh run directory under `work_dir`, which is removed
 /// afterwards. Returns the process exit code.
 pub async fn execute(
-    planned: Vec<Planned>,
+    planned: Vec<Planned<Measured>>,
     mut env: Env,
     work_dir: &Path,
     cancel: &CancellationToken,
-    out: impl Write,
+    mut out: impl Write,
+    width: Option<u16>,
 ) -> Result<u8, String> {
     let started = Instant::now();
     let run_dir = tempfile::Builder::new()
         .prefix("lowendaff-bench-")
         .tempdir_in(work_dir)
         .map_err(|err| format!("无法在 {} 创建运行目录：{err}", work_dir.display()))?;
-    let mut terminal = Terminal::new(out);
-    terminal.header(env!("CARGO_PKG_VERSION"));
-    terminal.platform(env.platform);
-    let (planned, not_applicable) = orchestrator::for_platform(planned, env.platform);
-    terminal.not_applicable(&not_applicable);
+    let platform = env.platform;
+    let (planned, not_applicable) = orchestrator::for_platform(planned, platform);
 
     // Only the tools of items this host can run, so that nothing is downloaded in vain, such
     // as Geekbench on a host without glibc or IPv4.
     let runnable = planned
         .iter()
-        .map(Planned::descriptor)
-        .filter(|descriptor| orchestrator::check_host(&descriptor.requires, &env).is_ok());
+        .map(|planned| *planned.requires())
+        .filter(|requires| orchestrator::check_host(requires, &env).is_ok());
     let tools = provision::required_tools(runnable);
+    let mut failed_tools = BTreeMap::new();
     if !tools.is_empty() {
         let tools_dir = run_dir.path().join("tools");
         fs::create_dir(&tools_dir).map_err(|err| format!("无法创建工具目录：{err}"))?;
         let fetcher = Fetcher::try_new()?;
         let provisioned =
             provision::provision_all(&tools, &env.arch, &tools_dir, |url| fetcher.open(url)).await;
-        terminal.tools(&tools, &provisioned);
         env.tools = provisioned.ready;
+        failed_tools = provisioned.failed;
     }
 
     let settings = Settings {
         grace: GRACE,
         work_root: run_dir.path().to_path_buf(),
+        origin: tokio::time::Instant::from_std(started),
+        failed_tools,
     };
-    let runs =
-        orchestrator::run_plan(planned, Arc::new(env), cancel, &settings, &mut terminal).await;
-    terminal.summary(&runs, started.elapsed());
+    let runs = orchestrator::run_plan(planned, Arc::new(env), cancel, &settings, &mut Log).await;
+    let page = Page {
+        version: env!("CARGO_PKG_VERSION"),
+        platform,
+        not_applicable: &not_applicable,
+        runs: &runs,
+        total: started.elapsed(),
+    };
+    // Output is best effort: a closed stdout must not change the exit code.
+    let _ = out.write_all(report::terminal::render(&page, width).as_bytes());
     drop(run_dir);
     Ok(if cancel.is_cancelled() {
         EXIT_INTERRUPTED

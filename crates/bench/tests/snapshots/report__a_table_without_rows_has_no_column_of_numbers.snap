@@ -1,0 +1,17 @@
+---
+source: crates/bench/tests/report.rs
+expression: "report::terminal::render(&page, Some(14))"
+---
+lowendaff-bench 0.1.0
+运行环境：未检测到虚拟化
+
+【硬盘】
+  空表
+  项目说明   x
+  甲乙
+  完成，用时 1.0 秒
+
+【汇总】
+  硬盘性能          完成，用时 1.0 秒
+
+共 1 项：完成 1，跳过 0，失败 0，超时 0，中断 0。总用时 1.0 秒

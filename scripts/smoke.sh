@@ -2,8 +2,8 @@
 # Smoke test for a static release binary: static linking, the root requirement, and a
 # full run in which no test item is skipped, fails or times out, and nothing is left behind.
 # A skip counts because every test item applies on the CI runners: 硬盘性能 skipped for want
-# of its tool would hide a broken download or pin. The run's output is printed. CI runs it;
-# README "Gates" documents it.
+# of its tool would hide a broken download or pin. The report must come on stdout and the
+# progress log on stderr, and both are printed. CI runs it; README "Gates" documents it.
 #
 # Usage: scripts/smoke.sh <path to lowendaff-bench> [<argument>...]
 # Arguments after the path go to the full run, for example --skip disk.fio. Linux only, with
@@ -49,8 +49,20 @@ esac
 
 # Not under /tmp: the run directory must sit on the tested disk.
 work=$(mktemp -d "$PWD/smoke.XXXXXX")
-output=$($as_root "$bin" --work-dir "$work" "$@") || fail "root run failed"
+log=$(mktemp)
+trap 'rm -f "$log"' EXIT
+output=$($as_root "$bin" --work-dir "$work" "$@" 2>"$log") || {
+    cat "$log" >&2
+    fail "root run failed"
+}
+cat "$log" >&2
 printf '%s\n' "$output"
+stamp='^\[[0-9][0-9]:[0-9][0-9]:[0-9][0-9]\] [a-z][a-z0-9.-]*'
+grep -q "$stamp 开始\$" "$log" || fail "stderr shows no test item starting"
+grep -q "$stamp 完成，用时 " "$log" || fail "stderr shows no test item completing"
+if printf '%s\n' "$output" | grep -q '^\[[0-9][0-9]:'; then
+    fail "progress lines on stdout"
+fi
 printf '%s\n' "$output" | grep -q '^共 [0-9]* 项' || fail "root run printed no summary"
 printf '%s\n' "$output" | grep -q '，跳过 0，失败 0，超时 0，' ||
     fail "a test item was skipped, failed or timed out"
