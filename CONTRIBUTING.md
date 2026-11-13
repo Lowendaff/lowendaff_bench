@@ -1,9 +1,9 @@
 # Contributing
 
 This guide holds the conventions that every change follows; CI enforces most of them (README
-"Gates"). The decisions behind them are in `docs/design/`. The plugin model is being reworked,
-one pull request at a time; the crate layout and the steps to add a plugin join this guide when
-that work ends.
+"Gates"). The decisions behind them are recorded in design documents outside the repository. The
+plugin model is being reworked, one pull request at a time; the crate layout and the steps to add
+a plugin join this guide when that work ends.
 
 ## Languages
 
@@ -94,11 +94,13 @@ Every commit also builds and passes the gates on its own, with `--locked`;
 
 ## Design documents
 
-A test item, or a change to the model, starts with a document in `docs/design/` that holds:
+A test item, or a change to the model, starts with a design document that holds:
 
 - a status line: what was accepted, by whom and when;
 - the decisions, each with an id and the alternatives that were turned down;
 - the design, the risks that the owner accepted, and the plan;
 - the changes made during implementation, in a section of their own.
 
-A decision that a later one replaces stays in place, and the later document says so.
+A decision that a later one replaces stays in place, and the later document says so. Design
+documents are kept outside the repository until they are published, so nothing in the repository
+points into them: a comment or a document gives the reason itself.
