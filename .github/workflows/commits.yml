@@ -1,0 +1,36 @@
+# The commit-message gate of README "Gates" (design plugin-system, §15). It is a workflow of its
+# own because it also runs when a pull request's title changes, which must not rerun the build.
+name: commits
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+
+permissions: {}
+
+jobs:
+  messages:
+    name: commit messages
+    # Dependabot's messages carry links over 100 columns, and its squash message is rewritten at
+    # merge (CONTRIBUTING.md). GitHub counts a skipped required check as passed.
+    if: github.event.pull_request.user.login != 'dependabot[bot]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # The base branch's history, to tell which commits are the pull request's.
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Checker cases
+        run: scripts/check-commits-cases.sh
+      - name: Commit messages
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: scripts/check-commits.sh "origin/$BASE_REF" "$HEAD_SHA"

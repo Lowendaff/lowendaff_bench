@@ -121,6 +121,7 @@ fi
 # asset tags and UUID of types 1, 2 and 17, and the whole of every type the program does not
 # read. It then looks for dmidecode's serial numbers, asset tags and UUIDs in the result, and
 # prints nothing if any is left.
+# shellcheck disable=SC2016 # a perl program: its $ are perl's, for perl to expand
 scrub_smbios='
 use strict;
 use warnings;
@@ -197,6 +198,7 @@ binmode STDOUT;
 print $t;
 '
 # Of pci.ids: the header, and each wanted vendor with its wanted devices and their subsystems.
+# shellcheck disable=SC2016 # an awk program: its $ are awk's, for awk to expand
 pci_ids_excerpt='
 BEGIN {
     n = split(want, pairs, " ")

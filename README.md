@@ -8,6 +8,10 @@ A comprehensive test tool for Linux servers (VPS), written in Rust:
 
 **Status:** the plugin framework (M0) is in place. Test items are added one at a time: 系统基础信息 (system information), 硬盘健康 (disk health), CPU 性能 (CPU performance), 内存性能 (memory performance), 硬盘性能 (disk performance) and Geekbench 7 so far. The design is in [`docs/design/plugin-system.md`](docs/design/plugin-system.md).
 
+The plugin model is being reworked, one pull request at a time; no test item is added meanwhile
+(the design's §17). The conventions for code, commits and pull requests are in
+[`CONTRIBUTING.md`](CONTRIBUTING.md).
+
 The tool first detects where it runs: a dedicated server, a virtual machine or a container. It prints this as 运行环境 and runs only the test items made for that platform. For example, 系统基础信息 has a variant for each platform (`system.dedicated`, `system.vm`, `system.container`), and exactly one of them runs. `--list` shows which platforms each item applies to.
 
 | Test item | Shows | Design |
@@ -46,7 +50,8 @@ cargo build --release --locked --target x86_64-unknown-linux-musl --bin lowendaf
 
 ## Gates
 
-CI (`.github/workflows/ci.yml`) runs exactly these commands. Run them locally before pushing.
+CI (`.github/workflows/ci.yml`, and `commits.yml` for the commit messages) runs exactly these
+commands. Run them locally before pushing.
 
 | Gate | Command | Runs on |
 |------|---------|---------|
@@ -56,6 +61,10 @@ CI (`.github/workflows/ci.yml`) runs exactly these commands. Run them locally be
 | Tool downloads | `cargo nextest run -p bench --test tools --locked --run-ignored only`: downloads every pinned tool for the host's architecture, checks its size and SHA-256 and unpacks archives, also the tools of items that do not apply or do not run on the CI runners | any host with network access; CI uses Linux x86_64 and aarch64 |
 | Dependencies | `cargo deny check` (policy in `deny.toml`) | any host |
 | Workflows | `zizmor --persona pedantic .` (config in `.github/zizmor.yml`) | any host |
+| Workflow lint | `actionlint`, which runs shellcheck over the `run:` scripts too | any host |
+| Shell scripts | `git ls-files -z '*.sh' \| xargs -0 shellcheck` | any host |
+| Checker cases | `scripts/check-commits-cases.sh` | any host |
+| Commit messages | `scripts/check-commits.sh origin/main HEAD`; CI adds the title | any host |
 | Rule tests | `ast-grep test` (cases in `ast-grep/tests/`) | any host |
 | Rules | `ast-grep scan` (rules in `ast-grep/rules/`, config in `sgconfig.yml`) | any host |
 | Static build | `cargo build --release --locked --target <arch>-unknown-linux-musl --bin lowendaff-bench` | Linux |
@@ -66,12 +75,18 @@ CI (`.github/workflows/ci.yml`) runs exactly these commands. Run them locally be
 
 `<arch>` is `x86_64` or `aarch64`.
 
+`GH_TOKEN=$(gh auth token) scripts/verify-commits.sh` runs the gates on every commit of a branch,
+each commit on its own, then checks the commit messages. It leaves to CI the gates that need Linux
+or root, and Tool downloads.
+
 CI pins these tool versions; install the same versions locally:
 
 - cargo-nextest 0.9.151;
 - cargo-deny 0.20.2;
 - zizmor 1.32.0, for example `uvx zizmor@1.32.0 --persona pedantic .`;
-- ast-grep 0.51.1.
+- ast-grep 0.51.1;
+- shellcheck 0.11.0;
+- actionlint 1.7.12.
 
 The `cargo deny check` and `zizmor` gates need network access: one fetches the RustSec advisory database, the other runs online audits (zizmor needs `GH_TOKEN` for those).
 
