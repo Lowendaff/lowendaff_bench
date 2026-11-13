@@ -40,6 +40,9 @@ used), with these rules of this repository:
   `/proc`, is fine.
 - Code that reads the environment takes it as a parameter, so that tests need no
   `std::env::set_var`, which is `unsafe` in Rust 2024.
+- Crates depend in one direction: `bench-host` ← `bench-api` ← `bench-tool` ← the plugin crates
+  ← `bench`, and a plugin crate is used by `bench` alone. `deny.toml` names the crates that may
+  depend on each of them; a new dependency along the direction is added there.
 - Besides clippy's defaults, the lint gate checks `must_use_candidate`, `needless_for_each`,
   `unwrap_used` (allowed in tests by `clippy.toml`) and `wildcard_imports`; `bench-api`,
   `bench-host` and `swap-file` document every public item (`missing_docs`).
