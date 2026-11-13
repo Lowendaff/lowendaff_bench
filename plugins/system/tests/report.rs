@@ -190,7 +190,7 @@ fn a_dedicated_server_reports_sockets_media_and_its_zfs_pool() {
             "内存已用：50.53 GiB",
             "Swap 总量：8 GiB",
             "Swap 已用：4.04 GiB",
-            // Two modules are installed but not in use (design S-20).
+            // Two modules are installed but not in use.
             "ECC：有（单比特纠错）；本次开机以来已纠正 0 次，不可纠正 0 次",
             "内存条：",
             "插槽 | 容量 | 类型 | 速度 | 厂商 | 型号",

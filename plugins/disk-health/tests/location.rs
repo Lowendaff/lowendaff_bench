@@ -1,4 +1,4 @@
-//! Names and order (design disk-health, §5.3).
+//! Names and order.
 
 use std::fs;
 

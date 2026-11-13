@@ -1,4 +1,4 @@
-//! What each tool printed (design memory, §5.3–§5.6, §5.8): its result, or why there is none.
+//! What each tool printed: its result, or why there is none.
 
 /// A finished run of a tool.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -46,7 +46,7 @@ pub fn sysbench(output: &Output) -> Result<Value, AttemptError> {
         .ok_or_else(|| AttemptError::Failed("sysbench 没有输出传输速度".to_owned()))
 }
 
-/// STREAM's best rate of each kernel, in MB/s, when its results validated (§5.4).
+/// STREAM's best rate of each kernel, in MB/s, when its results validated.
 pub fn stream(output: &Output) -> Result<[Value; 4], AttemptError> {
     finished("STREAM", output)?;
     let lines: Vec<&str> = output.text.lines().map(str::trim).collect();

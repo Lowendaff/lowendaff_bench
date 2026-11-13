@@ -1,4 +1,4 @@
-//! Command-line flow (design §5): parse, select, configure, provision, run, summarize.
+//! Command-line flow: parse, select, configure, provision, run, summarize.
 //! `main` adds the root check, the runtime and Ctrl-C handling around it.
 
 use std::collections::BTreeMap;
@@ -184,7 +184,7 @@ pub async fn execute(
     terminal.not_applicable(&not_applicable);
 
     // Only the tools of items this host can run, so that nothing is downloaded in vain, such
-    // as Geekbench on a host without glibc or IPv4 (design cpu, §6.2).
+    // as Geekbench on a host without glibc or IPv4.
     let runnable = planned
         .iter()
         .map(Planned::descriptor)

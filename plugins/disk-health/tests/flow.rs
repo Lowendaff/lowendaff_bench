@@ -1,4 +1,4 @@
-//! The item's flow with a fake smartctl (design disk-health, §5.2, §5.6, §6).
+//! The item's flow with a fake smartctl.
 
 mod common;
 
@@ -173,7 +173,7 @@ async fn a_disk_that_hangs_is_stopped_after_60_seconds_and_the_others_are_read()
     assert!(outcome.result.is_ok(), "{:?}", outcome.result);
     let table = outcome.table();
     let names: Vec<&str> = table.iter().map(|row| row[0].as_str()).collect();
-    // Without sdb's serial, its path through the card cannot be merged (design §9).
+    // Without sdb's serial, its path through the card cannot be merged.
     assert_eq!(names, ["sda", "sdb", "sdc", "sdd", "RAID 卡 21 号盘"]);
     assert_eq!(table[1][1], "读取失败");
     assert_eq!(

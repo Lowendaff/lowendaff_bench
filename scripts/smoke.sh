@@ -47,7 +47,7 @@ case $refusal in
     *) fail "non-root run exited with 2 but not at the root check: $refusal" ;;
 esac
 
-# Not under /tmp: the run directory must sit on the tested disk (design D-14).
+# Not under /tmp: the run directory must sit on the tested disk.
 work=$(mktemp -d "$PWD/smoke.XXXXXX")
 output=$($as_root "$bin" --work-dir "$work" "$@") || fail "root run failed"
 printf '%s\n' "$output"

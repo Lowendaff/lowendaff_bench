@@ -1,6 +1,6 @@
-//! A temporary swap file (design cpu, §7.2). It is filled with zeros, gets the header that
+//! A temporary swap file. It is filled with zeros, gets the header that
 //! `mkswap` would write, is turned on with `swapon`, and is turned off and removed again. The
-//! two calls into the C library are the only `unsafe` code of the workspace (CP-07).
+//! two calls into the C library are the only `unsafe` code of the workspace.
 
 #![warn(missing_docs)]
 

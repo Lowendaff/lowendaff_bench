@@ -1,4 +1,4 @@
-//! The glibc reader (design cpu, §6.2), on synthetic hosts laid out like real distributions.
+//! The glibc reader, on synthetic hosts laid out like real distributions.
 
 mod common;
 

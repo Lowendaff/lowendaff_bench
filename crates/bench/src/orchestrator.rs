@@ -114,7 +114,7 @@ pub fn plan(
     }
 }
 
-/// Splits the plan by platform (design D-16): the plugins that apply here, and the titles
+/// Splits the plan by platform: the plugins that apply here, and the titles
 /// of the test items that run here in no variant, for the 本机不适用 line.
 #[must_use]
 pub fn for_platform(plan: Vec<Planned>, platform: Platform) -> (Vec<Planned>, Vec<&'static str>) {
@@ -134,8 +134,8 @@ pub fn for_platform(plan: Vec<Planned>, platform: Platform) -> (Vec<Planned>, Ve
     (applicable, titles)
 }
 
-/// What the host must offer a plugin besides its tools, checked before any download (design
-/// cpu, §6.2): its glibc, then its network.
+/// What the host must offer a plugin besides its tools, checked before any download: its
+/// glibc, then its network.
 pub fn check_host(requires: &Requirements, env: &Env) -> Result<(), String> {
     if let Some(minimum) = requires.glibc {
         match env.libc {

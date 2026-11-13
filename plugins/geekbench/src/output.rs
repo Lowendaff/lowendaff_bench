@@ -1,5 +1,5 @@
-//! What Geekbench's console says (design cpu, §6.5). The free version has no other output
-//! (§3.2), so this reads the English lines that 7.1.0 prints.
+//! What Geekbench's console says. The free version has no other output, so this reads the
+//! English lines that 7.1.0 prints.
 
 /// The scores of a run that uploaded its result.
 #[derive(Debug, Clone, PartialEq, Eq)]

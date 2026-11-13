@@ -1,4 +1,4 @@
-//! The item's flow with scripted attempts instead of sysbench (design cpu, §5.2–§5.4).
+//! The item's flow with scripted attempts instead of sysbench.
 
 use std::cell::RefCell;
 use std::collections::VecDeque;

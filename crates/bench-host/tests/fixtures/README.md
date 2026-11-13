@@ -3,7 +3,7 @@
 Each directory is a read-only capture of one real host, made with `capture.sh` and unpacked with `unpack.sh`:
 
 - `root/` holds the captured files at their host paths. Tests read it through `bench_host::Root`.
-- `truth/` holds the output of the host's own tools (`systemd-detect-virt`, `lscpu`, `lsblk`, `df`, `free`, `nproc`, `uname`, and `dmidecode` without its identifier lines). Tests use these values as expectations; lowendaff-bench itself never runs these tools (design P-11).
+- `truth/` holds the output of the host's own tools (`systemd-detect-virt`, `lscpu`, `lsblk`, `df`, `free`, `nproc`, `uname`, and `dmidecode` without its identifier lines). Tests use these values as expectations; lowendaff-bench itself never runs these tools.
 - `cpuid` exists only for x86 captures. It holds the hypervisor signature from CPUID leaf `0x4000_0000`, or `-` when the hypervisor bit is clear. A shell cannot read CPUID, so the value is taken from the "Hypervisor vendor" line of `truth/lscpu.txt` (`KVM` is the signature `KVMKVMKVM`).
 
 | Fixture | Host | Captured | `systemd-detect-virt` |
@@ -38,4 +38,4 @@ Edits after capture:
   - Added the hardware files of a second capture of the same server on 2026-11-09: the SMBIOS table and entry point, the SMBIOS lines of the EFI system table, ACPI's SPMI table, the `IPI0001` device, the BMC, EDAC, the storage controllers' PCI files, the `/sys/block` links, the used lines of `pci.ids`, `board_version`, `bios_date`, and `truth/dmidecode.txt`. The other files are from 2026-11-07.
 - `kvm-debian13-x86_64`: trimmed Docker's overlay mounts.
 - The two Docker captures were redone after `capture.sh` started reading the cgroup's memory usage.
-- `kvm-debian13-x86_64`, `dedicated-pve-x86_64` and `rock3a-debian13-aarch64`: added every CPU's cache directories, the NUMA nodes' `cpulist` and `meminfo`, and `/proc/self/status`, which `capture.sh` reads since 2026-11-10 (memory design, §6), from read-only captures of the same hosts that day. CPU 0's cache files were already there and matched; the other files keep their dates.
+- `kvm-debian13-x86_64`, `dedicated-pve-x86_64` and `rock3a-debian13-aarch64`: added every CPU's cache directories, the NUMA nodes' `cpulist` and `meminfo`, and `/proc/self/status`, which `capture.sh` reads since 2026-11-10, from read-only captures of the same hosts that day. CPU 0's cache files were already there and matched; the other files keep their dates.

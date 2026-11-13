@@ -1,5 +1,4 @@
-//! NUMA nodes: the CPUs and the memory of each, and the nodes this process may allocate on
-//! (design memory, §6).
+//! NUMA nodes: the CPUs and the memory of each, and the nodes this process may allocate on.
 
 use crate::Root;
 use crate::memory;

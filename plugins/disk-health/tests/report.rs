@@ -1,4 +1,4 @@
-//! The table and its 说明 lines (design disk-health, §5.3, §5.5).
+//! The table and its 说明 lines.
 
 mod common;
 

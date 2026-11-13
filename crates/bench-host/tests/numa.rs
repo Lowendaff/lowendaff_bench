@@ -1,4 +1,4 @@
-//! The host facts of 内存性能 (design memory, §6): the cache instances, the NUMA nodes, the
+//! The host facts of 内存性能: the cache instances, the NUMA nodes, the
 //! CPUs and nodes this process may use, and the memory a test may use, from the captured hosts
 //! and from synthetic ones.
 

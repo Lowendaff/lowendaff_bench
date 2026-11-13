@@ -1,5 +1,5 @@
 //! sysbench's command, the parser against sysbench 1.0.20's real output
-//! (`tests/fixtures/README.md`), and the retries (design cpu, §5.2, §5.4).
+//! (`tests/fixtures/README.md`), and the retries.
 
 use std::cell::Cell;
 use std::path::Path;

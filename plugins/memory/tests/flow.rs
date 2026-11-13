@@ -1,4 +1,4 @@
-//! The item's flow with a scripted runner in place of the tools (design memory, §5.3–§5.8):
+//! The item's flow with a scripted runner in place of the tools:
 //! the jobs it starts, what it shows, and failures, retries, cancellation and `mbind` refused.
 
 use std::cell::RefCell;

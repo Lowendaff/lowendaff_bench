@@ -1,5 +1,5 @@
-//! Host facts for `Env`, probed once before anything runs: architecture, platform
-//! (design D-16), IPv4/IPv6 reachability and the C library (design cpu, §6.2).
+//! Host facts for `Env`, probed once before anything runs: architecture, platform,
+//! IPv4/IPv6 reachability and the C library.
 
 use std::time::Duration;
 

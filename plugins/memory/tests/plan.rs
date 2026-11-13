@@ -1,5 +1,5 @@
-//! The working sets, STREAM's size, the latency buffers and the NUMA matrix (design memory,
-//! §5.2–§5.6), for the owner's captured hosts and for made-up ones.
+//! The working sets, STREAM's size, the latency buffers and the NUMA matrix, for the owner's
+//! captured hosts and for made-up ones.
 
 use std::path::Path;
 

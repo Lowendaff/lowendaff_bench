@@ -1,5 +1,5 @@
 //! The records of 系统基础信息, shared by the three platform variants. Labels and
-//! values are Chinese (design D-15); numbers are metrics so they stay numeric (D-06).
+//! values are Chinese; numbers are metrics so they stay numeric.
 
 use std::time::Duration;
 
@@ -343,7 +343,7 @@ where
 }
 
 /// Mount point, type, size, used and available. A ZFS pool shares its free space among
-/// its datasets, so only the available space is shown for it (design: system-info).
+/// its datasets, so only the available space is shown for it.
 fn filesystem_row(filesystem: &Filesystem, work_dir: Option<(u32, u32)>) -> Vec<String> {
     let mut mount_point = filesystem.mount_point.clone();
     if work_dir.is_some_and(|device| filesystem.devices.contains(&device)) {

@@ -1,6 +1,6 @@
 # Fixtures for 硬盘健康
 
-smartctl's JSON output for the plugin's tests (design `docs/design/disk-health.md`, §7.2). Every file is `smartctl --json` output, real or written by hand as marked below. No file contains a real serial number, WWN or other unique identifier.
+smartctl's JSON output for the plugin's tests. Every file is `smartctl --json` output, real or written by hand as marked below. No file contains a real serial number, WWN or other unique identifier.
 
 ## `owner/`: the owner's dedicated server
 

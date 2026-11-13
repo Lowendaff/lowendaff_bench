@@ -1,20 +1,20 @@
 <!--
-标题会成为 main 上 squash 提交的标题，格式见 CONTRIBUTING.md 的 Commits 一节。
-正文用中文，每行不超过 100 列（中文算 2 列）。
+The title becomes the header of the squash commit on main; CONTRIBUTING.md "Commits" has its
+format. Write the body in English, with lines of at most 100 columns.
 -->
 
-## 背景
+## Background
 
-<!-- 为什么要改；相关的设计文档和决策编号。 -->
+<!-- Why the change is needed, and the decisions it follows, explained in words. -->
 
-## 改动
+## Changes
 
-<!-- 改了哪些文件，关键的差异。 -->
+<!-- The files that changed, and the key differences. -->
 
-## 验证
+## Verification
 
-<!-- 跑了哪些检查和测试，结果如何；在真机或容器里的运行。 -->
+<!-- The checks and tests that ran and their results; runs on real hosts or in containers. -->
 
-## 遗留问题
+## Remaining issues
 
-<!-- 没有验证到的、留到以后的、已知的风险。 -->
+<!-- What was not verified, what is left for later, and the known risks. -->

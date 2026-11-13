@@ -1,5 +1,5 @@
 #!/bin/sh
-# Builds a static fio with the libaio engine for the 硬盘性能 test item (design disk, §4) from
+# Builds a static fio with the libaio engine for the 硬盘性能 test item from
 # sources pinned by SHA-256. It runs inside Alpine 3.22 on the architecture it builds for; the tools
 # workflow (.github/workflows/tools.yml) starts it and publishes what it writes as RELEASE.
 #

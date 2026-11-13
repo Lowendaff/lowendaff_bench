@@ -124,6 +124,10 @@ jobs:
         run: ast-grep test
       - name: Rules
         run: ast-grep scan
+      - name: Documentation cases
+        run: scripts/check-docs-cases.sh
+      - name: Documentation rules
+        run: scripts/check-docs.sh
 
   linux:
     name: test, static build and smoke (${{ matrix.arch }})
@@ -193,8 +197,8 @@ jobs:
       - name: Test
         if: steps.scope.outputs.run != 'false'
         run: cargo nextest run --workspace --locked --no-fail-fast
-      # Smoke only downloads the tools of items that apply and run on the runner (design
-      # disk-health, §7.3); this checks every pin, smartctl's and Geekbench's included, and
+      # Smoke only downloads the tools of items that apply and run on the runner; this checks
+      # every pin, smartctl's and Geekbench's included, and
       # unpacks the archives of Geekbench, STREAM and multichase.
       - name: Tool downloads
         if: steps.scope.outputs.run != 'false'
@@ -202,13 +206,13 @@ jobs:
       - name: Static build
         if: steps.scope.outputs.run != 'false'
         run: cargo build --release --locked --target "$TARGET" --bin lowendaff-bench
-      # Turns a 64 MiB swap file on and off as root, which the tests cannot (design cpu, §9.3).
+      # Turns a 64 MiB swap file on and off as root, which the tests cannot.
       - name: Swap round trip
         if: steps.scope.outputs.run != 'false'
         run: |
           cargo build --release --locked --target "$TARGET" -p swap-file --example roundtrip
           sudo "target/$TARGET/release/examples/roundtrip" "$RUNNER_TEMP"
-      # Geekbench would publish a result from every run and take minutes (design cpu, §9.3).
+      # Geekbench would publish a result from every run and take minutes.
       - name: Smoke
         if: steps.scope.outputs.run != 'false'
         run: scripts/smoke.sh "target/$TARGET/release/lowendaff-bench" --skip cpu.geekbench

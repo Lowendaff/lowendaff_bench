@@ -2,7 +2,7 @@
 //!
 //! Everything is read from kernel interfaces (`/proc`, `/sys`, and on x86 `/dev/mem` as a last
 //! resort for the SMBIOS table) and standard files under `/etc` and `/usr/share`; no program is
-//! run (design P-11). Every reader goes through a [`Root`], so tests point it at a captured
+//! run. Every reader goes through a [`Root`], so tests point it at a captured
 //! fixture instead of `/`.
 
 #![warn(missing_docs)]
@@ -115,7 +115,7 @@ fn device_tree_strings(root: &Root, path: &str) -> Vec<String> {
 }
 
 /// A firmware string without surrounding whitespace, or `None` when the firmware left a
-/// placeholder instead (system information design §9.3, §9.4).
+/// placeholder instead.
 fn firmware_string(text: &str) -> Option<String> {
     const PLACEHOLDERS: [&str; 14] = [
         "to be filled by o.e.m.",

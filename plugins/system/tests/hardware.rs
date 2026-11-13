@@ -1,4 +1,4 @@
-//! The hardware lines of dedicated servers (system information design §9.3–§9.6), from
+//! The hardware lines of dedicated servers, from
 //! constructed host data: each form a line can take.
 
 use std::io;

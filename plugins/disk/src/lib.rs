@@ -1,4 +1,4 @@
-//! 硬盘性能 (design `docs/design/disk.md`): fio runs YABS's disk test on the filesystem of the
+//! 硬盘性能: fio runs YABS's disk test on the filesystem of the
 //! test directory, on every platform.
 
 use std::ffi::OsString;
@@ -25,8 +25,7 @@ use crate::report::FileSize;
 pub mod fio;
 pub mod report;
 
-/// fio 3.43 from the release `fio-3.43-2`, which the tools workflow built and published
-/// (design disk, §4; design cpu, §4).
+/// fio 3.43 from the release `fio-3.43-2`, which the tools workflow built and published.
 const FIO: ToolSpec = ToolSpec {
     name: "fio",
     version: "3.43",
@@ -56,7 +55,7 @@ const FIO: ToolSpec = ToolSpec {
 /// YABS stops each test after 35 seconds (`timeout 35`).
 const TEST_LIMIT: Duration = Duration::from_secs(35);
 
-/// 硬盘性能. It has no settings: every parameter is YABS's (DK-02).
+/// 硬盘性能. It has no settings: every parameter is YABS's.
 #[derive(Debug, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Fio {}

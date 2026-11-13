@@ -1,4 +1,4 @@
-# The commit-message gate of README "Gates" (design plugin-system, §15). It is a workflow of its
+# The commit-message gate of README "Gates". It is a workflow of its
 # own because it also runs when a pull request's title changes, which must not rerun the build.
 name: commits
 

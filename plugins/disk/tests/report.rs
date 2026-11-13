@@ -1,5 +1,5 @@
 //! What 硬盘性能 prints: YABS's number formats, the tables in YABS's layout, and the reasons to
-//! skip (design disk, §5).
+//! skip.
 
 use std::fs;
 use std::path::Path;

@@ -1,4 +1,4 @@
-//! Geekbench 7.1.0's console output (`tests/fixtures/README.md`, design cpu, §6.5).
+//! Geekbench 7.1.0's console output (`tests/fixtures/README.md`).
 
 use std::path::Path;
 

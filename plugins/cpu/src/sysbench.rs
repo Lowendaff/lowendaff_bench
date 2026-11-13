@@ -1,15 +1,15 @@
-//! sysbench's CPU test: its command, its result and retries (design cpu, §5.2, §5.4).
+//! sysbench's CPU test: its command, its result and retries.
 
 use std::ffi::OsString;
 use std::future::Future;
 
-/// Seconds each run lasts, as in the owner's `linux_bench` (CP-04).
+/// Seconds each run lasts, as in the owner's `linux_bench`.
 pub const SECONDS: u32 = 20;
 
-/// The largest number tested for primality, as in `linux_bench` (CP-04).
+/// The largest number tested for primality, as in `linux_bench`.
 pub const MAX_PRIME: u32 = 10_000;
 
-/// Attempts per run: the first one and 3 retries (CP-14).
+/// Attempts per run: the first one and 3 retries.
 pub const ATTEMPTS: usize = 4;
 
 /// Events per second as sysbench printed them, and their value.

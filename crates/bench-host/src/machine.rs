@@ -1,4 +1,4 @@
-//! The machine, its board and its firmware (system information design §9.3, §9.6): from DMI,
+//! The machine, its board and its firmware: from DMI,
 //! else the SMBIOS table, else the device tree of boards without SMBIOS.
 
 use crate::Root;

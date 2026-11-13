@@ -1,4 +1,4 @@
-//! Platform detection (design D-16), following the order systemd-detect-virt uses:
+//! Platform detection, following the order systemd-detect-virt uses:
 //! containers first, then virtual machines. Only files and CPUID are read.
 
 use bench_api::ContainerKind;

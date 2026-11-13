@@ -50,7 +50,7 @@ for f in /proc/cpuinfo /proc/meminfo /proc/uptime /proc/loadavg /proc/swaps /pro
     /sys/fs/cgroup/cpuset/cpuset.effective_cpus; do
     emit_file "$f"
 done
-# Device-tree boards (system information design, §9.6). Never `serial-number`, nor the boot
+# Device-tree boards. Never `serial-number`, nor the boot
 # arguments and seeds under `chosen`.
 for f in model '#address-cells' '#size-cells' chosen/u-boot,version \
     chosen/bootloader/build-timestamp; do
@@ -83,7 +83,7 @@ for index in /sys/devices/system/cpu/cpu[0-9]*/cache/index*; do
         emit_file "$index/$f"
     done
 done
-# NUMA nodes, and the CPUs and nodes a process may use (memory design, §6).
+# NUMA nodes, and the CPUs and nodes a process may use.
 for node in /sys/devices/system/node/node[0-9]*; do
     emit_file "$node/cpulist"
     emit_file "$node/meminfo"
@@ -116,7 +116,7 @@ if [ -r /proc/1/environ ]; then
     value=$(tr '\0' '\n' < /proc/1/environ | grep '^container=' | head -n 1)
     printf '@@@ FILE proc/1/environ %s\n' "$(printf '%s' "${value:+$value }" | tr ' ' '\0' | base64 -w0)"
 fi
-# Dedicated servers' hardware (system information design, §9). `scrub_smbios` overwrites in the
+# Dedicated servers' hardware. `scrub_smbios` overwrites in the
 # SMBIOS table, with strings of the same length so that no structure moves, the serial numbers,
 # asset tags and UUID of types 1, 2 and 17, and the whole of every type the program does not
 # read. It then looks for dmidecode's serial numbers, asset tags and UUIDs in the result, and

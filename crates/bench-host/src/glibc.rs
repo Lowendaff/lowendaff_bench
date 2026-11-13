@@ -1,5 +1,5 @@
-//! The host's glibc, as a program built for glibc would find it (design cpu, §6.2). Only files
-//! are read; no host program runs (P-11).
+//! The host's glibc, as a program built for glibc would find it. Only files
+//! are read; no host program runs.
 
 use std::collections::VecDeque;
 
@@ -16,7 +16,7 @@ const MAX_LINKS: usize = 40;
 /// version comes from the loader itself, which describes itself since glibc 2.33 (and in RHEL
 /// 8's 2.28), or else from the `libc.so.6` beside it. Neither alone covers every distribution:
 /// older loaders do not describe themselves, and RHEL's aarch64 builds keep the loader in
-/// `/usr/lib` but `libc.so.6` in `/usr/lib64` (design cpu, §6.2).
+/// `/usr/lib` but `libc.so.6` in `/usr/lib64`.
 #[must_use]
 pub fn read(root: &Root, arch: &str) -> Libc {
     let loader = match arch {

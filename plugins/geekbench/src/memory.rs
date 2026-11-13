@@ -1,5 +1,5 @@
-//! Memory for Geekbench (design cpu, §7.1): what it is estimated to need, what the host has
-//! for it, and how much temporary swap it gets (CP-06).
+//! Memory for Geekbench: what it is estimated to need, what the host has
+//! for it, and how much temporary swap it gets.
 
 use std::num::NonZeroUsize;
 use std::path::Path;
@@ -21,7 +21,7 @@ pub const MAX_SWAP_GIB: u64 = 8;
 /// What the host offers Geekbench.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Host {
-    /// Threads Geekbench runs, counted as for CPU 性能 (design cpu, §5.2).
+    /// Threads Geekbench runs, counted as for CPU 性能.
     pub threads: usize,
     /// Bytes of memory and swap Geekbench can use now, or `None` when unknown.
     pub available: Option<u64>,
@@ -58,7 +58,7 @@ impl Host {
 
 /// Whether the kernel swaps out no process memory at all: with `vm.swappiness` 0, the multi-gen
 /// LRU reclaims page cache only (Linux 6.12 `isolate_folios`), so added swap would stay unused,
-/// as on the owner's VM (design cpu, §7.1; CP-18). The classic LRU still swaps to prevent OOM
+/// as on the owner's VM. The classic LRU still swaps to prevent OOM
 /// with swappiness 0, so without the multi-gen LRU swap is worth adding.
 #[must_use]
 pub fn swap_unused(root: &Root) -> bool {
@@ -75,7 +75,7 @@ pub fn swap_unused(root: &Root) -> bool {
 }
 
 /// Bytes Geekbench is estimated to need with `threads` threads: 1 GiB, and 1 GiB per thread.
-/// The runners measured 3.6 GiB with 4 threads and about 1.3 GiB with one (design cpu, §3.2).
+/// The runners measured 3.6 GiB with 4 threads and about 1.3 GiB with one.
 #[must_use]
 pub fn need(threads: usize) -> u64 {
     (1 + threads as u64) * GIB

@@ -1,4 +1,4 @@
-//! The device nodes that smartctl may create (design disk-health, §6). Regular files stand
+//! The device nodes that smartctl may create. Regular files stand
 //! in for the nodes.
 
 use std::fs;

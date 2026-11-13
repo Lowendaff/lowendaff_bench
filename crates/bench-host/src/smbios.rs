@@ -1,4 +1,4 @@
-//! The SMBIOS table (system information design §9.4, §9.6): memory slots, error correction,
+//! The SMBIOS table: memory slots, error correction,
 //! the BMC's interface and the machine's strings, parsed by `smbios-lib` from the first source
 //! that has the table.
 
@@ -28,7 +28,7 @@ use crate::bmc::Interface;
 use crate::bmc::InterfaceKind;
 use crate::machine::Line;
 
-/// Larger tables count as unreadable (design §9.6).
+/// Larger tables count as unreadable.
 const LIMIT: usize = 1 << 20;
 
 /// What the SMBIOS table says about the hardware.
@@ -76,7 +76,7 @@ pub enum Capacity {
     /// No module.
     Empty,
     /// The firmware reports no module but keeps a module's manufacturer and part number: an
-    /// installed module that is not in use (design S-20).
+    /// installed module that is not in use.
     Disabled,
     /// A module of unknown size.
     Unknown,
@@ -110,7 +110,7 @@ pub enum Unreadable {
     DevMem(io::Error),
 }
 
-/// The table from the first source that has it (design §9.6): the kernel's copy, the entries
+/// The table from the first source that has it: the kernel's copy, the entries
 /// of the dmi-sysfs module, and on x86 the firmware's memory through `/dev/mem`. `arch` is
 /// `std::env::consts::ARCH`.
 ///

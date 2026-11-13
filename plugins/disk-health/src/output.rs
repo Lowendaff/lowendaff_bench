@@ -1,4 +1,4 @@
-//! smartctl's JSON output (design disk-health, §3.3).
+//! smartctl's JSON output.
 
 use serde_json::Value;
 

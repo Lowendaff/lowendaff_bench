@@ -1,7 +1,7 @@
-//! Geekbench 7 (design cpu, §6, §7): Primate Labs' own build, downloaded at run time (CP-02)
-//! and run as the free version, which uploads its result (CP-05). Temporary swap helps when
-//! memory is short (CP-06), and the kernel kills Geekbench first when memory runs out anyway
-//! (CP-13). Only failed uploads are retried (CP-15).
+//! Geekbench 7: Primate Labs' own build, downloaded at run time because its license forbids
+//! redistribution, and run as the free version, which uploads its result. Temporary swap helps
+//! when memory is short, and the kernel kills Geekbench first when memory runs out anyway. Only
+//! a failed upload is retried: it published nothing, and its cause is usually the network.
 
 pub mod memory;
 pub mod output;
@@ -35,7 +35,7 @@ use crate::output::Scores;
 use crate::output::Verdict;
 
 /// Geekbench 7.1.0 for Linux as Primate Labs publishes it: the release for x86_64 and the
-/// preview for aarch64 (design cpu, §3.2).
+/// preview for aarch64.
 const GEEKBENCH: ToolSpec = ToolSpec {
     name: "geekbench",
     version: "7.1.0",
@@ -58,13 +58,13 @@ const GEEKBENCH: ToolSpec = ToolSpec {
     ],
 };
 
-/// The longest one run may take (design cpu, §6.4).
+/// The longest one run may take.
 const RUN_LIMIT: Duration = Duration::from_secs(60 * 60);
 
-/// Runs: the first one and 3 more after failed uploads (CP-15).
+/// Runs: the first one and 3 more after failed uploads.
 pub const ATTEMPTS: usize = 4;
 
-/// The wait before running again after a failed upload (CP-15).
+/// The wait before running again after a failed upload.
 pub const RETRY_WAIT: Duration = Duration::from_secs(30);
 
 /// Why a run ended without scores.
@@ -94,7 +94,7 @@ impl Plugin for Geekbench {
         version: "0.1.0",
         requires: Requirements {
             tools: &[GEEKBENCH],
-            // cdn.geekbench.com has IPv4 addresses only (design cpu, §3.2).
+            // cdn.geekbench.com has IPv4 addresses only.
             net: Net::Ipv4,
             platforms: &[],
             glibc: Some(GlibcVersion {
@@ -102,7 +102,7 @@ impl Plugin for Geekbench {
                 minor: 35,
             }),
         },
-        // Up to four runs of up to an hour each, and the swap (CP-15).
+        // Up to four runs of up to an hour each, and the swap.
         timeout: Duration::from_secs(250 * 60),
     };
 
@@ -162,7 +162,7 @@ where
 }
 
 /// Temporary swap when Geekbench's estimated need exceeds what the host has, with a note
-/// whenever memory is short (CP-06).
+/// whenever memory is short.
 async fn add_swap(ctx: &Context, host: &memory::Host) -> Result<Option<SwapFile>, PluginError> {
     let Some(available) = host.available else {
         return Ok(None);

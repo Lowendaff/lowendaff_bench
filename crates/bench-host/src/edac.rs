@@ -1,4 +1,4 @@
-//! EDAC's memory controllers (system information design §9.4): the errors corrected and not
+//! EDAC's memory controllers: the errors corrected and not
 //! corrected since the driver loaded, and how the controllers correct them. EDAC's list of
 //! modules is not used: on the owner's server it names the wrong module type.
 

@@ -1,4 +1,4 @@
-//! The hardware of dedicated servers (system information design §9): the machine and its
+//! The hardware of dedicated servers: the machine and its
 //! firmware, EDAC, the BMC and RAID cards, on the captured hosts and on synthetic ones.
 
 mod common;

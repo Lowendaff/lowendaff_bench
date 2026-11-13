@@ -1,9 +1,9 @@
-# Builds the pinned tools and publishes them as immutable releases (design cpu, §4; P-10). A pull
+# Builds the pinned tools and publishes them as immutable releases. A pull
 # request that changes a build runs every build without publishing. A manual run on main builds
 # the chosen tool and publishes the release that the RELEASE line of its script names; afterwards
 # the plugins' pins take its hashes and sizes. An immutable release's tag cannot be reused, so a
 # rebuild of the same version takes the next build number. Each script also names the image it
-# builds in, on its IMAGE and IMAGE_DIGEST lines (design memory, §4).
+# builds in, on its IMAGE and IMAGE_DIGEST lines.
 name: tools
 
 on:

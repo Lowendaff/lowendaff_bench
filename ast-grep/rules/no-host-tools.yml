@@ -3,7 +3,7 @@ language: rust
 severity: error
 message: Run pinned tools through `ctx.tool(name)`, not by program name from the host's PATH.
 note: >-
-  Design D-13 and P-11. Host-installed programs differ between servers, so their results are not
+  Host-installed programs differ between servers, so their results are not
   comparable. Only a literal program name is caught; `Command::new(ctx.tool("fio")?)` is fine.
 files:
   - crates/*/src/**/*.rs

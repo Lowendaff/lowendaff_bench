@@ -1,4 +1,4 @@
-//! Geekbench's processes (design cpu, §6.4, §7.3): a process group of their own that is killed
+//! Geekbench's processes: a process group of their own that is killed
 //! as a whole, the kernel's first choice when memory runs out, and the kernel's count of such
 //! kills.
 
@@ -14,7 +14,7 @@ use tokio::process::Command;
 const OOM_SCORE_ADJ: &str = "/proc/self/oom_score_adj";
 
 /// The process group of a child started with `process_group(0)`. Killing the launcher alone
-/// would leave Geekbench's worker running (design cpu, §3.2), so the whole group gets SIGKILL
+/// would leave Geekbench's worker running, so the whole group gets SIGKILL
 /// when this is dropped, unless it ended on its own.
 #[derive(Debug)]
 pub struct Group {
@@ -64,7 +64,7 @@ pub enum Adjustment {
 }
 
 /// Starts `command` with `oom_score_adj` 1000, which Geekbench and the worker it starts
-/// inherit, then restores the program's own value (design cpu, §7.3).
+/// inherit, then restores the program's own value.
 pub fn spawn_first_to_go(command: &mut Command) -> (io::Result<Child>, Adjustment) {
     let previous = match std::fs::read_to_string(OOM_SCORE_ADJ) {
         Ok(previous) => previous,

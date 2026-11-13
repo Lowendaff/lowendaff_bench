@@ -1,5 +1,4 @@
-//! Where a disk sits, which decides its name and its place in the table (design
-//! disk-health, §5.3).
+//! Where a disk sits, which decides its name and its place in the table.
 
 use bench_host::Root;
 

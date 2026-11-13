@@ -1,5 +1,5 @@
 #!/bin/sh
-# Builds a static sysbench for the CPU 性能 test item (design cpu, §4) from sources pinned by
+# Builds a static sysbench for the CPU 性能 test item from sources pinned by
 # SHA-256. It runs inside Alpine 3.22 on the architecture it builds for; the tools workflow
 # (.github/workflows/tools.yml) starts it and publishes what it writes as RELEASE.
 #

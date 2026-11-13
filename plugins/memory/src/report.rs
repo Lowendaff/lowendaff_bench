@@ -1,4 +1,4 @@
-//! What 内存性能 shows (design memory, §5.7, §5.8): each chapter's parameters, its tables and
+//! What 内存性能 shows: each chapter's parameters, its tables and
 //! its notes.
 
 use bench_api::Record;
@@ -10,19 +10,19 @@ use crate::plan::KIB;
 use crate::plan::MIB;
 use crate::plan::STREAM_SIZES;
 
-/// Seconds of each sysbench run (§5.3).
+/// Seconds of each sysbench run.
 pub const SYSBENCH_SECONDS: u32 = 10;
 
-/// What the latency chapter runs (§5.5).
+/// What the latency chapter runs.
 pub const LATENCY: &str = "multichase：随机指针追逐，每档 2.5 秒";
 
-/// The note when the kernel describes no caches (§5.2).
+/// The note when the kernel describes no caches.
 pub const CACHE_UNKNOWN: &str = "没有末级缓存的信息，按 32 MiB 计算";
 
-/// The note when STREAM's arrays are below four times the last-level caches (§5.4).
+/// The note when STREAM's arrays are below four times the last-level caches.
 pub const STREAM_RULE: &str = "未完全符合 STREAM 运行规则（每个数组至少为末级缓存总和的 4 倍）";
 
-/// The NUMA chapter when the kernel refuses to bind memory to a node (§5.6).
+/// The NUMA chapter when the kernel refuses to bind memory to a node.
 pub const REFUSED: &str = "不可用：容器不允许把内存绑定到指定节点";
 
 /// A size such as `256 MiB`, `16 KiB`, `1 GiB` or `30.5 MiB`.
@@ -71,7 +71,7 @@ pub fn spaced(name: &str, word: &str) -> String {
     }
 }
 
-/// The sysbench chapter's parameters (§5.7).
+/// The sysbench chapter's parameters.
 #[must_use]
 pub fn sysbench(version: &str, single: u64, per_thread: Option<u64>) -> String {
     let mut text = format!(
@@ -84,7 +84,7 @@ pub fn sysbench(version: &str, single: u64, per_thread: Option<u64>) -> String {
     text
 }
 
-/// The STREAM chapter's parameters, for arrays of `millions` million elements (§5.7).
+/// The STREAM chapter's parameters, for arrays of `millions` million elements.
 #[must_use]
 pub fn stream(version: &str, millions: u64, multi: bool) -> String {
     let array = crate::plan::array_bytes(millions);
@@ -102,7 +102,7 @@ pub fn stream(version: &str, millions: u64, multi: bool) -> String {
     )
 }
 
-/// The STREAM chapter when not even its smallest size fits in `budget` (§5.4).
+/// The STREAM chapter when not even its smallest size fits in `budget`.
 #[must_use]
 pub fn stream_short(budget: u64) -> String {
     let smallest = 3 * crate::plan::array_bytes(STREAM_SIZES[0]);
@@ -113,7 +113,7 @@ pub fn stream_short(budget: u64) -> String {
     )
 }
 
-/// The NUMA chapter's parameters, for `nodes` nodes (§5.7).
+/// The NUMA chapter's parameters, for `nodes` nodes.
 #[must_use]
 pub fn numa(nodes: usize) -> String {
     format!("{nodes} 个节点；带宽用 multiload 的 stream-triad，每格 3 次采样取最快；延迟同上")
@@ -138,7 +138,7 @@ pub fn latency_small(cache: u64) -> String {
     )
 }
 
-/// The note on the cache levels left out of the latency table (§5.5).
+/// The note on the cache levels left out of the latency table.
 #[must_use]
 pub fn missing(levels: &[&str]) -> String {
     let count = match levels.len() {
@@ -168,7 +168,7 @@ pub fn failure(run: &str, failures: &[String]) -> String {
     format!("{run}：{last}（共试了 {} 次）", failures.len())
 }
 
-/// Why the item failed: the chapters that did (§5.8).
+/// Why the item failed: the chapters that did.
 #[must_use]
 pub fn failed(chapters: &[&str]) -> String {
     spaced(&chapters.join("、"), "出错")

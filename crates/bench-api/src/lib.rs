@@ -1,6 +1,6 @@
 //! Plugin contract for lowendaff-bench. Test-item crates depend on this crate only.
 //!
-//! Design: `docs/design/plugin-system.md`. User-facing strings are Chinese; ids,
+//! User-facing strings are Chinese; ids,
 //! identifiers and comments are English.
 
 #![warn(missing_docs)]
@@ -24,7 +24,7 @@ use tokio::time::Instant;
 
 pub use tokio_util::sync::CancellationToken;
 
-/// Architectures every pinned tool must cover (design P-02).
+/// Architectures every pinned tool must cover.
 pub const RELEASE_ARCHES: [&str; 2] = ["x86_64", "aarch64"];
 
 /// Static facts about a plugin type, checked by [`validate_registry`].
@@ -50,10 +50,10 @@ pub struct Requirements {
     /// Network access the test needs.
     pub net: Net,
     /// Kinds of platform the test applies to; empty means every platform. On any other
-    /// platform the plugin does not run (design D-16).
+    /// platform the plugin does not run.
     pub platforms: &'static [PlatformKind],
     /// The oldest glibc that the test's tools run on, or `None` when they do not need glibc.
-    /// The orchestrator checks it before downloading the tools (design cpu, §6.2).
+    /// The orchestrator checks it before downloading the tools.
     pub glibc: Option<GlibcVersion>,
 }
 
@@ -73,7 +73,7 @@ impl Requirements {
     }
 }
 
-/// Where the program runs, detected once by the orchestrator (design D-16).
+/// Where the program runs, detected once by the orchestrator.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Platform {
     /// No virtualization was detected; most likely a dedicated server.
@@ -238,7 +238,7 @@ impl fmt::Display for GlibcVersion {
     }
 }
 
-/// The host's C library, as far as programs built for glibc are concerned (design cpu, §6.2).
+/// The host's C library, as far as programs built for glibc are concerned.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Libc {
     /// glibc of this version.
@@ -271,7 +271,7 @@ impl ToolSpec {
     }
 }
 
-/// What the download of a tool is (design cpu, §6.3).
+/// What the download of a tool is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ToolForm {
     /// The download is the static executable itself.
@@ -310,7 +310,7 @@ pub struct Env {
     pub tools: BTreeMap<String, PathBuf>,
     /// The platform the program runs on.
     pub platform: Platform,
-    /// The host's C library (design cpu, §6.2).
+    /// The host's C library.
     pub libc: Libc,
 }
 

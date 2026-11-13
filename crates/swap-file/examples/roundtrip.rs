@@ -1,5 +1,5 @@
-//! Turns a 64 MiB swap file on and off again, for the CI step "Swap round trip" (design cpu,
-//! §9.3). It needs root on Linux and a filesystem with swap files, such as ext4.
+//! Turns a 64 MiB swap file on and off again, for the CI step "Swap round trip". It needs
+//! root on Linux and a filesystem with swap files, such as ext4.
 //!
 //! Usage: roundtrip <directory>
 

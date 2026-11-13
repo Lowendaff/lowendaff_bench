@@ -1,4 +1,4 @@
-//! What 硬盘性能 prints (design disk, §5): YABS's number formats, its two tables, and the
+//! What 硬盘性能 prints: YABS's number formats, its two tables, and the
 //! reasons to skip.
 
 use bench_api::Record;
@@ -44,7 +44,7 @@ impl FileSize {
 }
 
 /// Why the test cannot measure the disk here, if it cannot: the test directory is on a RAM
-/// disk (DK-06), or has less free space than the test file needs. Exactly enough passes, as in
+/// disk, or has less free space than the test file needs. Exactly enough passes, as in
 /// YABS.
 #[must_use]
 pub fn skip_reason(kind: Option<FilesystemKind>, available: u64, size: FileSize) -> Option<String> {
