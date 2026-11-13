@@ -175,6 +175,7 @@ async fn a_run_prints_sections_and_summary_then_removes_its_directory() {
         work.path(),
         &CancellationToken::new(),
         &mut out,
+        None,
     )
     .await
     .unwrap();
@@ -183,7 +184,7 @@ async fn a_run_prints_sections_and_summary_then_removes_its_directory() {
     assert_eq!(code, 0);
     assert!(
         text.starts_with(&format!(
-            "lowendaff-bench {}\n运行环境：未检测到虚拟化\n\n【示例测试】\n",
+            "lowendaff-bench {}\n运行环境：未检测到虚拟化\n\n【test】\n",
             env!("CARGO_PKG_VERSION")
         )),
         "{text}"
@@ -208,14 +209,23 @@ async fn an_interrupted_run_exits_130_and_still_lists_every_plugin() {
     let planned = app::prepare(&cli(&[]), REGISTRY).unwrap();
     let mut out = Vec::new();
 
-    let code = app::execute(planned, Env::default(), work.path(), &cancel, &mut out)
-        .await
-        .unwrap();
+    let code = app::execute(
+        planned,
+        Env::default(),
+        work.path(),
+        &cancel,
+        &mut out,
+        None,
+    )
+    .await
+    .unwrap();
 
     let text = String::from_utf8(out).unwrap();
     assert_eq!(code, EXIT_INTERRUPTED);
-    assert!(text.contains("【示例测试】\n  已中断\n"), "{text}");
-    assert!(text.contains("【另一个测试】\n  已中断\n"), "{text}");
+    assert!(
+        text.contains("【test】\n  示例测试\n    已中断\n  另一个测试\n    已中断\n"),
+        "two plugins of one group share a section: {text}"
+    );
     assert!(
         text.contains("共 2 项：完成 0，跳过 0，失败 0，超时 0，中断 2。"),
         "{text}"
@@ -333,6 +343,7 @@ async fn only_plugins_for_the_detected_platform_run() {
         work.path(),
         &CancellationToken::new(),
         &mut out,
+        None,
     )
     .await
     .unwrap();
@@ -342,11 +353,12 @@ async fn only_plugins_for_the_detected_platform_run() {
     // The other variant of 系统信息 runs instead, so only 硬盘健康 is reported.
     assert!(
         text.starts_with(&format!(
-            "lowendaff-bench {}\n运行环境：KVM 虚拟机\n本机不适用：硬盘健康\n\n【系统信息】\n",
+            "lowendaff-bench {}\n运行环境：KVM 虚拟机\n\n【test】\n",
             env!("CARGO_PKG_VERSION")
         )),
         "{text}"
     );
+    assert!(text.contains("  本机不适用：硬盘健康\n"), "{text}");
     assert!(text.contains("虚拟机版"), "{text}");
     assert!(!text.contains("独立服务器版"), "{text}");
     assert!(
@@ -419,6 +431,7 @@ async fn tools_of_items_the_host_cannot_run_are_not_downloaded() {
             work.path(),
             &CancellationToken::new(),
             &mut out,
+            None,
         )
         .await
         .unwrap();

@@ -48,7 +48,7 @@ fn main() -> ExitCode {
     runtime.spawn(watch_interrupt(cancel.clone()));
     let result = runtime.block_on(async {
         let env = probe::probe().await;
-        app::execute(planned, env, &cli.work_dir, &cancel, io::stdout()).await
+        app::execute(planned, env, &cli.work_dir, &cancel, io::stdout(), width()).await
     });
     match result {
         Ok(code) => ExitCode::from(code),
@@ -57,6 +57,18 @@ fn main() -> ExitCode {
             ExitCode::from(app::EXIT_USAGE)
         }
     }
+}
+
+/// The terminal's width when stdout is one; the report's tables wrap to it.
+fn width() -> Option<u16> {
+    let stdout = io::stdout();
+    if !rustix::termios::isatty(&stdout) {
+        return None;
+    }
+    rustix::termios::tcgetwinsize(&stdout)
+        .ok()
+        .map(|size| size.ws_col)
+        .filter(|columns| *columns > 0)
 }
 
 /// First Ctrl-C stops the current test and skips the rest; a second one exits at once

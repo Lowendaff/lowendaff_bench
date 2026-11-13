@@ -20,8 +20,9 @@ use crate::orchestrator::Planned;
 use crate::orchestrator::Quiet;
 use crate::orchestrator::Settings;
 use crate::provision;
+use crate::report;
+use crate::report::terminal::Page;
 use crate::results::Measured;
-use crate::terminal::Terminal;
 
 /// Exit code for usage, config or environment errors, and for not running as root.
 pub const EXIT_USAGE: u8 = 2;
@@ -175,18 +176,16 @@ pub async fn execute(
     mut env: Env,
     work_dir: &Path,
     cancel: &CancellationToken,
-    out: impl Write,
+    mut out: impl Write,
+    width: Option<u16>,
 ) -> Result<u8, String> {
     let started = Instant::now();
     let run_dir = tempfile::Builder::new()
         .prefix("lowendaff-bench-")
         .tempdir_in(work_dir)
         .map_err(|err| format!("无法在 {} 创建运行目录：{err}", work_dir.display()))?;
-    let mut terminal = Terminal::new(out);
-    terminal.header(env!("CARGO_PKG_VERSION"));
-    terminal.platform(env.platform);
-    let (planned, not_applicable) = orchestrator::for_platform(planned, env.platform);
-    terminal.not_applicable(&not_applicable);
+    let platform = env.platform;
+    let (planned, not_applicable) = orchestrator::for_platform(planned, platform);
 
     // Only the tools of items this host can run, so that nothing is downloaded in vain, such
     // as Geekbench on a host without glibc or IPv4.
@@ -195,29 +194,39 @@ pub async fn execute(
         .map(|planned| *planned.requires())
         .filter(|requires| orchestrator::check_host(requires, &env).is_ok());
     let tools = provision::required_tools(runnable);
-    let mut failed_tools = BTreeMap::new();
+    let mut provisioned = None;
     if !tools.is_empty() {
         let tools_dir = run_dir.path().join("tools");
         fs::create_dir(&tools_dir).map_err(|err| format!("无法创建工具目录：{err}"))?;
         let fetcher = Fetcher::try_new()?;
-        let provisioned =
+        let result =
             provision::provision_all(&tools, &env.arch, &tools_dir, |url| fetcher.open(url)).await;
-        terminal.tools(&tools, &provisioned);
-        env.tools = provisioned.ready;
-        failed_tools = provisioned.failed;
+        env.tools.clone_from(&result.ready);
+        provisioned = Some(result);
     }
 
     let settings = Settings {
         grace: GRACE,
         work_root: run_dir.path().to_path_buf(),
         origin: tokio::time::Instant::from_std(started),
-        failed_tools,
+        failed_tools: provisioned
+            .as_ref()
+            .map(|provisioned| provisioned.failed.clone())
+            .unwrap_or_default(),
     };
     let runs = orchestrator::run_plan(planned, Arc::new(env), cancel, &settings, &mut Quiet).await;
-    for run in &runs {
-        terminal.run(run);
-    }
-    terminal.summary(&runs, started.elapsed());
+    let page = Page {
+        version: env!("CARGO_PKG_VERSION"),
+        platform,
+        not_applicable: &not_applicable,
+        tools: provisioned
+            .as_ref()
+            .map(|provisioned| (tools.as_slice(), provisioned)),
+        runs: &runs,
+        total: started.elapsed(),
+    };
+    // Output is best effort: a closed stdout must not change the exit code.
+    let _ = out.write_all(report::terminal::render(&page, width).as_bytes());
     drop(run_dir);
     Ok(if cancel.is_cancelled() {
         EXIT_INTERRUPTED
