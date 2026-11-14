@@ -53,12 +53,12 @@ sudo lowendaff-bench --download-connections 8  # at most 8 connections per downl
 
 - **Output.** The progress log on stderr has one line per event, after the time since the start:
   the host and its network, the tools' downloads, and each item's start, steps and end; `-v` adds
-  each download's address and number of byte ranges, and each tool's command and exit code, with
-  its last lines when it fails, except for Geekbench and smartctl, whose output holds a result's
-  claim link or the disks' serial numbers. The report follows on stdout once every item is done:
-  the system information, a section for each group (CPU, memory, disks) and a summary of how each
-  item ended. On a terminal, its tables wrap to the terminal's width. After Ctrl-C the report
-  holds what finished, and the rest is marked interrupted.
+  each download's address, its number of byte ranges and its retries, and each tool's command and
+  exit code, with its last lines when it fails, except for Geekbench and smartctl, whose output
+  holds a result's claim link or the disks' serial numbers. The report follows on stdout once
+  every item is done: the system information, a section for each group (CPU, memory, disks) and a
+  summary of how each item ended. On a terminal, its tables wrap to the terminal's width. After
+  Ctrl-C the report holds what finished, and the rest is marked interrupted.
 - **Public addresses.** Each address family that reaches the Internet asks Cloudflare, ipify and
   icanhazip in turn, without a proxy, for the address they see; the first valid answer counts.
   Behind NAT that is the shared address. The report masks it, keeping two octets of IPv4 and the
@@ -74,8 +74,12 @@ sudo lowendaff-bench --download-connections 8  # at most 8 connections per downl
   A file of 2 MiB or more comes in byte ranges over up to 32 connections at once
   (`--download-connections` sets the number, from 1 to 256), when its server serves ranges: a slow
   route often limits each connection rather than the host. Each range must come back exactly as
-  asked for, and the whole file must match its pinned size and SHA-256 before it is used. Ctrl-C
-  stops the downloads too.
+  asked for, and the whole file must match its pinned size and SHA-256 before it is used. A
+  download that fails in a way that may pass (no answer, a server answering 408, 429 or 5xx, or a
+  body that breaks off, stalls for 30 seconds or ends short) gets up to four attempts, after waits
+  of 1, 2 and 4 seconds. A byte range goes on from its first missing byte, and one that brought
+  1 MiB or more before it broke off starts its count afresh; a smaller file, or one from a server
+  without ranges, starts over. Ctrl-C stops the downloads too.
 - **Proxies.** Tool downloads go through the proxy that `HTTPS_PROXY` or `ALL_PROXY` names
   (lowercase names work too); `NO_PROXY` exempts hosts. HTTP and SOCKS5 proxies work, and with
   `socks5h://` the proxy resolves the names. On a server that reaches GitHub poorly, for

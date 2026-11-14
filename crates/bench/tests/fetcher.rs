@@ -1,9 +1,10 @@
 //! The download adapter against a local plain-HTTP server: streaming, byte ranges, HTTP errors,
 //! connection errors and the proxy hint they end in, and provisioning through the real client,
-//! whole or in ranges.
+//! whole or in ranges, and again where a download broke off.
 //! Building the client also proves the preconfigured rustls config matches reqwest's rustls
 //! version. The tests expect no proxy variables, as on CI's runners.
 
+use std::sync::Mutex;
 use std::sync::OnceLock;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
@@ -37,12 +38,26 @@ fn big() -> &'static [u8] {
 /// The requests for a byte range of [`big`] that the server answered.
 static BIG_RANGES: AtomicUsize = AtomicUsize::new(0);
 
+/// The requests for the script at `/flaky-script`.
+static FLAKY_SCRIPT: AtomicUsize = AtomicUsize::new(0);
+
+/// The byte ranges of [`big`] asked for at `/flaky`, as first and last byte, in order.
+static FLAKY_RANGES: Mutex<Vec<(usize, usize)>> = Mutex::new(Vec::new());
+
+/// `response`, an answer with a body of `body` bytes, cut off in the middle of its body, as a
+/// connection that breaks off would leave it.
+fn broken(mut response: Vec<u8>, body: usize) -> Vec<u8> {
+    response.truncate(response.len() - body + body / 2);
+    response
+}
+
 /// Serves `GET /fio` with the script, ignoring any byte range; `GET /ranged` with the script, or
 /// the byte range that the request asks for, and `GET /big` likewise with [`big`]; `GET /wrong`
 /// with another range than any asked for; `GET /moved` with a redirect to `/ranged`; `GET /cut`
 /// with a body that breaks off; `GET /status/<code>` with that status; and everything else with
 /// 404. `GET /shifted` and `GET /shorter` answer the range asked for one byte off, at its start or
-/// at its end.
+/// at its end. `GET /flaky-script` breaks off in the middle of the script the first time, and
+/// `GET /flaky` in the middle of each range of [`big`] the first time it is asked for.
 async fn serve() -> String {
     use tokio::io::AsyncReadExt;
     use tokio::io::AsyncWriteExt;
@@ -76,6 +91,27 @@ async fn serve() -> String {
                             partial(big(), first, last)
                         }
                         None => whole(big()),
+                    }
+                } else if request.starts_with("GET /flaky-script ") {
+                    let response = whole(SCRIPT);
+                    if FLAKY_SCRIPT.fetch_add(1, Ordering::SeqCst) == 0 {
+                        broken(response, SCRIPT.len())
+                    } else {
+                        response
+                    }
+                } else if let Some((first, last)) = asked_range(&request)
+                    && request.starts_with("GET /flaky ")
+                {
+                    let response = partial(big(), first, last);
+                    let mut asked = FLAKY_RANGES
+                        .lock()
+                        .expect("no test panics while holding it");
+                    let again = asked.iter().any(|(_, ends)| *ends == last);
+                    asked.push((first, last));
+                    if again {
+                        response
+                    } else {
+                        broken(response, last + 1 - first)
                     }
                 } else if request.starts_with("GET /wrong ") {
                     partial(SCRIPT, 0, 0)
@@ -336,4 +372,51 @@ async fn provisioning_through_the_real_client_installs_verified_tools_whole_or_i
         3,
         "one request for each range"
     );
+}
+
+#[tokio::test]
+async fn provisioning_through_the_real_client_goes_on_where_a_download_broke_off() {
+    let base = serve().await;
+    let tools = [
+        tool("fio", format!("{base}/flaky-script"), SCRIPT),
+        tool("big", format!("{base}/flaky"), big()),
+    ];
+    let dir = tempfile::tempdir().unwrap();
+    let fetcher = Fetcher::try_new().unwrap();
+
+    let provisioned = provision::provision_all(
+        &tools,
+        std::env::consts::ARCH,
+        dir.path(),
+        32,
+        &CancellationToken::new(),
+        |url, range| fetcher.open(url, range),
+    )
+    .await;
+
+    assert!(provisioned.failed.is_empty(), "{:?}", provisioned.failed);
+    assert_eq!(std::fs::read(&provisioned.ready["fio"]).unwrap(), SCRIPT);
+    assert_eq!(std::fs::read(&provisioned.ready["big"]).unwrap(), big());
+    assert_eq!(
+        FLAKY_SCRIPT.load(Ordering::SeqCst),
+        2,
+        "the whole file started over once"
+    );
+    let asked = FLAKY_RANGES
+        .lock()
+        .expect("no test panics while holding it")
+        .clone();
+    assert_eq!(asked.len(), 6, "each range twice: {asked:?}");
+    let range = usize::try_from(MIN_RANGE).expect("in memory");
+    for index in 0..3 {
+        let (first, last) = (index * range, (index + 1) * range - 1);
+        assert!(asked.contains(&(first, last)), "{asked:?}");
+        let again = asked
+            .iter()
+            .find(|(start, ends)| *ends == last && *start != first);
+        assert!(
+            again.is_some_and(|(start, _)| (first + 1..=first + range / 2).contains(start)),
+            "range {index} went on after the bytes that had come: {asked:?}"
+        );
+    }
 }

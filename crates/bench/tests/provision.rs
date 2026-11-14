@@ -1,13 +1,16 @@
 //! Tool provisioning: verification before execution, cleanup on failure, per-tool
-//! failure reasons, downloads in byte ranges over several connections, and a plugin running the
-//! tool it was given.
+//! failure reasons, downloads in byte ranges over several connections, tries again after a
+//! failure that may pass, and a plugin running the tool it was given.
 
 use std::collections::BTreeMap;
 use std::fmt::Write;
+use std::io;
 use std::ops::Range;
 use std::path::Path;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::task::Poll;
 use std::time::Duration;
 
 use bench::orchestrator;
@@ -36,6 +39,8 @@ use plugin_disk::fio;
 use serde::Deserialize;
 use sha2::Digest;
 use sha2::Sha256;
+use tokio::io::ReadBuf;
+use tokio::time::Instant;
 
 mod common;
 
@@ -319,16 +324,49 @@ fn pinned_to(body: &[u8]) -> ToolSpec {
     }
 }
 
+/// The body of a test download: `bytes`, then its end, or a break when `breaks` is set.
+struct Body {
+    bytes: &'static [u8],
+    breaks: bool,
+}
+
+impl tokio::io::AsyncRead for Body {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        _: &mut std::task::Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        if self.bytes.is_empty() {
+            return Poll::Ready(if self.breaks {
+                Err(io::Error::other("the connection broke off"))
+            } else {
+                Ok(())
+            });
+        }
+        let count = self.bytes.len().min(buf.remaining());
+        buf.put_slice(&self.bytes[..count]);
+        self.bytes = &self.bytes[count..];
+        Poll::Ready(Ok(()))
+    }
+}
+
 /// A server of one file: whole, or in the byte ranges asked for while it `serves_ranges` (a
-/// number of answers), the range starting at `short` one byte short, the range starting at
-/// `long` one byte long, and the range starting at `failing` not at all. Notes each request's
-/// range.
+/// number of answers). The first `busy` requests get a 503, and every request a 404 when it is
+/// `gone`. The whole file comes a byte short in the first `short_whole` answers; the range
+/// starting at `short` comes a byte short, the one starting at `long` a byte long, and the one
+/// starting at `failing` never (503). A request whose span ends at the first number of a pair in
+/// `breaks` breaks off after the pair's second number of bytes, a pair for each such request, in
+/// order. Notes each request's range.
 struct Served {
     body: &'static [u8],
     serves_ranges: usize,
+    busy: usize,
+    gone: bool,
+    short_whole: usize,
     short: Option<u64>,
     long: Option<u64>,
     failing: Option<u64>,
+    breaks: Mutex<Vec<(u64, u64)>>,
     asked: Mutex<Vec<Option<Range<u64>>>>,
 }
 
@@ -337,34 +375,73 @@ impl Served {
         Self {
             body,
             serves_ranges: usize::MAX,
+            busy: 0,
+            gone: false,
+            short_whole: 0,
             short: None,
             long: None,
             failing: None,
+            breaks: Mutex::new(Vec::new()),
             asked: Mutex::new(Vec::new()),
         }
     }
 
-    async fn open(&self, range: Option<Range<u64>>) -> Result<Part<&'static [u8]>, DownloadError> {
+    /// A server whose requests for the span that ends at `end` break off after each number of
+    /// bytes in `after` in turn.
+    fn breaking(body: &'static [u8], end: u64, after: &[u64]) -> Self {
+        Self {
+            breaks: Mutex::new(after.iter().map(|after| (end, *after)).collect()),
+            ..Self::new(body)
+        }
+    }
+
+    async fn open(&self, range: Option<Range<u64>>) -> Result<Part<Body>, DownloadError> {
         let answered = {
             let mut asked = self.asked.lock().expect("no test panics while holding it");
             asked.push(range.clone());
             asked.len()
         };
-        let Some(range) = range.filter(|_| answered <= self.serves_ranges) else {
-            return Ok(Part::Whole(self.body));
-        };
-        if self.failing == Some(range.start) {
+        if self.gone {
+            return Err(DownloadError::Final("下载失败：HTTP 404".to_owned()));
+        }
+        if answered <= self.busy {
             return Err(DownloadError::Transient("下载失败：HTTP 503".to_owned()));
         }
-        let start = usize::try_from(range.start).expect("in memory");
-        let mut end = usize::try_from(range.end).expect("in memory");
-        if self.short == Some(range.start) {
+        let ranged = range.filter(|_| answered <= self.serves_ranges);
+        let span = ranged.clone().unwrap_or(0..self.body.len() as u64);
+        let mut end = span.end;
+        if ranged.is_none() && answered <= self.short_whole {
             end -= 1;
         }
-        if self.long == Some(range.start) {
-            end += 1;
+        if ranged.is_some() {
+            if self.failing == Some(span.start) {
+                return Err(DownloadError::Transient("下载失败：HTTP 503".to_owned()));
+            }
+            if self.short == Some(span.start) {
+                end -= 1;
+            }
+            if self.long == Some(span.start) {
+                end += 1;
+            }
         }
-        Ok(Part::Range(&self.body[start..end]))
+        let cut = {
+            let mut breaks = self.breaks.lock().expect("no test panics while holding it");
+            let next = breaks.iter().position(|(ends, _)| *ends == span.end);
+            next.map(|next| breaks.remove(next).1)
+        };
+        if let Some(after) = cut {
+            end = span.start + after;
+        }
+        let start = usize::try_from(span.start).expect("in memory");
+        let end = usize::try_from(end).expect("in memory");
+        let body = Body {
+            bytes: &self.body[start..end],
+            breaks: cut.is_some(),
+        };
+        Ok(match ranged {
+            Some(_) => Part::Range(body),
+            None => Part::Whole(body),
+        })
     }
 
     /// The ranges asked for, in the order of the requests.
@@ -376,19 +453,22 @@ impl Served {
     }
 }
 
-/// What came of provisioning one tool: the result, the log, the installed file's bytes and the
-/// names left in the tools' directory.
+/// What came of provisioning one tool: the result, the log, the installed file's bytes, the
+/// names left in the tools' directory, and the time it took, in the paused clock of a test that
+/// pauses it.
 struct Outcome {
     provisioned: provision::Provisioned,
     log: Vec<String>,
     installed: Option<Vec<u8>>,
     left: Vec<String>,
+    took: Duration,
 }
 
 /// Provisions `tool` from `served` over up to `connections` connections, logging as `-v` does.
 async fn provision_from(tool: ToolSpec, served: &Served, connections: usize) -> Outcome {
     let dir = tempfile::tempdir().expect("a directory for the tools");
     let (log, capturing) = Captured::start(true);
+    let started = Instant::now();
     let provisioned = provision::provision_all(
         &[tool],
         "x86_64",
@@ -398,6 +478,7 @@ async fn provision_from(tool: ToolSpec, served: &Served, connections: usize) -> 
         |_, range| served.open(range),
     )
     .await;
+    let took = started.elapsed();
     drop(capturing);
     let installed = provisioned
         .ready
@@ -408,6 +489,7 @@ async fn provision_from(tool: ToolSpec, served: &Served, connections: usize) -> 
         log: log.lines(),
         installed,
         left: entries(dir.path()),
+        took,
     }
 }
 
@@ -472,27 +554,26 @@ async fn a_large_file_comes_in_byte_ranges_one_connection_each() {
 }
 
 #[tokio::test]
-async fn one_connection_or_a_file_under_two_ranges_asks_for_the_whole_file() {
-    for (size, connections, whole) in [
-        (5 * MIN_RANGE, 1, true),
-        (2 * MIN_RANGE - 1, 32, true),
-        (2 * MIN_RANGE, 32, false),
+async fn a_file_under_two_ranges_comes_whole_and_one_connection_takes_one_range() {
+    let both = vec![Some(0..MIN_RANGE), Some(MIN_RANGE..2 * MIN_RANGE)];
+    for (size, connections, asked) in [
+        (5 * MIN_RANGE, 1, vec![Some(0..5 * MIN_RANGE)]),
+        (2 * MIN_RANGE - 1, 32, vec![None]),
+        (2 * MIN_RANGE, 32, both),
     ] {
         let body = contents(size);
         let served = Served::new(body);
         let outcome = provision_from(pinned_to(body), &served, connections).await;
 
         assert_eq!(outcome.installed.as_deref(), Some(body), "{size} bytes");
-        if whole {
+        let mut seen = served.asked();
+        seen.sort_by_key(|range| range.as_ref().map(|range| range.start));
+        assert_eq!(seen, asked, "{size} bytes, {connections} connections");
+        if asked.len() == 1 {
             assert_eq!(
-                served.asked(),
-                [None],
-                "{size} bytes, {connections} connections"
-            );
-        } else {
-            assert_eq!(
-                sorted_ranges(&served),
-                [0..MIN_RANGE, MIN_RANGE..2 * MIN_RANGE]
+                outcome.log,
+                ["下载 https://tools.example/big", "准备工具：big 1.0 就绪"],
+                "one range or a whole file has no line of ranges"
             );
         }
     }
@@ -520,19 +601,247 @@ async fn a_server_that_ignores_ranges_sends_the_whole_file_over_one_connection()
     );
 }
 
-#[tokio::test]
-async fn a_range_that_goes_wrong_fails_the_tool_and_leaves_nothing() {
+/// The -v log of a whole download of the test tool that breaks off `failed` times.
+fn whole_retries(failed: u32) -> Vec<String> {
+    (1..=failed)
+        .map(|attempt| {
+            format!(
+                "big 1.0 第 {attempt} 次下载未成功，{} 秒后重试：下载中断：\
+                 the connection broke off",
+                1 << (attempt - 1)
+            )
+        })
+        .collect()
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_whole_file_that_breaks_off_starts_over_after_waits_of_1_2_and_4_seconds() {
+    let body = contents(1000);
+    let served = Served::breaking(body, 1000, &[100, 100, 100]);
+    let outcome = provision_from(pinned_to(body), &served, 32).await;
+
+    assert_eq!(outcome.installed.as_deref(), Some(body));
+    assert_eq!(served.asked(), [None, None, None, None]);
+    assert_eq!(outcome.took, Duration::from_secs(7));
+    let mut log = vec!["下载 https://tools.example/big".to_owned()];
+    log.extend(whole_retries(3));
+    log.push("准备工具：big 1.0 就绪".to_owned());
+    assert_eq!(outcome.log, log);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_whole_file_that_keeps_breaking_off_fails_after_four_attempts() {
+    let body = contents(1000);
+    let served = Served::breaking(body, 1000, &[100, 100, 100, 100]);
+    let outcome = provision_from(pinned_to(body), &served, 32).await;
+
+    assert_eq!(
+        outcome.provisioned.failed["big"],
+        "下载中断：the connection broke off"
+    );
+    assert_eq!(served.asked(), [None, None, None, None]);
+    assert_eq!(outcome.took, Duration::from_secs(7));
+    assert_eq!(outcome.log[1..4], whole_retries(3));
+    assert_eq!(outcome.left, Vec::<String>::new());
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_whole_file_that_ends_short_starts_over() {
+    let body = contents(1000);
+    let served = Served {
+        short_whole: 1,
+        ..Served::new(body)
+    };
+    let outcome = provision_from(pinned_to(body), &served, 32).await;
+
+    assert_eq!(outcome.installed.as_deref(), Some(body));
+    assert_eq!(served.asked(), [None, None]);
+    assert_eq!(
+        outcome.log[1],
+        "big 1.0 第 1 次下载未成功，1 秒后重试：大小不符：应为 1000 字节，实际 999 字节"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn failures_before_the_first_answer_count_against_what_comes_after_it() {
+    let size = 2 * MIN_RANGE;
+    let body = contents(size);
+    // Three times busy, then the first range, or the whole file, breaks off: the fourth failure.
+    let cases = [
+        Served {
+            busy: 3,
+            ..Served::breaking(body, MIN_RANGE, &[1000])
+        },
+        Served {
+            busy: 3,
+            serves_ranges: 3,
+            ..Served::breaking(body, size, &[1000])
+        },
+    ];
+    for served in cases {
+        let outcome = provision_from(pinned_to(body), &served, 32).await;
+
+        assert_eq!(
+            outcome.provisioned.failed["big"],
+            "下载中断：the connection broke off"
+        );
+        assert_eq!(outcome.took, Duration::from_secs(7));
+        assert_eq!(outcome.left, Vec::<String>::new());
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_range_that_breaks_off_or_ends_short_goes_on_from_its_first_missing_byte() {
     let body = contents(4 * MIN_RANGE);
-    let wrong = [
+    let cases = [
+        (
+            Served::breaking(body, 2 * MIN_RANGE, &[1000]),
+            MIN_RANGE + 1000..2 * MIN_RANGE,
+            format!(
+                "big 1.0 第 2 段第 1 次下载未成功，1 秒后从第 {} 字节续传：下载中断：\
+                 the connection broke off",
+                MIN_RANGE + 1000
+            ),
+        ),
         (
             Served {
                 short: Some(2 * MIN_RANGE),
                 ..Served::new(body)
             },
+            3 * MIN_RANGE - 1..3 * MIN_RANGE,
             format!(
-                "大小不符：一段应为 {MIN_RANGE} 字节，实际 {} 字节",
+                "big 1.0 第 3 段第 1 次下载未成功，1 秒后从第 {} 字节续传：大小不符：一段应为 \
+                 {MIN_RANGE} 字节，实际 {} 字节",
+                3 * MIN_RANGE - 1,
                 MIN_RANGE - 1
             ),
+        ),
+    ];
+    for (served, again, line) in cases {
+        let outcome = provision_from(pinned_to(body), &served, 32).await;
+
+        assert_eq!(outcome.installed.as_deref(), Some(body), "{line}");
+        assert_eq!(served.asked().len(), 5, "four ranges and one again: {line}");
+        assert_eq!(served.asked().last(), Some(&Some(again)), "{line}");
+        assert_eq!(outcome.took, Duration::from_secs(1));
+        assert!(outcome.log.contains(&line), "{:?}", outcome.log);
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_range_that_brought_a_mib_before_breaking_off_starts_its_count_afresh() {
+    let size = 6 * MIN_RANGE;
+    let body = contents(size);
+    let served = Served::breaking(body, size, &[MIN_RANGE; 5]);
+    let outcome = provision_from(pinned_to(body), &served, 1).await;
+
+    assert_eq!(outcome.installed.as_deref(), Some(body));
+    let from: Vec<Option<Range<u64>>> = (0..6).map(|count| Some(count * MIN_RANGE..size)).collect();
+    assert_eq!(served.asked(), from);
+    assert_eq!(outcome.took, Duration::from_secs(5), "1 second each time");
+    let retries: Vec<String> = (1..=5)
+        .map(|count| {
+            format!(
+                "big 1.0 第 1 段第 1 次下载未成功，1 秒后从第 {} 字节续传：下载中断：\
+                 the connection broke off",
+                count * MIN_RANGE
+            )
+        })
+        .collect();
+    assert_eq!(outcome.log[1..6], retries);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_range_that_breaks_off_before_a_mib_counts_each_break() {
+    let size = 4 * MIN_RANGE;
+    let body = contents(size);
+    let served = Served::breaking(body, size, &[1000, 1000, 1000, 1000]);
+    let outcome = provision_from(pinned_to(body), &served, 1).await;
+
+    assert_eq!(
+        outcome.provisioned.failed["big"],
+        "下载中断：the connection broke off"
+    );
+    let from: Vec<Option<Range<u64>>> = (0..4).map(|count| Some(count * 1000..size)).collect();
+    assert_eq!(served.asked(), from);
+    assert_eq!(outcome.took, Duration::from_secs(7));
+    assert_eq!(outcome.left, Vec::<String>::new());
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_busy_server_is_asked_again_for_the_first_range() {
+    let body = contents(2 * MIN_RANGE);
+    let first = Some(0..MIN_RANGE);
+    let served = Served {
+        busy: 2,
+        ..Served::new(body)
+    };
+    let outcome = provision_from(pinned_to(body), &served, 32).await;
+
+    assert_eq!(outcome.installed.as_deref(), Some(body));
+    assert_eq!(
+        served.asked(),
+        [
+            first.clone(),
+            first.clone(),
+            first.clone(),
+            Some(MIN_RANGE..2 * MIN_RANGE)
+        ]
+    );
+    assert_eq!(outcome.took, Duration::from_secs(3));
+    assert_eq!(
+        outcome.log[1..3],
+        [
+            "big 1.0 第 1 次下载未成功，1 秒后重试：下载失败：HTTP 503",
+            "big 1.0 第 2 次下载未成功，2 秒后重试：下载失败：HTTP 503",
+        ]
+    );
+
+    let served = Served {
+        busy: 4,
+        ..Served::new(body)
+    };
+    let outcome = provision_from(pinned_to(body), &served, 32).await;
+
+    assert_eq!(outcome.provisioned.failed["big"], "下载失败：HTTP 503");
+    assert_eq!(
+        served.asked(),
+        vec![first; 4],
+        "no other range is asked for"
+    );
+    assert_eq!(outcome.took, Duration::from_secs(7));
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_range_that_keeps_failing_fails_the_tool_after_four_attempts_and_leaves_nothing() {
+    let body = contents(4 * MIN_RANGE);
+    let served = Served {
+        failing: Some(MIN_RANGE),
+        ..Served::new(body)
+    };
+    let outcome = provision_from(pinned_to(body), &served, 32).await;
+
+    assert_eq!(outcome.provisioned.failed["big"], "下载失败：HTTP 503");
+    let again = served
+        .asked()
+        .into_iter()
+        .filter(|range| *range == Some(MIN_RANGE..2 * MIN_RANGE))
+        .count();
+    assert_eq!(again, 4);
+    assert_eq!(outcome.took, Duration::from_secs(7));
+    assert_eq!(outcome.left, Vec::<String>::new());
+}
+
+#[tokio::test(start_paused = true)]
+async fn failures_that_would_end_the_same_way_are_not_tried_again() {
+    let body = contents(4 * MIN_RANGE);
+    let wrong = [
+        (
+            Served {
+                gone: true,
+                ..Served::new(body)
+            },
+            "下载失败：HTTP 404".to_owned(),
         ),
         (
             Served {
@@ -540,13 +849,6 @@ async fn a_range_that_goes_wrong_fails_the_tool_and_leaves_nothing() {
                 ..Served::new(body)
             },
             format!("大小超过一段应有的 {MIN_RANGE} 字节"),
-        ),
-        (
-            Served {
-                failing: Some(MIN_RANGE),
-                ..Served::new(body)
-            },
-            "下载失败：HTTP 503".to_owned(),
         ),
         (
             Served {
@@ -560,11 +862,21 @@ async fn a_range_that_goes_wrong_fails_the_tool_and_leaves_nothing() {
         let outcome = provision_from(pinned_to(body), &served, 32).await;
 
         assert_eq!(outcome.provisioned.failed["big"], reason);
+        let asked = served.asked();
+        let mut once = asked.clone();
+        once.sort_by_key(|range| range.as_ref().map(|range| range.start));
+        once.dedup();
+        assert_eq!(
+            once.len(),
+            asked.len(),
+            "nothing is asked for twice: {asked:?}"
+        );
+        assert_eq!(outcome.took, Duration::ZERO, "{reason}");
         assert_eq!(outcome.left, Vec::<String>::new(), "{reason}");
     }
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn ranges_that_do_not_add_up_to_the_pinned_file_fail_and_leave_nothing() {
     let body = contents(3 * MIN_RANGE);
     let mut other = body.to_vec();
@@ -581,7 +893,41 @@ async fn ranges_that_do_not_add_up_to_the_pinned_file_fail_and_leave_nothing() {
         )),
         "{reason}"
     );
+    assert_eq!(served.asked().len(), 3, "no range is asked for again");
+    assert_eq!(outcome.took, Duration::ZERO);
     assert_eq!(outcome.left, Vec::<String>::new());
+}
+
+#[tokio::test(start_paused = true)]
+async fn ctrl_c_during_a_wait_ends_the_download_at_once() {
+    let body = contents(1000);
+    let served = Served::breaking(body, 1000, &[100, 100, 100, 100]);
+    let dir = tempfile::tempdir().expect("a directory for the tools");
+    let cancel = CancellationToken::new();
+    let interrupt = {
+        let cancel = cancel.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            cancel.cancel();
+        })
+    };
+    let started = Instant::now();
+
+    let provisioned = provision::provision_all(
+        &[pinned_to(body)],
+        "x86_64",
+        dir.path(),
+        32,
+        &cancel,
+        |_, range| served.open(range),
+    )
+    .await;
+
+    assert_eq!(started.elapsed(), Duration::from_millis(500));
+    assert_eq!(provisioned.failed["big"], "下载已中断");
+    assert_eq!(served.asked(), [None], "the second attempt never starts");
+    assert_eq!(entries(dir.path()), Vec::<String>::new());
+    interrupt.await.expect("the interrupt runs");
 }
 
 #[tokio::test]

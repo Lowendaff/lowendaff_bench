@@ -789,7 +789,8 @@ async fn the_program_hands_its_plugins_the_tools_it_downloaded() {
     };
     let url = "https://example.invalid/script-x86_64";
     let in_ranges = vec![Some(0..MIN_RANGE), Some(MIN_RANGE..SCRIPT_SIZE)];
-    for (connections, ranges) in [(None, in_ranges), (Some(1), vec![None])] {
+    let one_range = vec![Some(0..SCRIPT_SIZE)];
+    for (connections, ranges) in [(None, in_ranges), (Some(1), one_range)] {
         let planned = app::prepare(&cli(&[]), &registry).unwrap();
         let downloads = Downloads {
             body: Some(script()),
