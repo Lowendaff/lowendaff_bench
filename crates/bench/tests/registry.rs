@@ -283,8 +283,7 @@ fn unused<O, F>(_report: Report<O, F>) -> Measured {
     })
 }
 
-/// A typed plugin that repeats `disk.fio` with another fio and no limit; the reporter has no
-/// name for it.
+/// A typed plugin that repeats `disk.fio` with another fio and no limit.
 #[derive(Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 struct TypedFio {}
@@ -338,7 +337,6 @@ fn typed_plugins_pass_the_same_checks_and_need_a_name() {
         problems,
         [
             "disk.fio: duplicate id",
-            "disk.fio: the reporter has no name for it",
             "disk.fio: timeout must be positive",
             "disk.fio: tool fio differs from another plugin's declaration",
             "test.typed-lax: the reporter has no name for it",

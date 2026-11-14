@@ -38,23 +38,18 @@ deny = [
         "bench-tool",
         "plugin-cpu",
         "plugin-disk",
-        "plugin-disk-health",
         "plugin-memory",
     ] },
     { crate = "bench-tool", reason = "the pinned tools, for the plugin crates", wrappers = [
         "bench",
         "plugin-cpu",
         "plugin-disk",
-        "plugin-disk-health",
         "plugin-memory",
     ] },
     { crate = "plugin-cpu", reason = "plugin crates are used by bench alone", wrappers = [
         "bench",
     ] },
     { crate = "plugin-disk", reason = "plugin crates are used by bench alone", wrappers = [
-        "bench",
-    ] },
-    { crate = "plugin-disk-health", reason = "plugin crates are used by bench alone", wrappers = [
         "bench",
     ] },
     { crate = "plugin-memory", reason = "plugin crates are used by bench alone", wrappers = [

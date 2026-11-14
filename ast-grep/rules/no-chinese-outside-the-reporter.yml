@@ -10,6 +10,7 @@ files:
   - crates/bench-host/src/**/*.rs
   - crates/bench-tool/src/**/*.rs
   - plugins/cpu/src/**/*.rs
+  - plugins/disk/src/**/*.rs
 rule:
   any:
     - kind: string_literal

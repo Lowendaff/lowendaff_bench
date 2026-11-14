@@ -28,13 +28,13 @@ pub fn all() -> Vec<Entry> {
     vec![
         // 硬盘健康: SMART through smartctl, on dedicated servers only. Before 硬盘性能, so that
         // the disks are idle and fio's writes are not counted.
-        legacy::<plugin_disk_health::Smartctl>(),
+        entry::<plugin_disk::health::Smartctl>(Measured::DiskHealth),
         // CPU 性能: sysbench, before fio's writes can disturb it.
         entry::<plugin_cpu::sysbench::Sysbench>(Measured::CpuSysbench),
         // 内存性能: sysbench, STREAM and multichase, after CPU 性能 and before fio's writes.
         legacy::<plugin_memory::Memory>(),
         // 硬盘性能: fio with YABS's method, on every platform.
-        legacy::<plugin_disk::Fio>(),
+        entry::<plugin_disk::fio::Fio>(Measured::DiskFio),
         // Geekbench 7: last, being the longest, with a download, an upload and perhaps swap that
         // must not disturb the disk test.
         entry::<plugin_cpu::geekbench::Geekbench>(Measured::CpuGeekbench),

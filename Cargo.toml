@@ -12,7 +12,6 @@ license = "MIT"
 bench-host = { path = "crates/bench-host" }
 plugin-cpu = { path = "plugins/cpu" }
 plugin-disk = { path = "plugins/disk" }
-plugin-disk-health = { path = "plugins/disk-health" }
 plugin-memory = { path = "plugins/memory" }
 bench-api = { path = "crates/bench-api" }
 bench-tool = { path = "crates/bench-tool" }

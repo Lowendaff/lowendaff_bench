@@ -6,7 +6,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
 use bench_host::Root;
-use plugin_disk_health::nodes::Nodes;
+use plugin_disk::health::nodes::Nodes;
 
 const NODE: &str = "dev/megaraid_sas_ioctl_node";
 const OLD_NODE: &str = "dev/megadev0";

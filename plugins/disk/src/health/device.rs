@@ -1,6 +1,4 @@
-//! The disks that smartctl's scan finds.
-
-use crate::output::Output;
+//! The devices that smartctl's scan finds, and the commands that scan and read them.
 
 /// smartctl's scan, which opens every device to detect its type.
 pub const SCAN_ARGS: [&str; 2] = ["--scan-open", "--json"];
@@ -22,20 +20,4 @@ impl Device {
         let args = ["--json", "-x", "-d", self.kind.as_str(), self.name.as_str()];
         args.map(str::to_owned).to_vec()
     }
-}
-
-/// The devices in the scan's output, in smartctl's order, or why the scan failed. A scan
-/// that finds nothing prints no `devices` at all.
-pub fn scan(text: &str) -> Result<Vec<Device>, String> {
-    let output = Output::parse(text).ok_or("smartctl 的输出无法解析")?;
-    if let Some(reason) = output.failure() {
-        return Err(reason);
-    }
-    let devices = output.array_at("/devices").iter().filter_map(|device| {
-        Some(Device {
-            name: device.get("name")?.as_str()?.to_owned(),
-            kind: device.get("type")?.as_str()?.to_owned(),
-        })
-    });
-    Ok(devices.collect())
 }

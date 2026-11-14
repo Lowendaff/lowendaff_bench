@@ -1,0 +1,33 @@
+---
+source: crates/bench/tests/disk.rs
+expression: text
+---
+【硬盘】
+  硬盘性能
+    跳过：测试目录在内存盘上，测到的会是内存速度；请在硬盘上的目录运行，或用 --work-dir 指定
+  硬盘性能
+    跳过：测试目录可用空间不足 2 GiB（只有 1.9 GiB）
+  硬盘性能
+    失败：无法读取测试目录的可用空间
+  硬盘性能
+    跳过：测试目录所在的文件系统不支持直接 I/O
+  硬盘性能
+    失败：生成测试文件失败：fio: pid=0, err=28/file:filesetup.c:241, func=write, error=No space left on device
+  硬盘性能
+    失败：生成测试文件失败：无法运行 fio：Text file busy (os error 26)
+  硬盘性能
+    失败：四种块大小都没有结果
+  硬盘性能
+    失败：已中断
+
+【汇总】
+  硬盘性能          跳过：测试目录在内存盘上，测到的会是内存速度；请在硬盘上的目录运行，或用 --work-dir 指定
+  硬盘性能          跳过：测试目录可用空间不足 2 GiB（只有 1.9 GiB）
+  硬盘性能          失败：无法读取测试目录的可用空间
+  硬盘性能          跳过：测试目录所在的文件系统不支持直接 I/O
+  硬盘性能          失败：生成测试文件失败：fio: pid=0, err=28/file:filesetup.c:241, func=write, error=No space left on device
+  硬盘性能          失败：生成测试文件失败：无法运行 fio：Text file busy (os error 26)
+  硬盘性能          失败：四种块大小都没有结果
+  硬盘性能          失败：已中断
+
+共 8 项：完成 0，跳过 3，失败 5，超时 0，中断 0。总用时 5.0 秒

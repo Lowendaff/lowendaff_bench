@@ -1,0 +1,42 @@
+---
+source: crates/bench/tests/disk.rs
+expression: text
+---
+【硬盘】
+  硬盘健康
+    跳过：smartctl 没有找到硬盘
+  硬盘健康
+    失败：smartctl 扫描硬盘失败：超过 60 秒仍未完成
+  硬盘健康
+    失败：smartctl 扫描硬盘失败：Smartctl open device: /dev/sdz [SAT] failed: No such device
+  硬盘健康
+    失败：smartctl 扫描硬盘失败：smartctl 的输出无法解析
+  硬盘健康
+    smartctl 7.5
+    设备  健康      通电时间  温度  已用寿命  累计写入  坏块  接口错误
+    sda   读取失败  —         —     —         —         —     —
+    sdb   读取失败  —         —     —         —         —     —
+    说明              sda 读取失败：打不开设备，或读不到设备识别信息
+    说明              sdb 读取失败：打不开设备，或读不到设备识别信息
+    失败：所有硬盘都读取失败
+  硬盘健康
+    失败：已中断
+  硬盘健康
+    smartctl 7.5
+    设备  健康  通电时间    温度   已用寿命  累计写入  坏块     接口错误
+    sda   通过  46167 小时  25 °C  23%       48.2 TB   0 / —           3
+    sdb   通过  38112 小时  28 °C  49%       169.0 TB  380 / —         0
+    sdc   通过  53544 小时  27 °C  79%       277.2 TB  0 / —           0
+    sdd   通过  35124 小时  27 °C  30%       155.6 TB  13 / —          0
+    超时，已保留超时前的结果
+
+【汇总】
+  硬盘健康          跳过：smartctl 没有找到硬盘
+  硬盘健康          失败：smartctl 扫描硬盘失败：超过 60 秒仍未完成
+  硬盘健康          失败：smartctl 扫描硬盘失败：Smartctl open device: /dev/sdz [SAT] failed: No such device
+  硬盘健康          失败：smartctl 扫描硬盘失败：smartctl 的输出无法解析
+  硬盘健康          失败：所有硬盘都读取失败
+  硬盘健康          失败：已中断
+  硬盘健康          超时，已保留超时前的结果
+
+共 7 项：完成 0，跳过 1，失败 5，超时 1，中断 0。总用时 5.0 秒

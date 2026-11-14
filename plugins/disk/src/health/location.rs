@@ -1,14 +1,15 @@
 //! Where a disk sits, which decides its name and its place in the table.
 
 use bench_host::Root;
+use serde::Serialize;
 
-use crate::device::Device;
+use super::device::Device;
 
 /// A disk with a kernel name, or one that smartctl reaches only through a RAID card. The
 /// order is the table's: named disks first, by name, then RAID-card disks by card and number.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 pub enum Location {
-    /// A kernel name such as `sda` or `nvme0n1`, as 系统基础信息 shows it.
+    /// A kernel name such as `sda` or `nvme0n1`, as 系统信息 shows it.
     Named(String),
     /// A disk on a RAID card.
     Card {
@@ -31,24 +32,6 @@ impl Location {
             return Self::Named(nvme_name(name, root));
         }
         Self::Named(name.to_owned())
-    }
-
-    /// The 设备 cell. `with_host` names the card, for when RAID-card disks sit on more than
-    /// one card.
-    #[must_use]
-    pub fn name(&self, with_host: bool) -> String {
-        match self {
-            Self::Named(name) => name.clone(),
-            Self::Card { host, numbers } => {
-                let numbers: Vec<String> = numbers.iter().map(u32::to_string).collect();
-                let numbers = numbers.join(":");
-                if with_host {
-                    format!("RAID 卡 host{host} 的 {numbers} 号盘")
-                } else {
-                    format!("RAID 卡 {numbers} 号盘")
-                }
-            }
-        }
     }
 }
 
