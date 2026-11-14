@@ -2,7 +2,7 @@
 
 use bench_host::Root;
 
-use crate::device::Device;
+use crate::health::device::Device;
 
 /// A disk with a kernel name, or one that smartctl reaches only through a RAID card. The
 /// order is the table's: named disks first, by name, then RAID-card disks by card and number.

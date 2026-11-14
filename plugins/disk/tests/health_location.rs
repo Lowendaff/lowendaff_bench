@@ -3,8 +3,8 @@
 use std::fs;
 
 use bench_host::Root;
-use plugin_disk_health::device::Device;
-use plugin_disk_health::location::Location;
+use plugin_disk::health::device::Device;
+use plugin_disk::health::location::Location;
 
 fn device(name: &str, kind: &str) -> Device {
     Device {

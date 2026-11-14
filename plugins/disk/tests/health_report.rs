@@ -4,12 +4,12 @@ mod common;
 
 use bench_api::Record;
 use bench_host::Root;
-use plugin_disk_health::device::Device;
-use plugin_disk_health::location::Location;
-use plugin_disk_health::reading::Health;
-use plugin_disk_health::reading::Reading;
-use plugin_disk_health::reading::Values;
-use plugin_disk_health::report;
+use plugin_disk::health::device::Device;
+use plugin_disk::health::location::Location;
+use plugin_disk::health::reading::Health;
+use plugin_disk::health::reading::Reading;
+use plugin_disk::health::reading::Values;
+use plugin_disk::health::report;
 
 fn reading(name: &str, kind: &str, fixture: &str) -> Reading {
     let device = Device {

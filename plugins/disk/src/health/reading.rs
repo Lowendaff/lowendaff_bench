@@ -5,8 +5,8 @@ use std::time::Duration;
 
 use serde_json::Value;
 
-use crate::device::Device;
-use crate::output::Output;
+use crate::health::device::Device;
+use crate::health::output::Output;
 
 /// How long one smartctl run may take before it is stopped.
 pub const READ_LIMIT: Duration = Duration::from_secs(60);

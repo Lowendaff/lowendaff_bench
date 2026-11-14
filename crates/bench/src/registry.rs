@@ -28,7 +28,7 @@ pub fn all() -> Vec<Entry> {
     vec![
         // 硬盘健康: SMART through smartctl, on dedicated servers only. Before 硬盘性能, so that
         // the disks are idle and fio's writes are not counted.
-        legacy::<plugin_disk_health::Smartctl>(),
+        legacy::<plugin_disk::health::Smartctl>(),
         // CPU 性能: sysbench, before fio's writes can disturb it.
         entry::<plugin_cpu::sysbench::Sysbench>(Measured::CpuSysbench),
         // 内存性能: sysbench, STREAM and multichase, after CPU 性能 and before fio's writes.

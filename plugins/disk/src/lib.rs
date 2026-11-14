@@ -1,4 +1,5 @@
-//! 硬盘性能: fio runs YABS's disk test on the filesystem of the
+//! The disk test items: 硬盘健康 (`disk.health`), the SMART health of a dedicated server's disks,
+//! in [`health`]; and 硬盘性能 (`disk.fio`), fio running YABS's disk test on the filesystem of the
 //! test directory, on every platform.
 
 use std::ffi::OsString;
@@ -21,6 +22,7 @@ use crate::fio::Outcome;
 use crate::report::FileSize;
 
 pub mod fio;
+pub mod health;
 pub mod report;
 
 /// YABS stops each test after 35 seconds (`timeout 35`).

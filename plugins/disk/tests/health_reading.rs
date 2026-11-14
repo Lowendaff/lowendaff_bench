@@ -2,12 +2,12 @@
 
 mod common;
 
-use plugin_disk_health::device::Device;
-use plugin_disk_health::reading;
-use plugin_disk_health::reading::BadBlocks;
-use plugin_disk_health::reading::Health;
-use plugin_disk_health::reading::Reading;
-use plugin_disk_health::reading::Values;
+use plugin_disk::health::device::Device;
+use plugin_disk::health::reading;
+use plugin_disk::health::reading::BadBlocks;
+use plugin_disk::health::reading::Health;
+use plugin_disk::health::reading::Reading;
+use plugin_disk::health::reading::Values;
 
 fn device(name: &str, kind: &str) -> Device {
     Device {

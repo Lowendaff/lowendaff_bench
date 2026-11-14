@@ -18,9 +18,9 @@ use bench_host::platform::PlatformKind;
 use bench_tool::SMARTCTL;
 use serde::Deserialize;
 
-use crate::nodes::Nodes;
-use crate::reading::Health;
-use crate::reading::Reading;
+use crate::health::nodes::Nodes;
+use crate::health::reading::Health;
+use crate::health::reading::Reading;
 
 pub mod device;
 pub mod location;

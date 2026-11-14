@@ -2,8 +2,8 @@
 
 mod common;
 
-use plugin_disk_health::device;
-use plugin_disk_health::device::Device;
+use plugin_disk::health::device;
+use plugin_disk::health::device::Device;
 
 #[test]
 fn the_owners_scan_lists_each_disk_directly_and_through_the_raid_card() {

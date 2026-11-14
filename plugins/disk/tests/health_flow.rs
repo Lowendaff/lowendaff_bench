@@ -29,7 +29,7 @@ where
     let deadline = Instant::now() + Duration::from_secs(300);
     let env = Arc::new(Env::default());
     let (ctx, mut receiver) = Context::new(env, deadline, work.path().into(), cancel.clone());
-    let result = plugin_disk_health::check(&ctx, &Root::new(root), smartctl).await;
+    let result = plugin_disk::health::check(&ctx, &Root::new(root), smartctl).await;
     let mut records = Vec::new();
     while let Ok(record) = receiver.try_recv() {
         records.push(record);

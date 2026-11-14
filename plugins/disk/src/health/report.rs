@@ -5,8 +5,8 @@ use bench_api::RecordError;
 use bench_api::Table;
 use bench_host::Root;
 
-use crate::location::Location;
-use crate::reading::Reading;
+use crate::health::location::Location;
+use crate::health::reading::Reading;
 
 /// What a missing value shows.
 const MISSING: &str = "—";
