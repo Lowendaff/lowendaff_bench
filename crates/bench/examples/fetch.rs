@@ -11,8 +11,10 @@ async fn main() -> Result<(), String> {
     let url = std::env::args().nth(1).ok_or("用法：fetch <url>")?;
     use tokio::io::AsyncReadExt;
 
-    let (Part::Whole(mut body) | Part::Range(mut body)) =
-        Fetcher::try_new()?.open(&url, None).await?;
+    let (Part::Whole(mut body) | Part::Range(mut body)) = Fetcher::try_new()?
+        .open(&url, None)
+        .await
+        .map_err(|err| err.to_string())?;
     let mut bytes = Vec::new();
     body.read_to_end(&mut bytes)
         .await

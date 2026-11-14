@@ -15,6 +15,7 @@ use bench::orchestrator::Quiet;
 use bench::orchestrator::Settings;
 use bench::orchestrator::Status;
 use bench::provision;
+use bench::provision::DownloadError;
 use bench::provision::MIN_RANGE;
 use bench::provision::Part;
 use bench::registry;
@@ -171,7 +172,7 @@ async fn provision_all_reports_every_failure_with_its_reason() {
         if url == FIO_URL {
             Ok(Part::Whole(SCRIPT))
         } else {
-            Err("HTTP 404".to_owned())
+            Err(DownloadError::Final("HTTP 404".to_owned()))
         }
     };
     let provisioned = provision::provision_all(
@@ -267,7 +268,7 @@ async fn a_plugin_runs_the_tool_it_was_provisioned_with() {
         run_dir.path(),
         32,
         &CancellationToken::new(),
-        |_, _| async { Ok::<_, String>(Part::Whole(SCRIPT)) },
+        |_, _| async { Ok::<_, DownloadError>(Part::Whole(SCRIPT)) },
     )
     .await;
     let settings = Settings {
@@ -343,7 +344,7 @@ impl Served {
         }
     }
 
-    async fn open(&self, range: Option<Range<u64>>) -> Result<Part<&'static [u8]>, String> {
+    async fn open(&self, range: Option<Range<u64>>) -> Result<Part<&'static [u8]>, DownloadError> {
         let answered = {
             let mut asked = self.asked.lock().expect("no test panics while holding it");
             asked.push(range.clone());
@@ -353,7 +354,7 @@ impl Served {
             return Ok(Part::Whole(self.body));
         };
         if self.failing == Some(range.start) {
-            return Err("下载失败：HTTP 503".to_owned());
+            return Err(DownloadError::Transient("下载失败：HTTP 503".to_owned()));
         }
         let start = usize::try_from(range.start).expect("in memory");
         let mut end = usize::try_from(range.end).expect("in memory");
@@ -604,7 +605,7 @@ async fn ctrl_c_stops_the_download_under_way_and_the_tools_after_it() {
                 std::future::pending::<()>().await;
             }
             let end = usize::try_from(range.end).expect("in memory");
-            Ok::<_, String>(Part::Range(&body[..end]))
+            Ok::<_, DownloadError>(Part::Range(&body[..end]))
         }
     };
 
@@ -641,7 +642,7 @@ async fn nothing_is_downloaded_after_ctrl_c() {
     let cancel = CancellationToken::new();
     cancel.cancel();
     let fetch = |url: &'static str, _range| async move {
-        Err::<Part<&[u8]>, String>(format!("asked for {url}"))
+        Err::<Part<&[u8]>, DownloadError>(DownloadError::Final(format!("asked for {url}")))
     };
 
     let provisioned =

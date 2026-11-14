@@ -11,6 +11,7 @@ use std::sync::atomic::Ordering;
 use bench::fetcher;
 use bench::fetcher::Fetcher;
 use bench::provision;
+use bench::provision::DownloadError;
 use bench::provision::MIN_RANGE;
 use bench::provision::Part;
 use bench_api::CancellationToken;
@@ -39,8 +40,9 @@ static BIG_RANGES: AtomicUsize = AtomicUsize::new(0);
 /// Serves `GET /fio` with the script, ignoring any byte range; `GET /ranged` with the script, or
 /// the byte range that the request asks for, and `GET /big` likewise with [`big`]; `GET /wrong`
 /// with another range than any asked for; `GET /moved` with a redirect to `/ranged`; `GET /cut`
-/// with a body that breaks off; and everything else with 404. `GET /shifted` and `GET /shorter`
-/// answer the range asked for one byte off, at its start or at its end.
+/// with a body that breaks off; `GET /status/<code>` with that status; and everything else with
+/// 404. `GET /shifted` and `GET /shorter` answer the range asked for one byte off, at its start or
+/// at its end.
 async fn serve() -> String {
     use tokio::io::AsyncReadExt;
     use tokio::io::AsyncWriteExt;
@@ -89,6 +91,14 @@ async fn serve() -> String {
                     b"HTTP/1.1 302 Found\r\nLocation: /ranged\r\nContent-Length: 0\r\n\
                       Connection: close\r\n\r\n"
                         .to_vec()
+                } else if let Some((code, _)) = request
+                    .strip_prefix("GET /status/")
+                    .and_then(|rest| rest.split_once(' '))
+                {
+                    format!(
+                        "HTTP/1.1 {code} Status\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                    )
+                    .into_bytes()
                 } else if request.starts_with("GET /cut ") {
                     b"HTTP/1.1 200 OK\r\nContent-Length: 1000\r\nConnection: close\r\n\r\npartial"
                         .to_vec()
@@ -158,10 +168,14 @@ async fn fetcher_streams_bodies_and_turns_failures_into_reasons() {
     let Err(not_found) = fetcher.open(&format!("{base}/missing"), None).await else {
         panic!("404 should fail")
     };
-    assert_eq!(not_found, "下载失败：HTTP 404");
+    assert_eq!(
+        not_found,
+        DownloadError::Final("下载失败：HTTP 404".to_owned())
+    );
 
-    let Err(refused) = fetcher.open("http://127.0.0.1:1/fio", None).await else {
-        panic!("closed port should fail")
+    let Err(DownloadError::Transient(refused)) = fetcher.open("http://127.0.0.1:1/fio", None).await
+    else {
+        panic!("a closed port should fail, in a way that may pass")
     };
     assert!(refused.starts_with("下载失败："), "{refused}");
     let hint = fetcher::proxy_hint(|name| std::env::var(name).ok());
@@ -206,7 +220,40 @@ async fn a_byte_range_comes_back_as_asked_or_the_whole_file_from_a_server_that_i
         let Err(wrong) = fetcher.open(&format!("{base}/{path}"), range.clone()).await else {
             panic!("{path} {range:?}: a range other than the one asked for is no download")
         };
-        assert_eq!(wrong, "下载失败：服务器返回的不是所要的那一段");
+        assert_eq!(
+            wrong,
+            DownloadError::Final("下载失败：服务器返回的不是所要的那一段".to_owned())
+        );
+    }
+}
+
+#[tokio::test]
+async fn the_answers_of_a_busy_or_failing_server_may_pass_and_the_others_will_not() {
+    let base = serve().await;
+    let fetcher = Fetcher::try_new().unwrap();
+
+    let answers = [
+        (403, false),
+        (404, false),
+        (416, false),
+        (408, true),
+        (429, true),
+        (500, true),
+        (502, true),
+        (503, true),
+        (504, true),
+    ];
+    for (code, may_pass) in answers {
+        let Err(error) = fetcher.open(&format!("{base}/status/{code}"), None).await else {
+            panic!("{code} should fail")
+        };
+        let reason = format!("下载失败：HTTP {code}");
+        let expected = if may_pass {
+            DownloadError::Transient(reason)
+        } else {
+            DownloadError::Final(reason)
+        };
+        assert_eq!(error, expected);
     }
 }
 

@@ -21,6 +21,7 @@ use crate::orchestrator::Planned;
 use crate::orchestrator::Settings;
 use crate::progress::Log;
 use crate::provision;
+use crate::provision::DownloadError;
 use crate::provision::Part;
 use crate::registry::Entry;
 use crate::report;
@@ -231,7 +232,7 @@ pub async fn execute<F, Fut, R, W>(
 ) -> Result<u8, String>
 where
     F: Fn(&'static str, Option<Range<u64>>) -> Fut,
-    Fut: Future<Output = Result<Part<R>, String>>,
+    Fut: Future<Output = Result<Part<R>, DownloadError>>,
     R: AsyncRead + Unpin,
     W: Write,
 {

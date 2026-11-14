@@ -20,6 +20,7 @@ use rustls::crypto::ring;
 use tokio::io::AsyncRead;
 use tokio_util::io::StreamReader;
 
+use crate::provision::DownloadError;
 use crate::provision::Part;
 
 /// The variables that set a proxy for `https://` addresses, in the order a hint names them.
@@ -56,12 +57,13 @@ impl Fetcher {
     /// and so is a range other than the one asked for; a server that ignores the range sends
     /// the whole file. The body is streamed, so the caller can stop reading as soon as it grows
     /// past the pinned size. Network errors end in [`proxy_hint`]; HTTP errors do not, because
-    /// the network worked.
+    /// the network worked. A request that got no answer, and the answers of a server that is
+    /// busy or failing for the moment (408, 429 and 5xx), may go better on another try.
     pub async fn open(
         &self,
         url: &str,
         range: Option<Range<u64>>,
-    ) -> Result<Part<impl AsyncRead + Unpin + use<>>, String> {
+    ) -> Result<Part<impl AsyncRead + Unpin + use<>>, DownloadError> {
         use futures_util::TryStreamExt;
 
         let hint = || proxy_hint(|name| std::env::var(name).ok());
@@ -73,10 +75,18 @@ impl Fetcher {
         let response = request
             .send()
             .await
-            .map_err(|err| format!("下载失败：{err}{}", hint()))?;
+            .map_err(|err| DownloadError::Transient(format!("下载失败：{err}{}", hint())))?;
         let status = response.status();
         if !status.is_success() {
-            return Err(format!("下载失败：HTTP {}", status.as_u16()));
+            let reason = format!("下载失败：HTTP {}", status.as_u16());
+            let busy = status == StatusCode::REQUEST_TIMEOUT
+                || status == StatusCode::TOO_MANY_REQUESTS
+                || status.is_server_error();
+            return Err(if busy {
+                DownloadError::Transient(reason)
+            } else {
+                DownloadError::Final(reason)
+            });
         }
         let partial = status == StatusCode::PARTIAL_CONTENT;
         if partial
@@ -85,7 +95,9 @@ impl Fetcher {
                 range.as_ref(),
             )
         {
-            return Err("下载失败：服务器返回的不是所要的那一段".to_owned());
+            return Err(DownloadError::Final(
+                "下载失败：服务器返回的不是所要的那一段".to_owned(),
+            ));
         }
         let read_hint = hint();
         let body = response

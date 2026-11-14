@@ -5,6 +5,7 @@
 
 use std::collections::BTreeMap;
 use std::ffi::OsString;
+use std::fmt;
 use std::fs::Permissions;
 use std::future::Future;
 use std::io;
@@ -39,6 +40,23 @@ pub struct Provisioned {
 /// comes over one connection.
 pub const MIN_RANGE: u64 = 1 << 20;
 
+/// Why a download failed, in the user's words, and whether another try may go better.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DownloadError {
+    /// It may pass on its own: no answer came, the server was busy or failing for the moment, or
+    /// the body broke off, stalled or ended short.
+    Transient(String),
+    /// Another try would end the same way.
+    Final(String),
+}
+
+impl fmt::Display for DownloadError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let (Self::Transient(reason) | Self::Final(reason)) = self;
+        f.write_str(reason)
+    }
+}
+
 /// What a download returned.
 pub enum Part<R> {
     /// The whole file: asked for so, or the server ignored the byte range that was asked for.
@@ -62,9 +80,9 @@ pub fn required_tools(requirements: impl IntoIterator<Item = Requirements>) -> V
 
 /// Installs every tool into `dir`, and logs how each one went. `fetch` opens the download for a
 /// URL, the whole file or a byte range of it (HTTPS in production, an in-memory body in tests),
-/// and returns a user-facing error on failure. A file comes over up to `connections`
-/// connections at once, one byte range each. When `cancel` fires, the download under way stops
-/// at once and fails, and the tools after it are not downloaded.
+/// and says why it failed. A file comes over up to `connections` connections at once, one byte
+/// range each. When `cancel` fires, the download under way stops at once and fails, and the
+/// tools after it are not downloaded.
 pub async fn provision_all<F, Fut, R>(
     tools: &[ToolSpec],
     arch: &str,
@@ -75,7 +93,7 @@ pub async fn provision_all<F, Fut, R>(
 ) -> Provisioned
 where
     F: Fn(&'static str, Option<Range<u64>>) -> Fut,
-    Fut: Future<Output = Result<Part<R>, String>>,
+    Fut: Future<Output = Result<Part<R>, DownloadError>>,
     R: AsyncRead + Unpin,
 {
     let mut result = Provisioned::default();
@@ -116,7 +134,7 @@ async fn download<F, Fut, R>(
 ) -> Result<PathBuf, String>
 where
     F: Fn(&'static str, Option<Range<u64>>) -> Fut,
-    Fut: Future<Output = Result<Part<R>, String>>,
+    Fut: Future<Output = Result<Part<R>, DownloadError>>,
     R: AsyncRead + Unpin,
 {
     let partial = partial_path(dir, tool);
@@ -139,22 +157,31 @@ async fn fetch_checked<F, Fut, R>(
 ) -> Result<(), String>
 where
     F: Fn(&'static str, Option<Range<u64>>) -> Fut,
-    Fut: Future<Output = Result<Part<R>, String>>,
+    Fut: Future<Output = Result<Part<R>, DownloadError>>,
     R: AsyncRead + Unpin,
 {
     let ranges = ranges(asset.size, connections);
     if ranges.len() < 2 {
-        let (Part::Whole(body) | Part::Range(body)) = fetch(asset.url, None).await?;
-        return write_verified(body, asset, path).await;
+        let (Part::Whole(body) | Part::Range(body)) = fetch(asset.url, None)
+            .await
+            .map_err(|err| err.to_string())?;
+        return write_verified(body, asset, path)
+            .await
+            .map_err(|err| err.to_string());
     }
-    match fetch(asset.url, Some(ranges[0].clone())).await? {
+    let first = fetch(asset.url, Some(ranges[0].clone()))
+        .await
+        .map_err(|err| err.to_string())?;
+    match first {
         Part::Whole(body) => {
             tracing::debug!(
                 "{} {}：服务器不支持分段下载，改用一个连接",
                 tool.name,
                 tool.version
             );
-            write_verified(body, asset, path).await
+            write_verified(body, asset, path)
+                .await
+                .map_err(|err| err.to_string())
         }
         Part::Range(first) => {
             tracing::debug!(
@@ -197,7 +224,9 @@ pub async fn install<R: AsyncRead + Unpin>(
     dir: &Path,
 ) -> Result<PathBuf, String> {
     let partial = partial_path(dir, tool);
-    let written = write_verified(body, asset, &partial).await;
+    let written = write_verified(body, asset, &partial)
+        .await
+        .map_err(|err| err.to_string());
     finish(written, &partial, tool, dir).await
 }
 
@@ -229,16 +258,19 @@ async fn finish(
     outcome
 }
 
+/// Streams `body`, the whole file, into `path`, and checks its size and SHA-256. A body that
+/// breaks off or ends short may come whole on another try; one that grows past the pinned size,
+/// or holds other bytes, would not.
 async fn write_verified<R: AsyncRead + Unpin>(
     mut body: R,
     asset: &ToolAsset,
     path: &Path,
-) -> Result<(), String> {
+) -> Result<(), DownloadError> {
     use sha2::Digest;
     use tokio::io::AsyncReadExt;
     use tokio::io::AsyncWriteExt;
 
-    let write_error = |err: io::Error| format!("无法写入：{err}");
+    let write_error = |err: io::Error| DownloadError::Final(format!("无法写入：{err}"));
     let mut file = File::create(path).await.map_err(write_error)?;
     let mut hasher = Sha256::new();
     let mut total: u64 = 0;
@@ -247,25 +279,28 @@ async fn write_verified<R: AsyncRead + Unpin>(
         let read = body
             .read(&mut buffer)
             .await
-            .map_err(|err| format!("下载中断：{err}"))?;
+            .map_err(|err| DownloadError::Transient(format!("下载中断：{err}")))?;
         if read == 0 {
             break;
         }
         total += read as u64;
         if total > asset.size {
-            return Err(format!("大小超过声明的 {} 字节", asset.size));
+            return Err(DownloadError::Final(format!(
+                "大小超过声明的 {} 字节",
+                asset.size
+            )));
         }
         hasher.update(&buffer[..read]);
         file.write_all(&buffer[..read]).await.map_err(write_error)?;
     }
     file.flush().await.map_err(write_error)?;
     if total != asset.size {
-        return Err(format!(
+        return Err(DownloadError::Transient(format!(
             "大小不符：应为 {} 字节，实际 {total} 字节",
             asset.size
-        ));
+        )));
     }
-    pinned(hasher, asset)
+    pinned(hasher, asset).map_err(DownloadError::Final)
 }
 
 /// Writes the byte `ranges` of `asset` into `path`, all at once: the first from `first`, which
@@ -280,7 +315,7 @@ async fn write_ranges<F, Fut, R>(
 ) -> Result<(), String>
 where
     F: Fn(&'static str, Option<Range<u64>>) -> Fut,
-    Fut: Future<Output = Result<Part<R>, String>>,
+    Fut: Future<Output = Result<Part<R>, DownloadError>>,
     R: AsyncRead + Unpin,
 {
     File::create(path)
@@ -289,30 +324,34 @@ where
     let others = ranges[1..].iter().map(|range| async move {
         match fetch(asset.url, Some(range.clone())).await? {
             Part::Range(body) => write_range(body, range, path).await,
-            Part::Whole(_) => Err("下载失败：服务器不再分段返回".to_owned()),
+            Part::Whole(_) => Err(DownloadError::Final(
+                "下载失败：服务器不再分段返回".to_owned(),
+            )),
         }
     });
     futures_util::future::try_join(
         write_range(first, &ranges[0], path),
         futures_util::future::try_join_all(others),
     )
-    .await?;
+    .await
+    .map_err(|err| err.to_string())?;
     check(asset, path).await
 }
 
 /// Writes `body`, which holds the byte `range` of a file, at its place in `path`; it must hold
-/// exactly that many bytes.
+/// exactly that many bytes. A body that breaks off or ends short may come whole on another try;
+/// one that runs long would not.
 async fn write_range<R: AsyncRead + Unpin>(
     mut body: R,
     range: &Range<u64>,
     path: &Path,
-) -> Result<(), String> {
+) -> Result<(), DownloadError> {
     use std::io::SeekFrom;
     use tokio::io::AsyncReadExt;
     use tokio::io::AsyncSeekExt;
     use tokio::io::AsyncWriteExt;
 
-    let write_error = |err: io::Error| format!("无法写入：{err}");
+    let write_error = |err: io::Error| DownloadError::Final(format!("无法写入：{err}"));
     let mut file = fs::OpenOptions::new()
         .write(true)
         .open(path)
@@ -328,21 +367,23 @@ async fn write_range<R: AsyncRead + Unpin>(
         let read = body
             .read(&mut buffer)
             .await
-            .map_err(|err| format!("下载中断：{err}"))?;
+            .map_err(|err| DownloadError::Transient(format!("下载中断：{err}")))?;
         if read == 0 {
             break;
         }
         total += read as u64;
         if total > length {
-            return Err(format!("大小超过一段应有的 {length} 字节"));
+            return Err(DownloadError::Final(format!(
+                "大小超过一段应有的 {length} 字节"
+            )));
         }
         file.write_all(&buffer[..read]).await.map_err(write_error)?;
     }
     file.flush().await.map_err(write_error)?;
     if total != length {
-        return Err(format!(
+        return Err(DownloadError::Transient(format!(
             "大小不符：一段应为 {length} 字节，实际 {total} 字节"
-        ));
+        )));
     }
     Ok(())
 }

@@ -16,6 +16,7 @@ use bench::app::ReportOptions;
 use bench::orchestrator;
 use bench::orchestrator::Planned;
 use bench::progress;
+use bench::provision::DownloadError;
 use bench::provision::MIN_RANGE;
 use bench::provision::Part;
 use bench::registry;
@@ -158,7 +159,7 @@ impl Downloads {
         &self,
         url: &'static str,
         range: Option<Range<u64>>,
-    ) -> Result<Part<&'static [u8]>, String> {
+    ) -> Result<Part<&'static [u8]>, DownloadError> {
         self.asked
             .lock()
             .expect("no test panics while holding the addresses")
@@ -169,7 +170,7 @@ impl Downloads {
         }
         let body = self
             .body
-            .ok_or_else(|| format!("no download in this test: {url}"))?;
+            .ok_or_else(|| DownloadError::Final(format!("no download in this test: {url}")))?;
         Ok(match range {
             Some(range) => {
                 let start = usize::try_from(range.start).expect("in memory");

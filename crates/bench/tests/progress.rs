@@ -13,6 +13,7 @@ use bench::orchestrator::Unmet;
 use bench::progress;
 use bench::progress::Log;
 use bench::provision;
+use bench::provision::DownloadError;
 use bench::provision::Part;
 use bench::provision::Provisioned;
 use bench::results::Measured;
@@ -182,7 +183,9 @@ fn download() {
         dir.path(),
         1,
         &CancellationToken::new(),
-        |_url, _range| async { Err::<Part<&[u8]>, String>("下载失败：离线".to_owned()) },
+        |_url, _range| async {
+            Err::<Part<&[u8]>, DownloadError>(DownloadError::Final("下载失败：离线".to_owned()))
+        },
     ));
     assert_eq!(provisioned.failed.len(), 1);
     tracing::info!(target: "hyper_util::client::legacy::connect::http", "connecting to 1.1.1.1");
