@@ -4,17 +4,23 @@
 //! standard environment variables name, SOCKS5 included.
 
 use std::io;
+use std::ops::Range;
 use std::sync::Arc;
 use std::time::Duration;
 
 use reqwest::Client;
 use reqwest::ClientBuilder;
 use reqwest::Proxy;
+use reqwest::StatusCode;
+use reqwest::header;
+use reqwest::header::HeaderValue;
 use rustls::ClientConfig;
 use rustls::RootCertStore;
 use rustls::crypto::ring;
 use tokio::io::AsyncRead;
 use tokio_util::io::StreamReader;
+
+use crate::provision::Part;
 
 /// The variables that set a proxy for `https://` addresses, in the order a hint names them.
 /// `HTTP_PROXY` applies to `http://` addresses only.
@@ -46,16 +52,25 @@ impl Fetcher {
         Ok(Self { client })
     }
 
-    /// Opens a download. Non-2xx answers are errors. The body is streamed, so the caller
-    /// can stop reading as soon as it grows past the pinned size. Network errors end in
-    /// [`proxy_hint`]; HTTP errors do not, because the network worked.
-    pub async fn open(&self, url: &str) -> Result<impl AsyncRead + Unpin + use<>, String> {
+    /// Opens a download: the whole file, or the byte `range` of it. Non-2xx answers are errors,
+    /// and so is a range other than the one asked for; a server that ignores the range sends
+    /// the whole file. The body is streamed, so the caller can stop reading as soon as it grows
+    /// past the pinned size. Network errors end in [`proxy_hint`]; HTTP errors do not, because
+    /// the network worked.
+    pub async fn open(
+        &self,
+        url: &str,
+        range: Option<Range<u64>>,
+    ) -> Result<Part<impl AsyncRead + Unpin + use<>>, String> {
         use futures_util::TryStreamExt;
 
         let hint = || proxy_hint(|name| std::env::var(name).ok());
-        let response = self
-            .client
-            .get(url)
+        let mut request = self.client.get(url);
+        if let Some(range) = &range {
+            let bytes = format!("bytes={}-{}", range.start, range.end.saturating_sub(1));
+            request = request.header(header::RANGE, bytes);
+        }
+        let response = request
             .send()
             .await
             .map_err(|err| format!("下载失败：{err}{}", hint()))?;
@@ -63,12 +78,49 @@ impl Fetcher {
         if !status.is_success() {
             return Err(format!("下载失败：HTTP {}", status.as_u16()));
         }
+        let partial = status == StatusCode::PARTIAL_CONTENT;
+        if partial
+            && !holds(
+                response.headers().get(header::CONTENT_RANGE),
+                range.as_ref(),
+            )
+        {
+            return Err("下载失败：服务器返回的不是所要的那一段".to_owned());
+        }
         let read_hint = hint();
         let body = response
             .bytes_stream()
             .map_err(move |err| io::Error::other(format!("{err}{read_hint}")));
-        Ok(StreamReader::new(Box::pin(body)))
+        let reader = StreamReader::new(Box::pin(body));
+        Ok(if partial {
+            Part::Range(reader)
+        } else {
+            Part::Whole(reader)
+        })
     }
+}
+
+/// Whether a `Content-Range` such as `bytes 0-1023/4096` holds exactly the `range` that was asked
+/// for; never when none was.
+fn holds(content_range: Option<&HeaderValue>, range: Option<&Range<u64>>) -> bool {
+    let (Some(value), Some(range)) = (content_range, range) else {
+        return false;
+    };
+    let Some(bytes) = value
+        .to_str()
+        .ok()
+        .and_then(|text| text.strip_prefix("bytes "))
+    else {
+        return false;
+    };
+    let Some((span, _total)) = bytes.split_once('/') else {
+        return false;
+    };
+    let Some((first, last)) = span.split_once('-') else {
+        return false;
+    };
+    first.parse() == Ok(range.start)
+        && last.parse::<u64>().ok().map(|last| last + 1) == Some(range.end)
 }
 
 /// A client builder with the program's TLS configuration (rustls with ring, and the bundled
@@ -114,8 +166,10 @@ mod tests {
     use tokio::net::TcpStream;
 
     use super::Fetcher;
+    use crate::provision::Part;
 
-    /// Answers every request on a local port with `body` over plain HTTP.
+    /// Answers every request on a local port with `body` over plain HTTP, or with the byte range
+    /// of it that a `Range: bytes=<first>-<last>` header asks for.
     async fn serve(body: &'static [u8]) -> String {
         let listener = TcpListener::bind("127.0.0.1:0")
             .await
@@ -126,12 +180,26 @@ mod tests {
         tokio::spawn(async move {
             while let Ok((mut socket, _)) = listener.accept().await {
                 let mut request = vec![0_u8; 4096];
-                let _ = socket.read(&mut request).await;
+                let read = socket.read(&mut request).await.unwrap_or(0);
+                let request = String::from_utf8_lossy(&request[..read]).to_ascii_lowercase();
+                let range = request
+                    .lines()
+                    .find_map(|line| line.strip_prefix("range: bytes="))
+                    .and_then(|span| span.trim().split_once('-'))
+                    .and_then(|(first, last)| Some((first.parse().ok()?, last.parse().ok()?)));
+                let (status, extra, part) = match range {
+                    Some((first, last)) => (
+                        "206 Partial Content",
+                        format!("Content-Range: bytes {first}-{last}/{}\r\n", body.len()),
+                        &body[first..=last],
+                    ),
+                    None => ("200 OK", String::new(), body),
+                };
                 let head = format!(
-                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-                    body.len()
+                    "HTTP/1.1 {status}\r\n{extra}Content-Length: {}\r\nConnection: close\r\n\r\n",
+                    part.len()
                 );
-                let _ = socket.write_all(&[head.as_bytes(), body].concat()).await;
+                let _ = socket.write_all(&[head.as_bytes(), part].concat()).await;
             }
         });
         address.to_string()
@@ -189,16 +257,25 @@ mod tests {
         let proxy = socks5(Arc::clone(&targets)).await;
         let socks = Proxy::all(format!("socks5h://{proxy}")).expect("a proxy address");
         let fetcher = Fetcher::build(Some(socks)).expect("client");
-        let Ok(mut body) = fetcher.open(&format!("http://{site}/tool")).await else {
+        let url = format!("http://{site}/tool");
+
+        let Ok(Part::Whole(mut body)) = fetcher.open(&url, None).await else {
             panic!("the download should go through the proxy")
         };
         let mut bytes = Vec::new();
         body.read_to_end(&mut bytes).await.expect("body");
         assert_eq!(bytes, b"tool");
+
+        let Ok(Part::Range(mut body)) = fetcher.open(&url, Some(1..3)).await else {
+            panic!("a byte range should go through the proxy too")
+        };
+        let mut bytes = Vec::new();
+        body.read_to_end(&mut bytes).await.expect("body");
+        assert_eq!(bytes, b"oo");
         assert_eq!(
             *targets.lock().expect("targets"),
-            [site],
-            "the proxy relayed the download"
+            [site.clone(), site],
+            "the proxy relayed both downloads"
         );
     }
 }

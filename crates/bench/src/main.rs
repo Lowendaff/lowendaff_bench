@@ -75,7 +75,7 @@ fn main() -> ExitCode {
             host,
             &cli.work_dir,
             &cancel,
-            |url| fetcher.open(url),
+            |url, range| fetcher.open(url, range),
             report,
         )
         .await

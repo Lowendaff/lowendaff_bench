@@ -6,6 +6,7 @@ use std::ffi::OsString;
 use std::fs::Permissions;
 use std::future::Future;
 use std::io;
+use std::ops::Range;
 use std::path::Path;
 use std::path::PathBuf;
 
@@ -31,6 +32,14 @@ pub struct Provisioned {
     pub failed: BTreeMap<String, String>,
 }
 
+/// What a download returned.
+pub enum Part<R> {
+    /// The whole file: asked for so, or the server ignored the byte range that was asked for.
+    Whole(R),
+    /// Exactly the byte range that was asked for.
+    Range(R),
+}
+
 /// Unique tools needed by the planned plugins, in plan order.
 pub fn required_tools(requirements: impl IntoIterator<Item = Requirements>) -> Vec<ToolSpec> {
     let mut tools: Vec<ToolSpec> = Vec::new();
@@ -45,8 +54,8 @@ pub fn required_tools(requirements: impl IntoIterator<Item = Requirements>) -> V
 }
 
 /// Installs every tool into `dir`, and logs how each one went. `fetch` opens the download for a
-/// URL (HTTPS in production, an in-memory body in tests) and returns a user-facing error on
-/// failure.
+/// URL, the whole file or a byte range of it (HTTPS in production, an in-memory body in tests),
+/// and returns a user-facing error on failure.
 pub async fn provision_all<F, Fut, R>(
     tools: &[ToolSpec],
     arch: &str,
@@ -54,8 +63,8 @@ pub async fn provision_all<F, Fut, R>(
     fetch: F,
 ) -> Provisioned
 where
-    F: Fn(&'static str) -> Fut,
-    Fut: Future<Output = Result<R, String>>,
+    F: Fn(&'static str, Option<Range<u64>>) -> Fut,
+    Fut: Future<Output = Result<Part<R>, String>>,
     R: AsyncRead + Unpin,
 {
     let mut result = Provisioned::default();
@@ -64,8 +73,10 @@ where
             None => Err(format!("没有适用于 {arch} 的版本")),
             Some(asset) => {
                 tracing::debug!("下载 {}", asset.url);
-                match fetch(asset.url).await {
-                    Ok(body) => install(body, tool, asset, dir).await,
+                match fetch(asset.url, None).await {
+                    Ok(Part::Whole(body) | Part::Range(body)) => {
+                        install(body, tool, asset, dir).await
+                    }
                     Err(err) => Err(err),
                 }
             }

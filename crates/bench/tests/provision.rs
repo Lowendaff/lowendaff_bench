@@ -11,6 +11,7 @@ use bench::orchestrator::Quiet;
 use bench::orchestrator::Settings;
 use bench::orchestrator::Status;
 use bench::provision;
+use bench::provision::Part;
 use bench::registry;
 use bench::results::Measured;
 use bench::results::Report;
@@ -156,9 +157,9 @@ const SYSBENCH: ToolSpec = ToolSpec {
 #[tokio::test]
 async fn provision_all_reports_every_failure_with_its_reason() {
     let dir = tempfile::tempdir().unwrap();
-    let fetch = |url: &'static str| async move {
+    let fetch = |url: &'static str, _range| async move {
         if url == FIO_URL {
-            Ok(SCRIPT)
+            Ok(Part::Whole(SCRIPT))
         } else {
             Err("HTTP 404".to_owned())
         }
@@ -248,11 +249,13 @@ async fn a_plugin_runs_the_tool_it_was_provisioned_with() {
     let registry = [registry::entry::<RunsFio>(Measured::DiskFio)];
     let planned = orchestrator::plan(&registry, &["disk.fio"], &BTreeMap::new()).unwrap();
     let tools = provision::required_tools(planned.iter().map(|planned| *planned.requires()));
-    let provisioned =
-        provision::provision_all(&tools, std::env::consts::ARCH, run_dir.path(), |_| async {
-            Ok::<_, String>(SCRIPT)
-        })
-        .await;
+    let provisioned = provision::provision_all(
+        &tools,
+        std::env::consts::ARCH,
+        run_dir.path(),
+        |_, _| async { Ok::<_, String>(Part::Whole(SCRIPT)) },
+    )
+    .await;
     let settings = Settings {
         grace: Duration::from_secs(1),
         work_root: run_dir.path().to_path_buf(),

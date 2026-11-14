@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::future::Future;
 use std::io::Write;
+use std::ops::Range;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -20,6 +21,7 @@ use crate::orchestrator::Planned;
 use crate::orchestrator::Settings;
 use crate::progress::Log;
 use crate::provision;
+use crate::provision::Part;
 use crate::registry::Entry;
 use crate::report;
 use crate::report::terminal::Page;
@@ -202,7 +204,8 @@ pub struct ReportOptions<W> {
 
 /// Runs a prepared plan on the host that `host` describes, inside a fresh run directory under
 /// `work_dir`, which is removed afterwards, with the tools that `fetch` downloads from their
-/// pinned addresses, and writes the report as `report` says. Returns the process exit code.
+/// pinned addresses, whole or a byte range at a time, and writes the report as `report` says.
+/// Returns the process exit code.
 pub async fn execute<F, Fut, R, W>(
     planned: Vec<Planned<Measured>>,
     host: HostProfile,
@@ -212,8 +215,8 @@ pub async fn execute<F, Fut, R, W>(
     report: ReportOptions<W>,
 ) -> Result<u8, String>
 where
-    F: Fn(&'static str) -> Fut,
-    Fut: Future<Output = Result<R, String>>,
+    F: Fn(&'static str, Option<Range<u64>>) -> Fut,
+    Fut: Future<Output = Result<Part<R>, String>>,
     R: AsyncRead + Unpin,
     W: Write,
 {

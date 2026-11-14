@@ -17,8 +17,10 @@ async fn every_pinned_tool_downloads_and_verifies() {
     let fetcher = Fetcher::try_new().expect("the HTTPS client builds");
     let dir = tempfile::tempdir().expect("a temporary directory");
     let arch = std::env::consts::ARCH;
-    let provisioned =
-        provision::provision_all(&tools, arch, dir.path(), |url| fetcher.open(url)).await;
+    let provisioned = provision::provision_all(&tools, arch, dir.path(), |url, range| {
+        fetcher.open(url, range)
+    })
+    .await;
     assert!(provisioned.failed.is_empty(), "{:?}", provisioned.failed);
     assert_eq!(
         provisioned.ready.len(),

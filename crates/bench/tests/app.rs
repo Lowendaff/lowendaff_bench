@@ -14,6 +14,7 @@ use bench::app::ReportOptions;
 use bench::orchestrator;
 use bench::orchestrator::Planned;
 use bench::progress;
+use bench::provision::Part;
 use bench::registry;
 use bench::registry::Entry;
 use bench::results::Measured;
@@ -143,12 +144,13 @@ struct Downloads {
 }
 
 impl Downloads {
-    async fn open(&self, url: &'static str) -> Result<&'static [u8], String> {
+    async fn open(&self, url: &'static str) -> Result<Part<&'static [u8]>, String> {
         self.asked
             .lock()
             .expect("no test panics while holding the addresses")
             .push(url);
         self.body
+            .map(Part::Whole)
             .ok_or_else(|| format!("no download in this test: {url}"))
     }
 
@@ -184,7 +186,7 @@ async fn run(
         width,
         show_ip,
     };
-    let fetch = |url| downloads.open(url);
+    let fetch = |url, _range| downloads.open(url);
     let code = app::execute(planned, host, work.path(), cancel, fetch, report)
         .await
         .expect("the run starts");
