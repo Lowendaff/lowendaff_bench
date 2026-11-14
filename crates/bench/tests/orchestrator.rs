@@ -25,7 +25,6 @@ use bench::registry::Entry;
 use bench::results::Measured;
 use bench::results::Report;
 use bench_api::CancellationToken;
-use bench_api::Env;
 use bench_api::Net;
 use bench_api::Requirements;
 use bench_api::ToolAsset;
@@ -41,6 +40,11 @@ use bench_api::typed::ToolRun;
 use bench_api::typed::ToolVersion;
 use bench_host::glibc::GlibcVersion;
 use bench_host::glibc::Libc;
+use bench_host::network::Address;
+use bench_host::network::Family;
+use bench_host::network::Network;
+use bench_host::network::Reach;
+use bench_host::profile::HostProfile;
 use plugin_cpu::geekbench;
 use plugin_cpu::geekbench::result::Scores;
 use serde::Deserialize;
@@ -426,10 +430,12 @@ impl Observer<Left> for Shows {
     }
 }
 
-/// Runs the plan on `env`, with a grace period of `grace_ms` after a deadline or an interrupt.
-async fn run_with<R: Send + 'static>(
+/// Runs the plan on `host` with the provisioned `tools`, with a grace period of `grace_ms` after
+/// a deadline or an interrupt.
+async fn run_on<R: Send + 'static>(
     plan: Vec<Planned<R>>,
-    env: Env,
+    host: HostProfile,
+    tools: BTreeMap<String, PathBuf>,
     grace_ms: u64,
     cancel: &CancellationToken,
     observer: &mut dyn Observer<R>,
@@ -439,15 +445,27 @@ async fn run_with<R: Send + 'static>(
         grace: Duration::from_millis(grace_ms),
         work_root: work_root.path().to_path_buf(),
         origin: tokio::time::Instant::now(),
+        tools: Arc::new(tools),
         failed_tools: BTreeMap::new(),
-        host: Arc::default(),
+        host: Arc::new(host),
     };
-    orchestrator::run_plan(plan, Arc::new(env), cancel, &settings, observer).await
+    orchestrator::run_plan(plan, cancel, &settings, observer).await
+}
+
+/// [`run_on`] a host of which nothing is known, without tools.
+async fn run_with<R: Send + 'static>(
+    plan: Vec<Planned<R>>,
+    grace_ms: u64,
+    cancel: &CancellationToken,
+    observer: &mut dyn Observer<R>,
+) -> Vec<Run<R>> {
+    let host = HostProfile::default();
+    run_on(plan, host, BTreeMap::new(), grace_ms, cancel, observer).await
 }
 
 async fn run(plan: Vec<Planned<Left>>, cancel: &CancellationToken) -> (Vec<Run<Left>>, Recorder) {
     let mut recorder = Recorder::default();
-    let runs = run_with(plan, Env::default(), 1_000, cancel, &mut recorder).await;
+    let runs = run_with(plan, 1_000, cancel, &mut recorder).await;
     (runs, recorder)
 }
 
@@ -562,7 +580,6 @@ async fn a_timeout_aborts_a_plugin_that_ignores_it_and_releases_its_resources() 
 async fn a_cpu_bound_plugin_stops_on_its_cancel_token() {
     let runs = run_with(
         vec![Planned::typed(CpuBound, Left::Counter)],
-        Env::default(),
         500,
         &CancellationToken::new(),
         &mut Recorder::default(),
@@ -581,7 +598,6 @@ async fn a_cpu_bound_plugin_stops_on_its_cancel_token() {
 async fn a_plugin_blocking_its_thread_is_detached_not_awaited() {
     let runs = run_with(
         vec![Planned::typed(BlocksThread, Left::Counter)],
-        Env::default(),
         100,
         &CancellationToken::new(),
         &mut Recorder::default(),
@@ -710,7 +726,6 @@ async fn progress_lines_are_shown_while_the_plugin_runs() {
     };
     let runs = run_with(
         vec![Planned::typed(plugin, Left::Counter)],
-        Env::default(),
         1_000,
         &CancellationToken::new(),
         &mut Shows(shown),
@@ -731,12 +746,12 @@ async fn the_work_directory_lives_under_the_run_root_and_is_removed() {
         grace: Duration::from_secs(1),
         work_root: work_root.path().to_path_buf(),
         origin: tokio::time::Instant::now(),
+        tools: Arc::default(),
         failed_tools: BTreeMap::new(),
         host: Arc::default(),
     };
     let runs = orchestrator::run_plan(
         vec![Planned::typed(UsesWorkDir, Left::Counter)],
-        Arc::new(Env::default()),
         &CancellationToken::new(),
         &settings,
         &mut Recorder::default(),
@@ -749,11 +764,37 @@ async fn the_work_directory_lives_under_the_run_root_and_is_removed() {
     assert!(!used.exists());
 }
 
-/// The requirement a run of `Demanding` on `env` is skipped for, and how long it ran.
-async fn skip_reason(env: Env) -> (Unmet, Option<Duration>) {
-    let runs = run_with(
+/// A host with this C library, whose IPv6 reaches the Internet when `ipv6` is set.
+fn host(libc: Libc, ipv6: bool) -> HostProfile {
+    let target = "[2606:4700:4700::1111]:443".parse().expect("an address");
+    let ipv6 = Family {
+        targets: if ipv6 {
+            vec![(target, Reach::Connected)]
+        } else {
+            vec![(target, Reach::NoRoute)]
+        },
+        address: Address::NotAsked,
+    };
+    HostProfile {
+        libc,
+        network: Network {
+            ipv4: Family::default(),
+            ipv6,
+        },
+        ..HostProfile::default()
+    }
+}
+
+/// The requirement a run of `Demanding` on `host`, with `tools`, is skipped for, and how long it
+/// ran.
+async fn skip_reason(
+    host: HostProfile,
+    tools: BTreeMap<String, PathBuf>,
+) -> (Unmet, Option<Duration>) {
+    let runs = run_on(
         vec![Planned::typed(Demanding, Left::Counter)],
-        env,
+        host,
+        tools,
         1_000,
         &CancellationToken::new(),
         &mut Recorder::default(),
@@ -769,10 +810,6 @@ async fn skip_reason(env: Env) -> (Unmet, Option<Duration>) {
 async fn unmet_requirements_skip_without_running_glibc_first_then_network_then_tools() {
     let glibc = |minor| Libc::Glibc(GlibcVersion { major: 2, minor });
     let fio = || BTreeMap::from([("fio".to_owned(), PathBuf::from("/x/fio"))]);
-    let old_glibc = Env {
-        libc: glibc(34),
-        ..Env::default()
-    };
     let needed = GlibcVersion {
         major: 2,
         minor: 35,
@@ -782,34 +819,25 @@ async fn unmet_requirements_skip_without_running_glibc_first_then_network_then_t
         minor: 34,
     });
     assert_eq!(
-        skip_reason(old_glibc).await,
+        skip_reason(host(glibc(34), false), BTreeMap::new()).await,
         (Unmet::Glibc { needed, found }, None)
     );
-    let musl = Env {
-        libc: Libc::NoGlibc,
-        tools: fio(),
-        ipv6: true,
-        ..Env::default()
-    };
     assert_eq!(
-        skip_reason(musl).await.0,
+        skip_reason(host(Libc::NoGlibc, true), fio()).await.0,
         Unmet::Glibc {
             needed,
             found: None
         }
     );
     assert_eq!(
-        skip_reason(Env::default()).await.0,
+        skip_reason(host(Libc::GlibcUnknown, false), BTreeMap::new())
+            .await
+            .0,
         Unmet::Network(Net::Ipv6),
         "an unknown glibc passes, and the network comes before the tools"
     );
-    let without_fio = Env {
-        libc: glibc(35),
-        ipv6: true,
-        ..Env::default()
-    };
     assert_eq!(
-        skip_reason(without_fio).await.0,
+        skip_reason(host(glibc(35), true), BTreeMap::new()).await.0,
         Unmet::Tool {
             name: "fio",
             why: String::new()
@@ -821,11 +849,7 @@ async fn unmet_requirements_skip_without_running_glibc_first_then_network_then_t
 #[test]
 fn the_host_check_accepts_the_minimum_glibc_and_newer() {
     let requires = Demanding::DESCRIPTOR.requires;
-    let on = |major, minor| Env {
-        libc: Libc::Glibc(GlibcVersion { major, minor }),
-        ipv6: true,
-        ..Env::default()
-    };
+    let on = |major, minor| host(Libc::Glibc(GlibcVersion { major, minor }), true);
     assert_eq!(orchestrator::check_host(&requires, &on(2, 41)), Ok(()));
     assert_eq!(orchestrator::check_host(&requires, &on(3, 0)), Ok(()));
     assert!(orchestrator::check_host(&requires, &on(2, 34)).is_err());
@@ -836,19 +860,44 @@ fn the_host_check_accepts_the_minimum_glibc_and_newer() {
     );
 }
 
+#[test]
+fn the_host_check_reads_each_family_from_the_profile() {
+    let family = |target: &str, reach| Family {
+        targets: vec![(target.parse().expect("an address"), reach)],
+        address: Address::NotAsked,
+    };
+    let on = |ipv4, ipv6| HostProfile {
+        network: Network {
+            ipv4: family("1.1.1.1:443", ipv4),
+            ipv6: family("[2606:4700:4700::1111]:443", ipv6),
+        },
+        ..HostProfile::default()
+    };
+    let needs = |net| Requirements {
+        net,
+        ..Requirements::NONE
+    };
+    let (up, down) = (Reach::Connected, Reach::Refused);
+    // Whether a plugin that needs no network, IPv4, IPv6 or either runs on each host.
+    let hosts = [
+        (on(down, down), [true, false, false, false]),
+        (on(up, down), [true, true, false, true]),
+        (on(down, up), [true, false, true, true]),
+        (on(up, up), [true, true, true, true]),
+    ];
+    for (host, expected) in hosts {
+        let passed = [Net::None, Net::Ipv4, Net::Ipv6, Net::Any]
+            .map(|net| orchestrator::check_host(&needs(net), &host).is_ok());
+        assert_eq!(passed, expected, "{:?}", host.network);
+    }
+}
+
 #[tokio::test]
 async fn a_plugin_is_built_from_its_table_in_the_config() {
     let config = BTreeMap::from([("test.good".to_owned(), serde_json::json!({ "samples": 2 }))]);
     let planned = orchestrator::plan(&plugins(), &["test.good"], &config).expect("a valid plan");
 
-    let runs = run_with(
-        planned,
-        Env::default(),
-        1_000,
-        &CancellationToken::new(),
-        &mut Quiet,
-    )
-    .await;
+    let runs = run_with(planned, 1_000, &CancellationToken::new(), &mut Quiet).await;
 
     assert_eq!(runs[0].status, Status::Completed);
     assert_eq!(

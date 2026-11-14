@@ -11,7 +11,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use bench_api::CancellationToken;
-use bench_api::Env;
 use bench_api::Net;
 use bench_api::Requirements;
 use bench_api::typed;
@@ -175,6 +174,8 @@ pub struct Settings {
     pub work_root: PathBuf,
     /// The start of the run, from which [`Run::started`] counts.
     pub origin: Instant,
+    /// The tools that were provisioned, by name.
+    pub tools: Arc<BTreeMap<String, PathBuf>>,
     /// Why each tool that could not be provisioned failed.
     pub failed_tools: BTreeMap<String, String>,
     /// The host, as the run read it, for the plugins.
@@ -230,9 +231,9 @@ pub fn for_host<R>(
 
 /// What the host must offer a plugin besides its tools, checked before any download: its
 /// glibc, then its network.
-pub fn check_host(requires: &Requirements, env: &Env) -> Result<(), Unmet> {
+pub fn check_host(requires: &Requirements, host: &HostProfile) -> Result<(), Unmet> {
     if let Some(needed) = requires.glibc {
-        match env.libc {
+        match host.libc {
             Libc::Glibc(found) if found < needed => {
                 return Err(Unmet::Glibc {
                     needed,
@@ -248,11 +249,13 @@ pub fn check_host(requires: &Requirements, env: &Env) -> Result<(), Unmet> {
             Libc::Glibc(_) | Libc::GlibcUnknown => {}
         }
     }
+    let ipv4 = host.network.ipv4.reachable();
+    let ipv6 = host.network.ipv6.reachable();
     let reachable = match requires.net {
         Net::None => true,
-        Net::Any => env.ipv4 || env.ipv6,
-        Net::Ipv4 => env.ipv4,
-        Net::Ipv6 => env.ipv6,
+        Net::Any => ipv4 || ipv6,
+        Net::Ipv4 => ipv4,
+        Net::Ipv6 => ipv6,
     };
     if reachable {
         Ok(())
@@ -261,17 +264,19 @@ pub fn check_host(requires: &Requirements, env: &Env) -> Result<(), Unmet> {
     }
 }
 
-/// Everything a plugin needs before it runs: [`check_host`], then its tools.
+/// Everything a plugin needs before it runs: [`check_host`], then its tools, among those that
+/// were provisioned.
 pub fn preflight(
     requires: &Requirements,
-    env: &Env,
+    host: &HostProfile,
+    tools: &BTreeMap<String, PathBuf>,
     failed_tools: &BTreeMap<String, String>,
 ) -> Result<(), Unmet> {
-    check_host(requires, env)?;
+    check_host(requires, host)?;
     match requires
         .tools
         .iter()
-        .find(|tool| !env.tools.contains_key(tool.name))
+        .find(|tool| !tools.contains_key(tool.name))
     {
         Some(tool) => Err(Unmet::Tool {
             name: tool.name,
@@ -284,7 +289,6 @@ pub fn preflight(
 /// Runs the plan in order and returns every plugin's run.
 pub async fn run_plan<R: Send + 'static>(
     plan: Vec<Planned<R>>,
-    env: Arc<Env>,
     cancel: &CancellationToken,
     settings: &Settings,
     observer: &mut dyn Observer<R>,
@@ -301,13 +305,18 @@ pub async fn run_plan<R: Send + 'static>(
             result: None,
         };
         if !cancel.is_cancelled() {
-            match preflight(&planned.requires, &env, &settings.failed_tools) {
+            let ready = preflight(
+                &planned.requires,
+                &settings.host,
+                &settings.tools,
+                &settings.failed_tools,
+            );
+            match ready {
                 Err(unmet) => run.status = Status::Skipped(Some(unmet)),
                 Ok(()) => {
                     observer.on_start(planned.id);
                     let begun = Instant::now();
-                    let (status, result) =
-                        run_one(&planned, env.clone(), cancel, settings, observer).await;
+                    let (status, result) = run_one(&planned, cancel, settings, observer).await;
                     run.started = Some(begun.duration_since(settings.origin));
                     run.elapsed = Some(begun.elapsed());
                     run.status = status;
@@ -323,7 +332,6 @@ pub async fn run_plan<R: Send + 'static>(
 
 async fn run_one<R: Send + 'static>(
     planned: &Planned<R>,
-    env: Arc<Env>,
     global: &CancellationToken,
     settings: &Settings,
     observer: &mut dyn Observer<R>,
@@ -337,8 +345,8 @@ async fn run_one<R: Send + 'static>(
     };
     let launch = Launch {
         id: planned.id,
-        env,
         host: Arc::clone(&settings.host),
+        tools: Arc::clone(&settings.tools),
         deadline: Instant::now() + planned.timeout,
         work_dir: work.path().to_path_buf(),
         token: global.child_token(),
@@ -354,8 +362,8 @@ async fn run_one<R: Send + 'static>(
 /// Everything a runner needs for one run.
 struct Launch<'a, R> {
     id: &'static str,
-    env: Arc<Env>,
     host: Arc<HostProfile>,
+    tools: Arc<BTreeMap<String, PathBuf>>,
     deadline: Instant,
     work_dir: PathBuf,
     /// The plugin's own token, a child of `global`.
@@ -387,10 +395,9 @@ struct TypedRunner<P: typed::Plugin, R> {
 impl<P: typed::Plugin, R: Send + 'static> Runner<R> for TypedRunner<P, R> {
     fn run<'a>(&'a self, launch: Launch<'a, R>) -> Running<'a, R> {
         Box::pin(async move {
-            let tools = Arc::new(launch.env.tools.clone());
             let (ctx, mut channels) = typed::Context::<P::Output>::new(
                 launch.host,
-                tools,
+                launch.tools,
                 launch.deadline,
                 launch.work_dir,
                 launch.token.clone(),

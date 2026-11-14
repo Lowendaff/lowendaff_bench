@@ -15,7 +15,6 @@ use bench::registry;
 use bench::results::Measured;
 use bench::results::Report;
 use bench_api::CancellationToken;
-use bench_api::Env;
 use bench_api::Net;
 use bench_api::Requirements;
 use bench_api::ToolAsset;
@@ -254,26 +253,17 @@ async fn a_plugin_runs_the_tool_it_was_provisioned_with() {
             Ok::<_, String>(SCRIPT)
         })
         .await;
-    let env = Env {
-        tools: provisioned.ready,
-        ..Env::default()
-    };
     let settings = Settings {
         grace: Duration::from_secs(1),
         work_root: run_dir.path().to_path_buf(),
         origin: tokio::time::Instant::now(),
+        tools: Arc::new(provisioned.ready),
         failed_tools: BTreeMap::new(),
         host: Arc::default(),
     };
 
-    let runs = orchestrator::run_plan(
-        planned,
-        Arc::new(env),
-        &CancellationToken::new(),
-        &settings,
-        &mut Quiet,
-    )
-    .await;
+    let runs =
+        orchestrator::run_plan(planned, &CancellationToken::new(), &settings, &mut Quiet).await;
 
     assert_eq!(runs[0].status, Status::Completed);
     assert_eq!(
