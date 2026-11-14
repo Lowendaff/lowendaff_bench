@@ -45,14 +45,16 @@ fn ata_and_scsi_disks_keep_their_kernel_names() {
         located("/dev/hdb", "ata", &root),
         Location::Named("hdb".to_owned())
     );
-    assert_eq!(located("/dev/sda", "sat", &root).name(true), "sda");
 }
 
 #[test]
 fn an_nvme_controller_with_one_namespace_shows_as_that_namespace() {
     let dir = nvme_root(&["nvme0n1"]);
     let root = Root::new(dir.path());
-    assert_eq!(located("/dev/nvme0", "nvme", &root).name(false), "nvme0n1");
+    assert_eq!(
+        located("/dev/nvme0", "nvme", &root),
+        Location::Named("nvme0n1".to_owned())
+    );
 }
 
 #[test]
@@ -60,20 +62,32 @@ fn a_multipath_path_shows_as_its_namespaces_block_device() {
     // nvme<subsystem>c<controller>n<namespace>: the block device is nvme1n1.
     let dir = nvme_root(&["nvme1c0n1"]);
     let root = Root::new(dir.path());
-    assert_eq!(located("/dev/nvme0", "nvme", &root).name(false), "nvme1n1");
+    assert_eq!(
+        located("/dev/nvme0", "nvme", &root),
+        Location::Named("nvme1n1".to_owned())
+    );
 }
 
 #[test]
 fn an_nvme_controller_with_several_namespaces_or_none_keeps_its_name() {
     let dir = nvme_root(&["nvme0n1", "nvme0n2"]);
     let root = Root::new(dir.path());
-    assert_eq!(located("/dev/nvme0", "nvme", &root).name(false), "nvme0");
+    assert_eq!(
+        located("/dev/nvme0", "nvme", &root),
+        Location::Named("nvme0".to_owned())
+    );
 
     let dir = nvme_root(&[]);
     let root = Root::new(dir.path());
-    assert_eq!(located("/dev/nvme0", "nvme", &root).name(false), "nvme0");
+    assert_eq!(
+        located("/dev/nvme0", "nvme", &root),
+        Location::Named("nvme0".to_owned())
+    );
     let missing = Root::new("/nonexistent");
-    assert_eq!(located("/dev/nvme0", "nvme", &missing).name(false), "nvme0");
+    assert_eq!(
+        located("/dev/nvme0", "nvme", &missing),
+        Location::Named("nvme0".to_owned())
+    );
 }
 
 #[test]
@@ -87,11 +101,15 @@ fn raid_card_disks_are_named_by_their_number_on_the_card() {
             numbers: vec![18],
         }
     );
-    assert_eq!(megaraid.name(false), "RAID 卡 18 号盘");
-    assert_eq!(megaraid.name(true), "RAID 卡 host0 的 18 号盘");
 
     let sas = located("/dev/bus/12", "megaraid,5", &root);
-    assert_eq!(sas.name(true), "RAID 卡 host12 的 5 号盘");
+    assert_eq!(
+        sas,
+        Location::Card {
+            host: 12,
+            numbers: vec![5],
+        }
+    );
 
     let sssraid = located("/dev/bsg/sssraid3", "sssraid,0,5", &root);
     assert_eq!(
@@ -101,7 +119,6 @@ fn raid_card_disks_are_named_by_their_number_on_the_card() {
             numbers: vec![0, 5],
         }
     );
-    assert_eq!(sssraid.name(false), "RAID 卡 0:5 号盘");
 }
 
 #[test]
@@ -139,6 +156,6 @@ fn named_disks_come_first_by_name_then_raid_card_disks_by_card_and_number() {
             card(0, &[21]),
             card(1, &[5]),
         ],
-        "plain string order, as 系统基础信息 lists its disks"
+        "plain string order, as 系统信息 lists its disks"
     );
 }

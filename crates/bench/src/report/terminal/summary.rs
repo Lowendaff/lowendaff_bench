@@ -7,6 +7,7 @@ use super::LABEL_WIDTH;
 use super::Out;
 use super::Page;
 use super::cpu;
+use super::disk;
 use super::pad;
 use crate::orchestrator::Fault;
 use crate::orchestrator::Run;
@@ -52,6 +53,10 @@ fn reason(run: &Run<Measured>) -> Option<String> {
             .stop
             .as_ref()
             .map(|stop| cpu::geekbench_failure(failure(stop))),
+        Some(Measured::DiskHealth(report)) => report
+            .stop
+            .as_ref()
+            .map(|stop| disk::health_failure(failure(stop))),
         None => None,
     }
 }

@@ -46,10 +46,11 @@ sudo lowendaff-bench --show-ip              # show the public addresses in full
 - **Output.** The progress log on stderr has one line per event, after the time since the start:
   the host and its network, the tools' downloads, and each item's start, steps and end; `-v` adds
   each download's address, and each tool's command and exit code, with its last lines when it
-  fails. The report follows on stdout once every item is done: the system information, a section
-  for each group (CPU, memory, disks) and a summary of how each item ended. On a terminal, its
-  tables wrap to the terminal's width. After Ctrl-C the report holds what finished, and the rest
-  is marked interrupted.
+  fails, except for Geekbench and smartctl, whose output holds a result's claim link or the
+  disks' serial numbers. The report follows on stdout once every item is done: the system
+  information, a section for each group (CPU, memory, disks) and a summary of how each item
+  ended. On a terminal, its tables wrap to the terminal's width. After Ctrl-C the report holds
+  what finished, and the rest is marked interrupted.
 - **Public addresses.** Each address family that reaches the Internet asks Cloudflare, ipify and
   icanhazip in turn, without a proxy, for the address they see; the first valid answer counts.
   Behind NAT that is the shared address. The report masks it, keeping two octets of IPv4 and the

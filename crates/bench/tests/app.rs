@@ -709,6 +709,17 @@ fn the_list_keeps_each_group_together_in_the_reports_order() {
         ],
         "the reporter names the plugins of the typed contract"
     );
+    let disk: Vec<&str> = text
+        .lines()
+        .filter(|line| line.starts_with("  disk."))
+        .collect();
+    assert_eq!(
+        disk,
+        [
+            "  disk.health  硬盘健康（适用：独立服务器）（工具：smartctl 7.5）",
+            "  disk.fio  硬盘性能（工具：fio 3.43）"
+        ]
+    );
 }
 
 #[test]
@@ -723,6 +734,18 @@ fn the_plan_keeps_the_reporters_names() {
         [
             ("cpu.sysbench", Some("CPU 性能")),
             ("cpu.geekbench", Some("Geekbench 7"))
+        ]
+    );
+    let planned = app::prepare(&cli(&["--only", "disk"]), &registry::all()).unwrap();
+    let names: Vec<(&str, Option<&str>)> = planned
+        .iter()
+        .map(|planned| (planned.id(), planned.title()))
+        .collect();
+    assert_eq!(
+        names,
+        [
+            ("disk.health", Some("硬盘健康")),
+            ("disk.fio", Some("硬盘性能"))
         ]
     );
 }

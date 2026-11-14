@@ -3,7 +3,7 @@
 use std::time::Duration;
 
 use bench_api::Net;
-use bench_api::Plugin;
+use bench_api::typed::Plugin;
 use bench_host::platform::PlatformKind;
 use plugin_disk::health::Smartctl;
 
@@ -11,7 +11,6 @@ use plugin_disk::health::Smartctl;
 fn the_item_runs_only_on_dedicated_servers_with_the_pinned_smartctl() {
     let descriptor = Smartctl::DESCRIPTOR;
     assert_eq!(descriptor.id, "disk.health");
-    assert_eq!(descriptor.title, "硬盘健康");
     assert_eq!(descriptor.timeout, Duration::from_secs(5 * 60));
     assert_eq!(descriptor.requires.platforms, [PlatformKind::Dedicated]);
     assert_eq!(descriptor.requires.net, Net::None);

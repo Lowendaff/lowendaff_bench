@@ -1,8 +1,5 @@
 //! The CPU group's words: CPU 性能 (sysbench) and Geekbench 7, and why each stopped short.
 
-use std::time::Duration;
-
-use bench_tool::job;
 use bench_tool::job::Adjustment;
 use plugin_cpu::geekbench;
 use plugin_cpu::geekbench::memory::GIB;
@@ -13,6 +10,7 @@ use plugin_cpu::sysbench::measure::MAX_PRIME;
 use plugin_cpu::sysbench::measure::SECONDS;
 
 use super::Out;
+use super::tool;
 use crate::results::Report;
 
 /// CPU 性能: the tool and its parameters, the runs in a table, how many times the single-thread
@@ -83,31 +81,9 @@ fn attempts(faults: &[sysbench::Fault]) -> String {
 /// Why an attempt of sysbench gave no rate.
 fn sysbench_fault(fault: &sysbench::Fault) -> String {
     match fault {
-        sysbench::Fault::Tool(fault) => tool_fault("sysbench", fault, seconds),
+        sysbench::Fault::Tool(fault) => tool::fault("sysbench", fault, tool::seconds),
         sysbench::Fault::NoRate => "sysbench 没有输出每秒事件数".to_owned(),
     }
-}
-
-/// How a run of `tool` went wrong; `limit` words its time limit.
-fn tool_fault(tool: &str, fault: &job::Fault, limit: fn(Duration) -> String) -> String {
-    let quoted = |last: &Option<String>| last.clone().unwrap_or_else(|| "没有输出".to_owned());
-    match fault {
-        job::Fault::Spawn(error) => format!("无法运行 {tool}：{error}"),
-        job::Fault::Read(error) => format!("无法读取 {tool} 的输出：{error}"),
-        job::Fault::TimedOut(duration) => format!("超过 {}仍未结束，已停止", limit(*duration)),
-        job::Fault::Exit { code, last } => format!("{tool} 退出码 {code}：{}", quoted(last)),
-        job::Fault::Signal { last } => format!("{tool} 被信号终止：{}", quoted(last)),
-    }
-}
-
-/// A limit in seconds, such as `60 秒`.
-fn seconds(limit: Duration) -> String {
-    format!("{} 秒", limit.as_secs())
-}
-
-/// A limit in minutes, such as `60 分钟`.
-fn minutes(limit: Duration) -> String {
-    format!("{} 分钟", limit.as_secs() / 60)
 }
 
 /// Geekbench 7: the version that ran, the scores and the result link, then a note on memory, on
@@ -162,7 +138,7 @@ pub(super) fn geekbench_failure(failure: &geekbench::Failure) -> String {
             format!("上传失败（{reason}），免费版只有上传成功才给出分数")
         }
         geekbench::Failure::Run(geekbench::Fault::Tool(fault)) => {
-            tool_fault("Geekbench", fault, minutes)
+            tool::fault("Geekbench", fault, tool::minutes)
         }
         geekbench::Failure::Run(geekbench::Fault::NoScores) => "Geekbench 没有输出分数".to_owned(),
         geekbench::Failure::OutOfMemory => "运行中因内存不足被系统终止".to_owned(),

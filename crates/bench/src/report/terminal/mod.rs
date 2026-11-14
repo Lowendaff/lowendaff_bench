@@ -3,9 +3,11 @@
 //! so CJK and ASCII line up, and tables wrap to the terminal's width when there is one.
 
 mod cpu;
+mod disk;
 mod host;
 mod legacy;
 mod summary;
+mod tool;
 
 use std::fmt::Write;
 use std::time::Duration;
@@ -40,9 +42,10 @@ const SECTIONS: [(&str, &str); 3] = [
 
 /// The names of the plugins of the typed contract, by id; the plugins of the first contract
 /// bring their titles.
-const NAMES: [(&str, &str); 2] = [
+const NAMES: [(&str, &str); 3] = [
     ("cpu.sysbench", "CPU 性能"),
     ("cpu.geekbench", "Geekbench 7"),
+    ("disk.health", "硬盘健康"),
 ];
 
 /// The reporter's name for a plugin of the typed contract, by its id.
@@ -124,6 +127,7 @@ fn plugin(out: &mut Out, run: &Run<Measured>, indent: &str) {
         Some(Measured::Legacy(report)) => legacy::block(out, report, indent),
         Some(Measured::CpuSysbench(report)) => cpu::sysbench(out, report, indent),
         Some(Measured::CpuGeekbench(report)) => cpu::geekbench(out, report, indent),
+        Some(Measured::DiskHealth(report)) => disk::health(out, report, indent),
         None => {}
     }
     out.line(&format!("{indent}{}", run_status(run)));
