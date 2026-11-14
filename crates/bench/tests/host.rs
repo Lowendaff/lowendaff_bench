@@ -503,7 +503,9 @@ fn a_section_that_did_not_answer_says_so() {
     };
     let text = render(&host, false);
     let unknown = render(&HostProfile::default(), false);
-    assert_eq!(field(&unknown, "架构"), ["不可用"], "{unknown}");
+    for label in ["架构", "硬盘", "文件系统"] {
+        assert_eq!(field(&unknown, label), ["不可用"], "{label}: {unknown}");
+    }
     for (label, value) in [
         ("硬件", "不可用（超时）"),
         ("CPU", "不可用（超时）"),

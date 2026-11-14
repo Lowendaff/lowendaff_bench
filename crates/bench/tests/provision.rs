@@ -15,17 +15,17 @@ use bench::registry;
 use bench::results::Measured;
 use bench::results::Report;
 use bench_api::CancellationToken;
-use bench_api::Context;
-use bench_api::Descriptor;
 use bench_api::Env;
 use bench_api::Net;
-use bench_api::Plugin;
-use bench_api::PluginError;
-use bench_api::Record;
 use bench_api::Requirements;
 use bench_api::ToolAsset;
 use bench_api::ToolForm;
 use bench_api::ToolSpec;
+use bench_api::typed::Context;
+use bench_api::typed::Descriptor;
+use bench_api::typed::Plugin;
+use bench_api::typed::Stop;
+use plugin_disk::fio;
 use serde::Deserialize;
 
 const SCRIPT: &[u8] = b"#!/bin/sh\necho fio-3.39\n";
@@ -184,22 +184,13 @@ async fn provision_all_reports_every_failure_with_its_reason() {
 
 #[test]
 fn required_tools_are_unique_and_in_plan_order() {
-    let descriptor = |tools: &'static [ToolSpec]| Descriptor {
-        id: "x",
-        title: "x",
-        version: "0.1.0",
-        requires: Requirements {
-            tools,
-            net: Net::None,
-            platforms: &[],
-            glibc: None,
-            numa: false,
-        },
-        timeout: Duration::from_secs(1),
+    let requires = |tools: &'static [ToolSpec]| Requirements {
+        tools,
+        ..Requirements::NONE
     };
     let tools = provision::required_tools([
-        descriptor(&[FIO, SYSBENCH]).requires,
-        descriptor(&[SYSBENCH, IPERF3_ARM_ONLY]).requires,
+        requires(&[FIO, SYSBENCH]),
+        requires(&[SYSBENCH, IPERF3_ARM_ONLY]),
     ]);
 
     assert_eq!(
@@ -208,15 +199,17 @@ fn required_tools_are_unique_and_in_plan_order() {
     );
 }
 
+/// Runs the fio it was given, and returns what it printed as the version in a result of fio's
+/// type.
 #[derive(Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 struct RunsFio {}
 
 impl Plugin for RunsFio {
+    type Output = fio::Output;
+    type Failure = fio::Failure;
     const DESCRIPTOR: Descriptor = Descriptor {
         id: "disk.fio",
-        title: "磁盘（fio）",
-        version: "0.1.0",
         requires: Requirements {
             tools: &[FIO],
             net: Net::None,
@@ -227,24 +220,33 @@ impl Plugin for RunsFio {
         timeout: Duration::from_secs(10),
     };
 
-    async fn run(&self, ctx: &Context) -> Result<(), PluginError> {
-        let output = tokio::process::Command::new(ctx.tool("fio")?)
+    async fn run(&self, ctx: &Context<fio::Output>) -> Result<fio::Output, Stop<fio::Failure>> {
+        let program = ctx
+            .tool("fio")
+            .expect("the orchestrator runs a plugin only when its tools are ready");
+        let output = tokio::process::Command::new(program)
             .kill_on_drop(true)
             .output()
-            .await?;
-        ctx.emit(Record::fact(
-            "version",
-            "版本",
-            String::from_utf8_lossy(&output.stdout).trim(),
-        ));
-        Ok(())
+            .await
+            .map_err(|_| Stop::Failed(fio::Failure::NoResult))?;
+        Ok(printed(String::from_utf8_lossy(&output.stdout).trim()))
+    }
+}
+
+/// A result of fio's type that holds only the version.
+fn printed(version: &str) -> fio::Output {
+    fio::Output {
+        version: Some(version.to_owned()),
+        size: 0,
+        zfs_needed: None,
+        tests: Vec::new(),
     }
 }
 
 #[tokio::test]
 async fn a_plugin_runs_the_tool_it_was_provisioned_with() {
     let run_dir = tempfile::tempdir().unwrap();
-    let registry = [registry::legacy::<RunsFio>()];
+    let registry = [registry::entry::<RunsFio>(Measured::DiskFio)];
     let planned = orchestrator::plan(&registry, &["disk.fio"], &BTreeMap::new()).unwrap();
     let tools = provision::required_tools(planned.iter().map(|planned| *planned.requires()));
     let provisioned =
@@ -276,8 +278,8 @@ async fn a_plugin_runs_the_tool_it_was_provisioned_with() {
     assert_eq!(runs[0].status, Status::Completed);
     assert_eq!(
         runs[0].result,
-        Some(Measured::Legacy(Report {
-            output: Some(vec![Record::fact("version", "版本", "fio-3.39")]),
+        Some(Measured::DiskFio(Report {
+            output: Some(printed("fio-3.39")),
             stop: None,
         }))
     );

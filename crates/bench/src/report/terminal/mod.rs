@@ -205,3 +205,19 @@ fn pad(text: &str, width: usize) -> String {
     let fill = width.saturating_sub(text.width());
     format!("{text}{}", " ".repeat(fill))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::Out;
+
+    #[test]
+    fn a_table_without_rows_has_no_column_of_numbers() {
+        // Its headers stay on the left, which shows once they wrap.
+        let mut out = Out {
+            text: String::new(),
+            width: Some(14),
+        };
+        out.table("  ", &["项目说明 甲乙".to_owned(), "x".to_owned()], &[]);
+        assert_eq!(out.text, "  项目说明   x\n  甲乙\n");
+    }
+}
