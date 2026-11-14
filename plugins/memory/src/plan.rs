@@ -1,5 +1,6 @@
-//! What 内存性能 runs, and with how much memory, worked out from
-//! the host facts alone.
+//! What the memory plugins run, and with how much memory, worked out from the host facts alone:
+//! the working-set plan they share. Each plugin reads it when it starts, since the available
+//! memory changes.
 
 use std::num::NonZeroUsize;
 
@@ -9,9 +10,10 @@ use bench_host::cache::Cache;
 use bench_host::cache::CacheKind;
 use bench_host::cpu;
 use bench_host::memory;
-use bench_host::numa;
-use bench_host::numa::Node;
+use bench_host::numa::Layout;
+use bench_host::numa::Threads;
 use bench_host::platform::PlatformKind;
+use serde::Serialize;
 
 /// One KiB, in bytes.
 pub const KIB: u64 = 1 << 10;
@@ -31,7 +33,7 @@ pub const STREAM_SIZES: [u64; 6] = [2, 4, 8, 16, 32, 64];
 /// No buffer is halved below a page.
 const PAGE: u64 = 4 * KIB;
 
-/// What the plugin reads about the host.
+/// What the plugins read about the host.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Host {
     /// Memory a test may use without swapping (A).
@@ -40,12 +42,8 @@ pub struct Host {
     pub threads: usize,
     /// Every cache instance.
     pub caches: Vec<Cache>,
-    /// The NUMA nodes.
-    pub nodes: Vec<Node>,
-    /// The CPUs this process may run on, or `None` when unknown.
-    pub cpus: Option<Vec<usize>>,
-    /// The nodes this process may allocate on, or `None` when unknown.
-    pub mems: Option<Vec<usize>>,
+    /// The NUMA nodes, and the CPUs and nodes this process may use.
+    pub layout: Layout,
 }
 
 impl Host {
@@ -63,29 +61,31 @@ impl Host {
                 })
                 .unwrap_or(1),
             caches: cache::read(root),
-            nodes: numa::read(root),
-            cpus: cpu::allowed(root),
-            mems: numa::allowed(root),
+            layout: Layout::read(root),
         })
     }
 }
 
-/// A row of the latency table: a cache level or memory, and the buffer chased through.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Level {
-    /// `L1`, `L2`, `L3` or `内存`.
-    pub name: &'static str,
-    /// The buffer, in bytes.
-    pub buffer: u64,
+/// A row of the latency table: a cache level, or memory.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub enum Level {
+    /// The level-1 data cache.
+    L1,
+    /// The level-2 cache.
+    L2,
+    /// The level-3 cache.
+    L3,
+    /// Memory.
+    Memory,
 }
 
-/// A row of the NUMA matrix: a node, and those of its CPUs this process may use.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Row {
-    /// The node.
-    pub node: usize,
-    /// Its CPUs the threads run on.
-    pub cpus: Vec<usize>,
+/// A level of the latency table, and the buffer that multichase chases through for it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Chase {
+    /// The level.
+    pub level: Level,
+    /// The buffer, in bytes.
+    pub buffer: u64,
 }
 
 /// The buffers of one cell of the NUMA matrix.
@@ -100,15 +100,15 @@ pub struct Cell {
 /// The NUMA matrix: threads on the rows' nodes, memory on the columns' nodes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Matrix {
-    /// The nodes with CPUs this process may use.
-    pub rows: Vec<Row>,
-    /// The nodes with memory this process may use.
+    /// The nodes that the threads run on, with the CPUs they run on.
+    pub rows: Vec<Threads>,
+    /// The nodes that the memory is placed on.
     pub columns: Vec<usize>,
     /// The cells, row by row.
     pub cells: Vec<Vec<Cell>>,
 }
 
-/// Every run of the item and its buffers.
+/// Every run of the memory plugins and its buffers.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Plan {
     /// The threads of the multi-thread runs; with one, there are none.
@@ -127,10 +127,10 @@ pub struct Plan {
     /// fits.
     pub stream: Option<u64>,
     /// The latency table's rows, memory last.
-    pub levels: Vec<Level>,
+    pub chases: Vec<Chase>,
     /// The cache levels left out of the latency table for want of their size.
-    pub missing: Vec<&'static str>,
-    /// The NUMA matrix, or `None` when it would have a single cell.
+    pub missing: Vec<Level>,
+    /// The NUMA matrix, or `None` when fewer than two NUMA nodes can be used.
     pub matrix: Option<Matrix>,
 }
 
@@ -143,7 +143,7 @@ impl Plan {
         let known = last_level(&host.caches, None);
         let cache = known.unwrap_or(UNKNOWN_CACHE);
         let single = fit(at_least(cache.saturating_mul(4)), 1, budget);
-        let (levels, missing) = levels(&host.caches, single);
+        let (chases, missing) = chases(&host.caches, single);
         Self {
             threads,
             cache,
@@ -152,10 +152,19 @@ impl Plan {
             single,
             per_thread: per_thread(cache, threads, budget),
             stream: stream(cache, budget),
-            levels,
+            chases,
             missing,
             matrix: matrix(host, cache, budget),
         }
+    }
+
+    /// The plan for this host, read on a blocking thread; `None` when its available memory is
+    /// unknown.
+    pub async fn read(kind: PlatformKind) -> Option<Self> {
+        tokio::task::spawn_blocking(move || Host::read(&Root::system(), kind))
+            .await
+            .expect("reading the host does not panic")
+            .map(|host| Self::new(&host))
     }
 
     /// The threads of each column of results: one, and all the usable threads when there are
@@ -167,6 +176,14 @@ impl Plan {
         } else {
             vec![1]
         }
+    }
+
+    /// Four times the last-level caches, when `bytes` is less: data that small partly stays in
+    /// the caches.
+    #[must_use]
+    pub fn below_caches(&self, bytes: u64) -> Option<u64> {
+        let four = self.cache.saturating_mul(4);
+        (bytes < four).then_some(four)
     }
 }
 
@@ -219,26 +236,26 @@ fn last_level(caches: &[Cache], cpus: Option<&[usize]>) -> Option<u64> {
 
 /// The latency rows: half of one instance of L1d, L2 and L3, then memory with `memory`
 /// bytes; and the cache levels without a size.
-fn levels(caches: &[Cache], memory: u64) -> (Vec<Level>, Vec<&'static str>) {
-    let mut levels = Vec::new();
+fn chases(caches: &[Cache], memory: u64) -> (Vec<Chase>, Vec<Level>) {
+    let mut chases = Vec::new();
     let mut missing = Vec::new();
-    for (name, level) in [("L1", 1), ("L2", 2), ("L3", 3)] {
+    for (level, number) in [(Level::L1, 1), (Level::L2, 2), (Level::L3, 3)] {
         let found = caches
             .iter()
-            .find(|cache| cache.level == level && cache.kind != CacheKind::Instruction);
+            .find(|cache| cache.level == number && cache.kind != CacheKind::Instruction);
         match found {
-            Some(cache) => levels.push(Level {
-                name,
+            Some(cache) => chases.push(Chase {
+                level,
                 buffer: cache.size / 2,
             }),
-            None => missing.push(name),
+            None => missing.push(level),
         }
     }
-    levels.push(Level {
-        name: "内存",
+    chases.push(Chase {
+        level: Level::Memory,
         buffer: memory,
     });
-    (levels, missing)
+    (chases, missing)
 }
 
 /// STREAM's size: the smallest whose array is at least 4 × `cache`, else the largest;
@@ -256,41 +273,14 @@ fn stream(cache: u64, budget: u64) -> Option<u64> {
         .find(|&millions| 3 * array_bytes(millions) <= budget)
 }
 
-/// The NUMA matrix: a row for each node with CPUs this process may use, a column for
-/// each node with memory it may allocate on; `None` with fewer than two cells or when the
-/// allowed CPUs are unknown.
+/// The NUMA matrix: a row for each node with CPUs this process may use, a column for each node
+/// with memory it may allocate on; `None` when fewer than two nodes can be used.
 fn matrix(host: &Host, cache: u64, budget: u64) -> Option<Matrix> {
-    let allowed = host.cpus.as_deref()?;
-    let rows: Vec<Row> = host
-        .nodes
-        .iter()
-        .filter_map(|node| {
-            let cpus: Vec<usize> = node
-                .cpus
-                .iter()
-                .copied()
-                .filter(|cpu| allowed.contains(cpu))
-                .collect();
-            (!cpus.is_empty()).then_some(Row {
-                node: node.id,
-                cpus,
-            })
-        })
-        .collect();
-    let columns: Vec<&Node> = host
-        .nodes
-        .iter()
-        .filter(|node| {
-            node.total.is_some_and(|total| total > 0)
-                && host
-                    .mems
-                    .as_deref()
-                    .is_none_or(|mems| mems.contains(&node.id))
-        })
-        .collect();
-    if rows.len() * columns.len() < 2 {
+    if host.layout.usable() < 2 {
         return None;
     }
+    let rows = host.layout.thread_nodes();
+    let columns = host.layout.memory_nodes();
     let cells = rows
         .iter()
         .map(|row| {
@@ -308,8 +298,8 @@ fn matrix(host: &Host, cache: u64, budget: u64) -> Option<Matrix> {
         })
         .collect();
     Some(Matrix {
-        rows,
         columns: columns.iter().map(|node| node.id).collect(),
+        rows,
         cells,
     })
 }

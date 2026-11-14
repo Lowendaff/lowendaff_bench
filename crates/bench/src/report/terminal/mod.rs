@@ -6,6 +6,7 @@ mod cpu;
 mod disk;
 mod host;
 mod legacy;
+mod memory;
 mod summary;
 mod tool;
 
@@ -44,9 +45,13 @@ const SECTIONS: [(&str, &str); 3] = [
 
 /// The names of the plugins of the typed contract, by id; the plugins of the first contract
 /// bring their titles.
-const NAMES: [(&str, &str); 4] = [
+const NAMES: [(&str, &str); 8] = [
     ("cpu.sysbench", "CPU 性能"),
     ("cpu.geekbench", "Geekbench 7"),
+    ("memory.sysbench", "内存 sysbench"),
+    ("memory.stream", "内存 STREAM"),
+    ("memory.latency", "内存延迟"),
+    ("memory.numa", "内存 NUMA"),
     ("disk.health", "硬盘健康"),
     ("disk.fio", "硬盘性能"),
 ];
@@ -130,6 +135,10 @@ fn plugin(out: &mut Out, run: &Run<Measured>, indent: &str) {
         Some(Measured::Legacy(report)) => legacy::block(out, report, indent),
         Some(Measured::CpuSysbench(report)) => cpu::sysbench(out, report, indent),
         Some(Measured::CpuGeekbench(report)) => cpu::geekbench(out, report, indent),
+        Some(Measured::MemorySysbench(report)) => memory::sysbench(out, report, indent),
+        Some(Measured::MemoryStream(report)) => memory::stream(out, report, indent),
+        Some(Measured::MemoryLatency(report)) => memory::latency(out, report, indent),
+        Some(Measured::MemoryNuma(report)) => memory::numa(out, report, indent),
         Some(Measured::DiskHealth(report)) => disk::health(out, report, indent),
         Some(Measured::DiskFio(report)) => disk::fio(out, report, indent),
         None => {}

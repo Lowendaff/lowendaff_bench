@@ -769,7 +769,10 @@ fn the_list_keeps_each_group_together_in_the_reports_order() {
         [
             "cpu.sysbench",
             "cpu.geekbench",
-            "memory",
+            "memory.sysbench",
+            "memory.stream",
+            "memory.latency",
+            "memory.numa",
             "disk.health",
             "disk.fio"
         ]
@@ -785,6 +788,19 @@ fn the_list_keeps_each_group_together_in_the_reports_order() {
             "  cpu.geekbench  Geekbench 7（工具：geekbench 7.1.0）"
         ],
         "the reporter names the plugins of the typed contract"
+    );
+    let memory: Vec<&str> = text
+        .lines()
+        .filter(|line| line.starts_with("  memory."))
+        .collect();
+    assert_eq!(
+        memory,
+        [
+            "  memory.sysbench  内存 sysbench（工具：sysbench 1.0.20）",
+            "  memory.stream  内存 STREAM（工具：stream 5.10）",
+            "  memory.latency  内存延迟（工具：multichase 2026.10.01）",
+            "  memory.numa  内存 NUMA（适用：多个 NUMA 节点）（工具：multichase 2026.10.01）"
+        ]
     );
     let disk: Vec<&str> = text
         .lines()
@@ -824,5 +840,20 @@ fn the_plan_keeps_the_reporters_names() {
             ("disk.health", Some("硬盘健康")),
             ("disk.fio", Some("硬盘性能"))
         ]
+    );
+    let planned = app::prepare(&cli(&["--only", "memory"]), &registry::all()).unwrap();
+    let names: Vec<(&str, Option<&str>)> = planned
+        .iter()
+        .map(|planned| (planned.id(), planned.title()))
+        .collect();
+    assert_eq!(
+        names,
+        [
+            ("memory.sysbench", Some("内存 sysbench")),
+            ("memory.stream", Some("内存 STREAM")),
+            ("memory.latency", Some("内存延迟")),
+            ("memory.numa", Some("内存 NUMA"))
+        ],
+        "the group selects its four plugins"
     );
 }

@@ -930,7 +930,6 @@ dependencies = [
  "bench-api",
  "bench-host",
  "bench-tool",
- "rustix",
  "serde",
  "tokio",
 ]

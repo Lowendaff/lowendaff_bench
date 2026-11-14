@@ -8,6 +8,7 @@ use super::Out;
 use super::Page;
 use super::cpu;
 use super::disk;
+use super::memory;
 use super::pad;
 use crate::orchestrator::Fault;
 use crate::orchestrator::Run;
@@ -53,6 +54,22 @@ fn reason(run: &Run<Measured>) -> Option<String> {
             .stop
             .as_ref()
             .map(|stop| cpu::geekbench_failure(failure(stop))),
+        Some(Measured::MemorySysbench(report)) => report
+            .stop
+            .as_ref()
+            .map(|stop| memory::sysbench_failure(failure(stop))),
+        Some(Measured::MemoryStream(report)) => report
+            .stop
+            .as_ref()
+            .map(|stop| memory::stream_failure(failure(stop))),
+        Some(Measured::MemoryLatency(report)) => report
+            .stop
+            .as_ref()
+            .map(|stop| memory::latency_failure(failure(stop))),
+        Some(Measured::MemoryNuma(report)) => report
+            .stop
+            .as_ref()
+            .map(|stop| memory::numa_failure(failure(stop))),
         Some(Measured::DiskHealth(report)) => report
             .stop
             .as_ref()

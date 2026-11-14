@@ -1,0 +1,52 @@
+---
+source: crates/bench/tests/memory.rs
+expression: text
+---
+【内存性能】
+  内存 sysbench
+    失败：单线程读取：sysbench 退出码 1：boom（共试了 4 次）
+  内存 sysbench
+    失败：读不到可用内存（/proc/meminfo）
+  内存 STREAM
+    跳过：可用内存不足：三个数组最少要 46 MiB，可用内存的一半只有 16 MiB
+  内存 STREAM
+    失败：单线程测试：STREAM 退出码 1：boom（共试了 4 次）
+  内存 STREAM
+    STREAM            5.10：每个数组 800 万个元素（61 MiB，三个合计 183 MiB），每项取 10 遍中最快的一遍；多线程按节点均匀绑定
+    STREAM 结果
+    项目   单线程        多线程（4 线程）
+    Copy   10000.1 MB/s  —
+    Scale  9000.2 MB/s   —
+    Add    11000.3 MB/s  —
+    Triad  11500.4 MB/s  —
+    已中断
+  内存延迟
+    失败：L3 测试：multichase 没有输出延迟（共试了 4 次）
+  内存 NUMA
+    跳过：容器不允许把内存绑定到指定节点
+  内存 NUMA
+    NUMA              2 个节点；带宽用 multiload 的 stream-triad，每格 3 次采样取最快；延迟同上
+    NUMA 带宽（MiB/s；行是线程所在节点，列是内存所在节点）
+            节点 0  节点 1
+    节点 0  52000   —
+    节点 1  —       —
+    NUMA 延迟（ns）
+            节点 0  节点 1
+    节点 0  95.000  —
+    节点 1  —       —
+    失败：线程在节点 0、内存在节点 1 的带宽测试：multiload 没有输出带宽（共试了 4 次）
+  内存 NUMA
+    跳过：需要多个 NUMA 节点
+
+【汇总】
+  内存 sysbench     失败：单线程读取：sysbench 退出码 1：boom（共试了 4 次）
+  内存 sysbench     失败：读不到可用内存（/proc/meminfo）
+  内存 STREAM       跳过：可用内存不足：三个数组最少要 46 MiB，可用内存的一半只有 16 MiB
+  内存 STREAM       失败：单线程测试：STREAM 退出码 1：boom（共试了 4 次）
+  内存 STREAM       已中断
+  内存延迟          失败：L3 测试：multichase 没有输出延迟（共试了 4 次）
+  内存 NUMA         跳过：容器不允许把内存绑定到指定节点
+  内存 NUMA         失败：线程在节点 0、内存在节点 1 的带宽测试：multiload 没有输出带宽（共试了 4 次）
+  内存 NUMA         跳过：需要多个 NUMA 节点
+
+共 9 项：完成 0，跳过 3，失败 5，超时 0，中断 1。总用时 5.0 秒

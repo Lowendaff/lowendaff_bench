@@ -31,8 +31,12 @@ pub fn all() -> Vec<Entry> {
         entry::<plugin_disk::health::Smartctl>(Measured::DiskHealth),
         // CPU 性能: sysbench, before fio's writes can disturb it.
         entry::<plugin_cpu::sysbench::Sysbench>(Measured::CpuSysbench),
-        // 内存性能: sysbench, STREAM and multichase, after CPU 性能 and before fio's writes.
-        legacy::<plugin_memory::Memory>(),
+        // 内存性能's chapters: sysbench, STREAM, multichase's latency and the NUMA matrix, after
+        // CPU 性能 and before fio's writes.
+        entry::<plugin_memory::sysbench::Sysbench>(Measured::MemorySysbench),
+        entry::<plugin_memory::stream::Stream>(Measured::MemoryStream),
+        entry::<plugin_memory::latency::Latency>(Measured::MemoryLatency),
+        entry::<plugin_memory::numa::Numa>(Measured::MemoryNuma),
         // 硬盘性能: fio with YABS's method, on every platform.
         entry::<plugin_disk::fio::Fio>(Measured::DiskFio),
         // Geekbench 7: last, being the longest, with a download, an upload and perhaps swap that
@@ -272,7 +276,10 @@ mod tests {
             [
                 "disk.health",
                 "cpu.sysbench",
-                "memory",
+                "memory.sysbench",
+                "memory.stream",
+                "memory.latency",
+                "memory.numa",
                 "disk.fio",
                 "cpu.geekbench",
             ]
