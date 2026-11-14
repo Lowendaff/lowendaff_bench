@@ -45,7 +45,6 @@ pub(super) fn section(out: &mut Out, page: &Page) {
 /// The plugin's own reason, when it stopped short.
 fn reason(run: &Run<Measured>) -> Option<String> {
     match &run.result {
-        Some(Measured::Legacy(report)) => report.stop.as_ref().map(|stop| failure(stop).clone()),
         Some(Measured::CpuSysbench(report)) => report
             .stop
             .as_ref()

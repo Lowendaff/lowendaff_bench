@@ -1,7 +1,6 @@
 //! The orchestrator: plans the selected plugins, checks each one's requirements, runs it with
 //! its timeout and the interrupt in view, and keeps what it left in the result enum, with the
-//! run's status. Plugins of both contracts run; those of the first contract leave their records.
-//! User-facing text is the reporter's.
+//! run's status. User-facing text is the reporter's.
 
 use std::any::Any;
 use std::collections::BTreeMap;
@@ -12,12 +11,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use bench_api::CancellationToken;
-use bench_api::Context;
-use bench_api::DynPlugin;
 use bench_api::Env;
 use bench_api::Net;
-use bench_api::PluginError;
-use bench_api::Record;
 use bench_api::Requirements;
 use bench_api::typed;
 use bench_api::typed::Progress;
@@ -88,7 +83,7 @@ pub struct Run<R> {
     pub id: &'static str,
     /// The id's first segment, such as `cpu` for `cpu.sysbench`.
     pub group: &'static str,
-    /// The plugin's name: its title in the first contract, or the reporter's name for it.
+    /// The reporter's name for the plugin; `None` when it has none.
     pub title: Option<&'static str>,
     /// When it started, counted from the start of the run; `None` when it never started.
     pub started: Option<Duration>,
@@ -116,23 +111,7 @@ pub struct Planned<R> {
 }
 
 impl<R: Send + 'static> Planned<R> {
-    /// A plugin of the first contract, whose records `wrap` turns into a result.
-    #[must_use]
-    pub fn legacy(
-        descriptor: bench_api::Descriptor,
-        plugin: Arc<dyn DynPlugin>,
-        wrap: fn(Report<Vec<Record>, String>) -> R,
-    ) -> Self {
-        Self {
-            id: descriptor.id,
-            title: Some(descriptor.title),
-            requires: descriptor.requires,
-            timeout: descriptor.timeout,
-            runner: Arc::new(LegacyRunner { plugin, wrap }),
-        }
-    }
-
-    /// A plugin of the typed contract, whose report `wrap` turns into a result.
+    /// A plugin, whose report `wrap` turns into a result.
     #[must_use]
     pub fn typed<P: typed::Plugin>(
         plugin: P,
@@ -158,7 +137,7 @@ impl<R> Planned<R> {
         self.id
     }
 
-    /// The plugin's name: its title in the first contract, or the reporter's name for it.
+    /// The reporter's name for the plugin; `None` when it has none.
     #[must_use]
     pub fn title(&self) -> Option<&'static str> {
         self.title
@@ -198,7 +177,7 @@ pub struct Settings {
     pub origin: Instant,
     /// Why each tool that could not be provisioned failed.
     pub failed_tools: BTreeMap<String, String>,
-    /// The host, as the run read it, for the plugins of the typed contract.
+    /// The host, as the run read it, for the plugins.
     pub host: Arc<HostProfile>,
 }
 
@@ -388,8 +367,7 @@ struct Launch<'a, R> {
 
 type Running<'a, R> = Pin<Box<dyn Future<Output = (Status, Option<R>)> + Send + 'a>>;
 
-/// Runs one plugin of one contract to its end: completion, a stop, its deadline or the
-/// interrupt.
+/// Runs one plugin to its end: completion, a stop, its deadline or the interrupt.
 trait Runner<R>: Send + Sync {
     fn run<'a>(&'a self, launch: Launch<'a, R>) -> Running<'a, R>;
 }
@@ -399,69 +377,6 @@ enum Ending<T> {
     Joined(Result<T, JoinError>),
     TimedOut,
     Cancelled,
-}
-
-struct LegacyRunner<R> {
-    plugin: Arc<dyn DynPlugin>,
-    wrap: fn(Report<Vec<Record>, String>) -> R,
-}
-
-impl<R: Send + 'static> Runner<R> for LegacyRunner<R> {
-    fn run<'a>(&'a self, launch: Launch<'a, R>) -> Running<'a, R> {
-        Box::pin(async move {
-            let (ctx, mut receiver) = Context::new(
-                launch.env,
-                launch.deadline,
-                launch.work_dir,
-                launch.token.clone(),
-            );
-            let plugin = self.plugin.clone();
-            let mut task = tokio::spawn(async move { plugin.run_boxed(&ctx).await });
-            let mut records = Vec::new();
-            // In this order, so that a plugin that has already ended is taken at its word, and
-            // a stream of records cannot hold off its deadline or the interrupt.
-            let ending = loop {
-                tokio::select! {
-                    biased;
-                    joined = &mut task => break Ending::Joined(joined),
-                    () = tokio::time::sleep_until(launch.deadline) => {
-                        stop(&mut task, &launch.token, launch.grace).await;
-                        break Ending::TimedOut;
-                    }
-                    () = launch.global.cancelled() => {
-                        stop(&mut task, &launch.token, launch.grace).await;
-                        break Ending::Cancelled;
-                    }
-                    Some(record) = receiver.recv() => records.push(record),
-                }
-            };
-            // Always drain: `select!` may see the task finish before its last records, and
-            // records emitted during the grace period arrive only here.
-            while let Ok(record) = receiver.try_recv() {
-                records.push(record);
-            }
-            // A plugin that stops short once the run is interrupted stops because of it.
-            let interrupted = launch.global.is_cancelled();
-            let (status, stop) = match ending {
-                Ending::Joined(Ok(Ok(()))) => (Status::Completed, None),
-                Ending::Joined(Ok(Err(_))) if interrupted => (Status::Cancelled, None),
-                Ending::Joined(Ok(Err(PluginError::Skip(reason)))) => {
-                    (Status::Skipped(None), Some(Stop::Skipped(reason)))
-                }
-                Ending::Joined(Ok(Err(PluginError::Fail(reason)))) => {
-                    (Status::Failed(None), Some(Stop::Failed(reason)))
-                }
-                Ending::Joined(Err(err)) => (Status::Failed(Some(fault(err))), None),
-                Ending::TimedOut => (Status::TimedOut, None),
-                Ending::Cancelled => (Status::Cancelled, None),
-            };
-            let report = Report {
-                output: Some(records),
-                stop,
-            };
-            (status, Some((self.wrap)(report)))
-        })
-    }
 }
 
 struct TypedRunner<P: typed::Plugin, R> {
@@ -482,7 +397,8 @@ impl<P: typed::Plugin, R: Send + 'static> Runner<R> for TypedRunner<P, R> {
             );
             let plugin = self.plugin.clone();
             let mut task = tokio::spawn(async move { plugin.run(&ctx).await });
-            // In the legacy runner's order, for the same reasons.
+            // In this order, so that a plugin that has already ended is taken at its word, and
+            // a stream of progress cannot hold off its deadline or the interrupt.
             let ending = loop {
                 tokio::select! {
                     biased;
@@ -500,6 +416,8 @@ impl<P: typed::Plugin, R: Send + 'static> Runner<R> for TypedRunner<P, R> {
                     }
                 }
             };
+            // Always drain: `select!` may see the task finish before its last progress, and
+            // what the plugin sends during the grace period arrives only here.
             while let Ok(progress) = channels.progress.try_recv() {
                 tell(launch.observer, launch.id, progress);
             }

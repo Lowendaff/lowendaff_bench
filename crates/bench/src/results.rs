@@ -1,7 +1,5 @@
-//! What each plugin left after a run, for the reporter: one variant per plugin of the typed
-//! contract, and one for the plugins of the first contract, which leave their records.
+//! What each plugin left after a run, for the reporter: one variant per plugin.
 
-use bench_api::Record;
 use bench_api::typed::Stop;
 use plugin_cpu::geekbench;
 use plugin_cpu::sysbench;
@@ -24,8 +22,6 @@ pub struct Report<O, F> {
 /// does not compile.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Measured {
-    /// A plugin of the first contract: the records it emitted, and its reason in Chinese.
-    Legacy(Report<Vec<Record>, String>),
     /// CPU 性能 (`cpu.sysbench`).
     CpuSysbench(Report<sysbench::Output, sysbench::Failure>),
     /// Geekbench 7 (`cpu.geekbench`).

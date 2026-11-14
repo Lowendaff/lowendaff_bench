@@ -1,13 +1,11 @@
-//! Compile-time plugin registry, in the default run order. Plugins of the first contract are
-//! registered as they are; a plugin of the typed contract is registered with its variant of the
-//! result enum, and the reporter names it.
+//! Compile-time plugin registry, in the default run order. Each plugin is registered with its
+//! variant of the result enum, and the reporter names it.
 
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::time::Duration;
 
 use bench_api::RELEASE_ARCHES;
-use bench_api::Registration;
 use bench_api::Requirements;
 use bench_api::ToolForm;
 use bench_api::ToolSpec;
@@ -18,7 +16,7 @@ use crate::report;
 use crate::results::Measured;
 use crate::results::Report;
 
-/// Builds a plugin of the typed contract from its config table, ready to run.
+/// Builds a plugin from its config table, ready to run.
 type Build = Box<dyn Fn(Option<&serde_json::Value>) -> Result<Planned<Measured>, String>>;
 
 /// Every plugin, in the default run order.
@@ -48,53 +46,23 @@ pub fn all() -> Vec<Entry> {
 pub struct Entry {
     /// The plugin's id.
     pub id: &'static str,
-    /// The plugin's name: its title in the first contract, or the reporter's name for a plugin
-    /// of the typed contract; `None` when the reporter has none.
+    /// The reporter's name for the plugin; `None` when it has none.
     pub title: Option<&'static str>,
     /// What the plugin needs.
     pub requires: Requirements,
     /// The limit of one run.
     pub timeout: Duration,
-    kind: Kind,
-}
-
-enum Kind {
-    /// A plugin of the first contract.
-    Legacy(Registration),
-    /// A plugin of the typed contract.
-    Typed(Build),
+    build: Build,
 }
 
 impl Entry {
     /// Builds the plugin from its config table, ready to run; `None` uses its defaults.
     pub fn build(&self, config: Option<&serde_json::Value>) -> Result<Planned<Measured>, String> {
-        match &self.kind {
-            Kind::Legacy(registration) => Ok(Planned::legacy(
-                registration.descriptor,
-                registration.build(config)?,
-                Measured::Legacy,
-            )),
-            Kind::Typed(build) => build(config),
-        }
+        (self.build)(config)
     }
 }
 
-/// The entry of a plugin of the first contract.
-#[must_use]
-pub fn legacy<P: bench_api::Plugin>() -> Entry {
-    let registration = bench_api::register::<P>();
-    let descriptor = registration.descriptor;
-    Entry {
-        id: descriptor.id,
-        title: Some(descriptor.title),
-        requires: descriptor.requires,
-        timeout: descriptor.timeout,
-        kind: Kind::Legacy(registration),
-    }
-}
-
-/// The entry of a plugin of the typed contract, whose report `wrap` turns into its variant of
-/// the result enum.
+/// The entry of a plugin, whose report `wrap` turns into its variant of the result enum.
 #[must_use]
 pub fn entry<P: typed::Plugin>(wrap: fn(Report<P::Output, P::Failure>) -> Measured) -> Entry {
     let descriptor = P::DESCRIPTOR;
@@ -113,7 +81,7 @@ pub fn entry<P: typed::Plugin>(wrap: fn(Report<P::Output, P::Failure>) -> Measur
         title,
         requires: descriptor.requires,
         timeout: descriptor.timeout,
-        kind: Kind::Typed(Box::new(build)),
+        build: Box::new(build),
     }
 }
 
@@ -135,18 +103,8 @@ pub fn validate(entries: &[Entry]) -> Vec<String> {
         if !ids.insert(id) {
             problems.push(format!("{id}: duplicate id"));
         }
-        match &entry.kind {
-            Kind::Legacy(registration) => {
-                let descriptor = registration.descriptor;
-                if descriptor.title.is_empty() || descriptor.version.is_empty() {
-                    problems.push(format!("{id}: title and version must be set"));
-                }
-            }
-            Kind::Typed(_) => {
-                if entry.title.is_none_or(str::is_empty) {
-                    problems.push(format!("{id}: the reporter has no name for it"));
-                }
-            }
+        if entry.title.is_none_or(str::is_empty) {
+            problems.push(format!("{id}: the reporter has no name for it"));
         }
         if entry.timeout.is_zero() {
             problems.push(format!("{id}: timeout must be positive"));
