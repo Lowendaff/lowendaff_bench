@@ -17,15 +17,15 @@ use bench::registry;
 use bench::registry::Entry;
 use bench::results::Measured;
 use bench_api::CancellationToken;
+use bench_api::Context;
+use bench_api::Descriptor;
 use bench_api::Net;
+use bench_api::Plugin;
 use bench_api::Requirements;
+use bench_api::Stop;
 use bench_api::ToolAsset;
 use bench_api::ToolForm;
 use bench_api::ToolSpec;
-use bench_api::typed::Context;
-use bench_api::typed::Descriptor;
-use bench_api::typed::Plugin;
-use bench_api::typed::Stop;
 use bench_host::glibc::GlibcVersion;
 use bench_host::glibc::Libc;
 use bench_host::network::Address;
@@ -635,7 +635,7 @@ async fn plugins_see_the_host_as_the_run_read_it() {
     };
 
     let (code, _, _) = execute(
-        vec![Planned::typed(plugin, Measured::CpuGeekbench)],
+        vec![Planned::new(plugin, Measured::CpuGeekbench)],
         host,
         &CancellationToken::new(),
     )
@@ -764,7 +764,7 @@ fn the_list_keeps_each_group_together_in_the_reports_order() {
             "  cpu.sysbench  CPU 性能（工具：sysbench 1.0.20）",
             "  cpu.geekbench  Geekbench 7（工具：geekbench 7.1.0）"
         ],
-        "the reporter names the plugins of the typed contract"
+        "the reporter names the plugins"
     );
     let memory: Vec<&str> = text
         .lines()

@@ -1,7 +1,7 @@
 //! The memory group's words: the chapters of 内存性能, sysbench, STREAM, latency and NUMA, each
 //! with its parameters, its tables and its notes; and why each stopped short.
 
-use bench_api::typed::Stop;
+use bench_api::Stop;
 use plugin_memory::Value;
 use plugin_memory::latency;
 use plugin_memory::numa;

@@ -13,9 +13,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use bench_api::CancellationToken;
-use bench_api::typed::Channels;
-use bench_api::typed::Context;
-use bench_api::typed::Stop;
+use bench_api::Channels;
+use bench_api::Context;
+use bench_api::Stop;
 use bench_host::Root;
 use bench_host::profile::HostProfile;
 use bench_tool::job;

@@ -2,8 +2,8 @@
 //! memory, and why a run or the whole plugin has no result. Numbers and kinds of reasons only;
 //! the reporter words them.
 
-use bench_api::typed::Measurement;
-use bench_api::typed::ToolVersion;
+use bench_api::Measurement;
+use bench_api::ToolVersion;
 use bench_tool::MULTICHASE;
 use bench_tool::job;
 use serde::Serialize;

@@ -14,7 +14,7 @@ use bench::report::terminal::Page;
 use bench::results::Measured;
 use bench::results::Report;
 use bench_api::Net;
-use bench_api::typed::Stop;
+use bench_api::Stop;
 use bench_host::cpu::Cpu;
 use bench_host::cpu::Model;
 use bench_host::cpu::Virtualization;

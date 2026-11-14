@@ -9,9 +9,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use bench_api::CancellationToken;
-use bench_api::typed::Context;
-use bench_api::typed::Progress;
-use bench_api::typed::Stop;
+use bench_api::Context;
+use bench_api::Progress;
+use bench_api::Stop;
 use bench_host::profile::HostProfile;
 use bench_tool::job;
 use bench_tool::job::Job;

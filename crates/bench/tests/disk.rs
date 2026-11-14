@@ -14,7 +14,7 @@ use bench::report;
 use bench::report::terminal::Page;
 use bench::results::Measured;
 use bench::results::Report;
-use bench_api::typed::Stop;
+use bench_api::Stop;
 use bench_host::profile::HostProfile;
 use bench_tool::job;
 use plugin_disk::fio;

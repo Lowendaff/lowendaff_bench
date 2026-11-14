@@ -11,12 +11,12 @@ pub mod result;
 use std::io;
 use std::time::Duration;
 
+use bench_api::Context;
+use bench_api::Descriptor;
 use bench_api::Net;
+use bench_api::Plugin;
 use bench_api::Requirements;
-use bench_api::typed::Context;
-use bench_api::typed::Descriptor;
-use bench_api::typed::Plugin;
-use bench_api::typed::Stop;
+use bench_api::Stop;
 use bench_host::Root;
 use bench_host::glibc::GlibcVersion;
 use bench_tool::GEEKBENCH;

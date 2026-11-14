@@ -11,12 +11,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use bench_api::CancellationToken;
+use bench_api::Context;
 use bench_api::Net;
+use bench_api::Plugin;
+use bench_api::Progress;
 use bench_api::Requirements;
-use bench_api::typed;
-use bench_api::typed::Progress;
-use bench_api::typed::Stop;
-use bench_api::typed::ToolRun;
+use bench_api::Stop;
+use bench_api::ToolRun;
 use bench_host::glibc::GlibcVersion;
 use bench_host::glibc::Libc;
 use bench_host::profile::HostProfile;
@@ -112,16 +113,13 @@ pub struct Planned<R> {
 impl<R: Send + 'static> Planned<R> {
     /// A plugin, whose report `wrap` turns into a result.
     #[must_use]
-    pub fn typed<P: typed::Plugin>(
-        plugin: P,
-        wrap: fn(Report<P::Output, P::Failure>) -> R,
-    ) -> Self {
+    pub fn new<P: Plugin>(plugin: P, wrap: fn(Report<P::Output, P::Failure>) -> R) -> Self {
         Self {
             id: P::DESCRIPTOR.id,
             title: None,
             requires: P::DESCRIPTOR.requires,
             timeout: P::DESCRIPTOR.timeout,
-            runner: Arc::new(TypedRunner {
+            runner: Arc::new(PluginRunner {
                 plugin: Arc::new(plugin),
                 wrap,
             }),
@@ -387,15 +385,15 @@ enum Ending<T> {
     Cancelled,
 }
 
-struct TypedRunner<P: typed::Plugin, R> {
+struct PluginRunner<P: Plugin, R> {
     plugin: Arc<P>,
     wrap: fn(Report<P::Output, P::Failure>) -> R,
 }
 
-impl<P: typed::Plugin, R: Send + 'static> Runner<R> for TypedRunner<P, R> {
+impl<P: Plugin, R: Send + 'static> Runner<R> for PluginRunner<P, R> {
     fn run<'a>(&'a self, launch: Launch<'a, R>) -> Running<'a, R> {
         Box::pin(async move {
-            let (ctx, mut channels) = typed::Context::<P::Output>::new(
+            let (ctx, mut channels) = Context::<P::Output>::new(
                 launch.host,
                 launch.tools,
                 launch.deadline,

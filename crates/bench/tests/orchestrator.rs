@@ -25,19 +25,19 @@ use bench::registry::Entry;
 use bench::results::Measured;
 use bench::results::Report;
 use bench_api::CancellationToken;
+use bench_api::Context;
+use bench_api::Descriptor;
+use bench_api::Measurement;
 use bench_api::Net;
+use bench_api::Plugin;
 use bench_api::Requirements;
+use bench_api::Stop;
 use bench_api::ToolAsset;
+use bench_api::ToolEnd;
 use bench_api::ToolForm;
+use bench_api::ToolRun;
 use bench_api::ToolSpec;
-use bench_api::typed::Context;
-use bench_api::typed::Descriptor;
-use bench_api::typed::Measurement;
-use bench_api::typed::Plugin;
-use bench_api::typed::Stop;
-use bench_api::typed::ToolEnd;
-use bench_api::typed::ToolRun;
-use bench_api::typed::ToolVersion;
+use bench_api::ToolVersion;
 use bench_host::glibc::GlibcVersion;
 use bench_host::glibc::Libc;
 use bench_host::network::Address;
@@ -492,7 +492,7 @@ fn interrupted_after_a_second() -> CancellationToken {
 #[tokio::test]
 async fn a_returned_result_replaces_what_was_published() {
     let (runs, recorder) = run(
-        vec![Planned::typed(Counts, Left::Counter)],
+        vec![Planned::new(Counts, Left::Counter)],
         &CancellationToken::new(),
     )
     .await;
@@ -521,8 +521,8 @@ async fn a_returned_result_replaces_what_was_published() {
 async fn a_stop_keeps_the_last_publish_and_the_plugins_reason() {
     let (runs, _) = run(
         vec![
-            Planned::typed(GivesUp, Left::Counter),
-            Planned::typed(Skips, Left::Counter),
+            Planned::new(GivesUp, Left::Counter),
+            Planned::new(Skips, Left::Counter),
         ],
         &CancellationToken::new(),
     )
@@ -540,7 +540,7 @@ async fn a_stop_keeps_the_last_publish_and_the_plugins_reason() {
 #[tokio::test(start_paused = true)]
 async fn a_timeout_keeps_what_was_published_during_the_grace_period() {
     let (runs, recorder) = run(
-        vec![Planned::typed(Slow, Left::Counter)],
+        vec![Planned::new(Slow, Left::Counter)],
         &CancellationToken::new(),
     )
     .await;
@@ -562,7 +562,7 @@ async fn a_timeout_keeps_what_was_published_during_the_grace_period() {
 #[tokio::test(start_paused = true)]
 async fn a_timeout_aborts_a_plugin_that_ignores_it_and_releases_its_resources() {
     let (runs, _) = run(
-        vec![Planned::typed(Hanging, Left::Counter)],
+        vec![Planned::new(Hanging, Left::Counter)],
         &CancellationToken::new(),
     )
     .await;
@@ -579,7 +579,7 @@ async fn a_timeout_aborts_a_plugin_that_ignores_it_and_releases_its_resources() 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_cpu_bound_plugin_stops_on_its_cancel_token() {
     let runs = run_with(
-        vec![Planned::typed(CpuBound, Left::Counter)],
+        vec![Planned::new(CpuBound, Left::Counter)],
         500,
         &CancellationToken::new(),
         &mut Recorder::default(),
@@ -597,7 +597,7 @@ async fn a_cpu_bound_plugin_stops_on_its_cancel_token() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_plugin_blocking_its_thread_is_detached_not_awaited() {
     let runs = run_with(
-        vec![Planned::typed(BlocksThread, Left::Counter)],
+        vec![Planned::new(BlocksThread, Left::Counter)],
         100,
         &CancellationToken::new(),
         &mut Recorder::default(),
@@ -618,8 +618,8 @@ async fn a_plugin_blocking_its_thread_is_detached_not_awaited() {
 async fn an_interrupt_keeps_the_last_publish_and_cancels_the_plugins_after_it() {
     let (runs, _) = run(
         vec![
-            Planned::typed(Slow, Left::Counter),
-            Planned::typed(Counts, Left::Counter),
+            Planned::new(Slow, Left::Counter),
+            Planned::new(Counts, Left::Counter),
         ],
         &interrupted_after_a_second(),
     )
@@ -637,8 +637,8 @@ async fn an_interrupt_keeps_the_last_publish_and_cancels_the_plugins_after_it() 
 async fn a_panic_keeps_the_last_publish_and_the_next_plugin_runs() {
     let (runs, _) = run(
         vec![
-            Planned::typed(Panics, Left::Counter),
-            Planned::typed(Counts, Left::Counter),
+            Planned::new(Panics, Left::Counter),
+            Planned::new(Counts, Left::Counter),
         ],
         &CancellationToken::new(),
     )
@@ -659,7 +659,7 @@ async fn a_panic_keeps_the_last_publish_and_the_next_plugin_runs() {
 #[tokio::test(start_paused = true)]
 async fn an_interrupt_keeps_the_last_publish_of_a_plugin_that_must_be_aborted() {
     let (runs, _) = run(
-        vec![Planned::typed(Stubborn, Left::Counter)],
+        vec![Planned::new(Stubborn, Left::Counter)],
         &interrupted_after_a_second(),
     )
     .await;
@@ -677,8 +677,8 @@ async fn a_plugin_that_stops_short_once_the_run_is_interrupted_counts_as_interru
     };
     let (runs, _) = run(
         vec![
-            Planned::typed(plugin, Left::Counter),
-            Planned::typed(Counts, Left::Counter),
+            Planned::new(plugin, Left::Counter),
+            Planned::new(Counts, Left::Counter),
         ],
         &cancel,
     )
@@ -705,8 +705,8 @@ async fn a_plugin_that_has_ended_when_the_interrupt_comes_is_taken_at_its_word()
         };
         let (runs, _) = run(
             vec![
-                Planned::typed(plugin, Left::Counter),
-                Planned::typed(Counts, Left::Counter),
+                Planned::new(plugin, Left::Counter),
+                Planned::new(Counts, Left::Counter),
             ],
             &cancel,
         )
@@ -725,7 +725,7 @@ async fn progress_lines_are_shown_while_the_plugin_runs() {
         shown: shown.clone(),
     };
     let runs = run_with(
-        vec![Planned::typed(plugin, Left::Counter)],
+        vec![Planned::new(plugin, Left::Counter)],
         1_000,
         &CancellationToken::new(),
         &mut Shows(shown),
@@ -751,7 +751,7 @@ async fn the_work_directory_lives_under_the_run_root_and_is_removed() {
         host: Arc::default(),
     };
     let runs = orchestrator::run_plan(
-        vec![Planned::typed(UsesWorkDir, Left::Counter)],
+        vec![Planned::new(UsesWorkDir, Left::Counter)],
         &CancellationToken::new(),
         &settings,
         &mut Recorder::default(),
@@ -792,7 +792,7 @@ async fn skip_reason(
     tools: BTreeMap<String, PathBuf>,
 ) -> (Unmet, Option<Duration>) {
     let runs = run_on(
-        vec![Planned::typed(Demanding, Left::Counter)],
+        vec![Planned::new(Demanding, Left::Counter)],
         host,
         tools,
         1_000,

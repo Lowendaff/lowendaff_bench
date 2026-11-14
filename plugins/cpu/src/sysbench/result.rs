@@ -1,8 +1,8 @@
 //! What CPU 性能 measured: the rate of each run and the attempts it took, or why a run failed.
 //! Numbers and kinds of reasons only; the reporter words them.
 
-use bench_api::typed::Measurement;
-use bench_api::typed::ToolVersion;
+use bench_api::Measurement;
+use bench_api::ToolVersion;
 use bench_tool::SYSBENCH;
 use bench_tool::job;
 use serde::Serialize;

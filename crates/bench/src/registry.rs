@@ -5,11 +5,11 @@ use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::time::Duration;
 
+use bench_api::Plugin;
 use bench_api::RELEASE_ARCHES;
 use bench_api::Requirements;
 use bench_api::ToolForm;
 use bench_api::ToolSpec;
-use bench_api::typed;
 
 use crate::orchestrator::Planned;
 use crate::report;
@@ -64,7 +64,7 @@ impl Entry {
 
 /// The entry of a plugin, whose report `wrap` turns into its variant of the result enum.
 #[must_use]
-pub fn entry<P: typed::Plugin>(wrap: fn(Report<P::Output, P::Failure>) -> Measured) -> Entry {
+pub fn entry<P: Plugin>(wrap: fn(Report<P::Output, P::Failure>) -> Measured) -> Entry {
     let descriptor = P::DESCRIPTOR;
     let title = report::terminal::name(descriptor.id);
     let build = move |config: Option<&serde_json::Value>| {
@@ -72,7 +72,7 @@ pub fn entry<P: typed::Plugin>(wrap: fn(Report<P::Output, P::Failure>) -> Measur
             None => P::default(),
             Some(value) => serde_json::from_value(value.clone()).map_err(|err| err.to_string())?,
         };
-        let mut planned = Planned::typed(plugin, wrap);
+        let mut planned = Planned::new(plugin, wrap);
         planned.title = title;
         Ok(planned)
     };

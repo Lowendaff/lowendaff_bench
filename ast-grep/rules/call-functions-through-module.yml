@@ -4,13 +4,11 @@ severity: error
 message: Import the module and call the function through it, e.g. `orchestrator::plan(...)`.
 note: >-
   CONTRIBUTING "Code" (Google Rust Style Guide). Workspace crates have flat modules, and
-  `bench_api` has one, `typed`, so any other lowercase item below them is a function. A plugin
-  crate has a module per plugin, whose files import one another through `super`.
+  `bench_api` has none, so any lowercase item below them is a function. A plugin crate has a
+  module per plugin, whose files import one another through `super`.
 rule:
   kind: use_declaration
   has:
     field: argument
     kind: scoped_identifier
-    regex: ^((crate|bench)::[a-z_][a-z0-9_]*|bench_api(::typed)?)::[a-z_][a-z0-9_]*$
-    not:
-      regex: ^bench_api::typed$
+    regex: ^((crate|bench)::[a-z_][a-z0-9_]*|bench_api)::[a-z_][a-z0-9_]*$

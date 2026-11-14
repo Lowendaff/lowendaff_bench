@@ -8,7 +8,7 @@ use std::path::Path;
 use std::path::PathBuf;
 
 use bench_api::CancellationToken;
-use bench_api::typed::Stop;
+use bench_api::Stop;
 use bench_tool::job;
 use bench_tool::job::Job;
 use bench_tool::job::RunError;

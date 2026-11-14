@@ -1,6 +1,6 @@
 //! What each plugin left after a run, for the reporter: one variant per plugin.
 
-use bench_api::typed::Stop;
+use bench_api::Stop;
 use plugin_cpu::geekbench;
 use plugin_cpu::sysbench;
 use plugin_disk::fio;

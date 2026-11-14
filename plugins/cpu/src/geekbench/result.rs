@@ -4,8 +4,8 @@
 
 use std::path::PathBuf;
 
-use bench_api::typed::Measurement;
-use bench_api::typed::ToolVersion;
+use bench_api::Measurement;
+use bench_api::ToolVersion;
 use bench_tool::GEEKBENCH;
 use bench_tool::job;
 use serde::Serialize;

@@ -1,7 +1,7 @@
 //! The 汇总 section, and the words for how each plugin ended.
 
 use bench_api::Net;
-use bench_api::typed::Stop;
+use bench_api::Stop;
 
 use super::LABEL_WIDTH;
 use super::Out;

@@ -5,8 +5,8 @@ use std::future::Future;
 use std::path::Path;
 use std::time::Duration;
 
-use bench_api::typed::Context;
-use bench_api::typed::Stop;
+use bench_api::Context;
+use bench_api::Stop;
 use bench_host::Root;
 use bench_tool::job;
 use bench_tool::job::Job;
