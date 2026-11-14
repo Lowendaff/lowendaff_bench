@@ -109,6 +109,7 @@ fn host() -> HostProfile {
             quota: None,
         }),
         memory: Read::Done(Some(memory)),
+        numa: Read::default(),
         storage: Read::Done(StorageFacts {
             disks: vec![disk],
             filesystems: vec![root],

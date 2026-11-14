@@ -68,6 +68,34 @@ HostProfile {
             },
         ),
     ),
+    numa: Done(
+        Layout {
+            nodes: [
+                Node {
+                    id: 0,
+                    cpus: [
+                        0,
+                    ],
+                    total: Some(
+                        974217216,
+                    ),
+                    free: Some(
+                        112390144,
+                    ),
+                },
+            ],
+            cpus: Some(
+                [
+                    0,
+                ],
+            ),
+            mems: Some(
+                [
+                    0,
+                ],
+            ),
+        },
+    ),
     storage: Done(
         StorageFacts {
             disks: [

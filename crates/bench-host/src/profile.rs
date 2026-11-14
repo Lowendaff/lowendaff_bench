@@ -20,6 +20,7 @@ use crate::glibc::Libc;
 use crate::hardware::Hardware;
 use crate::memory;
 use crate::network::Network;
+use crate::numa::Layout;
 use crate::os;
 use crate::platform;
 use crate::platform::ContainerKind;
@@ -51,6 +52,8 @@ pub struct HostProfile {
     pub cpu: Read<CpuFacts>,
     /// Memory and swap; `None` inside when `/proc/meminfo` cannot be read.
     pub memory: Read<Option<MemoryFacts>>,
+    /// The NUMA nodes, and the CPUs and nodes this process may use.
+    pub numa: Read<Layout>,
     /// Disks, filesystems and RAID cards.
     pub storage: Read<StorageFacts>,
     /// Distribution, kernel, uptime, load and TCP.
@@ -169,6 +172,7 @@ pub struct Sources<F, K> {
 enum Section {
     Cpu,
     Memory,
+    Numa,
     Storage,
     System,
     Hardware,
@@ -178,6 +182,7 @@ enum Section {
 enum Part {
     Cpu(CpuFacts),
     Memory(Option<MemoryFacts>),
+    Numa(Layout),
     Storage(StorageFacts),
     System(SystemFacts),
     Hardware(Box<Hardware>),
@@ -242,6 +247,15 @@ impl HostProfile {
         {
             let root = root.clone();
             threads.push((
+                Section::Numa,
+                spawn(&sender, "host-numa", move || {
+                    Part::Numa(Layout::read(&root))
+                }),
+            ));
+        }
+        {
+            let root = root.clone();
+            threads.push((
                 Section::Storage,
                 spawn(&sender, "host-storage", move || {
                     Part::Storage(storage_facts(&root, kind, work_dir, space))
@@ -274,6 +288,7 @@ impl HostProfile {
             libc,
             cpu: Read::Failed,
             memory: Read::Failed,
+            numa: Read::Failed,
             storage: Read::Failed,
             system: Read::Failed,
             hardware: (kind == PlatformKind::Dedicated).then_some(Read::Failed),
@@ -312,6 +327,7 @@ impl HostProfile {
         match part {
             Part::Cpu(cpu) => self.cpu = Read::Done(cpu),
             Part::Memory(memory) => self.memory = Read::Done(memory),
+            Part::Numa(layout) => self.numa = Read::Done(layout),
             Part::Storage(storage) => self.storage = Read::Done(storage),
             Part::System(system) => self.system = Read::Done(system),
             Part::Hardware(hardware) => self.hardware = Some(Read::Done(*hardware)),
@@ -328,6 +344,7 @@ impl HostProfile {
         match section {
             Section::Cpu => out(&mut self.cpu),
             Section::Memory => out(&mut self.memory),
+            Section::Numa => out(&mut self.numa),
             Section::Storage => out(&mut self.storage),
             Section::System => out(&mut self.system),
             Section::Hardware => {
