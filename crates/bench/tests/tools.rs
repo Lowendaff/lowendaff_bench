@@ -3,6 +3,7 @@
 //! virtual machines. Skipped by default because it downloads; CI runs it on both
 //! architectures.
 
+use bench::app;
 use bench::fetcher::Fetcher;
 use bench::provision;
 use bench::registry;
@@ -17,10 +18,13 @@ async fn every_pinned_tool_downloads_and_verifies() {
     let fetcher = Fetcher::try_new().expect("the HTTPS client builds");
     let dir = tempfile::tempdir().expect("a temporary directory");
     let arch = std::env::consts::ARCH;
-    let provisioned = provision::provision_all(&tools, arch, dir.path(), |url, range| {
-        fetcher.open(url, range)
-    })
-    .await;
+    // In ranges, as the program downloads them: both servers serve ranges.
+    let connections = usize::from(app::DOWNLOAD_CONNECTIONS);
+    let provisioned =
+        provision::provision_all(&tools, arch, dir.path(), connections, |url, range| {
+            fetcher.open(url, range)
+        })
+        .await;
     assert!(provisioned.failed.is_empty(), "{:?}", provisioned.failed);
     assert_eq!(
         provisioned.ready.len(),

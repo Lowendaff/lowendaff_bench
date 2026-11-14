@@ -1,5 +1,7 @@
 //! Tool provisioning: download every pinned tool the plan needs before the
-//! first test, verify size and SHA-256, and only then make it executable or unpack it.
+//! first test, verify size and SHA-256, and only then make it executable or unpack it. A large
+//! file comes in byte ranges over several connections at once, when its server serves ranges:
+//! a slow route often limits each connection rather than the host.
 
 use std::collections::BTreeMap;
 use std::ffi::OsString;
@@ -32,6 +34,10 @@ pub struct Provisioned {
     pub failed: BTreeMap<String, String>,
 }
 
+/// The smallest byte range that gets a connection of its own: a file smaller than two of them
+/// comes over one connection.
+pub const MIN_RANGE: u64 = 1 << 20;
+
 /// What a download returned.
 pub enum Part<R> {
     /// The whole file: asked for so, or the server ignored the byte range that was asked for.
@@ -55,11 +61,13 @@ pub fn required_tools(requirements: impl IntoIterator<Item = Requirements>) -> V
 
 /// Installs every tool into `dir`, and logs how each one went. `fetch` opens the download for a
 /// URL, the whole file or a byte range of it (HTTPS in production, an in-memory body in tests),
-/// and returns a user-facing error on failure.
+/// and returns a user-facing error on failure. A file comes over up to `connections`
+/// connections at once, one byte range each.
 pub async fn provision_all<F, Fut, R>(
     tools: &[ToolSpec],
     arch: &str,
     dir: &Path,
+    connections: usize,
     fetch: F,
 ) -> Provisioned
 where
@@ -73,12 +81,7 @@ where
             None => Err(format!("没有适用于 {arch} 的版本")),
             Some(asset) => {
                 tracing::debug!("下载 {}", asset.url);
-                match fetch(asset.url, None).await {
-                    Ok(Part::Whole(body) | Part::Range(body)) => {
-                        install(body, tool, asset, dir).await
-                    }
-                    Err(err) => Err(err),
-                }
+                download(&fetch, tool, asset, dir, connections).await
             }
         };
         match installed {
@@ -94,6 +97,82 @@ where
     result
 }
 
+/// Downloads `asset` and installs it.
+async fn download<F, Fut, R>(
+    fetch: &F,
+    tool: &ToolSpec,
+    asset: &ToolAsset,
+    dir: &Path,
+    connections: usize,
+) -> Result<PathBuf, String>
+where
+    F: Fn(&'static str, Option<Range<u64>>) -> Fut,
+    Fut: Future<Output = Result<Part<R>, String>>,
+    R: AsyncRead + Unpin,
+{
+    let partial = partial_path(dir, tool);
+    let written = fetch_checked(fetch, tool, asset, &partial, connections).await;
+    finish(written, &partial, tool, dir).await
+}
+
+/// Fetches `asset` into `path` and checks its size and SHA-256: over one connection, or, when
+/// the file is large enough and its server serves byte ranges, one range per connection, up to
+/// `connections` at once.
+async fn fetch_checked<F, Fut, R>(
+    fetch: &F,
+    tool: &ToolSpec,
+    asset: &ToolAsset,
+    path: &Path,
+    connections: usize,
+) -> Result<(), String>
+where
+    F: Fn(&'static str, Option<Range<u64>>) -> Fut,
+    Fut: Future<Output = Result<Part<R>, String>>,
+    R: AsyncRead + Unpin,
+{
+    let ranges = ranges(asset.size, connections);
+    if ranges.len() < 2 {
+        let (Part::Whole(body) | Part::Range(body)) = fetch(asset.url, None).await?;
+        return write_verified(body, asset, path).await;
+    }
+    match fetch(asset.url, Some(ranges[0].clone())).await? {
+        Part::Whole(body) => {
+            tracing::debug!(
+                "{} {}：服务器不支持分段下载，改用一个连接",
+                tool.name,
+                tool.version
+            );
+            write_verified(body, asset, path).await
+        }
+        Part::Range(first) => {
+            tracing::debug!(
+                "{} {} 分 {} 段同时下载",
+                tool.name,
+                tool.version,
+                ranges.len()
+            );
+            write_ranges(fetch, first, &ranges, asset, path).await
+        }
+    }
+}
+
+/// Splits `size` bytes into consecutive ranges, one per connection: at most `connections` of
+/// them, and none smaller than [`MIN_RANGE`] unless it is the only one. When the size does not
+/// divide evenly, the first ranges are a byte longer.
+fn ranges(size: u64, connections: usize) -> Vec<Range<u64>> {
+    let count = (size / MIN_RANGE).clamp(1, connections.max(1) as u64);
+    let (base, extra) = (size / count, size % count);
+    let mut start = 0;
+    (0..count)
+        .map(|index| {
+            let length = base + u64::from(index < extra);
+            let range = start..start + length;
+            start += length;
+            range
+        })
+        .collect()
+}
+
 /// Streams `body` into `dir` and installs it as `tool.form` says: an executable becomes
 /// `dir/<name>`, and an archive is unpacked into the directory `dir/<name>`. The size limit
 /// is enforced while reading, the SHA-256 is checked before anything
@@ -105,19 +184,36 @@ pub async fn install<R: AsyncRead + Unpin>(
     asset: &ToolAsset,
     dir: &Path,
 ) -> Result<PathBuf, String> {
-    let partial = dir.join(format!("{}.part", tool.name));
+    let partial = partial_path(dir, tool);
+    let written = write_verified(body, asset, &partial).await;
+    finish(written, &partial, tool, dir).await
+}
+
+/// Where a tool's download stays until it has been checked.
+fn partial_path(dir: &Path, tool: &ToolSpec) -> PathBuf {
+    dir.join(format!("{}.part", tool.name))
+}
+
+/// Installs the checked download at `partial` as `tool.form` says, unless writing it failed,
+/// and removes the partial file in either case.
+async fn finish(
+    written: Result<(), String>,
+    partial: &Path,
+    tool: &ToolSpec,
+    dir: &Path,
+) -> Result<PathBuf, String> {
     let installed = dir.join(tool.name);
-    let outcome = match write_verified(body, asset, &partial).await {
+    let outcome = match written {
         Ok(()) => match tool.form {
-            ToolForm::Executable => make_executable(&partial, &installed)
+            ToolForm::Executable => make_executable(partial, &installed)
                 .await
                 .map(|()| installed),
-            ToolForm::TarGz { executable } => unpack(&partial, dir, tool.name, executable).await,
+            ToolForm::TarGz { executable } => unpack(partial, dir, tool.name, executable).await,
         },
         Err(err) => Err(err),
     };
     // Left only after a failure, or as the archive that is unpacked now.
-    let _ = fs::remove_file(&partial).await;
+    let _ = fs::remove_file(partial).await;
     outcome
 }
 
@@ -127,7 +223,6 @@ async fn write_verified<R: AsyncRead + Unpin>(
     path: &Path,
 ) -> Result<(), String> {
     use sha2::Digest;
-    use std::fmt::Write;
     use tokio::io::AsyncReadExt;
     use tokio::io::AsyncWriteExt;
 
@@ -158,6 +253,112 @@ async fn write_verified<R: AsyncRead + Unpin>(
             asset.size
         ));
     }
+    pinned(hasher, asset)
+}
+
+/// Writes the byte `ranges` of `asset` into `path`, all at once: the first from `first`, which
+/// its server has begun to send, every other over a connection of its own. Then checks the whole
+/// file's SHA-256.
+async fn write_ranges<F, Fut, R>(
+    fetch: &F,
+    first: R,
+    ranges: &[Range<u64>],
+    asset: &ToolAsset,
+    path: &Path,
+) -> Result<(), String>
+where
+    F: Fn(&'static str, Option<Range<u64>>) -> Fut,
+    Fut: Future<Output = Result<Part<R>, String>>,
+    R: AsyncRead + Unpin,
+{
+    File::create(path)
+        .await
+        .map_err(|err| format!("无法写入：{err}"))?;
+    let others = ranges[1..].iter().map(|range| async move {
+        match fetch(asset.url, Some(range.clone())).await? {
+            Part::Range(body) => write_range(body, range, path).await,
+            Part::Whole(_) => Err("下载失败：服务器不再分段返回".to_owned()),
+        }
+    });
+    futures_util::future::try_join(
+        write_range(first, &ranges[0], path),
+        futures_util::future::try_join_all(others),
+    )
+    .await?;
+    check(asset, path).await
+}
+
+/// Writes `body`, which holds the byte `range` of a file, at its place in `path`; it must hold
+/// exactly that many bytes.
+async fn write_range<R: AsyncRead + Unpin>(
+    mut body: R,
+    range: &Range<u64>,
+    path: &Path,
+) -> Result<(), String> {
+    use std::io::SeekFrom;
+    use tokio::io::AsyncReadExt;
+    use tokio::io::AsyncSeekExt;
+    use tokio::io::AsyncWriteExt;
+
+    let write_error = |err: io::Error| format!("无法写入：{err}");
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .open(path)
+        .await
+        .map_err(write_error)?;
+    file.seek(SeekFrom::Start(range.start))
+        .await
+        .map_err(write_error)?;
+    let length = range.end - range.start;
+    let mut total: u64 = 0;
+    let mut buffer = vec![0_u8; 64 * 1024];
+    loop {
+        let read = body
+            .read(&mut buffer)
+            .await
+            .map_err(|err| format!("下载中断：{err}"))?;
+        if read == 0 {
+            break;
+        }
+        total += read as u64;
+        if total > length {
+            return Err(format!("大小超过一段应有的 {length} 字节"));
+        }
+        file.write_all(&buffer[..read]).await.map_err(write_error)?;
+    }
+    file.flush().await.map_err(write_error)?;
+    if total != length {
+        return Err(format!(
+            "大小不符：一段应为 {length} 字节，实际 {total} 字节"
+        ));
+    }
+    Ok(())
+}
+
+/// Checks the SHA-256 of the whole file at `path` against `asset`'s pin.
+async fn check(asset: &ToolAsset, path: &Path) -> Result<(), String> {
+    use sha2::Digest;
+    use tokio::io::AsyncReadExt;
+
+    let read_error = |err: io::Error| format!("无法读取下载的文件：{err}");
+    let mut file = File::open(path).await.map_err(read_error)?;
+    let mut hasher = Sha256::new();
+    let mut buffer = vec![0_u8; 64 * 1024];
+    loop {
+        let read = file.read(&mut buffer).await.map_err(read_error)?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    pinned(hasher, asset)
+}
+
+/// Whether the digest in `hasher` is the SHA-256 that `asset` pins.
+fn pinned(hasher: Sha256, asset: &ToolAsset) -> Result<(), String> {
+    use sha2::Digest;
+    use std::fmt::Write;
+
     let mut digest = String::with_capacity(64);
     for byte in hasher.finalize() {
         let _ = write!(digest, "{byte:02x}");

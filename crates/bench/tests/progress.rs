@@ -179,6 +179,7 @@ fn download() {
         &[tool("fio", "3.43")],
         "x86_64",
         dir.path(),
+        1,
         |_url, _range| async { Err::<Part<&[u8]>, String>("下载失败：离线".to_owned()) },
     ));
     assert_eq!(provisioned.failed.len(), 1);

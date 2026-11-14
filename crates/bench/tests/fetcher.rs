@@ -1,11 +1,17 @@
-//! The download adapter against a local plain-HTTP server: streaming, HTTP errors,
-//! connection errors and the proxy hint they end in, and provisioning through the real client.
+//! The download adapter against a local plain-HTTP server: streaming, byte ranges, HTTP errors,
+//! connection errors and the proxy hint they end in, and provisioning through the real client,
+//! whole or in ranges.
 //! Building the client also proves the preconfigured rustls config matches reqwest's rustls
 //! version. The tests expect no proxy variables, as on CI's runners.
+
+use std::sync::OnceLock;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
 
 use bench::fetcher;
 use bench::fetcher::Fetcher;
 use bench::provision;
+use bench::provision::MIN_RANGE;
 use bench::provision::Part;
 use bench_api::ToolAsset;
 use bench_api::ToolForm;
@@ -16,11 +22,24 @@ use tokio::net::TcpListener;
 const SCRIPT: &[u8] = b"#!/bin/sh\necho fio-3.39\n";
 const SCRIPT_SHA: &str = "1046784cba2513f64f6ee92655862e88fe249cfbbdb19b5420a08df9cc6540e8";
 
+/// A file of three byte ranges, whose bytes differ from place to place.
+fn big() -> &'static [u8] {
+    static BIG: OnceLock<Vec<u8>> = OnceLock::new();
+    BIG.get_or_init(|| {
+        (0..3 * MIN_RANGE)
+            .map(|index| (index % 251) as u8)
+            .collect()
+    })
+}
+
+/// The requests for a byte range of [`big`] that the server answered.
+static BIG_RANGES: AtomicUsize = AtomicUsize::new(0);
+
 /// Serves `GET /fio` with the script, ignoring any byte range; `GET /ranged` with the script, or
-/// the byte range that the request asks for; `GET /wrong` with another range than any asked for;
-/// `GET /moved` with a redirect to `/ranged`; `GET /cut` with a body that breaks off; and
-/// everything else with 404. `GET /shifted` and `GET /shorter` answer the range asked for one
-/// byte off, at its start or at its end.
+/// the byte range that the request asks for, and `GET /big` likewise with [`big`]; `GET /wrong`
+/// with another range than any asked for; `GET /moved` with a redirect to `/ranged`; `GET /cut`
+/// with a body that breaks off; and everything else with 404. `GET /shifted` and `GET /shorter`
+/// answer the range asked for one byte off, at its start or at its end.
 async fn serve() -> String {
     use tokio::io::AsyncReadExt;
     use tokio::io::AsyncWriteExt;
@@ -46,6 +65,14 @@ async fn serve() -> String {
                     match asked_range(&request) {
                         Some((first, last)) => partial(SCRIPT, first, last),
                         None => whole(SCRIPT),
+                    }
+                } else if request.starts_with("GET /big ") {
+                    match asked_range(&request) {
+                        Some((first, last)) => {
+                            BIG_RANGES.fetch_add(1, Ordering::SeqCst);
+                            partial(big(), first, last)
+                        }
+                        None => whole(big()),
                     }
                 } else if request.starts_with("GET /wrong ") {
                     partial(SCRIPT, 0, 0)
@@ -209,30 +236,55 @@ fn the_proxy_hint_names_the_variable_that_is_set_or_how_to_set_one() {
     }
 }
 
-#[tokio::test]
-async fn provisioning_through_the_real_client_installs_a_verified_tool() {
-    let url: &'static str = Box::leak(format!("{}/fio", serve().await).into_boxed_str());
+/// An executable tool named `name`, pinned to `body` at `url`.
+fn tool(name: &'static str, url: String, body: &[u8]) -> ToolSpec {
+    use sha2::Digest;
+    use std::fmt::Write;
+
+    let mut sha256 = String::new();
+    for byte in sha2::Sha256::digest(body) {
+        write!(sha256, "{byte:02x}").expect("write to a string");
+    }
     let assets: &'static [ToolAsset] = Box::leak(Box::new([ToolAsset {
         arch: std::env::consts::ARCH,
-        url,
-        sha256: SCRIPT_SHA,
-        size: SCRIPT.len() as u64,
+        url: Box::leak(url.into_boxed_str()),
+        sha256: Box::leak(sha256.into_boxed_str()),
+        size: body.len() as u64,
     }]));
-    let fio = ToolSpec {
-        name: "fio",
-        version: "3.39",
+    ToolSpec {
+        name,
+        version: "1.0",
         form: ToolForm::Executable,
         assets,
-    };
+    }
+}
+
+#[tokio::test]
+async fn provisioning_through_the_real_client_installs_verified_tools_whole_or_in_ranges() {
+    let base = serve().await;
+    let tools = [
+        tool("fio", format!("{base}/fio"), SCRIPT),
+        tool("big", format!("{base}/big"), big()),
+    ];
+    assert_eq!(tools[0].assets[0].sha256, SCRIPT_SHA);
     let dir = tempfile::tempdir().unwrap();
     let fetcher = Fetcher::try_new().unwrap();
 
-    let provisioned =
-        provision::provision_all(&[fio], std::env::consts::ARCH, dir.path(), |url, range| {
-            fetcher.open(url, range)
-        })
-        .await;
+    let provisioned = provision::provision_all(
+        &tools,
+        std::env::consts::ARCH,
+        dir.path(),
+        32,
+        |url, range| fetcher.open(url, range),
+    )
+    .await;
 
     assert!(provisioned.failed.is_empty(), "{:?}", provisioned.failed);
     assert_eq!(std::fs::read(&provisioned.ready["fio"]).unwrap(), SCRIPT);
+    assert_eq!(std::fs::read(&provisioned.ready["big"]).unwrap(), big());
+    assert_eq!(
+        BIG_RANGES.load(Ordering::SeqCst),
+        3,
+        "one request for each range"
+    );
 }

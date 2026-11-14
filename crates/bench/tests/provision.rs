@@ -1,9 +1,13 @@
 //! Tool provisioning: verification before execution, cleanup on failure, per-tool
-//! failure reasons, and a plugin running the tool it was given.
+//! failure reasons, downloads in byte ranges over several connections, and a plugin running the
+//! tool it was given.
 
 use std::collections::BTreeMap;
+use std::fmt::Write;
+use std::ops::Range;
 use std::path::Path;
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::time::Duration;
 
 use bench::orchestrator;
@@ -11,6 +15,7 @@ use bench::orchestrator::Quiet;
 use bench::orchestrator::Settings;
 use bench::orchestrator::Status;
 use bench::provision;
+use bench::provision::MIN_RANGE;
 use bench::provision::Part;
 use bench::registry;
 use bench::results::Measured;
@@ -25,8 +30,13 @@ use bench_api::Stop;
 use bench_api::ToolAsset;
 use bench_api::ToolForm;
 use bench_api::ToolSpec;
+use common::Captured;
 use plugin_disk::fio;
 use serde::Deserialize;
+use sha2::Digest;
+use sha2::Sha256;
+
+mod common;
 
 const SCRIPT: &[u8] = b"#!/bin/sh\necho fio-3.39\n";
 const SCRIPT_SHA: &str = "1046784cba2513f64f6ee92655862e88fe249cfbbdb19b5420a08df9cc6540e8";
@@ -168,6 +178,7 @@ async fn provision_all_reports_every_failure_with_its_reason() {
         &[FIO, IPERF3_ARM_ONLY, SYSBENCH],
         "x86_64",
         dir.path(),
+        32,
         fetch,
     )
     .await;
@@ -253,6 +264,7 @@ async fn a_plugin_runs_the_tool_it_was_provisioned_with() {
         &tools,
         std::env::consts::ARCH,
         run_dir.path(),
+        32,
         |_, _| async { Ok::<_, String>(Part::Whole(SCRIPT)) },
     )
     .await;
@@ -276,4 +288,291 @@ async fn a_plugin_runs_the_tool_it_was_provisioned_with() {
             stop: None,
         }))
     );
+}
+
+/// `size` bytes that differ from place to place, so that a range at the wrong place shows.
+fn contents(size: u64) -> &'static [u8] {
+    let bytes: Vec<u8> = (0..size).map(|index| (index % 251) as u8).collect();
+    Box::leak(bytes.into_boxed_slice())
+}
+
+/// An executable tool pinned to the SHA-256 and size of `body`.
+fn pinned_to(body: &[u8]) -> ToolSpec {
+    let mut sha256 = String::new();
+    for byte in Sha256::digest(body) {
+        let _ = write!(sha256, "{byte:02x}");
+    }
+    let assets = Box::leak(Box::new([ToolAsset {
+        arch: "x86_64",
+        url: "https://tools.example/big",
+        sha256: Box::leak(sha256.into_boxed_str()),
+        size: body.len() as u64,
+    }]));
+    ToolSpec {
+        name: "big",
+        version: "1.0",
+        form: ToolForm::Executable,
+        assets,
+    }
+}
+
+/// A server of one file: whole, or in the byte ranges asked for while it `serves_ranges` (a
+/// number of answers), the range starting at `short` one byte short, the range starting at
+/// `long` one byte long, and the range starting at `failing` not at all. Notes each request's
+/// range.
+struct Served {
+    body: &'static [u8],
+    serves_ranges: usize,
+    short: Option<u64>,
+    long: Option<u64>,
+    failing: Option<u64>,
+    asked: Mutex<Vec<Option<Range<u64>>>>,
+}
+
+impl Served {
+    fn new(body: &'static [u8]) -> Self {
+        Self {
+            body,
+            serves_ranges: usize::MAX,
+            short: None,
+            long: None,
+            failing: None,
+            asked: Mutex::new(Vec::new()),
+        }
+    }
+
+    async fn open(&self, range: Option<Range<u64>>) -> Result<Part<&'static [u8]>, String> {
+        let answered = {
+            let mut asked = self.asked.lock().expect("no test panics while holding it");
+            asked.push(range.clone());
+            asked.len()
+        };
+        let Some(range) = range.filter(|_| answered <= self.serves_ranges) else {
+            return Ok(Part::Whole(self.body));
+        };
+        if self.failing == Some(range.start) {
+            return Err("下载失败：HTTP 503".to_owned());
+        }
+        let start = usize::try_from(range.start).expect("in memory");
+        let mut end = usize::try_from(range.end).expect("in memory");
+        if self.short == Some(range.start) {
+            end -= 1;
+        }
+        if self.long == Some(range.start) {
+            end += 1;
+        }
+        Ok(Part::Range(&self.body[start..end]))
+    }
+
+    /// The ranges asked for, in the order of the requests.
+    fn asked(&self) -> Vec<Option<Range<u64>>> {
+        self.asked
+            .lock()
+            .expect("no test panics while holding it")
+            .clone()
+    }
+}
+
+/// What came of provisioning one tool: the result, the log, the installed file's bytes and the
+/// names left in the tools' directory.
+struct Outcome {
+    provisioned: provision::Provisioned,
+    log: Vec<String>,
+    installed: Option<Vec<u8>>,
+    left: Vec<String>,
+}
+
+/// Provisions `tool` from `served` over up to `connections` connections, logging as `-v` does.
+async fn provision_from(tool: ToolSpec, served: &Served, connections: usize) -> Outcome {
+    let dir = tempfile::tempdir().expect("a directory for the tools");
+    let (log, capturing) = Captured::start(true);
+    let provisioned =
+        provision::provision_all(&[tool], "x86_64", dir.path(), connections, |_, range| {
+            served.open(range)
+        })
+        .await;
+    drop(capturing);
+    let installed = provisioned
+        .ready
+        .get("big")
+        .map(|path| std::fs::read(path).expect("the installed tool reads"));
+    Outcome {
+        provisioned,
+        log: log.lines(),
+        installed,
+        left: entries(dir.path()),
+    }
+}
+
+/// The ranges that `served` was asked for, sorted, after checking that every request asked for
+/// one and that the first request asked for the start of the file.
+fn sorted_ranges(served: &Served) -> Vec<Range<u64>> {
+    let asked = served.asked();
+    assert_eq!(
+        asked.first().cloned().flatten().map(|range| range.start),
+        Some(0),
+        "the first range comes first: {asked:?}"
+    );
+    let mut ranges: Vec<Range<u64>> = asked
+        .into_iter()
+        .map(|range| range.expect("every request asks for a range"))
+        .collect();
+    ranges.sort_by_key(|range| range.start);
+    ranges
+}
+
+#[tokio::test]
+async fn a_large_file_comes_in_byte_ranges_one_connection_each() {
+    let size = 5 * MIN_RANGE + 3;
+    let body = contents(size);
+    for (connections, count) in [(32_usize, 5_u64), (2, 2)] {
+        let served = Served::new(body);
+        let outcome = provision_from(pinned_to(body), &served, connections).await;
+
+        assert!(
+            outcome.provisioned.failed.is_empty(),
+            "{:?}",
+            outcome.provisioned.failed
+        );
+        assert_eq!(
+            outcome.installed.as_deref(),
+            Some(body),
+            "{connections} connections"
+        );
+        assert_eq!(outcome.left, ["big"], "no partial file is left");
+        let ranges = sorted_ranges(&served);
+        assert_eq!(ranges.len() as u64, count, "{connections} connections");
+        let mut next = 0;
+        for range in &ranges {
+            assert_eq!(range.start, next, "no gap and no overlap: {ranges:?}");
+            let length = range.end - range.start;
+            assert!(
+                length == size / count || length == size / count + 1,
+                "even ranges: {ranges:?}"
+            );
+            next = range.end;
+        }
+        assert_eq!(next, size, "the ranges cover the file");
+        assert_eq!(
+            outcome.log,
+            [
+                "下载 https://tools.example/big".to_owned(),
+                format!("big 1.0 分 {count} 段同时下载"),
+                "准备工具：big 1.0 就绪".to_owned(),
+            ]
+        );
+    }
+}
+
+#[tokio::test]
+async fn one_connection_or_a_file_under_two_ranges_asks_for_the_whole_file() {
+    for (size, connections, whole) in [
+        (5 * MIN_RANGE, 1, true),
+        (2 * MIN_RANGE - 1, 32, true),
+        (2 * MIN_RANGE, 32, false),
+    ] {
+        let body = contents(size);
+        let served = Served::new(body);
+        let outcome = provision_from(pinned_to(body), &served, connections).await;
+
+        assert_eq!(outcome.installed.as_deref(), Some(body), "{size} bytes");
+        if whole {
+            assert_eq!(
+                served.asked(),
+                [None],
+                "{size} bytes, {connections} connections"
+            );
+        } else {
+            assert_eq!(
+                sorted_ranges(&served),
+                [0..MIN_RANGE, MIN_RANGE..2 * MIN_RANGE]
+            );
+        }
+    }
+}
+
+#[tokio::test]
+async fn a_server_that_ignores_ranges_sends_the_whole_file_over_one_connection() {
+    let body = contents(3 * MIN_RANGE);
+    let served = Served {
+        serves_ranges: 0,
+        ..Served::new(body)
+    };
+    let outcome = provision_from(pinned_to(body), &served, 32).await;
+
+    assert_eq!(outcome.installed.as_deref(), Some(body));
+    assert_eq!(
+        served.asked(),
+        [Some(0..MIN_RANGE)],
+        "one request, for the first range"
+    );
+    assert_eq!(
+        outcome.log[1], "big 1.0：服务器不支持分段下载，改用一个连接",
+        "{:?}",
+        outcome.log
+    );
+}
+
+#[tokio::test]
+async fn a_range_that_goes_wrong_fails_the_tool_and_leaves_nothing() {
+    let body = contents(4 * MIN_RANGE);
+    let wrong = [
+        (
+            Served {
+                short: Some(2 * MIN_RANGE),
+                ..Served::new(body)
+            },
+            format!(
+                "大小不符：一段应为 {MIN_RANGE} 字节，实际 {} 字节",
+                MIN_RANGE - 1
+            ),
+        ),
+        (
+            Served {
+                long: Some(MIN_RANGE),
+                ..Served::new(body)
+            },
+            format!("大小超过一段应有的 {MIN_RANGE} 字节"),
+        ),
+        (
+            Served {
+                failing: Some(MIN_RANGE),
+                ..Served::new(body)
+            },
+            "下载失败：HTTP 503".to_owned(),
+        ),
+        (
+            Served {
+                serves_ranges: 1,
+                ..Served::new(body)
+            },
+            "下载失败：服务器不再分段返回".to_owned(),
+        ),
+    ];
+    for (served, reason) in wrong {
+        let outcome = provision_from(pinned_to(body), &served, 32).await;
+
+        assert_eq!(outcome.provisioned.failed["big"], reason);
+        assert_eq!(outcome.left, Vec::<String>::new(), "{reason}");
+    }
+}
+
+#[tokio::test]
+async fn ranges_that_do_not_add_up_to_the_pinned_file_fail_and_leave_nothing() {
+    let body = contents(3 * MIN_RANGE);
+    let mut other = body.to_vec();
+    other[MIN_RANGE as usize + 7] ^= 1;
+    let served = Served::new(Box::leak(other.into_boxed_slice()));
+    let tool = pinned_to(body);
+    let outcome = provision_from(tool, &served, 32).await;
+
+    let reason = &outcome.provisioned.failed["big"];
+    assert!(
+        reason.starts_with(&format!(
+            "SHA-256 不符：应为 {}，实际 ",
+            tool.assets[0].sha256
+        )),
+        "{reason}"
+    );
+    assert_eq!(outcome.left, Vec::<String>::new());
 }

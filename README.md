@@ -42,22 +42,23 @@ it starts, and every run fits in half of it.
 ## Usage
 
 ```sh
-lowendaff-bench --list                      # list the test items by group
-sudo lowendaff-bench                        # run all of them
-sudo lowendaff-bench --only cpu,disk.fio    # run a subset by group or id; --skip excludes
-sudo lowendaff-bench --config bench.toml    # per-item settings: [plugins."<id>"]
-sudo lowendaff-bench -v                     # log more detail: each download and each tool run
-sudo lowendaff-bench --show-ip              # show the public addresses in full
+lowendaff-bench --list                         # list the test items by group
+sudo lowendaff-bench                           # run all of them
+sudo lowendaff-bench --only cpu,disk.fio       # run a subset by group or id; --skip excludes
+sudo lowendaff-bench --config bench.toml       # per-item settings: [plugins."<id>"]
+sudo lowendaff-bench -v                        # log more detail: each download and each tool run
+sudo lowendaff-bench --show-ip                 # show the public addresses in full
+sudo lowendaff-bench --download-connections 8  # at most 8 connections per download (default 32)
 ```
 
 - **Output.** The progress log on stderr has one line per event, after the time since the start:
   the host and its network, the tools' downloads, and each item's start, steps and end; `-v` adds
-  each download's address, and each tool's command and exit code, with its last lines when it
-  fails, except for Geekbench and smartctl, whose output holds a result's claim link or the
-  disks' serial numbers. The report follows on stdout once every item is done: the system
-  information, a section for each group (CPU, memory, disks) and a summary of how each item
-  ended. On a terminal, its tables wrap to the terminal's width. After Ctrl-C the report holds
-  what finished, and the rest is marked interrupted.
+  each download's address and number of byte ranges, and each tool's command and exit code, with
+  its last lines when it fails, except for Geekbench and smartctl, whose output holds a result's
+  claim link or the disks' serial numbers. The report follows on stdout once every item is done:
+  the system information, a section for each group (CPU, memory, disks) and a summary of how each
+  item ended. On a terminal, its tables wrap to the terminal's width. After Ctrl-C the report
+  holds what finished, and the rest is marked interrupted.
 - **Public addresses.** Each address family that reaches the Internet asks Cloudflare, ipify and
   icanhazip in turn, without a proxy, for the address they see; the first valid answer counts.
   Behind NAT that is the shared address. The report masks it, keeping two octets of IPv4 and the
@@ -69,6 +70,11 @@ sudo lowendaff-bench --show-ip              # show the public addresses in full
   - `0`: the run finished;
   - `2`: usage or config error, or not root;
   - `130`: interrupted.
+- **Downloads.** Before the first item runs, the program downloads the tools that the items need.
+  A file of 2 MiB or more comes in byte ranges over up to 32 connections at once
+  (`--download-connections` sets the number, from 1 to 256), when its server serves ranges: a slow
+  route often limits each connection rather than the host. Each range must come back exactly as
+  asked for, and the whole file must match its pinned size and SHA-256 before it is used.
 - **Proxies.** Tool downloads go through the proxy that `HTTPS_PROXY` or `ALL_PROXY` names
   (lowercase names work too); `NO_PROXY` exempts hosts. HTTP and SOCKS5 proxies work, and with
   `socks5h://` the proxy resolves the names. On a server that reaches GitHub poorly, for

@@ -34,6 +34,10 @@ pub const EXIT_INTERRUPTED: u8 = 130;
 
 const GRACE: Duration = Duration::from_secs(5);
 
+/// The connections that one tool's download uses at most, unless `--download-connections` says
+/// otherwise.
+pub const DOWNLOAD_CONNECTIONS: u16 = 32;
+
 /// Linux 服务器综合测试，需要 root 权限运行。
 #[derive(Debug, clap::Parser)]
 #[command(name = "lowendaff-bench", version)]
@@ -65,6 +69,16 @@ pub struct Cli {
     /// 在报告中显示完整的公网地址（默认只显示前一部分）
     #[arg(long)]
     pub show_ip: bool,
+
+    /// 下载工具时，每个文件最多同时使用的连接数（1 到 256）
+    // At most 256: each connection also holds the file open, and twice 256 descriptors stay
+    // under the usual limit of 1024.
+    #[arg(
+        long,
+        default_value_t = DOWNLOAD_CONNECTIONS,
+        value_parser = clap::value_parser!(u16).range(1..=256)
+    )]
+    pub download_connections: u16,
 }
 
 impl Cli {
@@ -204,14 +218,15 @@ pub struct ReportOptions<W> {
 
 /// Runs a prepared plan on the host that `host` describes, inside a fresh run directory under
 /// `work_dir`, which is removed afterwards, with the tools that `fetch` downloads from their
-/// pinned addresses, whole or a byte range at a time, and writes the report as `report` says.
-/// Returns the process exit code.
+/// pinned addresses, over up to `connections` connections a file, and writes the report as
+/// `report` says. Returns the process exit code.
 pub async fn execute<F, Fut, R, W>(
     planned: Vec<Planned<Measured>>,
     host: HostProfile,
     work_dir: &Path,
     cancel: &CancellationToken,
     fetch: F,
+    connections: usize,
     report: ReportOptions<W>,
 ) -> Result<u8, String>
 where
@@ -239,7 +254,8 @@ where
     if !tools.is_empty() {
         let tools_dir = run_dir.path().join("tools");
         fs::create_dir(&tools_dir).map_err(|err| format!("无法创建工具目录：{err}"))?;
-        let provisioned = provision::provision_all(&tools, &host.arch, &tools_dir, fetch).await;
+        let provisioned =
+            provision::provision_all(&tools, &host.arch, &tools_dir, connections, fetch).await;
         ready = provisioned.ready;
         failed_tools = provisioned.failed;
     }
