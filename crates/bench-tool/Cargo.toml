@@ -10,7 +10,11 @@ license.workspace = true
 bench-api.workspace = true
 rustix = { version = "1", features = ["process"] }
 serde.workspace = true
-tokio = { workspace = true, features = ["macros", "process", "time"] }
+tokio = { workspace = true, features = ["macros", "process", "rt", "sync", "time"] }
+
+# Places a tool on given CPUs; Linux only.
+[target.'cfg(target_os = "linux")'.dependencies]
+rustix = { version = "1", features = ["process", "thread"] }
 
 [dev-dependencies]
 bench-host.workspace = true

@@ -1,8 +1,9 @@
 //! Running a tool once, as every test item does: without a shell, in the C locale, with what it
 //! prints read in full, within a time limit, and stopped when the plugin is cancelled. A tool that
 //! starts workers of its own runs in a process group of its own, which is killed as a whole; a
-//! tool that may exhaust memory starts as the kernel's first choice to kill. Each run is reported
-//! to the plugin's context, for the progress log with `-v`.
+//! tool that may exhaust memory starts as the kernel's first choice to kill; a tool that measures
+//! one part of the machine runs on that part's CPUs. Each run is reported to the plugin's
+//! context, for the progress log with `-v`.
 
 use std::ffi::OsString;
 use std::io;
@@ -48,6 +49,9 @@ pub struct Job {
     pub first_to_go: bool,
     /// Whether the log may quote what it printed, when it fails.
     pub quotable: bool,
+    /// The CPUs it runs on, which the workers it starts inherit; `None` leaves it to the
+    /// scheduler. The tools run on Linux only; elsewhere, as in tests, the scheduler places them.
+    pub cpus: Option<Vec<usize>>,
 }
 
 impl Job {
@@ -67,6 +71,7 @@ impl Job {
             group: false,
             first_to_go: false,
             quotable: true,
+            cpus: None,
         }
     }
 
@@ -96,11 +101,12 @@ impl Job {
         if self.group {
             command.process_group(0);
         }
+        let cpus = self.cpus.clone();
         let (spawned, adjustment) = if self.first_to_go {
-            let (spawned, adjustment) = spawn_first_to_go(&mut command);
+            let (spawned, adjustment) = spawn_first_to_go(command, cpus).await;
             (spawned, Some(adjustment))
         } else {
-            (command.spawn(), None)
+            (spawn(command, cpus).await, None)
         };
         let ended = match spawned {
             Ok(child) => self.wait(child, &cancel).await,
@@ -316,18 +322,81 @@ impl Drop for Group {
 
 /// Starts `command` with `oom_score_adj` 1000, which the tool and the workers it starts inherit,
 /// then restores the program's own value.
-fn spawn_first_to_go(command: &mut Command) -> (io::Result<Child>, Adjustment) {
+async fn spawn_first_to_go(
+    command: Command,
+    cpus: Option<Vec<usize>>,
+) -> (io::Result<Child>, Adjustment) {
     let previous = match std::fs::read_to_string(OOM_SCORE_ADJ) {
         Ok(previous) => previous,
-        Err(err) => return (command.spawn(), Adjustment::NotSet(err.to_string())),
+        Err(err) => {
+            return (
+                spawn(command, cpus).await,
+                Adjustment::NotSet(err.to_string()),
+            );
+        }
     };
     if let Err(err) = std::fs::write(OOM_SCORE_ADJ, "1000") {
-        return (command.spawn(), Adjustment::NotSet(err.to_string()));
+        return (
+            spawn(command, cpus).await,
+            Adjustment::NotSet(err.to_string()),
+        );
     }
-    let child = command.spawn();
+    let child = spawn(command, cpus).await;
     let adjustment = match std::fs::write(OOM_SCORE_ADJ, previous.trim()) {
         Ok(()) => Adjustment::Done,
         Err(err) => Adjustment::NotRestored(err.to_string()),
     };
     (child, adjustment)
+}
+
+/// Starts `command`, on `cpus` when given.
+async fn spawn(mut command: Command, cpus: Option<Vec<usize>>) -> io::Result<Child> {
+    match cpus {
+        Some(cpus) => spawn_on(command, cpus).await,
+        None => command.spawn(),
+    }
+}
+
+/// Starts `command` from a new thread that first moves itself to `cpus`, so that the child
+/// inherits them while the runtime's own threads keep theirs.
+#[cfg(target_os = "linux")]
+async fn spawn_on(mut command: Command, cpus: Vec<usize>) -> io::Result<Child> {
+    let runtime = tokio::runtime::Handle::current();
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    std::thread::Builder::new()
+        .name("tool-placement".to_owned())
+        .spawn(move || {
+            let _runtime = runtime.enter();
+            let spawned = place(&cpus).and_then(|()| command.spawn());
+            // Without a receiver the child is dropped here, and killed.
+            let _ = sender.send(spawned);
+        })?;
+    receiver
+        .await
+        .map_err(|_| io::Error::other("the thread starting the tool ended early"))?
+}
+
+/// Moves the calling thread to `cpus`.
+#[cfg(target_os = "linux")]
+fn place(cpus: &[usize]) -> io::Result<()> {
+    use rustix::thread::CpuSet;
+
+    let mut set = CpuSet::new();
+    for &cpu in cpus {
+        if cpu >= CpuSet::MAX_CPU {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("CPU {cpu} is beyond an affinity mask"),
+            ));
+        }
+        set.set(cpu);
+    }
+    rustix::thread::sched_setaffinity(None, &set).map_err(io::Error::from)
+}
+
+/// The tools run on Linux only; elsewhere, as in the tests on other systems, the scheduler
+/// places them.
+#[cfg(not(target_os = "linux"))]
+async fn spawn_on(mut command: Command, _cpus: Vec<usize>) -> io::Result<Child> {
+    command.spawn()
 }
