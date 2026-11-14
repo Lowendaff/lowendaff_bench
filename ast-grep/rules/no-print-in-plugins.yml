@@ -1,11 +1,13 @@
 id: no-print-in-plugins
 language: rust
 severity: error
-message: Return results from `run`, and report progress through the context; the reporter prints.
+message: Return data, and report progress through the plugin context; only the program prints.
 note: Printed text bypasses the reporter and the progress log, and breaks their layout.
 files:
   - crates/bench-api/src/**/*.rs
   - crates/bench-host/src/**/*.rs
+  - crates/bench-tool/src/**/*.rs
+  - crates/swap-file/src/**/*.rs
   - plugins/*/src/**/*.rs
 rule:
   kind: macro_invocation
