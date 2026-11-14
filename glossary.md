@@ -9,7 +9,7 @@ appears there (README "Gates", Rules).
 |---------|---------|------------------|
 | 硬盘健康 | Disk health | an item's title |
 | CPU 性能 | CPU performance | an item's title; the report's CPU section, with Geekbench 7 |
-| 内存性能 | Memory performance | an item's title; the report's memory section |
+| 内存性能 | Memory performance | the report's memory section, with its four items |
 | 硬盘性能 | Disk performance | an item's title |
 | 系统信息 | System | the report's first section, with system information |
 | 汇总 | Summary | the report's last section: how each item ended |

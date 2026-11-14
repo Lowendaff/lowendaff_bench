@@ -12,10 +12,10 @@ use std::process::Stdio;
 use std::time::Duration;
 
 use bench_api::CancellationToken;
-use bench_api::typed::Context;
-use bench_api::typed::Measurement;
-use bench_api::typed::ToolEnd;
-use bench_api::typed::ToolRun;
+use bench_api::Context;
+use bench_api::Measurement;
+use bench_api::ToolEnd;
+use bench_api::ToolRun;
 use rustix::process::Pid;
 use rustix::process::Signal;
 use serde::Serialize;

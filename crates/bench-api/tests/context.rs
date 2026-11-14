@@ -1,5 +1,5 @@
-//! The typed contract's context: what a plugin publishes and reports reaches the orchestrator's
-//! end, the last publish wins, and a plugin never fails because nobody listens any more.
+//! A plugin's context: what the plugin publishes and reports reaches the orchestrator's end,
+//! the last publish wins, and a plugin never fails because nobody listens any more.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -7,13 +7,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use bench_api::CancellationToken;
-use bench_api::typed::Channels;
-use bench_api::typed::Context;
-use bench_api::typed::Measurement;
-use bench_api::typed::Progress;
-use bench_api::typed::ToolEnd;
-use bench_api::typed::ToolRun;
-use bench_api::typed::ToolVersion;
+use bench_api::Channels;
+use bench_api::Context;
+use bench_api::Measurement;
+use bench_api::Progress;
+use bench_api::ToolEnd;
+use bench_api::ToolRun;
+use bench_api::ToolVersion;
 use bench_host::profile::HostProfile;
 use serde::Serialize;
 use tokio::time::Instant;

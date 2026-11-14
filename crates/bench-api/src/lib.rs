@@ -1,53 +1,33 @@
-//! Plugin contract for lowendaff-bench, which every test-item crate implements.
-//!
-//! User-facing strings are Chinese; ids,
-//! identifiers and comments are English.
+//! Plugin contract for lowendaff-bench, which every test-item crate implements. A plugin
+//! declares what it needs, and returns a result of its own type, or its own reason to skip or to
+//! fail; it publishes the result as it goes and reports its progress, and the orchestrator and
+//! the reporter do the rest.
 
 #![warn(missing_docs)]
 
 use std::collections::BTreeMap;
-use std::error;
-use std::fmt;
 use std::future::Future;
 use std::path::Path;
 use std::path::PathBuf;
-use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 
 use bench_host::glibc::GlibcVersion;
-use bench_host::glibc::Libc;
-use bench_host::platform::Platform;
 use bench_host::platform::PlatformKind;
 use bench_host::profile::HostProfile;
 use bench_host::profile::Read;
+use serde::Serialize;
 use serde::de::DeserializeOwned;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::watch;
 use tokio::time::Instant;
 
 pub use tokio_util::sync::CancellationToken;
 
-pub mod typed;
-
 /// Architectures every pinned tool must cover.
 pub const RELEASE_ARCHES: [&str; 2] = ["x86_64", "aarch64"];
-
-/// Static facts about a plugin type, which the registry checks.
-#[derive(Debug, Clone, Copy)]
-pub struct Descriptor {
-    /// Stable id: lowercase dotted segments such as `disk.fio`.
-    pub id: &'static str,
-    /// Section title shown in the terminal.
-    pub title: &'static str,
-    /// Plugin version; bump it when the measurement method changes.
-    pub version: &'static str,
-    /// Preconditions the orchestrator checks before calling `run`.
-    pub requires: Requirements,
-    /// Hard limit for one run.
-    pub timeout: Duration,
-}
 
 /// Declarative preconditions. Root is not listed: the whole program requires root.
 #[derive(Debug, Clone, Copy)]
@@ -147,397 +127,189 @@ pub struct ToolAsset {
     pub size: u64,
 }
 
-/// Host facts probed once by the orchestrator and shared read-only with every plugin.
-#[derive(Debug, Clone, Default)]
-pub struct Env {
-    /// Value of `std::env::consts::ARCH`.
-    pub arch: String,
-    /// Whether an IPv4 handshake with a public address succeeded.
-    pub ipv4: bool,
-    /// Whether an IPv6 handshake with a public address succeeded.
-    pub ipv6: bool,
-    /// Tools that were downloaded and verified, by name.
-    pub tools: BTreeMap<String, PathBuf>,
-    /// The platform the program runs on.
-    pub platform: Platform,
-    /// The host's C library.
-    pub libc: Libc,
+/// Static facts about a plugin type.
+#[derive(Debug, Clone, Copy)]
+pub struct Descriptor {
+    /// Stable id `<group>.<name>`, such as `memory.stream`.
+    pub id: &'static str,
+    /// Preconditions the orchestrator checks before calling `run`.
+    pub requires: Requirements,
+    /// Hard limit for one run.
+    pub timeout: Duration,
 }
 
-/// A test item. The implementing struct is also its configuration: `Default` gives the
-/// defaults and serde parses the user's table for this plugin id.
+/// Why a plugin stopped short of a complete result, with the plugin's own reason.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub enum Stop<F> {
+    /// The measurement does not apply here.
+    Skipped(F),
+    /// The measurement went wrong.
+    Failed(F),
+}
+
+/// A tool that a result came from, with the version the tool reported.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ToolVersion {
+    /// The tool's name, as in its pin.
+    pub name: &'static str,
+    /// The version the tool reported about itself.
+    pub version: String,
+}
+
+/// What a plugin reports while it runs, for the progress log on stderr.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Progress {
+    /// A line of the plugin's own, in Chinese.
+    Line(String),
+    /// A tool it ran, which the log shows with `-v`.
+    Tool(ToolRun),
+}
+
+/// A tool that a plugin ran: its command, how it ended, and what it printed last when it did
+/// not exit with 0.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ToolRun {
+    /// The program's file name, then its arguments.
+    pub command: Vec<String>,
+    /// How the run ended.
+    pub end: ToolEnd,
+    /// Its last lines with text, oldest first, when it did not exit with 0 and its output may be
+    /// quoted.
+    pub tail: Vec<String>,
+}
+
+/// How a tool's run ended.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ToolEnd {
+    /// It exited with this code.
+    Exit(i32),
+    /// A signal ended it.
+    Signal,
+    /// It ran past this limit and was stopped.
+    TimedOut(Duration),
+    /// The plugin was cancelled, and the tool stopped.
+    Cancelled,
+    /// It could not start, for the system's reason.
+    Spawn(String),
+    /// What it printed could not be read, for the system's reason.
+    Read(String),
+}
+
+/// What every result tells besides its own data.
+pub trait Measurement: Serialize + Clone + Send + Sync + 'static {
+    /// The tools used, with the versions they reported.
+    fn tools(&self) -> Vec<ToolVersion>;
+}
+
+/// A test item, whose result has a type of its own.
 pub trait Plugin: DeserializeOwned + Default + Send + Sync + 'static {
-    /// Static facts about this plugin.
+    /// The plugin's result.
+    type Output: Measurement;
+    /// Why the plugin skipped or failed.
+    type Failure: Serialize + Send + 'static;
+    /// Static facts about the plugin.
     const DESCRIPTOR: Descriptor;
-
-    /// Runs the test and streams results through `ctx.emit`.
-    ///
-    /// Must not block the async executor: CPU-bound work belongs in `spawn_blocking` and
-    /// must poll `ctx.cancel_token()`; child processes are spawned with `kill_on_drop(true)`.
-    fn run(&self, ctx: &Context) -> impl Future<Output = Result<(), PluginError>> + Send;
+    /// Runs the measurement: the complete result, or why there is none.
+    fn run(
+        &self,
+        ctx: &Context<Self::Output>,
+    ) -> impl Future<Output = Result<Self::Output, Stop<Self::Failure>>> + Send;
 }
 
-/// Per-run handle given to a plugin.
-pub struct Context {
-    // Shared with the orchestrator and every plugin task. Tasks are spawned (so they need
-    // `'static` data) and a detached task may outlive the run, so this cannot be a borrow.
-    env: Arc<Env>,
-    records: UnboundedSender<Record>,
+/// What a plugin gets for one run.
+pub struct Context<O> {
+    host: Arc<HostProfile>,
+    tools: Arc<BTreeMap<String, PathBuf>>,
     cancel: CancellationToken,
     deadline: Instant,
     work_dir: PathBuf,
+    progress: UnboundedSender<Progress>,
+    published: watch::Sender<Option<O>>,
 }
 
-impl Context {
-    /// Builds a context and the receiver for the records it emits. Used by the
-    /// orchestrator, and by plugin unit tests to drive `run` directly.
+/// The orchestrator's end of a [`Context`].
+pub struct Channels<O> {
+    /// The plugin's progress lines and tool runs, in order.
+    pub progress: UnboundedReceiver<Progress>,
+    /// The last result that the plugin published; `None` until it publishes one.
+    pub published: watch::Receiver<Option<O>>,
+}
+
+impl<O: Measurement> Context<O> {
+    /// A context for one run, with the tools that were provisioned, and the orchestrator's end of
+    /// its channels.
     #[must_use]
     pub fn new(
-        env: Arc<Env>,
+        host: Arc<HostProfile>,
+        tools: Arc<BTreeMap<String, PathBuf>>,
         deadline: Instant,
         work_dir: PathBuf,
         cancel: CancellationToken,
-    ) -> (Self, UnboundedReceiver<Record>) {
-        let (records, receiver) = mpsc::unbounded_channel();
+    ) -> (Self, Channels<O>) {
+        let (progress, progress_receiver) = mpsc::unbounded_channel();
+        let (published, published_receiver) = watch::channel(None);
         let ctx = Self {
-            env,
-            records,
+            host,
+            tools,
             cancel,
             deadline,
             work_dir,
+            progress,
+            published,
         };
-        (ctx, receiver)
+        let channels = Channels {
+            progress: progress_receiver,
+            published: published_receiver,
+        };
+        (ctx, channels)
     }
 
-    /// Host facts shared by all plugins.
+    /// The host, as the run read it before any plugin ran.
     #[must_use]
-    pub fn env(&self) -> &Env {
-        &self.env
+    pub fn host(&self) -> &HostProfile {
+        &self.host
     }
 
-    /// Streams one result. Records survive a later timeout, interrupt, failure or panic.
-    pub fn emit(&self, record: Record) {
-        // The receiver only goes away after the orchestrator gave up on this run.
-        let _ = self.records.send(record);
-    }
-
-    /// Fires on timeout (before the grace period) and on interrupt.
+    /// The path of a provisioned tool; `None` for a tool the plugin did not declare, since the
+    /// orchestrator runs a plugin only when every declared tool is ready.
     #[must_use]
-    pub fn cancel_token(&self) -> CancellationToken {
-        self.cancel.clone()
+    pub fn tool(&self, name: &str) -> Option<&Path> {
+        self.tools.get(name).map(PathBuf::as_path)
     }
 
-    /// When the orchestrator stops waiting for this run.
-    #[must_use]
-    pub fn deadline(&self) -> Instant {
-        self.deadline
-    }
-
-    /// Private directory on the run's disk (not `/tmp`), removed after the run.
+    /// A directory of the plugin's own, removed after the run.
     #[must_use]
     pub fn work_dir(&self) -> &Path {
         &self.work_dir
     }
 
-    /// Path of a declared tool; the orchestrator only runs a plugin whose tools verified.
-    pub fn tool(&self, name: &str) -> Result<&Path, PluginError> {
-        self.env
-            .tools
-            .get(name)
-            .map(PathBuf::as_path)
-            .ok_or_else(|| PluginError::fail(format!("工具 {name} 未声明或不可用")))
-    }
-}
-
-/// Why a run did not complete. Any `std::error::Error` converts into `Fail` with `?`.
-#[derive(Debug)]
-pub enum PluginError {
-    /// A precondition discovered at run time; reported as skipped.
-    Skip(String),
-    /// The test could not produce its result; reported as failed.
-    Fail(String),
-}
-
-impl PluginError {
-    /// A skip with a user-facing reason.
+    /// Fires on a timeout and on an interrupt; a plugin stops soon after.
     #[must_use]
-    pub fn skip(reason: impl Into<String>) -> Self {
-        Self::Skip(reason.into())
+    pub fn cancel_token(&self) -> CancellationToken {
+        self.cancel.clone()
     }
 
-    /// A failure with a user-facing reason.
+    /// When the orchestrator stops waiting for the plugin.
     #[must_use]
-    pub fn fail(reason: impl Into<String>) -> Self {
-        Self::Fail(reason.into())
-    }
-}
-
-/// Lets plugins use `?` on any std error; the cause chain is kept in the message.
-impl<E: error::Error + Send + Sync + 'static> From<E> for PluginError {
-    fn from(err: E) -> Self {
-        use std::fmt::Write;
-
-        let mut message = err.to_string();
-        let mut source = err.source();
-        while let Some(cause) = source {
-            let _ = write!(message, ": {cause}");
-            source = cause.source();
-        }
-        Self::Fail(message)
-    }
-}
-
-/// Result primitive. Renderers handle every kind, so a new kind is a compile error in
-/// each renderer rather than a silently dropped record.
-#[derive(Debug, Clone, PartialEq)]
-pub enum Record {
-    /// Text fact, e.g. CPU model or virtualization type.
-    Fact {
-        /// Stable id within the plugin.
-        id: String,
-        /// Chinese label.
-        label: String,
-        /// Text as shown.
-        value: String,
-    },
-    /// Number with unit, or the reason it could not be measured.
-    Metric {
-        /// Stable id within the plugin.
-        id: String,
-        /// Chinese label.
-        label: String,
-        /// The value or why it is missing.
-        result: Measurement,
-    },
-    /// Rectangular table of display cells.
-    Table(Table),
-}
-
-impl Record {
-    /// A text fact.
-    #[must_use]
-    pub fn fact(id: &str, label: &str, value: impl Into<String>) -> Self {
-        Self::Fact {
-            id: id.into(),
-            label: label.into(),
-            value: value.into(),
-        }
+    pub fn deadline(&self) -> Instant {
+        self.deadline
     }
 
-    /// A measured or missing number.
-    #[must_use]
-    pub fn metric(id: &str, label: &str, result: Measurement) -> Self {
-        Self::Metric {
-            id: id.into(),
-            label: label.into(),
-            result,
-        }
+    /// One line of progress, in Chinese, for the log on stderr. A line that arrives after the
+    /// orchestrator stopped listening is dropped.
+    pub fn progress(&self, text: impl Into<String>) {
+        let _ = self.progress.send(Progress::Line(text.into()));
     }
 
-    /// The record's stable id.
-    #[must_use]
-    pub fn id(&self) -> &str {
-        match self {
-            Self::Fact { id, .. } | Self::Metric { id, .. } => id,
-            Self::Table(table) => &table.id,
-        }
-    }
-}
-
-/// A table whose rows all have as many cells as there are headers.
-#[derive(Debug, Clone, PartialEq)]
-pub struct Table {
-    id: String,
-    title: String,
-    headers: Vec<String>,
-    rows: Vec<Vec<String>>,
-}
-
-impl Table {
-    /// Builds a table, rejecting rows whose width differs from the header.
-    pub fn try_new(
-        id: &str,
-        title: &str,
-        headers: Vec<String>,
-        rows: Vec<Vec<String>>,
-    ) -> Result<Self, RecordError> {
-        if let Some(index) = rows.iter().position(|row| row.len() != headers.len()) {
-            let cells = rows[index].len();
-            let expected = headers.len();
-            return Err(RecordError(format!(
-                "表格 {id} 第 {index} 行有 {cells} 列，应为 {expected} 列"
-            )));
-        }
-        Ok(Self {
-            id: id.into(),
-            title: title.into(),
-            headers,
-            rows,
-        })
+    /// A tool that the plugin ran, for the log with `-v`; dropped like a progress line when
+    /// nobody listens.
+    pub fn ran(&self, run: ToolRun) {
+        let _ = self.progress.send(Progress::Tool(run));
     }
 
-    /// Chinese title shown above the table.
-    #[must_use]
-    pub fn title(&self) -> &str {
-        &self.title
+    /// Replaces the last partial result. The report shows the last one published when the
+    /// plugin skips, fails, times out or is interrupted.
+    pub fn publish(&self, output: &O) {
+        self.published.send_replace(Some(output.clone()));
     }
-
-    /// Column headers.
-    #[must_use]
-    pub fn headers(&self) -> &[String] {
-        &self.headers
-    }
-
-    /// Rows of display cells.
-    #[must_use]
-    pub fn rows(&self) -> &[Vec<String>] {
-        &self.rows
-    }
-}
-
-/// Why a metric has no value. Shown instead of a fake number.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Missing {
-    /// The service or resource is not available.
-    Unavailable,
-    /// The remote side was busy.
-    Busy,
-    /// The measurement did not finish in time.
-    Timeout,
-    /// Not supported on this host.
-    Unsupported,
-    /// The measurement failed.
-    Error,
-    /// The cause is unknown.
-    Unknown,
-}
-
-impl fmt::Display for Missing {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            Self::Unavailable => "不可用",
-            Self::Busy => "繁忙",
-            Self::Timeout => "超时",
-            Self::Unsupported => "不支持",
-            Self::Error => "出错",
-            Self::Unknown => "未知",
-        })
-    }
-}
-
-/// A finite value with a unit, or the reason it is missing; nothing in between.
-///
-/// Displays as `171.01 MB/s`, `940 Mbit/s`, or the reason (`繁忙`).
-#[derive(Debug, Clone, PartialEq)]
-pub struct Measurement(Reading);
-
-#[derive(Debug, Clone, PartialEq)]
-enum Reading {
-    Measured { value: f64, unit: String },
-    Missing(Missing),
-}
-
-impl Measurement {
-    /// A measured value; rejects non-finite values and empty units.
-    pub fn try_new(value: f64, unit: &str) -> Result<Self, RecordError> {
-        if !value.is_finite() {
-            return Err(RecordError(format!("测量值必须是有限数，实际为 {value}")));
-        }
-        if unit.is_empty() {
-            return Err(RecordError("测量值缺少单位".into()));
-        }
-        Ok(Self(Reading::Measured {
-            value,
-            unit: unit.to_owned(),
-        }))
-    }
-
-    /// A value that could not be measured, with the reason.
-    #[must_use]
-    pub fn new_missing(reason: Missing) -> Self {
-        Self(Reading::Missing(reason))
-    }
-}
-
-impl fmt::Display for Measurement {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match &self.0 {
-            Reading::Measured { value, unit } if value.fract() == 0.0 => {
-                write!(f, "{value:.0} {unit}")
-            }
-            Reading::Measured { value, unit } => write!(f, "{value:.2} {unit}"),
-            Reading::Missing(reason) => reason.fmt(f),
-        }
-    }
-}
-
-/// A record that violates its invariant; the message is user-facing.
-#[derive(Debug, Clone, PartialEq)]
-pub struct RecordError(pub String);
-
-impl fmt::Display for RecordError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.0)
-    }
-}
-
-impl error::Error for RecordError {}
-
-type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
-
-/// Object-safe view of a configured plugin. Implemented for every `Plugin`; never by hand.
-pub trait DynPlugin: Send + Sync {
-    /// Static facts about the plugin.
-    fn descriptor(&self) -> Descriptor;
-
-    /// [`Plugin::run`] with the future boxed, so it can be called through `dyn`.
-    fn run_boxed<'a>(&'a self, ctx: &'a Context) -> BoxFuture<'a, Result<(), PluginError>>;
-}
-
-impl<P: Plugin> DynPlugin for P {
-    fn descriptor(&self) -> Descriptor {
-        P::DESCRIPTOR
-    }
-
-    fn run_boxed<'a>(&'a self, ctx: &'a Context) -> BoxFuture<'a, Result<(), PluginError>> {
-        Box::pin(self.run(ctx))
-    }
-}
-
-// `Arc` because the orchestrator keeps the plugin while a spawned (`'static`) task runs
-// it, and a detached task may outlive the run.
-type BuildFn = fn(Option<&serde_json::Value>) -> Result<Arc<dyn DynPlugin>, String>;
-
-/// One entry of the compile-time registry.
-#[derive(Debug, Clone, Copy)]
-pub struct Registration {
-    /// Static facts about the plugin.
-    pub descriptor: Descriptor,
-    build: BuildFn,
-}
-
-impl Registration {
-    /// Builds the plugin from its config table; `None` uses the plugin's `Default`.
-    pub fn build(&self, config: Option<&serde_json::Value>) -> Result<Arc<dyn DynPlugin>, String> {
-        (self.build)(config)
-    }
-}
-
-/// The registry entry for plugin `P`.
-#[must_use]
-pub const fn register<P: Plugin>() -> Registration {
-    Registration {
-        descriptor: P::DESCRIPTOR,
-        build: build_plugin::<P>,
-    }
-}
-
-fn build_plugin<P: Plugin>(
-    config: Option<&serde_json::Value>,
-) -> Result<Arc<dyn DynPlugin>, String> {
-    let plugin = match config {
-        None => P::default(),
-        Some(value) => P::deserialize(value).map_err(|err| err.to_string())?,
-    };
-    Ok(Arc::new(plugin))
 }

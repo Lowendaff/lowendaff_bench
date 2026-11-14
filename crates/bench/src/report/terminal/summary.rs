@@ -1,7 +1,7 @@
 //! The 汇总 section, and the words for how each plugin ended.
 
 use bench_api::Net;
-use bench_api::typed::Stop;
+use bench_api::Stop;
 
 use super::LABEL_WIDTH;
 use super::Out;
@@ -45,7 +45,6 @@ pub(super) fn section(out: &mut Out, page: &Page) {
 /// The plugin's own reason, when it stopped short.
 fn reason(run: &Run<Measured>) -> Option<String> {
     match &run.result {
-        Some(Measured::Legacy(report)) => report.stop.as_ref().map(|stop| failure(stop).clone()),
         Some(Measured::CpuSysbench(report)) => report
             .stop
             .as_ref()

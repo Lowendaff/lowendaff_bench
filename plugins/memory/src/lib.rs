@@ -14,8 +14,8 @@ pub mod sysbench;
 use std::future::Future;
 use std::time::Duration;
 
-use bench_api::typed::Context;
-use bench_api::typed::Measurement;
+use bench_api::Context;
+use bench_api::Measurement;
 use bench_tool::job;
 use bench_tool::job::Job;
 use bench_tool::job::RunError;

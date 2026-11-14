@@ -14,10 +14,10 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use bench_api::CancellationToken;
-use bench_api::typed::Channels;
-use bench_api::typed::Context;
-use bench_api::typed::Measurement;
-use bench_api::typed::Progress;
+use bench_api::Channels;
+use bench_api::Context;
+use bench_api::Measurement;
+use bench_api::Progress;
 use bench_host::cache::Cache;
 use bench_host::cache::CacheKind;
 use bench_host::numa::Layout;

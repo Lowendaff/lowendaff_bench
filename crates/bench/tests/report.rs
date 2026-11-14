@@ -1,6 +1,6 @@
 //! The terminal report, from constructed runs: sections by group in the report's order, each
 //! status, numbers aligned right, wrapping to a terminal's width, and the summary. Whole reports
-//! are compared with snapshots in `tests/snapshots/`.
+//! are compared with snapshots in `tests/snapshots/`; each group's words have tests of their own.
 
 use std::time::Duration;
 
@@ -13,12 +13,8 @@ use bench::report;
 use bench::report::terminal::Page;
 use bench::results::Measured;
 use bench::results::Report;
-use bench_api::Measurement;
-use bench_api::Missing;
 use bench_api::Net;
-use bench_api::Record;
-use bench_api::Table;
-use bench_api::typed::Stop;
+use bench_api::Stop;
 use bench_host::cpu::Cpu;
 use bench_host::cpu::Model;
 use bench_host::cpu::Virtualization;
@@ -41,6 +37,18 @@ use bench_host::storage::Disk;
 use bench_host::storage::Filesystem;
 use bench_host::storage::Space;
 use bench_host::storage::Use;
+use plugin_cpu::sysbench;
+use plugin_cpu::sysbench::result::Rate;
+use plugin_disk::fio;
+use plugin_disk::fio::result::Outcome;
+use plugin_disk::fio::result::Rates;
+use plugin_disk::fio::result::Test;
+use plugin_disk::health;
+use plugin_disk::health::location::Location;
+use plugin_disk::health::result::Disk as HealthDisk;
+use plugin_disk::health::result::Health;
+use plugin_disk::health::result::Values;
+use plugin_memory::stream;
 
 /// A small virtual machine, as the report starts with it: its IPv4 address is a documentation
 /// address, and it has no IPv6.
@@ -137,38 +145,60 @@ fn host() -> HostProfile {
     }
 }
 
-/// A run of a plugin of the first contract.
+/// A run that the reporter names as the program does.
 fn run(
     id: &'static str,
-    title: &'static str,
     status: Status,
     seconds: Option<f64>,
-    records: Option<Vec<Record>>,
-    stop: Option<Stop<String>>,
+    result: Option<Measured>,
 ) -> Run<Measured> {
     Run {
         id,
         group: orchestrator::group_of(id),
-        title: Some(title),
+        title: report::terminal::name(id),
         started: seconds.map(|_| Duration::ZERO),
         elapsed: seconds.map(Duration::from_secs_f64),
         status,
-        result: records.map(|records| {
-            Measured::Legacy(Report {
-                output: Some(records),
-                stop,
-            })
-        }),
+        result,
     }
 }
 
-fn table(id: &str, title: &str, headers: &[&str], rows: &[&[&str]]) -> Record {
-    let headers = headers.iter().map(|cell| (*cell).to_owned()).collect();
-    let rows = rows
-        .iter()
-        .map(|row| row.iter().map(|cell| (*cell).to_owned()).collect())
-        .collect();
-    Record::Table(Table::try_new(id, title, headers, rows).expect("rows as wide as the headers"))
+/// smartctl's reading of one disk that passed, with its temperature only.
+fn healthy(name: &str) -> HealthDisk {
+    HealthDisk {
+        location: Location::Named(name.to_owned()),
+        health: Health::Passed,
+        values: Values {
+            temperature: Some(25),
+            ..Values::default()
+        },
+    }
+}
+
+fn health(disks: Vec<HealthDisk>) -> Measured {
+    Measured::DiskHealth(Report {
+        output: Some(health::Output {
+            version: Some("7.5".to_owned()),
+            disks,
+            nodes_left: Vec::new(),
+        }),
+        stop: None,
+    })
+}
+
+fn rate(value: f64) -> Rate {
+    Rate {
+        text: format!("{value:.2}"),
+        value,
+    }
+}
+
+fn sysbench_run(threads: usize, value: f64) -> sysbench::result::Run {
+    sysbench::result::Run {
+        threads,
+        rate: rate(value),
+        retries: Vec::new(),
+    }
 }
 
 /// Every status, in the run order, which differs from the report's; the two plugins of a group
@@ -177,78 +207,58 @@ fn runs() -> Vec<Run<Measured>> {
     vec![
         run(
             "disk.health",
-            "硬盘健康",
             Status::TimedOut,
             Some(60.0),
-            Some(vec![table(
-                "disks",
-                "硬盘",
-                &["设备", "健康", "温度"],
-                &[&["sda", "通过", "25 °C"]],
-            )]),
-            None,
+            Some(health(vec![healthy("sda")])),
         ),
         run(
             "cpu.sysbench",
-            "CPU 性能",
             Status::Completed,
             Some(41.2),
-            Some(vec![
-                Record::fact("sysbench", "sysbench", "1.0.20：素数上限 10000，每项 20 秒"),
-                table(
-                    "results",
-                    "结果",
-                    &["项目", "线程数", "每秒事件数"],
-                    &[&["单线程", "1", "859.00"], &["多线程", "64", "44631.33"]],
-                ),
-            ]),
-            None,
+            Some(Measured::CpuSysbench(Report {
+                output: Some(sysbench::Output {
+                    version: Some("1.0.20".to_owned()),
+                    single: sysbench_run(1, 859.0),
+                    multi: Some(sysbench_run(64, 44631.33)),
+                }),
+                stop: None,
+            })),
         ),
         run(
-            "memory",
-            "内存性能",
+            "memory.stream",
             Status::Failed(None),
             Some(36.3),
-            Some(vec![Record::metric(
-                "latency",
-                "内存延迟",
-                Measurement::new_missing(Missing::Error),
-            )]),
-            Some(Stop::Failed("STREAM 出错".to_owned())),
+            Some(Measured::MemoryStream(Report {
+                output: None,
+                stop: Some(Stop::Failed(stream::Failure::Run {
+                    threads: 1,
+                    faults: vec![stream::Fault::NoResult; 4],
+                })),
+            })),
         ),
         run(
             "disk.fio",
-            "硬盘性能",
             Status::Skipped(Some(Unmet::Tool {
                 name: "fio",
                 why: "下载失败：HTTP 404".to_owned(),
             })),
             None,
             None,
-            None,
         ),
-        run(
-            "cpu.geekbench",
-            "Geekbench 7",
-            Status::Cancelled,
-            None,
-            None,
-            None,
-        ),
+        run("cpu.geekbench", Status::Cancelled, None, None),
         run(
             "test.own-skip",
-            "自行跳过的测试",
             Status::Skipped(None),
             Some(0.1),
-            Some(Vec::new()),
-            Some(Stop::Skipped("测试目录在内存盘上".to_owned())),
+            Some(Measured::DiskFio(Report {
+                output: None,
+                stop: Some(Stop::Skipped(fio::Failure::InMemory)),
+            })),
         ),
         run(
             "test.panic",
-            "崩溃的测试",
             Status::Failed(Some(Fault::Panic("index out of bounds".to_owned()))),
             Some(0.2),
-            None,
             None,
         ),
     ]
@@ -261,7 +271,7 @@ fn every_status_in_its_group() {
         version: "0.1.0",
         host: &host(),
         show_ip: false,
-        not_applicable: &["示例独服测试"],
+        not_applicable: &["内存 NUMA"],
         runs: &runs,
         total: Duration::from_secs_f64(137.8),
     };
@@ -270,20 +280,34 @@ fn every_status_in_its_group() {
 
 #[test]
 fn a_run_with_one_plugin_per_section() {
+    let rates = Rates {
+        read_kib: 95_045,
+        read_iops: 23_761,
+        write_kib: 95_294,
+        write_iops: 23_823,
+    };
+    let fio = fio::Output {
+        version: Some("3.43".to_owned()),
+        size: 2 << 30,
+        zfs_needed: None,
+        tests: vec![Test {
+            block_size: "4k",
+            outcome: Outcome::Done(rates),
+        }],
+    };
     let runs = vec![
         run(
             "disk.fio",
-            "硬盘性能",
             Status::Completed,
             Some(0.2),
-            Some(vec![Record::fact("dir", "测试目录", "/root（ext4）")]),
-            None,
+            Some(Measured::DiskFio(Report {
+                output: Some(fio),
+                stop: None,
+            })),
         ),
         run(
             "cpu.geekbench",
-            "Geekbench 7",
             Status::Skipped(Some(Unmet::Network(Net::Ipv4))),
-            None,
             None,
             None,
         ),
@@ -301,19 +325,12 @@ fn a_run_with_one_plugin_per_section() {
 
 #[test]
 fn tables_wrap_to_a_terminals_width_only() {
-    let long = "很长的说明文字，在窄终端上需要换行才能看全，写到文件里则保持一行";
+    let long = "很长的设备名称，在窄终端上需要换行才能看全，写到文件里则保持一行";
     let runs = vec![run(
-        "disk.fio",
-        "硬盘性能",
+        "disk.health",
         Status::Completed,
         Some(1.0),
-        Some(vec![table(
-            "notes",
-            "说明",
-            &["项目", "内容"],
-            &[&["4K", long]],
-        )]),
-        None,
+        Some(health(vec![healthy(long)])),
     )];
     let page = Page {
         version: "0.1.0",
@@ -325,41 +342,15 @@ fn tables_wrap_to_a_terminals_width_only() {
     };
     let unwrapped = report::terminal::render(&page, None);
     assert!(
-        unwrapped.lines().any(|line| line.ends_with(long)),
+        unwrapped.lines().any(|line| line.contains(long)),
         "without a terminal a row stays on one line: {unwrapped}"
     );
-    let narrow = report::terminal::render(&page, Some(40));
+    let narrow = report::terminal::render(&page, Some(80));
     assert!(
         !narrow.lines().any(|line| line.contains(long)),
-        "on a 40-column terminal the cell wraps: {narrow}"
+        "on an 80-column terminal the cell wraps: {narrow}"
     );
     insta::assert_snapshot!(narrow);
-}
-
-#[test]
-fn a_table_without_rows_has_no_column_of_numbers() {
-    // Its headers stay on the left, which shows once they wrap.
-    let runs = vec![run(
-        "disk.fio",
-        "硬盘性能",
-        Status::Completed,
-        Some(1.0),
-        Some(vec![table("empty", "空表", &["项目说明 甲乙", "x"], &[])]),
-        None,
-    )];
-    let page = Page {
-        version: "0.1.0",
-        // Without the host's tables, which a 14-column terminal would break up too.
-        host: &HostProfile {
-            storage: Read::Done(StorageFacts::default()),
-            ..host()
-        },
-        show_ip: false,
-        not_applicable: &[],
-        runs: &runs,
-        total: Duration::from_secs(1),
-    };
-    insta::assert_snapshot!(report::terminal::render(&page, Some(14)));
 }
 
 #[test]

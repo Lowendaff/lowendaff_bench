@@ -3,9 +3,9 @@
 
 use std::time::Duration;
 
+use bench_api::Descriptor;
 use bench_api::Net;
-use bench_api::typed::Descriptor;
-use bench_api::typed::Plugin;
+use bench_api::Plugin;
 use plugin_memory::latency::Latency;
 use plugin_memory::numa::Numa;
 use plugin_memory::stream::Stream;

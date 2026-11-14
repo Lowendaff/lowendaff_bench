@@ -5,7 +5,6 @@
 mod cpu;
 mod disk;
 mod host;
-mod legacy;
 mod memory;
 mod summary;
 mod tool;
@@ -43,8 +42,7 @@ const SECTIONS: [(&str, &str); 3] = [
     ("disk", "硬盘"),
 ];
 
-/// The names of the plugins of the typed contract, by id; the plugins of the first contract
-/// bring their titles.
+/// The names of the plugins, by id.
 const NAMES: [(&str, &str); 8] = [
     ("cpu.sysbench", "CPU 性能"),
     ("cpu.geekbench", "Geekbench 7"),
@@ -56,7 +54,7 @@ const NAMES: [(&str, &str); 8] = [
     ("disk.fio", "硬盘性能"),
 ];
 
-/// The reporter's name for a plugin of the typed contract, by its id.
+/// The reporter's name for a plugin, by its id.
 #[must_use]
 pub fn name(id: &str) -> Option<&'static str> {
     NAMES
@@ -132,7 +130,6 @@ pub fn sections<'a>(groups: &[&'a str]) -> Vec<(&'a str, &'a str)> {
 /// One plugin's block: what it left, then how it ended.
 fn plugin(out: &mut Out, run: &Run<Measured>, indent: &str) {
     match &run.result {
-        Some(Measured::Legacy(report)) => legacy::block(out, report, indent),
         Some(Measured::CpuSysbench(report)) => cpu::sysbench(out, report, indent),
         Some(Measured::CpuGeekbench(report)) => cpu::geekbench(out, report, indent),
         Some(Measured::MemorySysbench(report)) => memory::sysbench(out, report, indent),
@@ -204,4 +201,20 @@ fn pad(text: &str, width: usize) -> String {
 
     let fill = width.saturating_sub(text.width());
     format!("{text}{}", " ".repeat(fill))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Out;
+
+    #[test]
+    fn a_table_without_rows_has_no_column_of_numbers() {
+        // Its headers stay on the left, which shows once they wrap.
+        let mut out = Out {
+            text: String::new(),
+            width: Some(14),
+        };
+        out.table("  ", &["项目说明 甲乙".to_owned(), "x".to_owned()], &[]);
+        assert_eq!(out.text, "  项目说明   x\n  甲乙\n");
+    }
 }

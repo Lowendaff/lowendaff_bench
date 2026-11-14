@@ -15,7 +15,7 @@ use std::path::PathBuf;
 
 use bench::orchestrator::Unmet;
 use bench_api::Net;
-use bench_api::typed::Stop;
+use bench_api::Stop;
 use bench_host::glibc::GlibcVersion;
 use bench_host::profile::HostProfile;
 use bench_tool::job;

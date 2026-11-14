@@ -9,11 +9,11 @@ pub mod result;
 
 use std::time::Duration;
 
+use bench_api::Context;
+use bench_api::Descriptor;
+use bench_api::Plugin;
 use bench_api::Requirements;
-use bench_api::typed::Context;
-use bench_api::typed::Descriptor;
-use bench_api::typed::Plugin;
-use bench_api::typed::Stop;
+use bench_api::Stop;
 use bench_host::Root;
 use bench_host::platform::PlatformKind;
 use bench_tool::SMARTCTL;

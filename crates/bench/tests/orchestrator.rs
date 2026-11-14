@@ -1,4 +1,7 @@
-//! Every outcome the orchestrator must produce, ported from the spike.
+//! Every outcome the orchestrator must produce: what a plugin returns, what it last published
+//! when it stops short (also during the grace period after a timeout), its progress lines, the
+//! requirements checked before it runs, its work directory, and the plan built from the registry
+//! and the config.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -12,6 +15,7 @@ use bench::orchestrator;
 use bench::orchestrator::Fault;
 use bench::orchestrator::Observer;
 use bench::orchestrator::Planned;
+use bench::orchestrator::Quiet;
 use bench::orchestrator::Run;
 use bench::orchestrator::Settings;
 use bench::orchestrator::Status;
@@ -19,29 +23,57 @@ use bench::orchestrator::Unmet;
 use bench::registry;
 use bench::registry::Entry;
 use bench::results::Measured;
+use bench::results::Report;
 use bench_api::CancellationToken;
 use bench_api::Context;
 use bench_api::Descriptor;
-use bench_api::Env;
 use bench_api::Measurement;
 use bench_api::Net;
 use bench_api::Plugin;
-use bench_api::PluginError;
-use bench_api::Record;
 use bench_api::Requirements;
+use bench_api::Stop;
 use bench_api::ToolAsset;
+use bench_api::ToolEnd;
 use bench_api::ToolForm;
+use bench_api::ToolRun;
 use bench_api::ToolSpec;
-use bench_api::typed::Stop;
+use bench_api::ToolVersion;
 use bench_host::glibc::GlibcVersion;
 use bench_host::glibc::Libc;
+use bench_host::network::Address;
+use bench_host::network::Family;
+use bench_host::network::Network;
+use bench_host::network::Reach;
+use bench_host::profile::HostProfile;
+use plugin_cpu::geekbench;
+use plugin_cpu::geekbench::result::Scores;
 use serde::Deserialize;
+use serde::Serialize;
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+struct Count(u32);
+
+impl Measurement for Count {
+    fn tools(&self) -> Vec<ToolVersion> {
+        Vec::new()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+enum Why {
+    NoDisk,
+    Broken,
+}
+
+/// The tests' own result enum, as `Measured` is the program's.
+#[derive(Debug, Clone, PartialEq)]
+enum Left {
+    Counter(Report<Count, Why>),
+}
 
 const fn descriptor(id: &'static str, timeout_ms: u64) -> Descriptor {
     Descriptor {
         id,
-        title: "测试项",
-        version: "0.1.0",
         requires: Requirements::NONE,
         timeout: Duration::from_millis(timeout_ms),
     }
@@ -50,68 +82,239 @@ const fn descriptor(id: &'static str, timeout_ms: u64) -> Descriptor {
 // ---------------------------------------------------------------- test plugins
 
 #[derive(Default, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-struct Good {
-    samples: u32,
+struct Counts;
+
+impl Plugin for Counts {
+    type Output = Count;
+    type Failure = Why;
+    const DESCRIPTOR: Descriptor = descriptor("test.counts", 10_000);
+
+    async fn run(&self, ctx: &Context<Count>) -> Result<Count, Stop<Why>> {
+        for count in 1..=2 {
+            ctx.progress(format!("第 {count} 次"));
+            ctx.ran(ToolRun {
+                command: vec!["count".to_owned(), count.to_string()],
+                end: ToolEnd::Exit(0),
+                tail: Vec::new(),
+            });
+            ctx.publish(&Count(count));
+        }
+        Ok(Count(3))
+    }
 }
 
-impl Plugin for Good {
-    const DESCRIPTOR: Descriptor = descriptor("test.good", 10_000);
+#[derive(Default, Deserialize)]
+struct GivesUp;
 
-    async fn run(&self, ctx: &Context) -> Result<(), PluginError> {
-        ctx.emit(Record::fact("arch", "架构", ctx.env().arch.clone()));
-        ctx.emit(Record::metric(
-            "rate",
-            "速率",
-            Measurement::try_new(f64::from(self.samples) * 1.5, "MB/s")?,
-        ));
-        Ok(())
+impl Plugin for GivesUp {
+    type Output = Count;
+    type Failure = Why;
+    const DESCRIPTOR: Descriptor = descriptor("test.gives-up", 10_000);
+
+    async fn run(&self, ctx: &Context<Count>) -> Result<Count, Stop<Why>> {
+        ctx.publish(&Count(1));
+        Err(Stop::Failed(Why::Broken))
+    }
+}
+
+#[derive(Default, Deserialize)]
+struct Skips;
+
+impl Plugin for Skips {
+    type Output = Count;
+    type Failure = Why;
+    const DESCRIPTOR: Descriptor = descriptor("test.skips", 10_000);
+
+    async fn run(&self, _ctx: &Context<Count>) -> Result<Count, Stop<Why>> {
+        Err(Stop::Skipped(Why::NoDisk))
+    }
+}
+
+/// Publishes once, waits for its cancel token, then publishes again inside the grace period and
+/// stops, as the contract asks.
+#[derive(Default, Deserialize)]
+struct Slow;
+
+impl Plugin for Slow {
+    type Output = Count;
+    type Failure = Why;
+    const DESCRIPTOR: Descriptor = descriptor("test.slow", 5_000);
+
+    async fn run(&self, ctx: &Context<Count>) -> Result<Count, Stop<Why>> {
+        ctx.publish(&Count(1));
+        ctx.cancel_token().cancelled().await;
+        ctx.publish(&Count(2));
+        ctx.progress("收到停止信号");
+        Err(Stop::Failed(Why::Broken))
+    }
+}
+
+#[derive(Default, Deserialize)]
+struct Panics;
+
+impl Plugin for Panics {
+    type Output = Count;
+    type Failure = Why;
+    const DESCRIPTOR: Descriptor = descriptor("test.panics", 10_000);
+
+    async fn run(&self, ctx: &Context<Count>) -> Result<Count, Stop<Why>> {
+        ctx.publish(&Count(1));
+        panic!("boom");
+    }
+}
+
+/// Publishes, then never ends by itself, as a plugin stuck in a call would: only the abort ends
+/// it.
+#[derive(Default, Deserialize)]
+struct Stubborn;
+
+impl Plugin for Stubborn {
+    type Output = Count;
+    type Failure = Why;
+    const DESCRIPTOR: Descriptor = descriptor("test.stubborn", 10_000);
+
+    async fn run(&self, ctx: &Context<Count>) -> Result<Count, Stop<Why>> {
+        ctx.publish(&Count(1));
+        std::future::pending().await
+    }
+}
+
+static HANGING_RELEASED: AtomicBool = AtomicBool::new(false);
+
+/// Sets its flag when dropped, standing in for a resource such as a child process spawned with
+/// `kill_on_drop`.
+struct ReleaseFlag(&'static AtomicBool);
+
+impl Drop for ReleaseFlag {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::SeqCst);
+    }
+}
+
+/// Holds a resource, publishes, then never ends and ignores its cancel token, until its deadline
+/// passes and the abort drops it.
+#[derive(Default, Deserialize)]
+struct Hanging;
+
+impl Plugin for Hanging {
+    type Output = Count;
+    type Failure = Why;
+    const DESCRIPTOR: Descriptor = descriptor("test.hanging", 5_000);
+
+    async fn run(&self, ctx: &Context<Count>) -> Result<Count, Stop<Why>> {
+        let _child_process = ReleaseFlag(&HANGING_RELEASED);
+        ctx.publish(&Count(1));
+        std::future::pending().await
+    }
+}
+
+/// Loops on a blocking thread until its cancel token fires, then publishes how far it got.
+#[derive(Default, Deserialize)]
+struct CpuBound;
+
+impl Plugin for CpuBound {
+    type Output = Count;
+    type Failure = Why;
+    const DESCRIPTOR: Descriptor = descriptor("test.cpu-bound", 200);
+
+    async fn run(&self, ctx: &Context<Count>) -> Result<Count, Stop<Why>> {
+        let stop = ctx.cancel_token();
+        let spun = tokio::task::spawn_blocking(move || {
+            let started = std::time::Instant::now();
+            let mut n: u64 = 0;
+            // The time cap only keeps a broken orchestrator from hanging the test binary.
+            while !stop.is_cancelled() && started.elapsed() < Duration::from_secs(5) {
+                n = std::hint::black_box(n.wrapping_add(1));
+            }
+            n > 0
+        })
+        .await
+        .expect("the loop does not panic");
+        ctx.publish(&Count(u32::from(spun)));
+        Ok(Count(2))
+    }
+}
+
+/// Breaks the contract: blocks an executor thread, so it cannot be aborted.
+#[derive(Default, Deserialize)]
+struct BlocksThread;
+
+impl Plugin for BlocksThread {
+    type Output = Count;
+    type Failure = Why;
+    const DESCRIPTOR: Descriptor = descriptor("test.blocks-thread", 100);
+
+    async fn run(&self, ctx: &Context<Count>) -> Result<Count, Stop<Why>> {
+        ctx.publish(&Count(1));
+        std::thread::sleep(Duration::from_millis(1500));
+        Ok(Count(2))
+    }
+}
+
+/// Interrupts the whole run, as Ctrl-C would, and gives up or completes in the same breath.
+#[derive(Default, Deserialize)]
+struct Interrupts {
+    #[serde(skip)]
+    interrupt: CancellationToken,
+    #[serde(skip)]
+    gives_up: bool,
+}
+
+impl Plugin for Interrupts {
+    type Output = Count;
+    type Failure = Why;
+    const DESCRIPTOR: Descriptor = descriptor("test.interrupts", 10_000);
+
+    async fn run(&self, ctx: &Context<Count>) -> Result<Count, Stop<Why>> {
+        ctx.publish(&Count(1));
+        self.interrupt.cancel();
+        if self.gives_up {
+            Err(Stop::Failed(Why::Broken))
+        } else {
+            Ok(Count(2))
+        }
+    }
+}
+
+/// Says one line, and ends only once the line has been shown.
+#[derive(Default, Deserialize)]
+struct WaitsToBeSeen {
+    #[serde(skip)]
+    shown: CancellationToken,
+}
+
+impl Plugin for WaitsToBeSeen {
+    type Output = Count;
+    type Failure = Why;
+    const DESCRIPTOR: Descriptor = descriptor("test.waits", 10_000);
+
+    async fn run(&self, ctx: &Context<Count>) -> Result<Count, Stop<Why>> {
+        ctx.progress("等待显示");
+        self.shown.cancelled().await;
+        Ok(Count(1))
     }
 }
 
 static WORK_DIRS: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
 
+/// Writes into its work directory, and notes where it was.
 #[derive(Default, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-struct UsesWorkDir {}
+struct UsesWorkDir;
 
 impl Plugin for UsesWorkDir {
+    type Output = Count;
+    type Failure = Why;
     const DESCRIPTOR: Descriptor = descriptor("test.work-dir", 10_000);
 
-    async fn run(&self, ctx: &Context) -> Result<(), PluginError> {
-        tokio::fs::write(ctx.work_dir().join("scratch"), b"data").await?;
+    async fn run(&self, ctx: &Context<Count>) -> Result<Count, Stop<Why>> {
+        tokio::fs::write(ctx.work_dir().join("scratch"), b"data")
+            .await
+            .map_err(|_| Stop::Failed(Why::Broken))?;
         WORK_DIRS
             .lock()
             .expect("no test panics while holding WORK_DIRS")
             .push(ctx.work_dir().to_path_buf());
-        Ok(())
-    }
-}
-
-#[derive(Default, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-struct Failing {}
-
-impl Plugin for Failing {
-    const DESCRIPTOR: Descriptor = descriptor("test.failing", 10_000);
-
-    async fn run(&self, ctx: &Context) -> Result<(), PluginError> {
-        ctx.emit(Record::fact("before", "失败前的结果", "保留"));
-        std::fs::read_to_string("/definitely/not/here")?;
-        Ok(())
-    }
-}
-
-#[derive(Default, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-struct Panicking {}
-
-impl Plugin for Panicking {
-    const DESCRIPTOR: Descriptor = descriptor("test.panicking", 10_000);
-
-    async fn run(&self, ctx: &Context) -> Result<(), PluginError> {
-        ctx.emit(Record::fact("before", "崩溃前的结果", "保留"));
-        panic!("boom");
+        Ok(Count(1))
     }
 }
 
@@ -131,10 +334,11 @@ static DEMANDING_RAN: AtomicBool = AtomicBool::new(false);
 
 /// Needs glibc 2.35, IPv6 and fio, so that a test can see the order of the checks.
 #[derive(Default, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-struct Demanding {}
+struct Demanding;
 
 impl Plugin for Demanding {
+    type Output = Count;
+    type Failure = Why;
     const DESCRIPTOR: Descriptor = Descriptor {
         requires: Requirements {
             tools: &[FIO],
@@ -149,266 +353,405 @@ impl Plugin for Demanding {
         ..descriptor("test.needs", 10_000)
     };
 
-    async fn run(&self, _ctx: &Context) -> Result<(), PluginError> {
+    async fn run(&self, _ctx: &Context<Count>) -> Result<Count, Stop<Why>> {
         DEMANDING_RAN.store(true, Ordering::SeqCst);
-        Ok(())
+        Ok(Count(1))
     }
 }
 
-/// Emits one result, then never finishes and ignores cancellation. The guard stands in
-/// for resources such as a child process spawned with `kill_on_drop`.
+/// Stands in for a plugin of the program, for the tests of the plan that the registry and the
+/// config give: its result has the type of Geekbench 7's, the simplest to build, with the scores
+/// that its config names.
 #[derive(Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-struct Hanging {}
+struct Good {
+    samples: u32,
+}
 
-static HANGING_RELEASED: AtomicBool = AtomicBool::new(false);
+impl Plugin for Good {
+    type Output = geekbench::Output;
+    type Failure = geekbench::Failure;
+    const DESCRIPTOR: Descriptor = descriptor("test.good", 10_000);
 
-struct ReleaseFlag(&'static AtomicBool);
-
-impl Drop for ReleaseFlag {
-    fn drop(&mut self) {
-        self.0.store(true, Ordering::SeqCst);
+    async fn run(
+        &self,
+        _ctx: &Context<geekbench::Output>,
+    ) -> Result<geekbench::Output, Stop<geekbench::Failure>> {
+        Ok(scores(self.samples))
     }
 }
 
-impl Plugin for Hanging {
-    const DESCRIPTOR: Descriptor = descriptor("test.hanging", 5_000);
-
-    async fn run(&self, ctx: &Context) -> Result<(), PluginError> {
-        let _child_process = ReleaseFlag(&HANGING_RELEASED);
-        ctx.emit(Record::metric(
-            "node-1",
-            "节点 1",
-            Measurement::try_new(940.0, "Mbit/s")?,
-        ));
-        std::future::pending::<()>().await;
-        Ok(())
+/// A result of Geekbench 7's type with these scores.
+fn scores(score: u32) -> geekbench::Output {
+    geekbench::Output {
+        scores: Some(Scores {
+            version: None,
+            single: score,
+            multi: score,
+            url: None,
+        }),
+        ..geekbench::Output::default()
     }
 }
 
-/// Works until cancelled, then reports how far it got (inside the grace period).
-#[derive(Default, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-struct Cooperative {}
-
-impl Plugin for Cooperative {
-    const DESCRIPTOR: Descriptor = descriptor("test.cooperative", 5_000);
-
-    async fn run(&self, ctx: &Context) -> Result<(), PluginError> {
-        let stop = ctx.cancel_token();
-        let mut done = 0_u32;
-        while !stop.is_cancelled() {
-            tokio::time::sleep(Duration::from_millis(500)).await;
-            done += 1;
-        }
-        ctx.emit(Record::metric(
-            "nodes",
-            "已完成节点",
-            Measurement::try_new(f64::from(done), "个")?,
-        ));
-        Ok(())
-    }
-}
-
-/// CPU-bound loop on a blocking thread that honours the cancel token.
-#[derive(Default, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-struct CpuBound {}
-
-impl Plugin for CpuBound {
-    const DESCRIPTOR: Descriptor = descriptor("test.cpu-bound", 200);
-
-    async fn run(&self, ctx: &Context) -> Result<(), PluginError> {
-        let stop = ctx.cancel_token();
-        let spins = tokio::task::spawn_blocking(move || {
-            let started = std::time::Instant::now();
-            let mut n: u64 = 0;
-            // The time cap only keeps a broken orchestrator from hanging the test binary.
-            while !stop.is_cancelled() && started.elapsed() < Duration::from_secs(5) {
-                n = std::hint::black_box(n.wrapping_add(1));
-            }
-            n
-        })
-        .await?;
-        ctx.emit(Record::fact("spins", "循环次数", spins.to_string()));
-        Ok(())
-    }
-}
-
-/// Violates the contract: blocks an executor thread, so it cannot be aborted.
-#[derive(Default, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-struct BlocksThread {}
-
-impl Plugin for BlocksThread {
-    const DESCRIPTOR: Descriptor = descriptor("test.blocks-thread", 100);
-
-    async fn run(&self, ctx: &Context) -> Result<(), PluginError> {
-        ctx.emit(Record::fact("started", "已开始", "是"));
-        std::thread::sleep(Duration::from_millis(1500));
-        Ok(())
-    }
-}
-
-#[derive(Default, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-struct Sleeper {}
-
-impl Plugin for Sleeper {
-    const DESCRIPTOR: Descriptor = descriptor("test.sleeper", 60_000);
-
-    async fn run(&self, ctx: &Context) -> Result<(), PluginError> {
-        ctx.emit(Record::fact("before", "中断前的结果", "保留"));
-        tokio::time::sleep(Duration::from_secs(30)).await;
-        Ok(())
-    }
-}
-
-/// Interrupts the whole run, as Ctrl-C would, and fails or completes in the same breath. Not
-/// registered: the test hands it the run's token.
-#[derive(Default, Deserialize)]
-struct Interrupts {
-    #[serde(skip)]
-    interrupt: CancellationToken,
-    #[serde(skip)]
-    fails: bool,
-}
-
-impl Plugin for Interrupts {
-    const DESCRIPTOR: Descriptor = descriptor("test.interrupts", 10_000);
-
-    async fn run(&self, ctx: &Context) -> Result<(), PluginError> {
-        ctx.emit(Record::fact("before", "之前", "1"));
-        self.interrupt.cancel();
-        if self.fails {
-            Err(PluginError::Fail("被中断".into()))
-        } else {
-            Ok(())
-        }
-    }
+fn plugins() -> Vec<Entry> {
+    vec![registry::entry::<Good>(Measured::CpuGeekbench)]
 }
 
 // ---------------------------------------------------------------- harness
 
-fn plugins() -> Vec<Entry> {
-    vec![
-        registry::legacy::<Good>(),
-        registry::legacy::<UsesWorkDir>(),
-        registry::legacy::<Failing>(),
-        registry::legacy::<Panicking>(),
-        registry::legacy::<Demanding>(),
-        registry::legacy::<Hanging>(),
-        registry::legacy::<Cooperative>(),
-        registry::legacy::<CpuBound>(),
-        registry::legacy::<BlocksThread>(),
-        registry::legacy::<Sleeper>(),
-    ]
-}
-
 #[derive(Default)]
 struct Recorder(Vec<String>);
 
-impl Observer<Measured> for Recorder {
+impl Observer<Left> for Recorder {
     fn on_start(&mut self, id: &'static str) {
         self.0.push(format!("start {id}"));
     }
 
-    fn on_finish(&mut self, run: &Run<Measured>) {
+    fn on_progress(&mut self, id: &'static str, line: &str) {
+        self.0.push(format!("{id} {line}"));
+    }
+
+    fn on_tool(&mut self, id: &'static str, run: &ToolRun) {
+        self.0.push(format!("{id} ran {}", run.command.join(" ")));
+    }
+
+    fn on_finish(&mut self, run: &Run<Left>) {
         self.0.push(format!("finish {} {:?}", run.id, run.status));
     }
 }
 
-fn env() -> Env {
-    Env {
-        arch: "x86_64".into(),
-        ..Env::default()
+/// Shows a progress line by cancelling its token.
+struct Shows(CancellationToken);
+
+impl Observer<Left> for Shows {
+    fn on_progress(&mut self, _id: &'static str, _line: &str) {
+        self.0.cancel();
     }
 }
 
-async fn run(
-    selection: &[&str],
-    config: BTreeMap<String, serde_json::Value>,
-    env: Env,
-    cancel: &CancellationToken,
+/// Runs the plan on `host` with the provisioned `tools`, with a grace period of `grace_ms` after
+/// a deadline or an interrupt.
+async fn run_on<R: Send + 'static>(
+    plan: Vec<Planned<R>>,
+    host: HostProfile,
+    tools: BTreeMap<String, PathBuf>,
     grace_ms: u64,
-) -> (Vec<Run<Measured>>, Recorder) {
+    cancel: &CancellationToken,
+    observer: &mut dyn Observer<R>,
+) -> Vec<Run<R>> {
     let work_root = tempfile::tempdir().expect("create a temporary work root");
-    let planned = orchestrator::plan(&plugins(), selection, &config).expect("valid plan");
-    let mut recorder = Recorder::default();
     let settings = Settings {
         grace: Duration::from_millis(grace_ms),
         work_root: work_root.path().to_path_buf(),
         origin: tokio::time::Instant::now(),
+        tools: Arc::new(tools),
         failed_tools: BTreeMap::new(),
-        host: Arc::default(),
+        host: Arc::new(host),
     };
-    let runs =
-        orchestrator::run_plan(planned, Arc::new(env), cancel, &settings, &mut recorder).await;
+    orchestrator::run_plan(plan, cancel, &settings, observer).await
+}
+
+/// [`run_on`] a host of which nothing is known, without tools.
+async fn run_with<R: Send + 'static>(
+    plan: Vec<Planned<R>>,
+    grace_ms: u64,
+    cancel: &CancellationToken,
+    observer: &mut dyn Observer<R>,
+) -> Vec<Run<R>> {
+    let host = HostProfile::default();
+    run_on(plan, host, BTreeMap::new(), grace_ms, cancel, observer).await
+}
+
+async fn run(plan: Vec<Planned<Left>>, cancel: &CancellationToken) -> (Vec<Run<Left>>, Recorder) {
+    let mut recorder = Recorder::default();
+    let runs = run_with(plan, 1_000, cancel, &mut recorder).await;
     (runs, recorder)
 }
 
-/// The records a plugin of the first contract left.
-fn records(run: &Run<Measured>) -> &[Record] {
-    match &run.result {
-        Some(Measured::Legacy(report)) => report.output.as_deref().unwrap_or_default(),
-        Some(other) => panic!("only plugins of the first contract run here: {other:?}"),
-        None => &[],
-    }
+fn left(output: Option<u32>, stop: Option<Stop<Why>>) -> Option<Left> {
+    Some(Left::Counter(Report {
+        output: output.map(Count),
+        stop,
+    }))
 }
 
-fn ids(run: &Run<Measured>) -> Vec<&str> {
-    records(run).iter().map(Record::id).collect()
-}
-
-/// The plugin's own reason, when it stopped short.
-fn stop(run: &Run<Measured>) -> Option<&Stop<String>> {
-    match &run.result {
-        Some(Measured::Legacy(report)) => report.stop.as_ref(),
-        Some(other) => panic!("only plugins of the first contract run here: {other:?}"),
-        None => None,
-    }
+/// Interrupts the run after a second.
+fn interrupted_after_a_second() -> CancellationToken {
+    let cancel = CancellationToken::new();
+    let trigger = cancel.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        trigger.cancel();
+    });
+    cancel
 }
 
 // ---------------------------------------------------------------- tests
 
 #[tokio::test]
-async fn a_completed_run_keeps_the_records_built_from_config() {
-    let config = BTreeMap::from([("test.good".to_owned(), serde_json::json!({ "samples": 2 }))]);
+async fn a_returned_result_replaces_what_was_published() {
     let (runs, recorder) = run(
-        &["test.good"],
-        config,
-        env(),
+        vec![Planned::new(Counts, Left::Counter)],
         &CancellationToken::new(),
-        1_000,
     )
     .await;
 
     assert_eq!(runs[0].status, Status::Completed);
-    assert_eq!(runs[0].group, "test");
+    assert_eq!(runs[0].result, left(Some(3), None));
     assert_eq!(
-        records(&runs[0])[1],
-        Record::metric("rate", "速率", Measurement::try_new(3.0, "MB/s").unwrap())
+        (runs[0].id, runs[0].group, runs[0].title),
+        ("test.counts", "test", None)
     );
     assert_eq!(
         recorder.0,
-        ["start test.good", "finish test.good Completed"]
+        [
+            "start test.counts",
+            "test.counts 第 1 次",
+            "test.counts ran count 1",
+            "test.counts 第 2 次",
+            "test.counts ran count 2",
+            "finish test.counts Completed"
+        ],
+        "progress lines and tool runs in the order the plugin sent them"
     );
 }
 
 #[tokio::test]
-async fn work_dir_lives_under_the_run_root_and_is_removed() {
+async fn a_stop_keeps_the_last_publish_and_the_plugins_reason() {
+    let (runs, _) = run(
+        vec![
+            Planned::new(GivesUp, Left::Counter),
+            Planned::new(Skips, Left::Counter),
+        ],
+        &CancellationToken::new(),
+    )
+    .await;
+
+    assert_eq!(runs[0].status, Status::Failed(None));
+    assert_eq!(
+        runs[0].result,
+        left(Some(1), Some(Stop::Failed(Why::Broken)))
+    );
+    assert_eq!(runs[1].status, Status::Skipped(None));
+    assert_eq!(runs[1].result, left(None, Some(Stop::Skipped(Why::NoDisk))));
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_timeout_keeps_what_was_published_during_the_grace_period() {
+    let (runs, recorder) = run(
+        vec![Planned::new(Slow, Left::Counter)],
+        &CancellationToken::new(),
+    )
+    .await;
+
+    assert_eq!(runs[0].status, Status::TimedOut);
+    assert_eq!(
+        runs[0].result,
+        left(Some(2), None),
+        "the second publish came after the deadline, before the grace period ended"
+    );
+    assert!(
+        recorder.0.contains(&"test.slow 收到停止信号".to_owned()),
+        "progress from the grace period is drained: {:?}",
+        recorder.0
+    );
+    assert!(runs[0].elapsed.expect("it started") >= Duration::from_secs(5));
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_timeout_aborts_a_plugin_that_ignores_it_and_releases_its_resources() {
+    let (runs, _) = run(
+        vec![Planned::new(Hanging, Left::Counter)],
+        &CancellationToken::new(),
+    )
+    .await;
+
+    assert_eq!(runs[0].status, Status::TimedOut);
+    assert_eq!(runs[0].result, left(Some(1), None));
+    assert!(runs[0].elapsed.expect("it started") >= Duration::from_secs(5));
+    assert!(
+        HANGING_RELEASED.load(Ordering::SeqCst),
+        "an aborted plugin must drop its resources"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_cpu_bound_plugin_stops_on_its_cancel_token() {
+    let runs = run_with(
+        vec![Planned::new(CpuBound, Left::Counter)],
+        500,
+        &CancellationToken::new(),
+        &mut Recorder::default(),
+    )
+    .await;
+
+    assert_eq!(runs[0].status, Status::TimedOut);
+    assert_eq!(
+        runs[0].result,
+        left(Some(1), None),
+        "it published after its loop saw the cancel token, inside the grace period"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_plugin_blocking_its_thread_is_detached_not_awaited() {
+    let runs = run_with(
+        vec![Planned::new(BlocksThread, Left::Counter)],
+        100,
+        &CancellationToken::new(),
+        &mut Recorder::default(),
+    )
+    .await;
+
+    assert_eq!(runs[0].status, Status::TimedOut);
+    assert_eq!(runs[0].result, left(Some(1), None));
+    assert!(
+        runs[0].elapsed.expect("it started") < Duration::from_secs(1),
+        "deadline, grace and abort wait (100 ms each) must end the run while the plugin still \
+         blocks its thread for 1500 ms; took {:?}",
+        runs[0].elapsed
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn an_interrupt_keeps_the_last_publish_and_cancels_the_plugins_after_it() {
+    let (runs, _) = run(
+        vec![
+            Planned::new(Slow, Left::Counter),
+            Planned::new(Counts, Left::Counter),
+        ],
+        &interrupted_after_a_second(),
+    )
+    .await;
+
+    assert_eq!(runs[0].status, Status::Cancelled);
+    assert_eq!(runs[0].result, left(Some(2), None));
+    assert_eq!(runs[1].status, Status::Cancelled);
+    assert_eq!(runs[1].result, None, "never started");
+    assert_eq!(runs[1].started, None);
+    assert_eq!(runs[1].elapsed, None);
+}
+
+#[tokio::test]
+async fn a_panic_keeps_the_last_publish_and_the_next_plugin_runs() {
+    let (runs, _) = run(
+        vec![
+            Planned::new(Panics, Left::Counter),
+            Planned::new(Counts, Left::Counter),
+        ],
+        &CancellationToken::new(),
+    )
+    .await;
+
+    assert_eq!(
+        runs[0].status,
+        Status::Failed(Some(Fault::Panic("boom".into())))
+    );
+    assert_eq!(runs[0].result, left(Some(1), None));
+    assert_eq!(runs[1].status, Status::Completed);
+    assert!(
+        runs[1].started.expect("it started") >= runs[0].started.expect("it started"),
+        "plugins run in order"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn an_interrupt_keeps_the_last_publish_of_a_plugin_that_must_be_aborted() {
+    let (runs, _) = run(
+        vec![Planned::new(Stubborn, Left::Counter)],
+        &interrupted_after_a_second(),
+    )
+    .await;
+
+    assert_eq!(runs[0].status, Status::Cancelled);
+    assert_eq!(runs[0].result, left(Some(1), None));
+}
+
+#[tokio::test]
+async fn a_plugin_that_stops_short_once_the_run_is_interrupted_counts_as_interrupted() {
+    let cancel = CancellationToken::new();
+    let plugin = Interrupts {
+        interrupt: cancel.clone(),
+        gives_up: true,
+    };
+    let (runs, _) = run(
+        vec![
+            Planned::new(plugin, Left::Counter),
+            Planned::new(Counts, Left::Counter),
+        ],
+        &cancel,
+    )
+    .await;
+
+    assert_eq!(runs[0].status, Status::Cancelled);
+    assert_eq!(
+        runs[0].result,
+        left(Some(1), None),
+        "the publish stays; the reason is the interrupt's, not the plugin's"
+    );
+    assert_eq!(runs[1].status, Status::Cancelled);
+}
+
+#[tokio::test]
+async fn a_plugin_that_has_ended_when_the_interrupt_comes_is_taken_at_its_word() {
+    // Its end and the interrupt are both there when the orchestrator looks, and no run may pick
+    // one of them by chance: hence many runs.
+    for _ in 0..20 {
+        let cancel = CancellationToken::new();
+        let plugin = Interrupts {
+            interrupt: cancel.clone(),
+            gives_up: false,
+        };
+        let (runs, _) = run(
+            vec![
+                Planned::new(plugin, Left::Counter),
+                Planned::new(Counts, Left::Counter),
+            ],
+            &cancel,
+        )
+        .await;
+
+        assert_eq!(runs[0].status, Status::Completed);
+        assert_eq!(runs[0].result, left(Some(2), None));
+        assert_eq!(runs[1].status, Status::Cancelled);
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn progress_lines_are_shown_while_the_plugin_runs() {
+    let shown = CancellationToken::new();
+    let plugin = WaitsToBeSeen {
+        shown: shown.clone(),
+    };
+    let runs = run_with(
+        vec![Planned::new(plugin, Left::Counter)],
+        1_000,
+        &CancellationToken::new(),
+        &mut Shows(shown),
+    )
+    .await;
+
+    assert_eq!(
+        runs[0].status,
+        Status::Completed,
+        "the plugin waited for its line to be shown"
+    );
+}
+
+#[tokio::test]
+async fn the_work_directory_lives_under_the_run_root_and_is_removed() {
     let work_root = tempfile::tempdir().unwrap();
-    let planned = orchestrator::plan(&plugins(), &["test.work-dir"], &BTreeMap::new()).unwrap();
     let settings = Settings {
         grace: Duration::from_secs(1),
         work_root: work_root.path().to_path_buf(),
         origin: tokio::time::Instant::now(),
+        tools: Arc::default(),
         failed_tools: BTreeMap::new(),
         host: Arc::default(),
     };
     let runs = orchestrator::run_plan(
-        planned,
-        Arc::new(env()),
+        vec![Planned::new(UsesWorkDir, Left::Counter)],
         &CancellationToken::new(),
         &settings,
         &mut Recorder::default(),
@@ -421,52 +764,40 @@ async fn work_dir_lives_under_the_run_root_and_is_removed() {
     assert!(!used.exists());
 }
 
-#[tokio::test]
-async fn failure_keeps_records_emitted_before_it() {
-    let (runs, _) = run(
-        &["test.failing"],
-        BTreeMap::new(),
-        env(),
-        &CancellationToken::new(),
-        1_000,
-    )
-    .await;
-
-    assert_eq!(runs[0].status, Status::Failed(None));
-    let Some(Stop::Failed(error)) = stop(&runs[0]) else {
-        panic!("{:?}", runs[0].result)
+/// A host with this C library, whose IPv6 reaches the Internet when `ipv6` is set.
+fn host(libc: Libc, ipv6: bool) -> HostProfile {
+    let target = "[2606:4700:4700::1111]:443".parse().expect("an address");
+    let ipv6 = Family {
+        targets: if ipv6 {
+            vec![(target, Reach::Connected)]
+        } else {
+            vec![(target, Reach::NoRoute)]
+        },
+        address: Address::NotAsked,
     };
-    assert!(error.contains("No such file or directory"), "{error}");
-    assert_eq!(ids(&runs[0]), ["before"]);
+    HostProfile {
+        libc,
+        network: Network {
+            ipv4: Family::default(),
+            ipv6,
+        },
+        ..HostProfile::default()
+    }
 }
 
-#[tokio::test]
-async fn panic_is_contained_and_the_run_continues() {
-    let (runs, _) = run(
-        &["test.panicking", "test.good"],
-        BTreeMap::new(),
-        env(),
-        &CancellationToken::new(),
+/// The requirement a run of `Demanding` on `host`, with `tools`, is skipped for, and how long it
+/// ran.
+async fn skip_reason(
+    host: HostProfile,
+    tools: BTreeMap<String, PathBuf>,
+) -> (Unmet, Option<Duration>) {
+    let runs = run_on(
+        vec![Planned::new(Demanding, Left::Counter)],
+        host,
+        tools,
         1_000,
-    )
-    .await;
-
-    assert_eq!(
-        runs[0].status,
-        Status::Failed(Some(Fault::Panic("boom".into())))
-    );
-    assert_eq!(ids(&runs[0]), ["before"]);
-    assert_eq!(runs[1].status, Status::Completed);
-}
-
-/// The requirement a run of `Demanding` on `env` is skipped for, and how long it ran.
-async fn skip_reason(env: Env) -> (Unmet, Option<Duration>) {
-    let (runs, _) = run(
-        &["test.needs"],
-        BTreeMap::new(),
-        env,
         &CancellationToken::new(),
-        1_000,
+        &mut Recorder::default(),
     )
     .await;
     let Status::Skipped(Some(unmet)) = &runs[0].status else {
@@ -479,10 +810,6 @@ async fn skip_reason(env: Env) -> (Unmet, Option<Duration>) {
 async fn unmet_requirements_skip_without_running_glibc_first_then_network_then_tools() {
     let glibc = |minor| Libc::Glibc(GlibcVersion { major: 2, minor });
     let fio = || BTreeMap::from([("fio".to_owned(), PathBuf::from("/x/fio"))]);
-    let old_glibc = Env {
-        libc: glibc(34),
-        ..env()
-    };
     let needed = GlibcVersion {
         major: 2,
         minor: 35,
@@ -492,34 +819,25 @@ async fn unmet_requirements_skip_without_running_glibc_first_then_network_then_t
         minor: 34,
     });
     assert_eq!(
-        skip_reason(old_glibc).await,
+        skip_reason(host(glibc(34), false), BTreeMap::new()).await,
         (Unmet::Glibc { needed, found }, None)
     );
-    let musl = Env {
-        libc: Libc::NoGlibc,
-        tools: fio(),
-        ipv6: true,
-        ..env()
-    };
     assert_eq!(
-        skip_reason(musl).await.0,
+        skip_reason(host(Libc::NoGlibc, true), fio()).await.0,
         Unmet::Glibc {
             needed,
             found: None
         }
     );
     assert_eq!(
-        skip_reason(env()).await.0,
+        skip_reason(host(Libc::GlibcUnknown, false), BTreeMap::new())
+            .await
+            .0,
         Unmet::Network(Net::Ipv6),
         "an unknown glibc passes, and the network comes before the tools"
     );
-    let without_fio = Env {
-        libc: glibc(35),
-        ipv6: true,
-        ..env()
-    };
     assert_eq!(
-        skip_reason(without_fio).await.0,
+        skip_reason(host(glibc(35), true), BTreeMap::new()).await.0,
         Unmet::Tool {
             name: "fio",
             why: String::new()
@@ -531,11 +849,7 @@ async fn unmet_requirements_skip_without_running_glibc_first_then_network_then_t
 #[test]
 fn the_host_check_accepts_the_minimum_glibc_and_newer() {
     let requires = Demanding::DESCRIPTOR.requires;
-    let on = |major, minor| Env {
-        libc: Libc::Glibc(GlibcVersion { major, minor }),
-        ipv6: true,
-        ..env()
-    };
+    let on = |major, minor| host(Libc::Glibc(GlibcVersion { major, minor }), true);
     assert_eq!(orchestrator::check_host(&requires, &on(2, 41)), Ok(()));
     assert_eq!(orchestrator::check_host(&requires, &on(3, 0)), Ok(()));
     assert!(orchestrator::check_host(&requires, &on(2, 34)).is_err());
@@ -546,153 +860,53 @@ fn the_host_check_accepts_the_minimum_glibc_and_newer() {
     );
 }
 
-#[tokio::test(start_paused = true)]
-async fn timeout_keeps_partial_records_and_releases_resources() {
-    let (runs, _) = run(
-        &["test.hanging"],
-        BTreeMap::new(),
-        env(),
-        &CancellationToken::new(),
-        1_000,
-    )
-    .await;
-
-    assert_eq!(runs[0].status, Status::TimedOut);
-    assert_eq!(ids(&runs[0]), ["node-1"]);
-    assert!(runs[0].elapsed.unwrap() >= Duration::from_secs(5));
-    assert!(
-        HANGING_RELEASED.load(Ordering::SeqCst),
-        "aborted plugin must drop its resources"
-    );
-}
-
-#[tokio::test(start_paused = true)]
-async fn cooperative_plugin_reports_inside_the_grace_period() {
-    let (runs, _) = run(
-        &["test.cooperative"],
-        BTreeMap::new(),
-        env(),
-        &CancellationToken::new(),
-        1_000,
-    )
-    .await;
-
-    assert_eq!(runs[0].status, Status::TimedOut);
-    assert_eq!(ids(&runs[0]), ["nodes"]);
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn cpu_bound_plugin_stops_on_its_cancel_token() {
-    let (runs, _) = run(
-        &["test.cpu-bound"],
-        BTreeMap::new(),
-        env(),
-        &CancellationToken::new(),
-        500,
-    )
-    .await;
-
-    assert_eq!(runs[0].status, Status::TimedOut);
-    assert_eq!(ids(&runs[0]), ["spins"]);
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn plugin_blocking_its_thread_is_detached_not_awaited() {
-    let (runs, _) = run(
-        &["test.blocks-thread"],
-        BTreeMap::new(),
-        env(),
-        &CancellationToken::new(),
-        100,
-    )
-    .await;
-
-    assert_eq!(runs[0].status, Status::TimedOut);
-    assert_eq!(ids(&runs[0]), ["started"]);
-    assert!(
-        runs[0].elapsed.unwrap() < Duration::from_secs(1),
-        "deadline, grace and abort wait (100 ms each) must end the run while the plugin still \
-         blocks its thread for 1500 ms; took {:?}",
-        runs[0].elapsed
-    );
-}
-
-#[tokio::test(start_paused = true)]
-async fn interrupt_cancels_the_current_and_remaining_plugins() {
-    let cancel = CancellationToken::new();
-    let trigger = cancel.clone();
-    tokio::spawn(async move {
-        tokio::time::sleep(Duration::from_secs(1)).await;
-        trigger.cancel();
-    });
-    let (runs, _) = run(
-        &["test.sleeper", "test.good"],
-        BTreeMap::new(),
-        env(),
-        &cancel,
-        1_000,
-    )
-    .await;
-
-    assert_eq!(runs[0].status, Status::Cancelled);
-    assert_eq!(ids(&runs[0]), ["before"]);
-    assert_eq!(runs[1].status, Status::Cancelled);
-    assert_eq!(runs[1].elapsed, None, "never started");
-}
-
-/// Runs [`Interrupts`] alone.
-async fn interrupt_and(fails: bool) -> Vec<Run<Measured>> {
-    let cancel = CancellationToken::new();
-    let plugin = Interrupts {
-        interrupt: cancel.clone(),
-        fails,
+#[test]
+fn the_host_check_reads_each_family_from_the_profile() {
+    let family = |target: &str, reach| Family {
+        targets: vec![(target.parse().expect("an address"), reach)],
+        address: Address::NotAsked,
     };
-    let planned = vec![Planned::legacy(
-        Interrupts::DESCRIPTOR,
-        Arc::new(plugin),
-        Measured::Legacy,
-    )];
-    let work_root = tempfile::tempdir().expect("create a temporary work root");
-    let settings = Settings {
-        grace: Duration::from_millis(1_000),
-        work_root: work_root.path().to_path_buf(),
-        origin: tokio::time::Instant::now(),
-        failed_tools: BTreeMap::new(),
-        host: Arc::default(),
+    let on = |ipv4, ipv6| HostProfile {
+        network: Network {
+            ipv4: family("1.1.1.1:443", ipv4),
+            ipv6: family("[2606:4700:4700::1111]:443", ipv6),
+        },
+        ..HostProfile::default()
     };
-    orchestrator::run_plan(
-        planned,
-        Arc::new(env()),
-        &cancel,
-        &settings,
-        &mut Recorder::default(),
-    )
-    .await
-}
-
-#[tokio::test]
-async fn a_failure_once_the_run_is_interrupted_counts_as_interrupted() {
-    let runs = interrupt_and(true).await;
-
-    assert_eq!(runs[0].status, Status::Cancelled);
-    assert_eq!(ids(&runs[0]), ["before"]);
-    assert_eq!(
-        stop(&runs[0]),
-        None,
-        "the reason is the interrupt's, not the plugin's"
-    );
-}
-
-#[tokio::test]
-async fn a_plugin_that_has_ended_when_the_interrupt_comes_is_taken_at_its_word() {
-    // Its end and the interrupt are both there when the orchestrator looks, and no run may pick
-    // one of them by chance: hence many runs.
-    for _ in 0..20 {
-        let runs = interrupt_and(false).await;
-
-        assert_eq!(runs[0].status, Status::Completed);
-        assert_eq!(ids(&runs[0]), ["before"]);
+    let needs = |net| Requirements {
+        net,
+        ..Requirements::NONE
+    };
+    let (up, down) = (Reach::Connected, Reach::Refused);
+    // Whether a plugin that needs no network, IPv4, IPv6 or either runs on each host.
+    let hosts = [
+        (on(down, down), [true, false, false, false]),
+        (on(up, down), [true, true, false, true]),
+        (on(down, up), [true, false, true, true]),
+        (on(up, up), [true, true, true, true]),
+    ];
+    for (host, expected) in hosts {
+        let passed = [Net::None, Net::Ipv4, Net::Ipv6, Net::Any]
+            .map(|net| orchestrator::check_host(&needs(net), &host).is_ok());
+        assert_eq!(passed, expected, "{:?}", host.network);
     }
+}
+
+#[tokio::test]
+async fn a_plugin_is_built_from_its_table_in_the_config() {
+    let config = BTreeMap::from([("test.good".to_owned(), serde_json::json!({ "samples": 2 }))]);
+    let planned = orchestrator::plan(&plugins(), &["test.good"], &config).expect("a valid plan");
+
+    let runs = run_with(planned, 1_000, &CancellationToken::new(), &mut Quiet).await;
+
+    assert_eq!(runs[0].status, Status::Completed);
+    assert_eq!(
+        runs[0].result,
+        Some(Measured::CpuGeekbench(Report {
+            output: Some(scores(2)),
+            stop: None,
+        }))
+    );
 }
 
 #[test]

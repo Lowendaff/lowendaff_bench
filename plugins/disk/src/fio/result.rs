@@ -2,8 +2,8 @@
 //! Numbers and kinds of reasons only, with fio's own error line; the reporter words them in
 //! YABS's formats.
 
-use bench_api::typed::Measurement;
-use bench_api::typed::ToolVersion;
+use bench_api::Measurement;
+use bench_api::ToolVersion;
 use bench_tool::FIO;
 use bench_tool::job;
 use serde::Serialize;

@@ -5,12 +5,9 @@ valid:
   - use crate::orchestrator::Planned;
   - use bench::registry::REGISTRY;
   - use bench_api::Context;
-  - use bench_api::typed;
-  - use bench_api::typed::Context;
   - use std::fs;
   - use super::parse;
 invalid:
   - use crate::orchestrator::plan;
   - use bench::app::execute;
   - use bench_api::register;
-  - use bench_api::typed::helper;

@@ -1,6 +1,6 @@
 id: no-print-in-plugins
 valid:
-  - fn f() { ctx.emit(record); }
+  - fn f() { ctx.publish(&output); }
   - fn f() { writeln!(out, "x").ok(); }
   - fn f() { let text = format!("x"); }
 invalid:

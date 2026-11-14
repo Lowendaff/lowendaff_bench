@@ -11,7 +11,7 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
-use bench_api::typed::Context;
+use bench_api::Context;
 use bench_tool::job;
 use bench_tool::job::Adjustment;
 use bench_tool::job::Job;

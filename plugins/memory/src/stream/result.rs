@@ -3,8 +3,8 @@
 //! kinds of reasons only, with STREAM's own line of a failed validation; the reporter words
 //! them.
 
-use bench_api::typed::Measurement;
-use bench_api::typed::ToolVersion;
+use bench_api::Measurement;
+use bench_api::ToolVersion;
 use bench_tool::STREAM;
 use bench_tool::job;
 use serde::Serialize;

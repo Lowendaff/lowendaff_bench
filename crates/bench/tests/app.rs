@@ -3,11 +3,14 @@
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::Mutex;
 use std::time::Duration;
 
 use bench::app;
 use bench::app::Cli;
 use bench::app::EXIT_INTERRUPTED;
+use bench::orchestrator;
 use bench::orchestrator::Planned;
 use bench::progress;
 use bench::registry;
@@ -16,12 +19,10 @@ use bench::results::Measured;
 use bench_api::CancellationToken;
 use bench_api::Context;
 use bench_api::Descriptor;
-use bench_api::Measurement;
 use bench_api::Net;
 use bench_api::Plugin;
-use bench_api::PluginError;
-use bench_api::Record;
 use bench_api::Requirements;
+use bench_api::Stop;
 use bench_api::ToolAsset;
 use bench_api::ToolForm;
 use bench_api::ToolSpec;
@@ -39,10 +40,45 @@ use bench_host::platform::PlatformKind;
 use bench_host::profile::HostProfile;
 use bench_host::profile::Read;
 use common::Captured;
+use plugin_cpu::geekbench;
+use plugin_cpu::geekbench::result::Scores;
 use serde::Deserialize;
 
 mod common;
 
+/// What the tests' plugins return, Geekbench 7's result being the simplest of the program's to
+/// build: empty, so that the report shows only how a plugin ended.
+type Output = geekbench::Output;
+type Failure = geekbench::Failure;
+
+const fn descriptor(id: &'static str) -> Descriptor {
+    Descriptor {
+        id,
+        requires: Requirements::NONE,
+        timeout: Duration::from_secs(10),
+    }
+}
+
+/// A plugin that stands in for one of the program's and leaves an empty result.
+macro_rules! stand_in {
+    ($name:ident, $descriptor:expr) => {
+        #[derive(Default, Deserialize)]
+        #[serde(default, deny_unknown_fields)]
+        struct $name {}
+
+        impl Plugin for $name {
+            type Output = Output;
+            type Failure = Failure;
+            const DESCRIPTOR: Descriptor = $descriptor;
+
+            async fn run(&self, _ctx: &Context<Output>) -> Result<Output, Stop<Failure>> {
+                Ok(Output::default())
+            }
+        }
+    };
+}
+
+/// Its config names the single-core score that its result shows.
 #[derive(Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 struct Good {
@@ -50,67 +86,38 @@ struct Good {
 }
 
 impl Plugin for Good {
-    const DESCRIPTOR: Descriptor = Descriptor {
-        id: "test.good",
-        title: "示例测试",
-        version: "0.1.0",
-        requires: Requirements::NONE,
-        timeout: Duration::from_secs(10),
-    };
+    type Output = Output;
+    type Failure = Failure;
+    const DESCRIPTOR: Descriptor = descriptor("test.good");
 
-    async fn run(&self, ctx: &Context) -> Result<(), PluginError> {
-        ctx.emit(Record::metric(
-            "rate",
-            "速率",
-            Measurement::try_new(f64::from(self.samples), "MB/s")?,
-        ));
-        Ok(())
+    async fn run(&self, _ctx: &Context<Output>) -> Result<Output, Stop<Failure>> {
+        Ok(Output {
+            scores: Some(Scores {
+                version: None,
+                single: self.samples,
+                multi: self.samples,
+                url: None,
+            }),
+            ..Output::default()
+        })
     }
 }
 
-#[derive(Default, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-struct Other {}
+stand_in!(Other, descriptor("test.other"));
+// A group of one plugin, whose id is the group's name.
+stand_in!(Lone, descriptor("lone"));
 
-impl Plugin for Other {
-    const DESCRIPTOR: Descriptor = Descriptor {
-        id: "test.other",
-        title: "另一个测试",
-        ..Good::DESCRIPTOR
-    };
-
-    async fn run(&self, _ctx: &Context) -> Result<(), PluginError> {
-        Ok(())
-    }
+/// The registry's entry of a plugin of these tests.
+fn entry<P: Plugin<Output = Output, Failure = Failure>>() -> Entry {
+    registry::entry::<P>(Measured::CpuGeekbench)
 }
 
 fn plugins() -> Vec<Entry> {
-    vec![registry::legacy::<Good>(), registry::legacy::<Other>()]
-}
-
-/// A group of one plugin, whose id is the group's name.
-#[derive(Default, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-struct Lone {}
-
-impl Plugin for Lone {
-    const DESCRIPTOR: Descriptor = Descriptor {
-        id: "lone",
-        title: "单独的测试",
-        ..Good::DESCRIPTOR
-    };
-
-    async fn run(&self, _ctx: &Context) -> Result<(), PluginError> {
-        Ok(())
-    }
+    vec![entry::<Good>(), entry::<Other>()]
 }
 
 fn groups() -> Vec<Entry> {
-    vec![
-        registry::legacy::<Good>(),
-        registry::legacy::<Lone>(),
-        registry::legacy::<Other>(),
-    ]
+    vec![entry::<Good>(), entry::<Lone>(), entry::<Other>()]
 }
 
 fn cli(args: &[&str]) -> Cli {
@@ -190,7 +197,6 @@ fn selection_keeps_registry_order_and_rejects_unknown_ids() {
 
 #[test]
 fn a_group_name_selects_every_plugin_of_the_group() {
-    assert_eq!(registry::validate(&groups()), Vec::<String>::new());
     assert_eq!(
         app::select(&groups(), &ids(&["test"]), &[]).unwrap(),
         ["test.good", "test.other"]
@@ -283,7 +289,10 @@ async fn a_run_prints_sections_and_summary_then_removes_its_directory() {
         "{text}"
     );
     assert!(text.contains("\n\n【test】\n"), "{text}");
-    assert!(text.contains("  速率              3 MB/s\n"), "{text}");
+    assert!(
+        text.contains("  单核              3\n"),
+        "the score that the config gave: {text}"
+    );
     assert!(
         text.contains("\n共 1 项：完成 1，跳过 0，失败 0，超时 0，中断 0。总用时 "),
         "{text}"
@@ -300,7 +309,7 @@ async fn an_interrupted_run_exits_130_and_still_lists_every_plugin() {
 
     assert_eq!(code, EXIT_INTERRUPTED);
     assert!(
-        text.contains("【test】\n  示例测试\n    已中断\n  另一个测试\n    已中断\n"),
+        text.contains("【test】\n  test.good\n    已中断\n  test.other\n    已中断\n"),
         "two plugins of one group share a section: {text}"
     );
     assert_eq!(text.matches("【test】").count(), 1, "{text}");
@@ -310,48 +319,26 @@ async fn an_interrupted_run_exits_130_and_still_lists_every_plugin() {
     );
 }
 
-/// Two variants of one test item, and an item that applies to dedicated servers only.
-#[derive(Default, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-struct InfoDedicated {}
-
-impl Plugin for InfoDedicated {
-    const DESCRIPTOR: Descriptor = Descriptor {
-        id: "test.info-dedicated",
-        title: "系统信息",
+stand_in!(
+    InfoDedicated,
+    Descriptor {
         requires: Requirements {
             platforms: &[PlatformKind::Dedicated],
             ..Requirements::NONE
         },
-        ..Good::DESCRIPTOR
-    };
-
-    async fn run(&self, ctx: &Context) -> Result<(), PluginError> {
-        ctx.emit(Record::fact("variant", "版本", "独立服务器版"));
-        Ok(())
+        ..descriptor("test.info-dedicated")
     }
-}
-
-#[derive(Default, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-struct InfoVm {}
-
-impl Plugin for InfoVm {
-    const DESCRIPTOR: Descriptor = Descriptor {
-        id: "test.info-vm",
-        title: "系统信息",
+);
+stand_in!(
+    InfoVm,
+    Descriptor {
         requires: Requirements {
             platforms: &[PlatformKind::Vm],
             ..Requirements::NONE
         },
-        ..Good::DESCRIPTOR
-    };
-
-    async fn run(&self, ctx: &Context) -> Result<(), PluginError> {
-        ctx.emit(Record::fact("variant", "版本", "虚拟机版"));
-        Ok(())
+        ..descriptor("test.info-vm")
     }
-}
+);
 
 const SMARTCTL: ToolSpec = ToolSpec {
     name: "smartctl",
@@ -373,14 +360,9 @@ const SMARTCTL: ToolSpec = ToolSpec {
     ],
 };
 
-#[derive(Default, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-struct DiskHealth {}
-
-impl Plugin for DiskHealth {
-    const DESCRIPTOR: Descriptor = Descriptor {
-        id: "test.disk-health",
-        title: "硬盘健康",
+stand_in!(
+    DiskHealth,
+    Descriptor {
         requires: Requirements {
             tools: &[SMARTCTL],
             net: Net::None,
@@ -388,42 +370,27 @@ impl Plugin for DiskHealth {
             glibc: None,
             numa: false,
         },
-        ..Good::DESCRIPTOR
-    };
-
-    async fn run(&self, _ctx: &Context) -> Result<(), PluginError> {
-        Ok(())
+        ..descriptor("test.disk-health")
     }
-}
-
-/// A test between NUMA nodes, which needs two of them.
-#[derive(Default, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-struct Numa {}
-
-impl Plugin for Numa {
-    const DESCRIPTOR: Descriptor = Descriptor {
-        id: "test.numa",
-        title: "节点之间的测试",
+);
+// A test between NUMA nodes, which needs two of them.
+stand_in!(
+    Numa,
+    Descriptor {
         requires: Requirements {
             numa: true,
             ..Requirements::NONE
         },
-        ..Good::DESCRIPTOR
-    };
-
-    async fn run(&self, ctx: &Context) -> Result<(), PluginError> {
-        ctx.emit(Record::fact("nodes", "节点", "测过了"));
-        Ok(())
+        ..descriptor("test.numa")
     }
-}
+);
 
 fn platform_plugins() -> Vec<Entry> {
     vec![
-        registry::legacy::<InfoDedicated>(),
-        registry::legacy::<InfoVm>(),
-        registry::legacy::<DiskHealth>(),
-        registry::legacy::<Numa>(),
+        entry::<InfoDedicated>(),
+        entry::<InfoVm>(),
+        entry::<DiskHealth>(),
+        entry::<Numa>(),
     ]
 }
 
@@ -447,16 +414,28 @@ fn with_nodes(count: usize) -> HostProfile {
     }
 }
 
+/// The summary's line of the plugin `id`, which a plugin that ran has.
+fn summary_line<'a>(text: &'a str, id: &str) -> Option<&'a str> {
+    text.lines().find(|line| {
+        line.strip_prefix("  ")
+            .is_some_and(|rest| rest.starts_with(&format!("{id} ")))
+    })
+}
+
 #[tokio::test]
 async fn a_plugin_that_needs_numa_nodes_runs_only_where_two_can_be_used() {
-    let registry = [registry::legacy::<Numa>()];
+    let registry = [entry::<Numa>()];
     for (count, runs) in [(1, false), (2, true)] {
         let planned = app::prepare(&cli(&[]), &registry).unwrap();
         let (code, text, _) = execute(planned, with_nodes(count), &CancellationToken::new()).await;
         assert_eq!(code, 0);
-        assert_eq!(text.contains("测过了"), runs, "{count} nodes: {text}");
         assert_eq!(
-            text.contains("  本机不适用：节点之间的测试\n"),
+            summary_line(&text, "test.numa").is_some(),
+            runs,
+            "{count} nodes: {text}"
+        );
+        assert_eq!(
+            text.contains("  本机不适用：test.numa\n"),
             !runs,
             "{count} nodes: {text}"
         );
@@ -474,10 +453,6 @@ async fn a_plugin_that_needs_numa_nodes_runs_only_where_two_can_be_used() {
 
 #[tokio::test]
 async fn only_plugins_for_the_detected_platform_run() {
-    assert_eq!(
-        registry::validate(&platform_plugins()),
-        Vec::<String>::new()
-    );
     let planned = app::prepare(&cli(&[]), &platform_plugins()).unwrap();
     let host = HostProfile {
         platform: Platform::Vm(Hypervisor::Kvm),
@@ -487,7 +462,6 @@ async fn only_plugins_for_the_detected_platform_run() {
     let (code, text, log) = execute(planned, host, &CancellationToken::new()).await;
 
     assert_eq!(code, 0);
-    // The other variant of 系统信息 runs instead, so only 硬盘健康 is reported.
     assert!(
         text.starts_with(&format!(
             "lowendaff-bench {}\n运行环境：KVM 虚拟机\n",
@@ -497,11 +471,13 @@ async fn only_plugins_for_the_detected_platform_run() {
     );
     assert!(text.contains("\n\n【test】\n"), "{text}");
     assert!(
-        text.contains("  本机不适用：硬盘健康、节点之间的测试\n"),
+        text.contains("  本机不适用：test.info-dedicated、test.disk-health、test.numa\n"),
         "{text}"
     );
-    assert!(text.contains("虚拟机版"), "{text}");
-    assert!(!text.contains("独立服务器版"), "{text}");
+    assert!(
+        summary_line(&text, "test.info-vm").is_some_and(|line| line.contains("完成")),
+        "{text}"
+    );
     assert!(
         !log.iter().any(|line| line.starts_with("准备工具")),
         "tools of plugins that do not apply must not be downloaded: {log:?}"
@@ -512,29 +488,20 @@ async fn only_plugins_for_the_detected_platform_run() {
     );
 }
 
-#[derive(Default, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-struct NeedsSmartctl {}
-
-impl Plugin for NeedsSmartctl {
-    const DESCRIPTOR: Descriptor = Descriptor {
-        id: "test.smartctl",
-        title: "需要工具的测试",
+stand_in!(
+    NeedsSmartctl,
+    Descriptor {
         requires: Requirements {
             tools: &[SMARTCTL],
             ..Requirements::NONE
         },
-        ..Good::DESCRIPTOR
-    };
-
-    async fn run(&self, _ctx: &Context) -> Result<(), PluginError> {
-        Ok(())
+        ..descriptor("test.smartctl")
     }
-}
+);
 
 #[tokio::test]
 async fn a_tool_that_cannot_be_provisioned_skips_its_plugins_with_the_reason() {
-    let registry = [registry::legacy::<NeedsSmartctl>()];
+    let registry = [entry::<NeedsSmartctl>()];
     let planned = app::prepare(&cli(&[]), &registry).unwrap();
     // No download is tried: the tool has no build for this architecture.
     let host = HostProfile {
@@ -568,14 +535,9 @@ const GEEKBENCH: ToolSpec = ToolSpec {
     assets: SMARTCTL.assets,
 };
 
-#[derive(Default, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-struct NeedsGlibcAndIpv4 {}
-
-impl Plugin for NeedsGlibcAndIpv4 {
-    const DESCRIPTOR: Descriptor = Descriptor {
-        id: "test.geekbench",
-        title: "Geekbench 7",
+stand_in!(
+    NeedsGlibcAndIpv4,
+    Descriptor {
         requires: Requirements {
             tools: &[GEEKBENCH],
             net: Net::Ipv4,
@@ -586,13 +548,9 @@ impl Plugin for NeedsGlibcAndIpv4 {
             }),
             numa: false,
         },
-        ..Good::DESCRIPTOR
-    };
-
-    async fn run(&self, _ctx: &Context) -> Result<(), PluginError> {
-        Ok(())
+        ..descriptor("test.geekbench")
     }
-}
+);
 
 /// A network whose IPv4 side reached a target, with no public address asked for.
 fn ipv4_only() -> Network {
@@ -607,7 +565,7 @@ fn ipv4_only() -> Network {
 
 #[tokio::test]
 async fn tools_of_items_the_host_cannot_run_are_not_downloaded() {
-    let registry = [registry::legacy::<NeedsGlibcAndIpv4>()];
+    let registry = [entry::<NeedsGlibcAndIpv4>()];
     let without_glibc = HostProfile {
         libc: Libc::NoGlibc,
         network: ipv4_only(),
@@ -633,32 +591,41 @@ async fn tools_of_items_the_host_cannot_run_are_not_downloaded() {
     }
 }
 
-/// Reports the host as the first contract hands it to a plugin.
+/// What a plugin saw of its host: the platform, the architecture, the C library and whether
+/// IPv4 reached the Internet.
+type Seen = (Platform, String, Libc, bool);
+
+/// Notes the host that its context hands it.
 #[derive(Default, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-struct ShowsEnv {}
+struct ShowsHost {
+    #[serde(skip)]
+    seen: Arc<Mutex<Option<Seen>>>,
+}
 
-impl Plugin for ShowsEnv {
-    const DESCRIPTOR: Descriptor = Descriptor {
-        id: "test.env",
-        title: "运行环境测试",
-        ..Good::DESCRIPTOR
-    };
+impl Plugin for ShowsHost {
+    type Output = Output;
+    type Failure = Failure;
+    const DESCRIPTOR: Descriptor = descriptor("test.host");
 
-    async fn run(&self, ctx: &Context) -> Result<(), PluginError> {
-        let env = ctx.env();
-        let seen = format!(
-            "{:?} {} {:?} ipv4={} ipv6={}",
-            env.platform, env.arch, env.libc, env.ipv4, env.ipv6
+    async fn run(&self, ctx: &Context<Output>) -> Result<Output, Stop<Failure>> {
+        let host = ctx.host();
+        let seen = (
+            host.platform,
+            host.arch.clone(),
+            host.libc,
+            host.network.ipv4.reachable(),
         );
-        ctx.emit(Record::fact("env", "所见", seen));
-        Ok(())
+        *self.seen.lock().expect("nothing panics while holding it") = Some(seen);
+        Ok(Output::default())
     }
 }
 
 #[tokio::test]
-async fn plugins_of_the_first_contract_see_the_profile_through_env() {
-    let registry = [registry::legacy::<ShowsEnv>()];
+async fn plugins_see_the_host_as_the_run_read_it() {
+    let seen = Arc::default();
+    let plugin = ShowsHost {
+        seen: Arc::clone(&seen),
+    };
     let host = HostProfile {
         platform: Platform::Vm(Hypervisor::Kvm),
         arch: "riscv64".to_owned(),
@@ -666,13 +633,23 @@ async fn plugins_of_the_first_contract_see_the_profile_through_env() {
         network: ipv4_only(),
         ..HostProfile::default()
     };
-    let planned = app::prepare(&cli(&[]), &registry).unwrap();
 
-    let (_, text, _) = execute(planned, host, &CancellationToken::new()).await;
+    let (code, _, _) = execute(
+        vec![Planned::new(plugin, Measured::CpuGeekbench)],
+        host,
+        &CancellationToken::new(),
+    )
+    .await;
 
-    assert!(
-        text.contains("所见              Vm(Kvm) riscv64 NoGlibc ipv4=true ipv6=false\n"),
-        "{text}"
+    assert_eq!(code, 0);
+    assert_eq!(
+        *seen.lock().unwrap(),
+        Some((
+            Platform::Vm(Hypervisor::Kvm),
+            "riscv64".to_owned(),
+            Libc::NoGlibc,
+            true
+        ))
     );
 }
 
@@ -726,10 +703,10 @@ fn the_list_shows_where_each_plugin_applies() {
         String::from_utf8(out).unwrap(),
         "共 4 个测试项\n\
          【test】（分组：test）\n\
-         \x20 test.info-dedicated  系统信息（适用：独立服务器）\n\
-         \x20 test.info-vm  系统信息（适用：虚拟机）\n\
-         \x20 test.disk-health  硬盘健康（适用：独立服务器）（工具：smartctl 7.4）\n\
-         \x20 test.numa  节点之间的测试（适用：多个 NUMA 节点）\n"
+         \x20 test.info-dedicated  test.info-dedicated（适用：独立服务器）\n\
+         \x20 test.info-vm  test.info-vm（适用：虚拟机）\n\
+         \x20 test.disk-health  test.disk-health（适用：独立服务器）（工具：smartctl 7.4）\n\
+         \x20 test.numa  test.numa（适用：多个 NUMA 节点）\n"
     );
 }
 
@@ -741,10 +718,10 @@ fn the_list_keeps_each_group_together_in_the_reports_order() {
         String::from_utf8(out).unwrap(),
         "共 3 个测试项\n\
          【test】（分组：test）\n\
-         \x20 test.good  示例测试\n\
-         \x20 test.other  另一个测试\n\
+         \x20 test.good  test.good\n\
+         \x20 test.other  test.other\n\
          【lone】（分组：lone）\n\
-         \x20 lone  单独的测试\n"
+         \x20 lone  lone\n"
     );
 
     let mut out = Vec::new();
@@ -787,7 +764,7 @@ fn the_list_keeps_each_group_together_in_the_reports_order() {
             "  cpu.sysbench  CPU 性能（工具：sysbench 1.0.20）",
             "  cpu.geekbench  Geekbench 7（工具：geekbench 7.1.0）"
         ],
-        "the reporter names the plugins of the typed contract"
+        "the reporter names the plugins"
     );
     let memory: Vec<&str> = text
         .lines()
@@ -856,4 +833,18 @@ fn the_plan_keeps_the_reporters_names() {
         ],
         "the group selects its four plugins"
     );
+}
+
+#[test]
+fn the_items_that_do_not_apply_here_are_named_as_the_report_names_them() {
+    let planned = app::prepare(&cli(&[]), &registry::all()).unwrap();
+    let vm = HostProfile {
+        platform: Platform::Vm(Hypervisor::Kvm),
+        ..with_nodes(1)
+    };
+
+    let (applicable, names) = orchestrator::for_host(planned, &vm);
+
+    assert_eq!(names, ["硬盘健康", "内存 NUMA"]);
+    assert_eq!(applicable.len(), 6, "the others run");
 }

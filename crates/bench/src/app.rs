@@ -11,7 +11,6 @@ use std::time::Duration;
 use std::time::Instant;
 
 use bench_api::CancellationToken;
-use bench_api::Env;
 use bench_host::profile::HostProfile;
 
 use crate::fetcher::Fetcher;
@@ -206,15 +205,6 @@ pub async fn execute(
         .prefix("lowendaff-bench-")
         .tempdir_in(work_dir)
         .map_err(|err| format!("无法在 {} 创建运行目录：{err}", work_dir.display()))?;
-    // The plugins of the first contract see the host through `Env`.
-    let mut env = Env {
-        arch: host.arch.clone(),
-        ipv4: host.network.ipv4.reachable(),
-        ipv6: host.network.ipv6.reachable(),
-        tools: BTreeMap::new(),
-        platform: host.platform,
-        libc: host.libc,
-    };
     let (planned, not_applicable) = orchestrator::for_host(planned, &host);
 
     // Only the tools of items this host can run, so that nothing is downloaded in vain, such
@@ -222,16 +212,17 @@ pub async fn execute(
     let runnable = planned
         .iter()
         .map(|planned| *planned.requires())
-        .filter(|requires| orchestrator::check_host(requires, &env).is_ok());
+        .filter(|requires| orchestrator::check_host(requires, &host).is_ok());
     let tools = provision::required_tools(runnable);
+    let mut ready = BTreeMap::new();
     let mut failed_tools = BTreeMap::new();
     if !tools.is_empty() {
         let tools_dir = run_dir.path().join("tools");
         fs::create_dir(&tools_dir).map_err(|err| format!("无法创建工具目录：{err}"))?;
         let fetcher = Fetcher::try_new()?;
         let provisioned =
-            provision::provision_all(&tools, &env.arch, &tools_dir, |url| fetcher.open(url)).await;
-        env.tools = provisioned.ready;
+            provision::provision_all(&tools, &host.arch, &tools_dir, |url| fetcher.open(url)).await;
+        ready = provisioned.ready;
         failed_tools = provisioned.failed;
     }
 
@@ -240,10 +231,11 @@ pub async fn execute(
         grace: GRACE,
         work_root: run_dir.path().to_path_buf(),
         origin: tokio::time::Instant::from_std(started),
+        tools: Arc::new(ready),
         failed_tools,
         host: Arc::clone(&host),
     };
-    let runs = orchestrator::run_plan(planned, Arc::new(env), cancel, &settings, &mut Log).await;
+    let runs = orchestrator::run_plan(planned, cancel, &settings, &mut Log).await;
     let page = Page {
         version: env!("CARGO_PKG_VERSION"),
         host: &host,

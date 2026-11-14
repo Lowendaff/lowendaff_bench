@@ -1,24 +1,23 @@
-//! The registry's checks, which every plugin of either contract must pass: ids, names, limits,
-//! config strictness and tool pins.
+//! The registry's checks, which every plugin must pass: ids, names, limits, config strictness and
+//! tool pins.
 
 use std::time::Duration;
 
 use bench::registry;
+use bench::registry::Entry;
 use bench::results::Measured;
 use bench::results::Report;
 use bench_api::Context;
 use bench_api::Descriptor;
+use bench_api::Measurement;
 use bench_api::Net;
 use bench_api::Plugin;
-use bench_api::PluginError;
 use bench_api::Requirements;
+use bench_api::Stop;
 use bench_api::ToolAsset;
 use bench_api::ToolForm;
 use bench_api::ToolSpec;
-use bench_api::typed;
-use bench_api::typed::Measurement;
-use bench_api::typed::Stop;
-use bench_api::typed::ToolVersion;
+use bench_api::ToolVersion;
 use bench_host::platform::PlatformKind;
 use serde::Deserialize;
 use serde::Serialize;
@@ -46,19 +45,16 @@ const FIO: ToolSpec = ToolSpec {
 };
 
 const fn descriptor(id: &'static str, tools: &'static [ToolSpec]) -> Descriptor {
-    variant(id, id, tools, &[])
+    on(id, tools, &[])
 }
 
-const fn variant(
+const fn on(
     id: &'static str,
-    title: &'static str,
     tools: &'static [ToolSpec],
     platforms: &'static [PlatformKind],
 ) -> Descriptor {
     Descriptor {
         id,
-        title,
-        version: "0.1.0",
         requires: Requirements {
             tools,
             net: Net::None,
@@ -67,6 +63,15 @@ const fn variant(
             numa: false,
         },
         timeout: Duration::from_secs(10),
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct Count(u32);
+
+impl Measurement for Count {
+    fn tools(&self) -> Vec<ToolVersion> {
+        Vec::new()
     }
 }
 
@@ -80,18 +85,36 @@ macro_rules! plugin {
         struct $name {}
 
         impl Plugin for $name {
+            type Output = Count;
+            type Failure = ();
             const DESCRIPTOR: Descriptor = $descriptor;
 
-            async fn run(&self, _ctx: &Context) -> Result<(), PluginError> {
-                Ok(())
+            async fn run(&self, _ctx: &Context<Count>) -> Result<Count, Stop<()>> {
+                Ok(Count(0))
             }
         }
     };
 }
 
+/// The result enum has no variant for the tests' plugins, which never run here.
+fn unused<O, F>(_report: Report<O, F>) -> Measured {
+    Measured::CpuGeekbench(Report {
+        output: None,
+        stop: None,
+    })
+}
+
+/// The entry of a plugin of these tests, with the name that the reporter would give it.
+fn named<P: Plugin>(name: &'static str) -> Entry {
+    let mut entry = registry::entry::<P>(unused);
+    entry.title = Some(name);
+    entry
+}
+
 plugin!(Good, "disk.fio", &[FIO]);
 plugin!(AlsoFio, "disk.fio-seq", &[FIO]);
 plugin!(BadId, "Disk FIO", &[]);
+plugin!(Unnamed, "test.unnamed", &[]);
 
 /// Forgot `deny_unknown_fields`.
 #[derive(Default, Deserialize)]
@@ -101,11 +124,12 @@ struct Lax {
 }
 
 impl Plugin for Lax {
+    type Output = Count;
+    type Failure = ();
     const DESCRIPTOR: Descriptor = descriptor("test.lax", &[]);
 
-    async fn run(&self, _ctx: &Context) -> Result<(), PluginError> {
-        let _ = self.level;
-        Ok(())
+    async fn run(&self, _ctx: &Context<Count>) -> Result<Count, Stop<()>> {
+        Ok(Count(u32::from(self.level)))
     }
 }
 
@@ -117,11 +141,13 @@ struct Strict {
 }
 
 impl Plugin for Strict {
+    type Output = Count;
+    type Failure = ();
     const DESCRIPTOR: Descriptor = descriptor("test.strict", &[]);
 
-    async fn run(&self, _ctx: &Context) -> Result<(), PluginError> {
+    async fn run(&self, _ctx: &Context<Count>) -> Result<Count, Stop<()>> {
         let _ = &self.path;
-        Ok(())
+        Ok(Count(0))
     }
 }
 
@@ -164,26 +190,26 @@ const OTHER_FIO: ToolSpec = ToolSpec {
 };
 plugin!(ConflictingFio, "disk.fio-old", &[OTHER_FIO]);
 
-plugin!(InfoVm, variant("info.vm", "信息", &[], &[PlatformKind::Vm]));
+// Repeats `disk.fio`, with another fio and no limit.
+plugin!(
+    FioAgain,
+    Descriptor {
+        timeout: Duration::ZERO,
+        ..descriptor("disk.fio", &[OTHER_FIO])
+    }
+);
+
+plugin!(InfoVm, on("info.vm", &[], &[PlatformKind::Vm]));
 plugin!(
     InfoDedicated,
-    variant("info.dedicated", "信息", &[], &[PlatformKind::Dedicated])
+    on("info.dedicated", &[], &[PlatformKind::Dedicated])
 );
-plugin!(
-    InfoVmOrContainer,
-    variant(
-        "info.shared",
-        "信息",
-        &[],
-        &[PlatformKind::Vm, PlatformKind::Container]
-    )
-);
-plugin!(InfoEverywhere, variant("info.any", "信息", &[], &[]));
+plugin!(InfoEverywhere, on("info.any", &[], &[]));
 
 #[test]
 fn a_correct_registry_passes() {
     assert_eq!(
-        registry::validate(&[registry::legacy::<Good>(), registry::legacy::<AlsoFio>()]),
+        registry::validate(&[named::<Good>("硬盘性能"), named::<AlsoFio>("硬盘顺序读写")]),
         Vec::<String>::new()
     );
 }
@@ -191,11 +217,11 @@ fn a_correct_registry_passes() {
 #[test]
 fn registry_checks_catch_common_plugin_mistakes() {
     let problems = registry::validate(&[
-        registry::legacy::<Good>(),
-        registry::legacy::<Good>(),
-        registry::legacy::<BadId>(),
-        registry::legacy::<Lax>(),
-        registry::legacy::<Strict>(),
+        named::<Good>("硬盘性能"),
+        named::<Good>("硬盘性能"),
+        named::<BadId>("错误的 id"),
+        named::<Lax>("宽松的配置"),
+        named::<Strict>("严格的配置"),
     ]);
     let expected = [
         "disk.fio: duplicate id",
@@ -220,11 +246,11 @@ fn registry_checks_catch_common_plugin_mistakes() {
 #[test]
 fn registry_checks_catch_bad_tool_pins() {
     let problems = registry::validate(&[
-        registry::legacy::<Good>(),
-        registry::legacy::<BrokenTool>(),
-        registry::legacy::<ConflictingFio>(),
-        registry::legacy::<NestedArchive>(),
-        registry::legacy::<Archive>(),
+        named::<Good>("硬盘性能"),
+        named::<BrokenTool>("网络"),
+        named::<ConflictingFio>("旧的 fio"),
+        named::<NestedArchive>("嵌套的压缩包"),
+        named::<Archive>("压缩包"),
     ]);
     let expected = [
         "net.iperf: tool iperf3 has no aarch64 build",
@@ -244,95 +270,28 @@ fn registry_checks_catch_bad_tool_pins() {
 }
 
 #[test]
-fn plugins_that_share_a_title_need_disjoint_platforms() {
-    assert_eq!(
-        registry::validate(&[
-            registry::legacy::<InfoVm>(),
-            registry::legacy::<InfoDedicated>(),
-        ]),
-        Vec::<String>::new()
-    );
+fn no_two_plugins_share_a_name_whatever_their_platforms() {
     let problems = registry::validate(&[
-        registry::legacy::<InfoVm>(),
-        registry::legacy::<InfoVmOrContainer>(),
-        registry::legacy::<InfoEverywhere>(),
+        named::<InfoVm>("信息"),
+        named::<InfoDedicated>("信息"),
+        named::<InfoEverywhere>("信息"),
     ]);
     assert_eq!(
         problems,
         [
-            "info.shared: shares its title with info.vm, so their platforms must not overlap",
-            "info.any: shares its title with info.vm, so their platforms must not overlap",
-            "info.any: shares its title with info.shared, so their platforms must not overlap",
+            "info.dedicated: shares its name with info.vm",
+            "info.any: shares its name with info.vm",
         ]
     );
 }
 
-#[derive(Debug, Clone, Serialize)]
-struct Count(u32);
-
-impl Measurement for Count {
-    fn tools(&self) -> Vec<ToolVersion> {
-        Vec::new()
-    }
-}
-
-/// The result enum has no variant for the tests' plugins, which never run here.
-fn unused<O, F>(_report: Report<O, F>) -> Measured {
-    Measured::Legacy(Report {
-        output: None,
-        stop: None,
-    })
-}
-
-/// A typed plugin that repeats `disk.fio` with another fio and no limit.
-#[derive(Default, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-struct TypedFio {}
-
-impl typed::Plugin for TypedFio {
-    type Output = Count;
-    type Failure = ();
-    const DESCRIPTOR: typed::Descriptor = typed::Descriptor {
-        id: "disk.fio",
-        requires: Requirements {
-            tools: &[OTHER_FIO],
-            ..Requirements::NONE
-        },
-        timeout: Duration::ZERO,
-    };
-
-    async fn run(&self, _ctx: &typed::Context<Count>) -> Result<Count, Stop<()>> {
-        Ok(Count(1))
-    }
-}
-
-/// A typed plugin whose config takes a level but forgot `deny_unknown_fields`.
-#[derive(Default, Deserialize)]
-#[serde(default)]
-struct TypedLax {
-    level: u8,
-}
-
-impl typed::Plugin for TypedLax {
-    type Output = Count;
-    type Failure = ();
-    const DESCRIPTOR: typed::Descriptor = typed::Descriptor {
-        id: "test.typed-lax",
-        requires: Requirements::NONE,
-        timeout: Duration::from_secs(10),
-    };
-
-    async fn run(&self, _ctx: &typed::Context<Count>) -> Result<Count, Stop<()>> {
-        Ok(Count(u32::from(self.level)))
-    }
-}
-
 #[test]
-fn typed_plugins_pass_the_same_checks_and_need_a_name() {
+fn the_reporter_must_name_each_plugin_and_its_limit_must_be_positive() {
     let problems = registry::validate(&[
-        registry::legacy::<Good>(),
-        registry::entry::<TypedFio>(unused),
-        registry::entry::<TypedLax>(unused),
+        named::<Good>("硬盘性能"),
+        registry::entry::<FioAgain>(unused),
+        registry::entry::<Lax>(unused),
+        named::<Unnamed>(""),
     ]);
     assert_eq!(
         problems,
@@ -340,21 +299,22 @@ fn typed_plugins_pass_the_same_checks_and_need_a_name() {
             "disk.fio: duplicate id",
             "disk.fio: timeout must be positive",
             "disk.fio: tool fio differs from another plugin's declaration",
-            "test.typed-lax: the reporter has no name for it",
-            "test.typed-lax: config accepts unknown fields (missing #[serde(deny_unknown_fields)]?)",
+            "test.lax: the reporter has no name for it",
+            "test.lax: config accepts unknown fields (missing #[serde(deny_unknown_fields)]?)",
+            "test.unnamed: the reporter has no name for it",
         ]
     );
 }
 
 #[test]
-fn a_typed_plugin_is_built_from_its_config() {
-    let entry = registry::entry::<TypedLax>(unused);
-    assert_eq!(entry.id, "test.typed-lax");
+fn a_plugin_is_built_from_its_config() {
+    let entry = registry::entry::<Lax>(unused);
+    assert_eq!(entry.id, "test.lax");
     assert_eq!(entry.title, None, "the reporter has no name for it");
     let planned = entry
         .build(Some(&serde_json::json!({ "level": 3 })))
         .expect("a level fits");
-    assert_eq!(planned.id(), "test.typed-lax");
+    assert_eq!(planned.id(), "test.lax");
     let Err(error) = entry.build(Some(&serde_json::json!({ "level": 300 }))) else {
         panic!("300 is no u8");
     };

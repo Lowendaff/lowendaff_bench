@@ -5,9 +5,9 @@ use std::fmt;
 use std::io;
 use std::time::Instant;
 
+use bench_api::ToolEnd;
+use bench_api::ToolRun;
 use bench_api::ToolSpec;
-use bench_api::typed::ToolEnd;
-use bench_api::typed::ToolRun;
 use bench_host::network::Network;
 use bench_host::profile::HostProfile;
 use tracing::Subscriber;

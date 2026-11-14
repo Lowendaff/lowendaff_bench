@@ -1,7 +1,6 @@
 //! The orchestrator: plans the selected plugins, checks each one's requirements, runs it with
 //! its timeout and the interrupt in view, and keeps what it left in the result enum, with the
-//! run's status. Plugins of both contracts run; those of the first contract leave their records.
-//! User-facing text is the reporter's.
+//! run's status. User-facing text is the reporter's.
 
 use std::any::Any;
 use std::collections::BTreeMap;
@@ -13,16 +12,12 @@ use std::time::Duration;
 
 use bench_api::CancellationToken;
 use bench_api::Context;
-use bench_api::DynPlugin;
-use bench_api::Env;
 use bench_api::Net;
-use bench_api::PluginError;
-use bench_api::Record;
+use bench_api::Plugin;
+use bench_api::Progress;
 use bench_api::Requirements;
-use bench_api::typed;
-use bench_api::typed::Progress;
-use bench_api::typed::Stop;
-use bench_api::typed::ToolRun;
+use bench_api::Stop;
+use bench_api::ToolRun;
 use bench_host::glibc::GlibcVersion;
 use bench_host::glibc::Libc;
 use bench_host::profile::HostProfile;
@@ -88,7 +83,7 @@ pub struct Run<R> {
     pub id: &'static str,
     /// The id's first segment, such as `cpu` for `cpu.sysbench`.
     pub group: &'static str,
-    /// The plugin's name: its title in the first contract, or the reporter's name for it.
+    /// The reporter's name for the plugin; `None` when it has none.
     pub title: Option<&'static str>,
     /// When it started, counted from the start of the run; `None` when it never started.
     pub started: Option<Duration>,
@@ -116,34 +111,15 @@ pub struct Planned<R> {
 }
 
 impl<R: Send + 'static> Planned<R> {
-    /// A plugin of the first contract, whose records `wrap` turns into a result.
+    /// A plugin, whose report `wrap` turns into a result.
     #[must_use]
-    pub fn legacy(
-        descriptor: bench_api::Descriptor,
-        plugin: Arc<dyn DynPlugin>,
-        wrap: fn(Report<Vec<Record>, String>) -> R,
-    ) -> Self {
-        Self {
-            id: descriptor.id,
-            title: Some(descriptor.title),
-            requires: descriptor.requires,
-            timeout: descriptor.timeout,
-            runner: Arc::new(LegacyRunner { plugin, wrap }),
-        }
-    }
-
-    /// A plugin of the typed contract, whose report `wrap` turns into a result.
-    #[must_use]
-    pub fn typed<P: typed::Plugin>(
-        plugin: P,
-        wrap: fn(Report<P::Output, P::Failure>) -> R,
-    ) -> Self {
+    pub fn new<P: Plugin>(plugin: P, wrap: fn(Report<P::Output, P::Failure>) -> R) -> Self {
         Self {
             id: P::DESCRIPTOR.id,
             title: None,
             requires: P::DESCRIPTOR.requires,
             timeout: P::DESCRIPTOR.timeout,
-            runner: Arc::new(TypedRunner {
+            runner: Arc::new(PluginRunner {
                 plugin: Arc::new(plugin),
                 wrap,
             }),
@@ -158,7 +134,7 @@ impl<R> Planned<R> {
         self.id
     }
 
-    /// The plugin's name: its title in the first contract, or the reporter's name for it.
+    /// The reporter's name for the plugin; `None` when it has none.
     #[must_use]
     pub fn title(&self) -> Option<&'static str> {
         self.title
@@ -196,9 +172,11 @@ pub struct Settings {
     pub work_root: PathBuf,
     /// The start of the run, from which [`Run::started`] counts.
     pub origin: Instant,
+    /// The tools that were provisioned, by name.
+    pub tools: Arc<BTreeMap<String, PathBuf>>,
     /// Why each tool that could not be provisioned failed.
     pub failed_tools: BTreeMap<String, String>,
-    /// The host, as the run read it, for the plugins of the typed contract.
+    /// The host, as the run read it, for the plugins.
     pub host: Arc<HostProfile>,
 }
 
@@ -232,8 +210,8 @@ pub fn plan(
     }
 }
 
-/// Splits the plan by host: the plugins that apply here, and the titles of the test items that
-/// run here in no variant, for the 本机不适用 line.
+/// Splits the plan by host: the plugins that apply here, and the names of those that do not, for
+/// the 本机不适用 line.
 #[must_use]
 pub fn for_host<R>(
     plan: Vec<Planned<R>>,
@@ -242,24 +220,18 @@ pub fn for_host<R>(
     let (applicable, elsewhere): (Vec<Planned<R>>, Vec<Planned<R>>) = plan
         .into_iter()
         .partition(|planned| planned.requires.applies_to(host));
-    let mut titles = Vec::new();
-    for planned in &elsewhere {
-        let title = planned.title.unwrap_or(planned.id);
-        let runs_here = applicable
-            .iter()
-            .any(|other| other.title.unwrap_or(other.id) == title);
-        if !runs_here && !titles.contains(&title) {
-            titles.push(title);
-        }
-    }
-    (applicable, titles)
+    let names = elsewhere
+        .iter()
+        .map(|planned| planned.title.unwrap_or(planned.id))
+        .collect();
+    (applicable, names)
 }
 
 /// What the host must offer a plugin besides its tools, checked before any download: its
 /// glibc, then its network.
-pub fn check_host(requires: &Requirements, env: &Env) -> Result<(), Unmet> {
+pub fn check_host(requires: &Requirements, host: &HostProfile) -> Result<(), Unmet> {
     if let Some(needed) = requires.glibc {
-        match env.libc {
+        match host.libc {
             Libc::Glibc(found) if found < needed => {
                 return Err(Unmet::Glibc {
                     needed,
@@ -275,11 +247,13 @@ pub fn check_host(requires: &Requirements, env: &Env) -> Result<(), Unmet> {
             Libc::Glibc(_) | Libc::GlibcUnknown => {}
         }
     }
+    let ipv4 = host.network.ipv4.reachable();
+    let ipv6 = host.network.ipv6.reachable();
     let reachable = match requires.net {
         Net::None => true,
-        Net::Any => env.ipv4 || env.ipv6,
-        Net::Ipv4 => env.ipv4,
-        Net::Ipv6 => env.ipv6,
+        Net::Any => ipv4 || ipv6,
+        Net::Ipv4 => ipv4,
+        Net::Ipv6 => ipv6,
     };
     if reachable {
         Ok(())
@@ -288,17 +262,19 @@ pub fn check_host(requires: &Requirements, env: &Env) -> Result<(), Unmet> {
     }
 }
 
-/// Everything a plugin needs before it runs: [`check_host`], then its tools.
+/// Everything a plugin needs before it runs: [`check_host`], then its tools, among those that
+/// were provisioned.
 pub fn preflight(
     requires: &Requirements,
-    env: &Env,
+    host: &HostProfile,
+    tools: &BTreeMap<String, PathBuf>,
     failed_tools: &BTreeMap<String, String>,
 ) -> Result<(), Unmet> {
-    check_host(requires, env)?;
+    check_host(requires, host)?;
     match requires
         .tools
         .iter()
-        .find(|tool| !env.tools.contains_key(tool.name))
+        .find(|tool| !tools.contains_key(tool.name))
     {
         Some(tool) => Err(Unmet::Tool {
             name: tool.name,
@@ -311,7 +287,6 @@ pub fn preflight(
 /// Runs the plan in order and returns every plugin's run.
 pub async fn run_plan<R: Send + 'static>(
     plan: Vec<Planned<R>>,
-    env: Arc<Env>,
     cancel: &CancellationToken,
     settings: &Settings,
     observer: &mut dyn Observer<R>,
@@ -328,13 +303,18 @@ pub async fn run_plan<R: Send + 'static>(
             result: None,
         };
         if !cancel.is_cancelled() {
-            match preflight(&planned.requires, &env, &settings.failed_tools) {
+            let ready = preflight(
+                &planned.requires,
+                &settings.host,
+                &settings.tools,
+                &settings.failed_tools,
+            );
+            match ready {
                 Err(unmet) => run.status = Status::Skipped(Some(unmet)),
                 Ok(()) => {
                     observer.on_start(planned.id);
                     let begun = Instant::now();
-                    let (status, result) =
-                        run_one(&planned, env.clone(), cancel, settings, observer).await;
+                    let (status, result) = run_one(&planned, cancel, settings, observer).await;
                     run.started = Some(begun.duration_since(settings.origin));
                     run.elapsed = Some(begun.elapsed());
                     run.status = status;
@@ -350,7 +330,6 @@ pub async fn run_plan<R: Send + 'static>(
 
 async fn run_one<R: Send + 'static>(
     planned: &Planned<R>,
-    env: Arc<Env>,
     global: &CancellationToken,
     settings: &Settings,
     observer: &mut dyn Observer<R>,
@@ -364,8 +343,8 @@ async fn run_one<R: Send + 'static>(
     };
     let launch = Launch {
         id: planned.id,
-        env,
         host: Arc::clone(&settings.host),
+        tools: Arc::clone(&settings.tools),
         deadline: Instant::now() + planned.timeout,
         work_dir: work.path().to_path_buf(),
         token: global.child_token(),
@@ -381,8 +360,8 @@ async fn run_one<R: Send + 'static>(
 /// Everything a runner needs for one run.
 struct Launch<'a, R> {
     id: &'static str,
-    env: Arc<Env>,
     host: Arc<HostProfile>,
+    tools: Arc<BTreeMap<String, PathBuf>>,
     deadline: Instant,
     work_dir: PathBuf,
     /// The plugin's own token, a child of `global`.
@@ -394,8 +373,7 @@ struct Launch<'a, R> {
 
 type Running<'a, R> = Pin<Box<dyn Future<Output = (Status, Option<R>)> + Send + 'a>>;
 
-/// Runs one plugin of one contract to its end: completion, a stop, its deadline or the
-/// interrupt.
+/// Runs one plugin to its end: completion, a stop, its deadline or the interrupt.
 trait Runner<R>: Send + Sync {
     fn run<'a>(&'a self, launch: Launch<'a, R>) -> Running<'a, R>;
 }
@@ -407,88 +385,25 @@ enum Ending<T> {
     Cancelled,
 }
 
-struct LegacyRunner<R> {
-    plugin: Arc<dyn DynPlugin>,
-    wrap: fn(Report<Vec<Record>, String>) -> R,
-}
-
-impl<R: Send + 'static> Runner<R> for LegacyRunner<R> {
-    fn run<'a>(&'a self, launch: Launch<'a, R>) -> Running<'a, R> {
-        Box::pin(async move {
-            let (ctx, mut receiver) = Context::new(
-                launch.env,
-                launch.deadline,
-                launch.work_dir,
-                launch.token.clone(),
-            );
-            let plugin = self.plugin.clone();
-            let mut task = tokio::spawn(async move { plugin.run_boxed(&ctx).await });
-            let mut records = Vec::new();
-            // In this order, so that a plugin that has already ended is taken at its word, and
-            // a stream of records cannot hold off its deadline or the interrupt.
-            let ending = loop {
-                tokio::select! {
-                    biased;
-                    joined = &mut task => break Ending::Joined(joined),
-                    () = tokio::time::sleep_until(launch.deadline) => {
-                        stop(&mut task, &launch.token, launch.grace).await;
-                        break Ending::TimedOut;
-                    }
-                    () = launch.global.cancelled() => {
-                        stop(&mut task, &launch.token, launch.grace).await;
-                        break Ending::Cancelled;
-                    }
-                    Some(record) = receiver.recv() => records.push(record),
-                }
-            };
-            // Always drain: `select!` may see the task finish before its last records, and
-            // records emitted during the grace period arrive only here.
-            while let Ok(record) = receiver.try_recv() {
-                records.push(record);
-            }
-            // A plugin that stops short once the run is interrupted stops because of it.
-            let interrupted = launch.global.is_cancelled();
-            let (status, stop) = match ending {
-                Ending::Joined(Ok(Ok(()))) => (Status::Completed, None),
-                Ending::Joined(Ok(Err(_))) if interrupted => (Status::Cancelled, None),
-                Ending::Joined(Ok(Err(PluginError::Skip(reason)))) => {
-                    (Status::Skipped(None), Some(Stop::Skipped(reason)))
-                }
-                Ending::Joined(Ok(Err(PluginError::Fail(reason)))) => {
-                    (Status::Failed(None), Some(Stop::Failed(reason)))
-                }
-                Ending::Joined(Err(err)) => (Status::Failed(Some(fault(err))), None),
-                Ending::TimedOut => (Status::TimedOut, None),
-                Ending::Cancelled => (Status::Cancelled, None),
-            };
-            let report = Report {
-                output: Some(records),
-                stop,
-            };
-            (status, Some((self.wrap)(report)))
-        })
-    }
-}
-
-struct TypedRunner<P: typed::Plugin, R> {
+struct PluginRunner<P: Plugin, R> {
     plugin: Arc<P>,
     wrap: fn(Report<P::Output, P::Failure>) -> R,
 }
 
-impl<P: typed::Plugin, R: Send + 'static> Runner<R> for TypedRunner<P, R> {
+impl<P: Plugin, R: Send + 'static> Runner<R> for PluginRunner<P, R> {
     fn run<'a>(&'a self, launch: Launch<'a, R>) -> Running<'a, R> {
         Box::pin(async move {
-            let tools = Arc::new(launch.env.tools.clone());
-            let (ctx, mut channels) = typed::Context::<P::Output>::new(
+            let (ctx, mut channels) = Context::<P::Output>::new(
                 launch.host,
-                tools,
+                launch.tools,
                 launch.deadline,
                 launch.work_dir,
                 launch.token.clone(),
             );
             let plugin = self.plugin.clone();
             let mut task = tokio::spawn(async move { plugin.run(&ctx).await });
-            // In the legacy runner's order, for the same reasons.
+            // In this order, so that a plugin that has already ended is taken at its word, and
+            // a stream of progress cannot hold off its deadline or the interrupt.
             let ending = loop {
                 tokio::select! {
                     biased;
@@ -506,6 +421,8 @@ impl<P: typed::Plugin, R: Send + 'static> Runner<R> for TypedRunner<P, R> {
                     }
                 }
             };
+            // Always drain: `select!` may see the task finish before its last progress, and
+            // what the plugin sends during the grace period arrives only here.
             while let Ok(progress) = channels.progress.try_recv() {
                 tell(launch.observer, launch.id, progress);
             }
