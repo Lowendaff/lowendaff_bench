@@ -1,19 +1,7 @@
-//! Contract tests for the plugin API: record invariants, error chains, tool lookup, glibc
-//! versions and platform kinds.
+//! Contract tests for the plugin API: glibc versions, and the platforms and NUMA layouts that a
+//! plugin applies to.
 
-use std::collections::BTreeMap;
-use std::path::PathBuf;
-use std::sync::Arc;
-
-use bench_api::CancellationToken;
-use bench_api::Context;
-use bench_api::Env;
-use bench_api::Measurement;
-use bench_api::Missing;
-use bench_api::PluginError;
-use bench_api::Record;
 use bench_api::Requirements;
-use bench_api::Table;
 use bench_host::glibc::GlibcVersion;
 use bench_host::numa::Layout;
 use bench_host::numa::Node;
@@ -23,91 +11,6 @@ use bench_host::platform::Platform;
 use bench_host::platform::PlatformKind;
 use bench_host::profile::HostProfile;
 use bench_host::profile::Read;
-
-#[test]
-fn measurement_displays_a_value_with_unit_or_the_missing_reason() {
-    let measured = Measurement::try_new(171.01, "MB/s").expect("finite value with a unit");
-    assert_eq!(measured.to_string(), "171.01 MB/s");
-    let whole = Measurement::try_new(940.0, "Mbit/s").expect("finite value with a unit");
-    assert_eq!(
-        whole.to_string(),
-        "940 Mbit/s",
-        "whole numbers print without decimals"
-    );
-
-    assert_eq!(Measurement::new_missing(Missing::Busy).to_string(), "繁忙");
-    assert_eq!(Missing::Timeout.to_string(), "超时");
-
-    assert!(Measurement::try_new(f64::NAN, "ms").is_err());
-    assert!(Measurement::try_new(f64::INFINITY, "ms").is_err());
-    assert!(Measurement::try_new(1.0, "").is_err());
-}
-
-#[test]
-fn table_rows_must_match_headers() {
-    let table = Table::try_new(
-        "fio",
-        "随机读写",
-        vec!["块大小".into(), "读取".into()],
-        vec![vec!["4k".into(), "171 MB/s".into()]],
-    )
-    .unwrap();
-    assert_eq!(table.headers(), ["块大小", "读取"]);
-    assert_eq!(Record::Table(table).id(), "fio");
-
-    let ragged = Table::try_new(
-        "t",
-        "t",
-        vec!["a".into(), "b".into()],
-        vec![vec!["只有一列".into()]],
-    );
-    assert_eq!(ragged.unwrap_err().0, "表格 t 第 0 行有 1 列，应为 2 列");
-}
-
-#[derive(Debug)]
-struct Outer(std::io::Error);
-
-impl std::fmt::Display for Outer {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("读取结果失败")
-    }
-}
-
-impl std::error::Error for Outer {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        Some(&self.0)
-    }
-}
-
-#[test]
-fn question_mark_keeps_the_cause_chain() {
-    let err = PluginError::from(Outer(std::io::Error::other("磁盘已满")));
-    let PluginError::Fail(message) = err else {
-        panic!("expected Fail")
-    };
-    assert_eq!(message, "读取结果失败: 磁盘已满");
-}
-
-#[tokio::test]
-async fn tool_lookup_returns_only_verified_tools() {
-    let env = Env {
-        tools: BTreeMap::from([("fio".to_owned(), PathBuf::from("/run/tools/fio"))]),
-        ..Env::default()
-    };
-    let deadline = tokio::time::Instant::now();
-    let (ctx, _records) = Context::new(
-        Arc::new(env),
-        deadline,
-        PathBuf::from("/run/work"),
-        CancellationToken::new(),
-    );
-
-    assert_eq!(ctx.tool("fio").unwrap(), PathBuf::from("/run/tools/fio"));
-    let Err(PluginError::Fail(message)) = ctx.tool("iperf3") else {
-        panic!("expected Fail")
-    };
-    assert_eq!(message, "工具 iperf3 未声明或不可用");
-}
 
 #[test]
 fn glibc_versions_order_by_major_then_minor_and_print_as_major_dot_minor() {

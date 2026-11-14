@@ -1,8 +1,8 @@
 id: no-print-in-plugins
 language: rust
 severity: error
-message: Report results through `ctx.emit`; the terminal renderer owns the output.
-note: Printed text bypasses the renderer and breaks the aligned layout.
+message: Return results from `run`, and report progress through the context; the reporter prints.
+note: Printed text bypasses the reporter and the progress log, and breaks their layout.
 files:
   - crates/bench-api/src/**/*.rs
   - crates/bench-host/src/**/*.rs
