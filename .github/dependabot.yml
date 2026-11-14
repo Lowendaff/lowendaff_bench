@@ -20,3 +20,17 @@ updates:
       default-days: 7
     commit-message:
       prefix: ci
+
+  # Temporary: proposes updates against the scratch branch dependabot-probe, whose Cargo.lock pins
+  # webpki-roots 1.0.10, so that a pull request's CI shows whether a run that Dependabot triggers
+  # pulls the private copies of the distribution images (README "Gates", Distributions). Removed
+  # once that is known.
+  - package-ecosystem: cargo
+    directory: /
+    target-branch: dependabot-probe
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: build
