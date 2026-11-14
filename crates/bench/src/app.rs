@@ -16,6 +16,7 @@ use bench_api::CancellationToken;
 use bench_host::profile::HostProfile;
 use tokio::io::AsyncRead;
 
+use crate::locale;
 use crate::orchestrator;
 use crate::orchestrator::Planned;
 use crate::orchestrator::Settings;
@@ -39,45 +40,45 @@ const GRACE: Duration = Duration::from_secs(5);
 /// otherwise.
 pub const DOWNLOAD_CONNECTIONS: u16 = 32;
 
-/// Linux 服务器综合测试，需要 root 权限运行。
+// The help's words come from the catalog, as every other text that the program shows does.
 #[derive(Debug, clap::Parser)]
-#[command(name = "lowendaff-bench", version)]
+#[command(name = "lowendaff-bench", version, about = locale::words().about())]
 pub struct Cli {
-    /// 只运行这些测试项（逗号分隔的 id 或分组，如 cpu,disk.fio）
-    #[arg(long, value_delimiter = ',')]
+    // The test items to run: ids or groups.
+    #[arg(long, value_delimiter = ',', help = locale::words().help_only())]
     pub only: Vec<String>,
 
-    /// 跳过这些测试项（逗号分隔的 id 或分组）
-    #[arg(long, value_delimiter = ',')]
+    // The test items to leave out: ids or groups.
+    #[arg(long, value_delimiter = ',', help = locale::words().help_skip())]
     pub skip: Vec<String>,
 
-    /// 配置文件（TOML），每个测试项一节：[plugins."<id>"]
-    #[arg(long)]
+    // A TOML file with a table of settings for each test item.
+    #[arg(long, help = locale::words().help_config())]
     pub config: Option<PathBuf>,
 
-    /// 在此目录下创建运行目录，结束时删除（不要使用 /tmp）
-    #[arg(long, default_value = ".")]
+    // Where the run directory goes.
+    #[arg(long, default_value = ".", help = locale::words().help_work_dir())]
     pub work_dir: PathBuf,
 
-    /// 列出全部测试项后退出
-    #[arg(long)]
+    // Lists the test items instead of running them.
+    #[arg(long, help = locale::words().help_list())]
     pub list: bool,
 
-    /// 在进度日志中显示更多细节：每个工具的下载地址，以及每次运行的命令和退出码
-    #[arg(short, long)]
+    // Logs the debug events too.
+    #[arg(short, long, help = locale::words().help_verbose())]
     pub verbose: bool,
 
-    /// 在报告中显示完整的公网地址（默认只显示前一部分）
-    #[arg(long)]
+    // Shows the public addresses unmasked in the report.
+    #[arg(long, help = locale::words().help_show_ip())]
     pub show_ip: bool,
 
-    /// 下载工具时，每个文件最多同时使用的连接数（1 到 256）
-    // At most 256: each connection also holds the file open, and twice 256 descriptors stay
-    // under the usual limit of 1024.
+    // The most connections of one file's download. At most 256: each connection also holds the
+    // file open, and twice 256 descriptors stay under the usual limit of 1024.
     #[arg(
         long,
         default_value_t = DOWNLOAD_CONNECTIONS,
-        value_parser = clap::value_parser!(u16).range(1..=256)
+        value_parser = clap::value_parser!(u16).range(1..=256),
+        help = locale::words().help_download_connections()
     )]
     pub download_connections: u16,
 }
@@ -95,11 +96,11 @@ impl Cli {
 /// Prints every registered plugin with its id, title, platforms and pinned tools, by group in
 /// the report's order, under each group's title and the name that `--only` and `--skip` take.
 pub fn list(registry: &[Entry], out: &mut impl Write) {
-    let _ = writeln!(out, "共 {} 个测试项", registry.len());
+    let _ = writeln!(out, "{}", locale::words().item_count(registry.len()));
     let group = |entry: &Entry| orchestrator::group_of(entry.id);
     let groups: Vec<&str> = registry.iter().map(group).collect();
     for (name, title) in report::terminal::sections(&groups) {
-        let _ = writeln!(out, "【{title}】（分组：{name}）");
+        let _ = writeln!(out, "{}", locale::words().group_line(title, name));
         let members = registry.iter().filter(|entry| group(entry) == name);
         for entry in members {
             item(entry, out);
@@ -109,37 +110,21 @@ pub fn list(registry: &[Entry], out: &mut impl Write) {
 
 /// One plugin's line in [`list`].
 fn item(entry: &Entry, out: &mut impl Write) {
-    let platforms: Vec<&str> = entry
+    let platforms: Vec<String> = entry
         .requires
         .platforms
         .iter()
-        .map(|kind| report::terminal::kind_text(*kind))
+        .map(|kind| report::terminal::kind_text(*kind).to_owned())
         .collect();
-    let mut platforms = if platforms.is_empty() {
-        String::new()
-    } else {
-        format!("（适用：{}）", platforms.join("、"))
-    };
-    if entry.requires.numa {
-        platforms.push_str("（适用：多个 NUMA 节点）");
-    }
     let tools: Vec<String> = entry
         .requires
         .tools
         .iter()
         .map(|tool| format!("{} {}", tool.name, tool.version))
         .collect();
-    let tools = if tools.is_empty() {
-        String::new()
-    } else {
-        format!("（工具：{}）", tools.join("、"))
-    };
-    let _ = writeln!(
-        out,
-        "  {}  {}{platforms}{tools}",
-        entry.id,
-        entry.title.unwrap_or(entry.id)
-    );
+    let name = entry.title.unwrap_or(entry.id);
+    let line = locale::words().item_line(entry.id, name, &platforms, entry.requires.numa, &tools);
+    let _ = writeln!(out, "{line}");
 }
 
 /// Builds every selected plugin; all problems are reported together and nothing runs.
@@ -163,7 +148,7 @@ pub fn select(
         .iter()
         .chain(skip)
         .filter(|name| !known(name))
-        .map(|name| format!("未知测试项或分组 `{name}`"))
+        .map(|name| locale::words().unknown_selection(name))
         .collect();
     if !errors.is_empty() {
         return Err(errors);
@@ -181,26 +166,24 @@ pub fn load_config(path: Option<&Path>) -> Result<BTreeMap<String, serde_json::V
     let Some(path) = path else {
         return Ok(BTreeMap::new());
     };
-    let text = fs::read_to_string(path)
-        .map_err(|err| format!("无法读取配置文件 {}：{err}", path.display()))?;
-    let mut table: toml::Table = toml::from_str(&text)
-        .map_err(|err| format!("无法解析配置文件 {}：{err}", path.display()))?;
+    let text =
+        fs::read_to_string(path).map_err(|err| locale::words().config_unreadable(path, &err))?;
+    let mut table: toml::Table =
+        toml::from_str(&text).map_err(|err| locale::words().config_unparsable(path, &err))?;
     let plugins = table.remove("plugins");
     if let Some(key) = table.keys().next() {
-        return Err(format!(
-            "配置文件中有未知的项 `{key}`，只支持 [plugins.\"<id>\"]"
-        ));
+        return Err(locale::words().config_unknown_key(key));
     }
     let Some(plugins) = plugins else {
         return Ok(BTreeMap::new());
     };
     let toml::Value::Table(plugins) = plugins else {
-        return Err("配置文件中的 plugins 必须是表".to_owned());
+        return Err(locale::words().config_plugins_not_table());
     };
     let mut config = BTreeMap::new();
     for (id, value) in plugins {
         let value =
-            serde_json::to_value(value).map_err(|err| format!("测试项 {id} 的配置无效：{err}"))?;
+            serde_json::to_value(value).map_err(|err| locale::words().config_invalid(&id, &err))?;
         config.insert(id, value);
     }
     Ok(config)
@@ -240,7 +223,7 @@ where
     let run_dir = tempfile::Builder::new()
         .prefix("lowendaff-bench-")
         .tempdir_in(work_dir)
-        .map_err(|err| format!("无法在 {} 创建运行目录：{err}", work_dir.display()))?;
+        .map_err(|err| locale::words().run_dir_failed(work_dir, &err))?;
     let (planned, not_applicable) = orchestrator::for_host(planned, &host);
 
     // Only the tools of items this host can run, so that nothing is downloaded in vain, such
@@ -254,7 +237,7 @@ where
     let mut failed_tools = BTreeMap::new();
     if !tools.is_empty() {
         let tools_dir = run_dir.path().join("tools");
-        fs::create_dir(&tools_dir).map_err(|err| format!("无法创建工具目录：{err}"))?;
+        fs::create_dir(&tools_dir).map_err(|err| locale::words().tools_dir_failed(&err))?;
         let provisioned =
             provision::provision_all(&tools, &host.arch, &tools_dir, connections, cancel, fetch)
                 .await;

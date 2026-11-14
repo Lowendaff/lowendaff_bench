@@ -298,7 +298,10 @@ fn selection_keeps_registry_order_and_rejects_unknown_ids() {
     );
     assert_eq!(
         app::select(&plugins(), &ids(&["nope"]), &ids(&["nada"])).unwrap_err(),
-        ["未知测试项或分组 `nope`", "未知测试项或分组 `nada`"]
+        [
+            "unknown test item or group `nope`",
+            "unknown test item or group `nada`"
+        ]
     );
 }
 
@@ -323,10 +326,10 @@ fn a_group_name_selects_every_plugin_of_the_group() {
     assert_eq!(
         app::select(&groups(), &ids(&["tes", "test."]), &ids(&["good", "lon"])).unwrap_err(),
         [
-            "未知测试项或分组 `tes`",
-            "未知测试项或分组 `test.`",
-            "未知测试项或分组 `good`",
-            "未知测试项或分组 `lon`",
+            "unknown test item or group `tes`",
+            "unknown test item or group `test.`",
+            "unknown test item or group `good`",
+            "unknown test item or group `lon`",
         ],
         "a name is a whole id or group"
     );
@@ -348,14 +351,14 @@ fn config_file_holds_plugin_tables_only() {
     let stray = write("stray.toml", "timeout = 3\n");
     assert_eq!(
         app::load_config(Some(&stray)).unwrap_err(),
-        "配置文件中有未知的项 `timeout`，只支持 [plugins.\"<id>\"]"
+        "unknown key `timeout` in the config file; only [plugins.\"<id>\"] tables are supported"
     );
 
     let broken = write("broken.toml", "[plugins\n");
     assert!(
         app::load_config(Some(&broken))
             .unwrap_err()
-            .starts_with("无法解析配置文件")
+            .starts_with("cannot parse the config file")
     );
 
     let bad_value = write("bad.toml", "[plugins.\"test.good\"]\nsamples = \"many\"\n");
@@ -364,7 +367,7 @@ fn config_file_holds_plugin_tables_only() {
         panic!("bad config must not plan")
     };
     assert!(
-        errors[0].starts_with("测试项 test.good 的配置无效："),
+        errors[0].starts_with("invalid settings for test item test.good: "),
         "{errors:?}"
     );
 }
@@ -586,7 +589,7 @@ async fn only_plugins_for_the_detected_platform_run() {
         "{text}"
     );
     assert!(
-        !log.iter().any(|line| line.starts_with("准备工具")),
+        !log.iter().any(|line| line.starts_with("Tools: ")),
         "tools of plugins that do not apply must not be downloaded: {log:?}"
     );
     assert!(
@@ -619,15 +622,15 @@ async fn a_tool_that_cannot_be_provisioned_skips_its_plugins_with_the_reason() {
     let (code, text, log) = execute(planned, host, &CancellationToken::new()).await;
 
     assert_eq!(code, 0);
-    let reason = "工具 smartctl 不可用：没有适用于 riscv64 的版本";
+    let reason = "工具 smartctl 不可用：no build for riscv64";
     assert!(text.contains(&format!("\n  跳过：{reason}\n")), "{text}");
     assert_eq!(
         log,
         [
-            "主机概况：未检测到虚拟化，riscv64".to_owned(),
-            "网络：IPv4 不可用".to_owned(),
-            "网络：IPv6 不可用".to_owned(),
-            "准备工具：smartctl 7.4 失败：没有适用于 riscv64 的版本".to_owned(),
+            "Host: 未检测到虚拟化, riscv64".to_owned(),
+            "Network: IPv4 不可用".to_owned(),
+            "Network: IPv6 不可用".to_owned(),
+            "Tools: smartctl 7.4 failed: no build for riscv64".to_owned(),
             format!("test.smartctl 跳过：{reason}"),
         ]
     );
@@ -705,7 +708,7 @@ async fn tools_of_items_the_host_cannot_run_are_not_downloaded() {
             "nothing is downloaded for an item that is skipped anyway"
         );
         assert!(
-            !log.iter().any(|line| line.starts_with("准备工具")),
+            !log.iter().any(|line| line.starts_with("Tools: ")),
             "{log:?}"
         );
         assert!(text.contains(&format!("跳过：{reason}")), "{text}");
@@ -805,7 +808,7 @@ async fn the_program_hands_its_plugins_the_tools_it_downloaded() {
         assert_eq!(downloads.asked(), vec![url; ranges.len()]);
         assert_eq!(downloads.ranges(), ranges, "{connections:?} connections");
         assert!(
-            log.contains(&"准备工具：script 1.0 就绪".to_owned()),
+            log.contains(&"Tools: script 1.0 ready".to_owned()),
             "{log:?}"
         );
         assert!(
@@ -835,7 +838,7 @@ async fn ctrl_c_during_the_downloads_ends_the_run_at_once() {
     assert_eq!(code, EXIT_INTERRUPTED);
     assert_eq!(downloads.asked(), ["https://example.invalid/script-x86_64"]);
     assert!(
-        log.contains(&"准备工具：script 1.0 失败：下载已中断".to_owned()),
+        log.contains(&"Tools: script 1.0 failed: download interrupted".to_owned()),
         "{log:?}"
     );
     assert!(
@@ -985,12 +988,12 @@ fn the_list_shows_where_each_plugin_applies() {
 
     assert_eq!(
         String::from_utf8(out).unwrap(),
-        "共 4 个测试项\n\
-         【test】（分组：test）\n\
-         \x20 test.info-dedicated  test.info-dedicated（适用：独立服务器）\n\
-         \x20 test.info-vm  test.info-vm（适用：虚拟机）\n\
-         \x20 test.disk-health  test.disk-health（适用：独立服务器）（工具：smartctl 7.4）\n\
-         \x20 test.numa  test.numa（适用：多个 NUMA 节点）\n"
+        "4 test items\n\
+         [test] (group: test)\n\
+         \x20 test.info-dedicated  test.info-dedicated (applies to: 独立服务器)\n\
+         \x20 test.info-vm  test.info-vm (applies to: 虚拟机)\n\
+         \x20 test.disk-health  test.disk-health (applies to: 独立服务器) (tools: smartctl 7.4)\n\
+         \x20 test.numa  test.numa (applies to: several NUMA nodes)\n"
     );
 }
 
@@ -1000,24 +1003,24 @@ fn the_list_keeps_each_group_together_in_the_reports_order() {
     app::list(&groups(), &mut out);
     assert_eq!(
         String::from_utf8(out).unwrap(),
-        "共 3 个测试项\n\
-         【test】（分组：test）\n\
+        "3 test items\n\
+         [test] (group: test)\n\
          \x20 test.good  test.good\n\
          \x20 test.other  test.other\n\
-         【lone】（分组：lone）\n\
+         [lone] (group: lone)\n\
          \x20 lone  lone\n"
     );
 
     let mut out = Vec::new();
     app::list(&registry::all(), &mut out);
     let text = String::from_utf8(out).unwrap();
-    let headings: Vec<&str> = text.lines().filter(|line| line.starts_with('【')).collect();
+    let headings: Vec<&str> = text.lines().filter(|line| line.starts_with('[')).collect();
     assert_eq!(
         headings,
         [
-            "【CPU 性能】（分组：cpu）",
-            "【内存性能】（分组：memory）",
-            "【硬盘】（分组：disk）"
+            "[CPU 性能] (group: cpu)",
+            "[内存性能] (group: memory)",
+            "[硬盘] (group: disk)"
         ]
     );
     let ids: Vec<&str> = text
@@ -1045,8 +1048,8 @@ fn the_list_keeps_each_group_together_in_the_reports_order() {
     assert_eq!(
         cpu,
         [
-            "  cpu.sysbench  CPU 性能（工具：sysbench 1.0.20）",
-            "  cpu.geekbench  Geekbench 7（工具：geekbench 7.1.0）"
+            "  cpu.sysbench  CPU 性能 (tools: sysbench 1.0.20)",
+            "  cpu.geekbench  Geekbench 7 (tools: geekbench 7.1.0)"
         ],
         "the reporter names the plugins"
     );
@@ -1057,10 +1060,11 @@ fn the_list_keeps_each_group_together_in_the_reports_order() {
     assert_eq!(
         memory,
         [
-            "  memory.sysbench  内存 sysbench（工具：sysbench 1.0.20）",
-            "  memory.stream  内存 STREAM（工具：stream 5.10）",
-            "  memory.latency  内存延迟（工具：multichase 2026.10.01）",
-            "  memory.numa  内存 NUMA（适用：多个 NUMA 节点）（工具：multichase 2026.10.01）"
+            "  memory.sysbench  内存 sysbench (tools: sysbench 1.0.20)",
+            "  memory.stream  内存 STREAM (tools: stream 5.10)",
+            "  memory.latency  内存延迟 (tools: multichase 2026.10.01)",
+            "  memory.numa  内存 NUMA (applies to: several NUMA nodes) \
+             (tools: multichase 2026.10.01)"
         ]
     );
     let disk: Vec<&str> = text
@@ -1070,8 +1074,8 @@ fn the_list_keeps_each_group_together_in_the_reports_order() {
     assert_eq!(
         disk,
         [
-            "  disk.health  硬盘健康（适用：独立服务器）（工具：smartctl 7.5）",
-            "  disk.fio  硬盘性能（工具：fio 3.43）"
+            "  disk.health  硬盘健康 (applies to: 独立服务器) (tools: smartctl 7.5)",
+            "  disk.fio  硬盘性能 (tools: fio 3.43)"
         ]
     );
 }

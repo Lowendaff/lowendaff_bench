@@ -3,6 +3,7 @@
 
 pub mod app;
 pub mod fetcher;
+pub mod locale;
 pub mod network;
 pub mod orchestrator;
 pub mod progress;

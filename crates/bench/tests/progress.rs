@@ -69,22 +69,22 @@ fn the_ready_tools_share_a_line_and_each_failure_has_its_own() {
             ("sysbench".to_owned(), PathBuf::from("/run/tools/sysbench")),
             ("stream".to_owned(), PathBuf::from("/run/tools/stream")),
         ]),
-        failed: BTreeMap::from([("fio".to_owned(), "下载失败：HTTP 404".to_owned())]),
+        failed: BTreeMap::from([("fio".to_owned(), "download failed: HTTP 404".to_owned())]),
     };
     let lines = logged(false, || progress::tools(&tools, &provisioned));
     assert_eq!(
         lines,
         [
-            "准备工具：sysbench 1.0.20、stream 5.10 就绪",
-            "准备工具：fio 3.43 失败：下载失败：HTTP 404",
+            "Tools: sysbench 1.0.20, stream 5.10 ready",
+            "Tools: fio 3.43 failed: download failed: HTTP 404",
         ]
     );
     let none_ready = Provisioned {
         ready: BTreeMap::new(),
-        failed: BTreeMap::from([("fio".to_owned(), "下载失败：HTTP 404".to_owned())]),
+        failed: BTreeMap::from([("fio".to_owned(), "download failed: HTTP 404".to_owned())]),
     };
     let lines = logged(false, || progress::tools(&tools[1..2], &none_ready));
-    assert_eq!(lines, ["准备工具：fio 3.43 失败：下载失败：HTTP 404"]);
+    assert_eq!(lines, ["Tools: fio 3.43 failed: download failed: HTTP 404"]);
 }
 
 fn finished(id: &'static str, status: Status, seconds: Option<f64>) -> Run<Measured> {
@@ -104,7 +104,7 @@ fn plugins_are_logged_by_id_in_the_reports_words() {
     let lines = logged(false, || {
         let mut log = Log;
         log.on_start("memory.stream");
-        log.on_progress("memory.stream", "单线程测试");
+        log.on_progress("memory.stream", "single thread");
         log.on_finish(&finished("memory.stream", Status::Completed, Some(21.3)));
         log.on_finish(&finished(
             "cpu.geekbench",
@@ -115,8 +115,8 @@ fn plugins_are_logged_by_id_in_the_reports_words() {
     assert_eq!(
         lines,
         [
-            "memory.stream 开始",
-            "memory.stream 单线程测试",
+            "memory.stream started",
+            "memory.stream single thread",
             "memory.stream 完成，用时 21.3 秒",
             "cpu.geekbench 跳过：需要 IPv4 网络连接",
         ]
@@ -136,26 +136,26 @@ fn tool_runs_are_logged_with_v_only() {
     assert_eq!(
         logged(true, || Log.on_tool("cpu.sysbench", &run)),
         [
-            "cpu.sysbench 运行 sysbench cpu --threads=1：退出码 1",
-            "cpu.sysbench 输出：FATAL: bad option",
-            "cpu.sysbench 输出：second",
+            "cpu.sysbench ran sysbench cpu --threads=1: exit code 1",
+            "cpu.sysbench output: FATAL: bad option",
+            "cpu.sysbench output: second",
         ]
     );
     let ends = [
-        (ToolEnd::Exit(0), "退出码 0"),
-        (ToolEnd::Signal, "被信号终止"),
+        (ToolEnd::Exit(0), "exit code 0"),
+        (ToolEnd::Signal, "ended by a signal"),
         (
             ToolEnd::TimedOut(Duration::from_secs(60)),
-            "超过 60 秒仍未结束，已停止",
+            "still running after 60 s, stopped",
         ),
-        (ToolEnd::Cancelled, "已中断"),
+        (ToolEnd::Cancelled, "interrupted"),
         (
             ToolEnd::Spawn("No such file or directory (os error 2)".to_owned()),
-            "无法运行：No such file or directory (os error 2)",
+            "cannot run: No such file or directory (os error 2)",
         ),
         (
             ToolEnd::Read("Broken pipe (os error 32)".to_owned()),
-            "无法读取输出：Broken pipe (os error 32)",
+            "cannot read its output: Broken pipe (os error 32)",
         ),
     ];
     for (end, words) in ends {
@@ -166,7 +166,7 @@ fn tool_runs_are_logged_with_v_only() {
         };
         assert_eq!(
             logged(true, || Log.on_tool("disk.fio", &run)),
-            [format!("disk.fio 运行 fio：{words}")]
+            [format!("disk.fio ran fio: {words}")]
         );
     }
 }
@@ -184,7 +184,9 @@ fn download() {
         1,
         &CancellationToken::new(),
         |_url, _range| async {
-            Err::<Part<&[u8]>, DownloadError>(DownloadError::Final("下载失败：离线".to_owned()))
+            Err::<Part<&[u8]>, DownloadError>(DownloadError::Final(
+                "download failed: offline".to_owned(),
+            ))
         },
     ));
     assert_eq!(provisioned.failed.len(), 1);
@@ -194,11 +196,11 @@ fn download() {
 
 #[test]
 fn verbose_adds_each_download_and_the_libraries_stay_silent() {
-    let result = "准备工具：fio 3.43 失败：下载失败：离线";
+    let result = "Tools: fio 3.43 failed: download failed: offline";
     assert_eq!(logged(false, download), [result]);
     assert_eq!(
         logged(true, download),
-        ["下载 https://tools.example/download", result]
+        ["Downloading https://tools.example/download", result]
     );
 }
 
@@ -230,9 +232,9 @@ fn the_host_and_its_network_are_logged_with_masked_addresses() {
     assert_eq!(
         lines,
         [
-            "主机概况：KVM 虚拟机，x86_64",
-            "网络：IPv4 可用；公网地址 203.0.*.*（来自 Cloudflare）",
-            "网络：IPv6 可用；公网地址 2001:db8:*（来自 ipify）",
+            "Host: KVM 虚拟机, x86_64",
+            "Network: IPv4 可用；公网地址 203.0.*.*（来自 Cloudflare）",
+            "Network: IPv6 可用；公网地址 2001:db8:*（来自 ipify）",
         ]
     );
 }

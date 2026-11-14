@@ -5,7 +5,6 @@ use std::fmt;
 use std::io;
 use std::time::Instant;
 
-use bench_api::ToolEnd;
 use bench_api::ToolRun;
 use bench_api::ToolSpec;
 use bench_host::network::Network;
@@ -17,6 +16,7 @@ use tracing_subscriber::fmt::MakeWriter;
 use tracing_subscriber::fmt::format::Writer;
 use tracing_subscriber::fmt::time::FormatTime;
 
+use crate::locale;
 use crate::orchestrator::Observer;
 use crate::orchestrator::Run;
 use crate::provision::Provisioned;
@@ -81,7 +81,7 @@ pub fn init(verbose: bool) {
 /// Logs where the program runs, once the host profile is read.
 pub fn host(profile: &HostProfile) {
     let platform = report::terminal::platform_text(profile.platform);
-    tracing::info!("主机概况：{platform}，{}", profile.arch);
+    tracing::info!("{}", locale::words().host_line(&platform, &profile.arch));
 }
 
 /// Logs each family's reachability and public address. The log masks addresses always: it is
@@ -89,7 +89,7 @@ pub fn host(profile: &HostProfile) {
 pub fn network(network: &Network) {
     for (name, family) in [("IPv4", &network.ipv4), ("IPv6", &network.ipv6)] {
         let text = report::terminal::family_text(family, name, false);
-        tracing::info!("网络：{name} {text}");
+        tracing::info!("{}", locale::words().network_line(name, &text));
     }
 }
 
@@ -102,11 +102,12 @@ pub fn tools(tools: &[ToolSpec], provisioned: &Provisioned) {
         .map(|tool| format!("{} {}", tool.name, tool.version))
         .collect();
     if !ready.is_empty() {
-        tracing::info!("准备工具：{} 就绪", ready.join("、"));
+        tracing::info!("{}", locale::words().tools_ready(&ready));
     }
     for tool in tools {
         if let Some(reason) = provisioned.failed.get(tool.name) {
-            tracing::info!("准备工具：{} {} 失败：{reason}", tool.name, tool.version);
+            let line = locale::words().tool_failed(tool.name, tool.version, reason);
+            tracing::info!("{line}");
         }
     }
 }
@@ -117,38 +118,24 @@ pub struct Log;
 
 impl Observer<Measured> for Log {
     fn on_start(&mut self, id: &'static str) {
-        tracing::info!("{id} 开始");
+        tracing::info!("{}", locale::words().item_started(id));
     }
 
     fn on_progress(&mut self, id: &'static str, line: &str) {
-        tracing::info!("{id} {line}");
+        tracing::info!("{}", locale::words().item_progress(id, line));
     }
 
     fn on_tool(&mut self, id: &'static str, run: &ToolRun) {
-        tracing::debug!(
-            "{id} 运行 {}：{}",
-            run.command.join(" "),
-            end_text(&run.end)
-        );
+        let command = run.command.join(" ");
+        tracing::debug!("{}", locale::words().tool_run(id, &command, &run.end));
         for line in &run.tail {
-            tracing::debug!("{id} 输出：{line}");
+            tracing::debug!("{}", locale::words().tool_output(id, line));
         }
     }
 
     fn on_finish(&mut self, run: &Run<Measured>) {
-        tracing::info!("{} {}", run.id, report::terminal::run_status(run));
-    }
-}
-
-/// How a tool's run ended, in the log's words.
-fn end_text(end: &ToolEnd) -> String {
-    match end {
-        ToolEnd::Exit(code) => format!("退出码 {code}"),
-        ToolEnd::Signal => "被信号终止".to_owned(),
-        ToolEnd::TimedOut(limit) => format!("超过 {} 秒仍未结束，已停止", limit.as_secs()),
-        ToolEnd::Cancelled => "已中断".to_owned(),
-        ToolEnd::Spawn(error) => format!("无法运行：{error}"),
-        ToolEnd::Read(error) => format!("无法读取输出：{error}"),
+        let status = report::terminal::run_status(run);
+        tracing::info!("{}", locale::words().item_ended(run.id, &status));
     }
 }
 

@@ -1,0 +1,78 @@
+//! The command line's help, `--list`, and the errors of the command line, the config file and the
+//! run itself.
+
+use std::fmt::Display;
+use std::path::Path;
+
+/// The command line's help, `--list`, and the errors around the run.
+pub trait ProgramWords {
+    /// What the program is, at the top of its help.
+    fn about(&self) -> String;
+    /// The help of `--only`.
+    fn help_only(&self) -> String;
+    /// The help of `--skip`.
+    fn help_skip(&self) -> String;
+    /// The help of `--config`.
+    fn help_config(&self) -> String;
+    /// The help of `--work-dir`.
+    fn help_work_dir(&self) -> String;
+    /// The help of `--list`.
+    fn help_list(&self) -> String;
+    /// The help of `-v`.
+    fn help_verbose(&self) -> String;
+    /// The help of `--show-ip`.
+    fn help_show_ip(&self) -> String;
+    /// The help of `--download-connections`.
+    fn help_download_connections(&self) -> String;
+    /// Items written as one list, as in "sysbench 1.0.20, fio 3.43".
+    fn list(&self, items: &[String]) -> String;
+    /// The first line of `--list`: how many test items there are.
+    fn item_count(&self, count: usize) -> String;
+    /// A group's line in `--list`: its title, and the name that `--only` and `--skip` take.
+    fn group_line(&self, title: &str, name: &str) -> String;
+    /// An item's line in `--list`: its id and name, the platforms that it applies to (none when
+    /// it applies to every one), whether it needs several NUMA nodes, and the tools that it runs
+    /// with their versions.
+    fn item_line(
+        &self,
+        id: &str,
+        name: &str,
+        platforms: &[String],
+        numa: bool,
+        tools: &[String],
+    ) -> String;
+    /// A name for `--only` or `--skip` that is no test item or group.
+    fn unknown_selection(&self, name: &str) -> String;
+    /// A config file that cannot be read.
+    fn config_unreadable(&self, path: &Path, error: &dyn Display) -> String;
+    /// A config file that is no valid TOML.
+    fn config_unparsable(&self, path: &Path, error: &dyn Display) -> String;
+    /// A top-level key of a config file other than `plugins`.
+    fn config_unknown_key(&self, key: &str) -> String;
+    /// A `plugins` key of a config file that is no table.
+    fn config_plugins_not_table(&self) -> String;
+    /// A config file's table for a test item that does not exist.
+    fn config_unknown_item(&self, id: &str) -> String;
+    /// A test item's settings that it does not accept.
+    fn config_invalid(&self, id: &str, error: &dyn Display) -> String;
+    /// A test item that the selection names but the registry lacks.
+    fn unknown_item(&self, id: &str) -> String;
+    /// The program, run by another user than root.
+    fn not_root(&self) -> String;
+    /// The async runtime, which could not start.
+    fn runtime_failed(&self, error: &dyn Display) -> String;
+    /// The host profile, which could not be read.
+    fn host_failed(&self, error: &dyn Display) -> String;
+    /// The network probe, which could not finish.
+    fn network_failed(&self, error: &dyn Display) -> String;
+    /// The run directory, which could not be created under `dir`.
+    fn run_dir_failed(&self, dir: &Path, error: &dyn Display) -> String;
+    /// The tools' directory, which could not be created.
+    fn tools_dir_failed(&self, error: &dyn Display) -> String;
+    /// The HTTP client, which could not be set up.
+    fn http_client_failed(&self, error: &dyn Display) -> String;
+    /// The TLS configuration, which was refused.
+    fn tls_failed(&self, error: &dyn Display) -> String;
+    /// A plugin's panic whose message is no text.
+    fn panic_without_text(&self) -> String;
+}

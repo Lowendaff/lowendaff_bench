@@ -175,7 +175,7 @@ async fn an_archive_that_fails_its_check_is_not_unpacked() {
         .await
         .unwrap_err();
 
-    assert!(err.starts_with("SHA-256 不符："), "{err}");
+    assert!(err.starts_with("SHA-256 mismatch: "), "{err}");
     assert!(names(dir.path()).is_empty(), "{:?}", names(dir.path()));
 }
 
@@ -215,7 +215,10 @@ async fn archives_with_entries_that_could_escape_are_refused_and_leave_nothing()
         let err = provision::install(&bytes[..], &GEEKBENCH, &asset(&bytes), dir.path())
             .await
             .unwrap_err();
-        assert!(err.starts_with("压缩包里有不支持的条目："), "{case}: {err}");
+        assert!(
+            err.starts_with("the archive holds an unsupported entry: "),
+            "{case}: {err}"
+        );
         assert!(
             names(dir.path()).is_empty(),
             "{case}: {:?}",
@@ -232,7 +235,7 @@ async fn an_archive_without_the_executable_is_refused() {
         .await
         .unwrap_err();
 
-    assert_eq!(err, "压缩包里没有 geekbench7");
+    assert_eq!(err, "the archive holds no geekbench7");
     assert!(names(dir.path()).is_empty(), "{:?}", names(dir.path()));
 }
 
@@ -244,6 +247,6 @@ async fn a_damaged_archive_is_refused() {
         .await
         .unwrap_err();
 
-    assert!(err.starts_with("压缩包损坏："), "{err}");
+    assert!(err.starts_with("damaged archive: "), "{err}");
     assert!(names(dir.path()).is_empty(), "{:?}", names(dir.path()));
 }

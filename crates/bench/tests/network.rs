@@ -161,7 +161,10 @@ async fn verbose_logs_each_answer_with_the_address_masked() {
     assert!(network.ipv4.reachable());
     assert_eq!(
         log,
-        ["网络：down 返回 HTTP 503", "网络：traced 返回 IPv4 8.8.*.*"]
+        [
+            "Network: down 返回 HTTP 503",
+            "Network: traced returned IPv4 8.8.*.*"
+        ]
     );
 }
 

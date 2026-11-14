@@ -91,7 +91,7 @@ impl Plugin for Counts {
 
     async fn run(&self, ctx: &Context<Count>) -> Result<Count, Stop<Why>> {
         for count in 1..=2 {
-            ctx.progress(format!("第 {count} 次"));
+            ctx.progress(format!("attempt {count}"));
             ctx.ran(ToolRun {
                 command: vec!["count".to_owned(), count.to_string()],
                 end: ToolEnd::Exit(0),
@@ -144,7 +144,7 @@ impl Plugin for Slow {
         ctx.publish(&Count(1));
         ctx.cancel_token().cancelled().await;
         ctx.publish(&Count(2));
-        ctx.progress("收到停止信号");
+        ctx.progress("stop received");
         Err(Stop::Failed(Why::Broken))
     }
 }
@@ -289,7 +289,7 @@ impl Plugin for WaitsToBeSeen {
     const DESCRIPTOR: Descriptor = descriptor("test.waits", 10_000);
 
     async fn run(&self, ctx: &Context<Count>) -> Result<Count, Stop<Why>> {
-        ctx.progress("等待显示");
+        ctx.progress("waiting to show");
         self.shown.cancelled().await;
         Ok(Count(1))
     }
@@ -507,9 +507,9 @@ async fn a_returned_result_replaces_what_was_published() {
         recorder.0,
         [
             "start test.counts",
-            "test.counts 第 1 次",
+            "test.counts attempt 1",
             "test.counts ran count 1",
-            "test.counts 第 2 次",
+            "test.counts attempt 2",
             "test.counts ran count 2",
             "finish test.counts Completed"
         ],
@@ -552,7 +552,7 @@ async fn a_timeout_keeps_what_was_published_during_the_grace_period() {
         "the second publish came after the deadline, before the grace period ended"
     );
     assert!(
-        recorder.0.contains(&"test.slow 收到停止信号".to_owned()),
+        recorder.0.contains(&"test.slow stop received".to_owned()),
         "progress from the grace period is drained: {:?}",
         recorder.0
     );
@@ -926,12 +926,10 @@ fn config_errors_are_reported_together_before_anything_runs() {
     assert!(
         errors
             .iter()
-            .any(|e| e == "配置文件中有未知测试项 `test.goood`")
+            .any(|e| e == "the config file has a table for the unknown test item `test.goood`")
     );
-    assert!(errors.iter().any(|e| e == "未知测试项 `test.nope`"));
-    assert!(
-        errors
-            .iter()
-            .any(|e| e.starts_with("测试项 test.good 的配置无效：invalid type: string \"many\""))
-    );
+    assert!(errors.iter().any(|e| e == "unknown test item `test.nope`"));
+    assert!(errors.iter().any(|e| {
+        e.starts_with("invalid settings for test item test.good: invalid type: string \"many\"")
+    }));
 }

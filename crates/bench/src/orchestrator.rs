@@ -25,6 +25,7 @@ use tokio::task::JoinError;
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
 
+use crate::locale;
 use crate::registry::Entry;
 use crate::results::Measured;
 use crate::results::Report;
@@ -190,17 +191,17 @@ pub fn plan(
     let mut errors: Vec<String> = config
         .keys()
         .filter(|key| !registry.iter().any(|entry| entry.id == key.as_str()))
-        .map(|key| format!("配置文件中有未知测试项 `{key}`"))
+        .map(|key| locale::words().config_unknown_item(key))
         .collect();
     let mut planned = Vec::new();
     for id in selection {
         let Some(entry) = registry.iter().find(|entry| entry.id == *id) else {
-            errors.push(format!("未知测试项 `{id}`"));
+            errors.push(locale::words().unknown_item(id));
             continue;
         };
         match entry.build(config.get(*id)) {
             Ok(plugin) => planned.push(plugin),
-            Err(err) => errors.push(format!("测试项 {id} 的配置无效：{err}")),
+            Err(err) => errors.push(locale::words().config_invalid(id, &err)),
         }
     }
     if errors.is_empty() {
@@ -514,5 +515,5 @@ fn panic_message(payload: Box<dyn Any + Send>) -> String {
         .downcast_ref::<&str>()
         .map(|message| (*message).to_owned())
         .or_else(|| payload.downcast_ref::<String>().cloned())
-        .unwrap_or_else(|| "（非文本的 panic 信息）".into())
+        .unwrap_or_else(|| locale::words().panic_without_text())
 }

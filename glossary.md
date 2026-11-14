@@ -13,15 +13,12 @@ appears there (README "Gates", Rules).
 | 硬盘性能 | Disk performance | an item's title |
 | 系统信息 | System | the report's first section, with system information |
 | 汇总 | Summary | the report's last section: how each item ended |
-| 准备工具 | Tool preparation | the progress log: the tools' downloads, before the items run |
 | 运行环境 | Environment | the line that says where the program runs |
 | 独立服务器 | Dedicated server | `--list`: the platforms that an item applies to |
 | 虚拟机 | Virtual machine | the environment line; `--list` |
 | 容器 | Container | the environment line; `--list` |
 | 未检测到虚拟化 | No virtualization detected | the environment line of a dedicated server |
 | 本机不适用 | Not applicable here | the summary: the items made for other platforms |
-| 就绪 | Ready | tool preparation: a tool that downloaded and verified |
-| 开始 | Started | the progress log: an item that starts |
 | 完成 | Completed | an item's last line; the summary; the progress log |
 | 跳过 | Skipped | an item's last line; the summary; the progress log |
 | 失败 | Failed | an item's last line; the summary; the progress log, also for a tool |

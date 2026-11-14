@@ -8,6 +8,7 @@ use bench::app;
 use bench::app::Cli;
 use bench::app::ReportOptions;
 use bench::fetcher::Fetcher;
+use bench::locale;
 use bench::network;
 use bench::progress;
 use bench::registry;
@@ -24,7 +25,7 @@ fn main() -> ExitCode {
         return ExitCode::SUCCESS;
     }
     if !rustix::process::geteuid().is_root() {
-        eprintln!("lowendaff-bench 必须以 root 身份运行");
+        eprintln!("{}", locale::words().not_root());
         return ExitCode::from(app::EXIT_USAGE);
     }
     progress::init(cli.verbose);
@@ -46,7 +47,7 @@ fn main() -> ExitCode {
     {
         Ok(runtime) => runtime,
         Err(err) => {
-            eprintln!("无法启动运行时：{err}");
+            eprintln!("{}", locale::words().runtime_failed(&err));
             return ExitCode::from(app::EXIT_USAGE);
         }
     };
@@ -58,11 +59,11 @@ fn main() -> ExitCode {
         let work_dir = cli.work_dir.clone();
         let mut host = tokio::task::spawn_blocking(move || HostProfile::collect(&work_dir))
             .await
-            .map_err(|err| format!("无法读取主机概况：{err}"))?;
+            .map_err(|err| locale::words().host_failed(&err))?;
         progress::host(&host);
         host.network = network
             .await
-            .map_err(|err| format!("无法探测网络：{err}"))?;
+            .map_err(|err| locale::words().network_failed(&err))?;
         progress::network(&host.network);
         let fetcher = Fetcher::try_new()?;
         let report = ReportOptions {
@@ -109,7 +110,7 @@ async fn watch_interrupt(cancel: CancellationToken) {
         return;
     }
     cancel.cancel();
-    tracing::info!("收到中断信号，正在停止当前测试；再按一次 Ctrl-C 立即退出");
+    tracing::info!("{}", locale::words().interrupt());
     if signal::ctrl_c().await.is_ok() {
         std::process::exit(i32::from(app::EXIT_INTERRUPTED));
     }

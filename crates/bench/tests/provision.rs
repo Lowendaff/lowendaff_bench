@@ -110,7 +110,7 @@ async fn install_rejects_a_hash_mismatch_and_leaves_nothing() {
         .await
         .unwrap_err();
 
-    assert!(err.starts_with("SHA-256 不符：应为 0000"), "{err}");
+    assert!(err.starts_with("SHA-256 mismatch: 0000"), "{err}");
     assert!(entries(dir.path()).is_empty());
 }
 
@@ -126,7 +126,7 @@ async fn install_stops_reading_past_the_declared_size() {
     .await
     .unwrap_err();
 
-    assert_eq!(err, "大小超过声明的 23 字节");
+    assert_eq!(err, "larger than the pinned 23 bytes");
     assert!(entries(dir.path()).is_empty());
 }
 
@@ -142,7 +142,7 @@ async fn install_rejects_a_truncated_download() {
     .await
     .unwrap_err();
 
-    assert_eq!(err, "大小不符：应为 29 字节，实际 24 字节");
+    assert_eq!(err, "size mismatch: 29 bytes pinned, 24 bytes came");
     assert!(entries(dir.path()).is_empty());
 }
 
@@ -194,7 +194,7 @@ async fn provision_all_reports_every_failure_with_its_reason() {
     assert_eq!(
         provisioned.failed,
         BTreeMap::from([
-            ("iperf3".to_owned(), "没有适用于 x86_64 的版本".to_owned()),
+            ("iperf3".to_owned(), "no build for x86_64".to_owned()),
             ("sysbench".to_owned(), "HTTP 404".to_owned()),
         ])
     );
@@ -402,10 +402,12 @@ impl Served {
             asked.len()
         };
         if self.gone {
-            return Err(DownloadError::Final("下载失败：HTTP 404".to_owned()));
+            return Err(DownloadError::Final("download failed: HTTP 404".to_owned()));
         }
         if answered <= self.busy {
-            return Err(DownloadError::Transient("下载失败：HTTP 503".to_owned()));
+            return Err(DownloadError::Transient(
+                "download failed: HTTP 503".to_owned(),
+            ));
         }
         let ranged = range.filter(|_| answered <= self.serves_ranges);
         let span = ranged.clone().unwrap_or(0..self.body.len() as u64);
@@ -415,7 +417,9 @@ impl Served {
         }
         if ranged.is_some() {
             if self.failing == Some(span.start) {
-                return Err(DownloadError::Transient("下载失败：HTTP 503".to_owned()));
+                return Err(DownloadError::Transient(
+                    "download failed: HTTP 503".to_owned(),
+                ));
             }
             if self.short == Some(span.start) {
                 end -= 1;
@@ -545,9 +549,9 @@ async fn a_large_file_comes_in_byte_ranges_one_connection_each() {
         assert_eq!(
             outcome.log,
             [
-                "下载 https://tools.example/big".to_owned(),
-                format!("big 1.0 分 {count} 段同时下载"),
-                "准备工具：big 1.0 就绪".to_owned(),
+                "Downloading https://tools.example/big".to_owned(),
+                format!("big 1.0 in {count} byte ranges at once"),
+                "Tools: big 1.0 ready".to_owned(),
             ]
         );
     }
@@ -572,7 +576,10 @@ async fn a_file_under_two_ranges_comes_whole_and_one_connection_takes_one_range(
         if asked.len() == 1 {
             assert_eq!(
                 outcome.log,
-                ["下载 https://tools.example/big", "准备工具：big 1.0 就绪"],
+                [
+                    "Downloading https://tools.example/big",
+                    "Tools: big 1.0 ready"
+                ],
                 "one range or a whole file has no line of ranges"
             );
         }
@@ -595,7 +602,7 @@ async fn a_server_that_ignores_ranges_sends_the_whole_file_over_one_connection()
         "one request, for the first range"
     );
     assert_eq!(
-        outcome.log[1], "big 1.0：服务器不支持分段下载，改用一个连接",
+        outcome.log[1], "big 1.0: the server does not serve byte ranges; one connection instead",
         "{:?}",
         outcome.log
     );
@@ -606,7 +613,7 @@ fn whole_retries(failed: u32) -> Vec<String> {
     (1..=failed)
         .map(|attempt| {
             format!(
-                "big 1.0 第 {attempt} 次下载未成功，{} 秒后重试：下载中断：\
+                "big 1.0: attempt {attempt} failed; trying again in {} s: download broke off: \
                  the connection broke off",
                 1 << (attempt - 1)
             )
@@ -623,9 +630,9 @@ async fn a_whole_file_that_breaks_off_starts_over_after_waits_of_1_2_and_4_secon
     assert_eq!(outcome.installed.as_deref(), Some(body));
     assert_eq!(served.asked(), [None, None, None, None]);
     assert_eq!(outcome.took, Duration::from_secs(7));
-    let mut log = vec!["下载 https://tools.example/big".to_owned()];
+    let mut log = vec!["Downloading https://tools.example/big".to_owned()];
     log.extend(whole_retries(3));
-    log.push("准备工具：big 1.0 就绪".to_owned());
+    log.push("Tools: big 1.0 ready".to_owned());
     assert_eq!(outcome.log, log);
 }
 
@@ -637,7 +644,7 @@ async fn a_whole_file_that_keeps_breaking_off_fails_after_four_attempts() {
 
     assert_eq!(
         outcome.provisioned.failed["big"],
-        "下载中断：the connection broke off"
+        "download broke off: the connection broke off"
     );
     assert_eq!(served.asked(), [None, None, None, None]);
     assert_eq!(outcome.took, Duration::from_secs(7));
@@ -658,7 +665,8 @@ async fn a_whole_file_that_ends_short_starts_over() {
     assert_eq!(served.asked(), [None, None]);
     assert_eq!(
         outcome.log[1],
-        "big 1.0 第 1 次下载未成功，1 秒后重试：大小不符：应为 1000 字节，实际 999 字节"
+        "big 1.0: attempt 1 failed; trying again in 1 s: size mismatch: 1000 bytes pinned, \
+         999 bytes came"
     );
 }
 
@@ -683,7 +691,7 @@ async fn failures_before_the_first_answer_count_against_what_comes_after_it() {
 
         assert_eq!(
             outcome.provisioned.failed["big"],
-            "下载中断：the connection broke off"
+            "download broke off: the connection broke off"
         );
         assert_eq!(outcome.took, Duration::from_secs(7));
         assert_eq!(outcome.left, Vec::<String>::new());
@@ -698,8 +706,8 @@ async fn a_range_that_breaks_off_or_ends_short_goes_on_from_its_first_missing_by
             Served::breaking(body, 2 * MIN_RANGE, &[1000]),
             MIN_RANGE + 1000..2 * MIN_RANGE,
             format!(
-                "big 1.0 第 2 段第 1 次下载未成功，1 秒后从第 {} 字节续传：下载中断：\
-                 the connection broke off",
+                "big 1.0: byte range 2, attempt 1 failed; going on from byte {} in 1 s: \
+                 download broke off: the connection broke off",
                 MIN_RANGE + 1000
             ),
         ),
@@ -710,8 +718,8 @@ async fn a_range_that_breaks_off_or_ends_short_goes_on_from_its_first_missing_by
             },
             3 * MIN_RANGE - 1..3 * MIN_RANGE,
             format!(
-                "big 1.0 第 3 段第 1 次下载未成功，1 秒后从第 {} 字节续传：大小不符：一段应为 \
-                 {MIN_RANGE} 字节，实际 {} 字节",
+                "big 1.0: byte range 3, attempt 1 failed; going on from byte {} in 1 s: size \
+                 mismatch: a byte range of {MIN_RANGE} bytes came with {} bytes",
                 3 * MIN_RANGE - 1,
                 MIN_RANGE - 1
             ),
@@ -742,8 +750,8 @@ async fn a_range_that_brought_a_mib_before_breaking_off_starts_its_count_afresh(
     let retries: Vec<String> = (1..=5)
         .map(|count| {
             format!(
-                "big 1.0 第 1 段第 1 次下载未成功，1 秒后从第 {} 字节续传：下载中断：\
-                 the connection broke off",
+                "big 1.0: byte range 1, attempt 1 failed; going on from byte {} in 1 s: \
+                 download broke off: the connection broke off",
                 count * MIN_RANGE
             )
         })
@@ -760,7 +768,7 @@ async fn a_range_that_breaks_off_before_a_mib_counts_each_break() {
 
     assert_eq!(
         outcome.provisioned.failed["big"],
-        "下载中断：the connection broke off"
+        "download broke off: the connection broke off"
     );
     let from: Vec<Option<Range<u64>>> = (0..4).map(|count| Some(count * 1000..size)).collect();
     assert_eq!(served.asked(), from);
@@ -792,8 +800,8 @@ async fn a_busy_server_is_asked_again_for_the_first_range() {
     assert_eq!(
         outcome.log[1..3],
         [
-            "big 1.0 第 1 次下载未成功，1 秒后重试：下载失败：HTTP 503",
-            "big 1.0 第 2 次下载未成功，2 秒后重试：下载失败：HTTP 503",
+            "big 1.0: attempt 1 failed; trying again in 1 s: download failed: HTTP 503",
+            "big 1.0: attempt 2 failed; trying again in 2 s: download failed: HTTP 503",
         ]
     );
 
@@ -803,7 +811,10 @@ async fn a_busy_server_is_asked_again_for_the_first_range() {
     };
     let outcome = provision_from(pinned_to(body), &served, 32).await;
 
-    assert_eq!(outcome.provisioned.failed["big"], "下载失败：HTTP 503");
+    assert_eq!(
+        outcome.provisioned.failed["big"],
+        "download failed: HTTP 503"
+    );
     assert_eq!(
         served.asked(),
         vec![first; 4],
@@ -821,7 +832,10 @@ async fn a_range_that_keeps_failing_fails_the_tool_after_four_attempts_and_leave
     };
     let outcome = provision_from(pinned_to(body), &served, 32).await;
 
-    assert_eq!(outcome.provisioned.failed["big"], "下载失败：HTTP 503");
+    assert_eq!(
+        outcome.provisioned.failed["big"],
+        "download failed: HTTP 503"
+    );
     let again = served
         .asked()
         .into_iter()
@@ -841,21 +855,21 @@ async fn failures_that_would_end_the_same_way_are_not_tried_again() {
                 gone: true,
                 ..Served::new(body)
             },
-            "下载失败：HTTP 404".to_owned(),
+            "download failed: HTTP 404".to_owned(),
         ),
         (
             Served {
                 long: Some(MIN_RANGE),
                 ..Served::new(body)
             },
-            format!("大小超过一段应有的 {MIN_RANGE} 字节"),
+            format!("a byte range larger than its {MIN_RANGE} bytes"),
         ),
         (
             Served {
                 serves_ranges: 1,
                 ..Served::new(body)
             },
-            "下载失败：服务器不再分段返回".to_owned(),
+            "download failed: the server stopped serving byte ranges".to_owned(),
         ),
     ];
     for (served, reason) in wrong {
@@ -888,7 +902,7 @@ async fn ranges_that_do_not_add_up_to_the_pinned_file_fail_and_leave_nothing() {
     let reason = &outcome.provisioned.failed["big"];
     assert!(
         reason.starts_with(&format!(
-            "SHA-256 不符：应为 {}，实际 ",
+            "SHA-256 mismatch: {} pinned, ",
             tool.assets[0].sha256
         )),
         "{reason}"
@@ -924,7 +938,7 @@ async fn ctrl_c_during_a_wait_ends_the_download_at_once() {
     .await;
 
     assert_eq!(started.elapsed(), Duration::from_millis(500));
-    assert_eq!(provisioned.failed["big"], "下载已中断");
+    assert_eq!(provisioned.failed["big"], "download interrupted");
     assert_eq!(served.asked(), [None], "the second attempt never starts");
     assert_eq!(entries(dir.path()), Vec::<String>::new());
     interrupt.await.expect("the interrupt runs");
@@ -961,7 +975,7 @@ async fn ctrl_c_stops_the_download_under_way_and_the_tools_after_it() {
     assert_eq!(provisioned.ready, BTreeMap::new());
     assert_eq!(
         provisioned.failed,
-        BTreeMap::from([("big".to_owned(), "下载已中断".to_owned())])
+        BTreeMap::from([("big".to_owned(), "download interrupted".to_owned())])
     );
     let asked = asked
         .into_inner()

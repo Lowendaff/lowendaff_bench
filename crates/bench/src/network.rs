@@ -25,6 +25,7 @@ use reqwest::Url;
 use tokio::net::TcpStream;
 
 use crate::fetcher;
+use crate::locale;
 use crate::report;
 
 /// Public DNS anycast addresses, Cloudflare's and AliDNS's, on the HTTPS port.
@@ -169,7 +170,11 @@ async fn address(v6: bool, sources: &[Source]) -> Address {
         let name = if v6 { "IPv6" } else { "IPv4" };
         match answer {
             Ok(address) => {
-                tracing::debug!("网络：{} 返回 {name} {}", source.name, mask(address));
+                let masked = mask(address);
+                tracing::debug!(
+                    "{}",
+                    locale::words().network_source(source.name, name, &masked)
+                );
                 return Address::Found {
                     address,
                     source: source.name,
@@ -177,7 +182,7 @@ async fn address(v6: bool, sources: &[Source]) -> Address {
             }
             Err(why) => {
                 let text = report::terminal::why_text(source.name, why, name);
-                tracing::debug!("网络：{text}");
+                tracing::debug!("{}", locale::words().network_note(&text));
                 failed.push((source.name, why));
             }
         }

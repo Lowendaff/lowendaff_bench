@@ -20,6 +20,7 @@ use rustls::crypto::ring;
 use tokio::io::AsyncRead;
 use tokio_util::io::StreamReader;
 
+use crate::locale;
 use crate::provision::DownloadError;
 use crate::provision::Part;
 
@@ -49,7 +50,7 @@ impl Fetcher {
         }
         let client = builder
             .build()
-            .map_err(|err| format!("HTTP 客户端初始化失败：{err}"))?;
+            .map_err(|err| locale::words().http_client_failed(&err))?;
         Ok(Self { client })
     }
 
@@ -72,13 +73,12 @@ impl Fetcher {
             let bytes = format!("bytes={}-{}", range.start, range.end.saturating_sub(1));
             request = request.header(header::RANGE, bytes);
         }
-        let response = request
-            .send()
-            .await
-            .map_err(|err| DownloadError::Transient(format!("下载失败：{err}{}", hint())))?;
+        let response = request.send().await.map_err(|err| {
+            DownloadError::Transient(locale::words().request_failed(&err, &hint()))
+        })?;
         let status = response.status();
         if !status.is_success() {
-            let reason = format!("下载失败：HTTP {}", status.as_u16());
+            let reason = locale::words().http_status(status.as_u16());
             let busy = status == StatusCode::REQUEST_TIMEOUT
                 || status == StatusCode::TOO_MANY_REQUESTS
                 || status.is_server_error();
@@ -95,9 +95,7 @@ impl Fetcher {
                 range.as_ref(),
             )
         {
-            return Err(DownloadError::Final(
-                "下载失败：服务器返回的不是所要的那一段".to_owned(),
-            ));
+            return Err(DownloadError::Final(locale::words().wrong_range()));
         }
         let read_hint = hint();
         let body = response
@@ -143,7 +141,7 @@ pub fn builder() -> Result<ClientBuilder, String> {
     };
     let tls = ClientConfig::builder_with_provider(Arc::new(ring::default_provider()))
         .with_safe_default_protocol_versions()
-        .map_err(|err| format!("TLS 初始化失败：{err}"))?
+        .map_err(|err| locale::words().tls_failed(&err))?
         .with_root_certificates(roots)
         .with_no_client_auth();
     Ok(Client::builder()
@@ -160,8 +158,8 @@ pub fn proxy_hint(lookup: impl Fn(&str) -> Option<String>) -> String {
         .into_iter()
         .find(|name| lookup(name).is_some_and(|value| !value.is_empty()));
     match set {
-        Some(name) => format!("；本机设置了 {name}，请确认这个代理可用"),
-        None => "；可设置环境变量 HTTPS_PROXY 或 ALL_PROXY 使用代理".to_owned(),
+        Some(name) => locale::words().proxy_set(name),
+        None => locale::words().proxy_unset(),
     }
 }
 

@@ -25,7 +25,7 @@ shift
 [ "$(head -c 4 "$bin" | od -An -tx1 | tr -d ' \n')" = 7f454c46 ] || fail "$bin is not an ELF executable"
 # ldd prints "not a dynamic executable" for static binaries, "statically linked" for static-pie.
 ldd "$bin" 2>&1 | grep -Eq 'not a dynamic executable|statically linked' || fail "$bin is not statically linked"
-"$bin" --list | grep -q '个测试项' || fail "--list printed no plugin count"
+"$bin" --list | grep -Eq '^[0-9]+ test items?$' || fail "--list printed no plugin count"
 
 # Commands that run the binary as root and as an unprivileged user. They are split on
 # purpose, so they stay unquoted below.
@@ -45,7 +45,7 @@ code=$?
 set -e
 [ "$code" -eq 2 ] || fail "non-root run exited with $code, expected 2"
 case $refusal in
-    *"必须以 root 身份运行"*) ;;
+    *"must run as root"*) ;;
     *) fail "non-root run exited with 2 but not at the root check: $refusal" ;;
 esac
 
@@ -60,11 +60,11 @@ output=$($as_root "$bin" --work-dir "$work" "$@" 2>"$log") || {
 cat "$log" >&2
 printf '%s\n' "$output"
 stamp='^\[[0-9][0-9]:[0-9][0-9]:[0-9][0-9]\] '
-grep -q "${stamp}主机概况：" "$log" || fail "stderr shows no host"
-grep -q "${stamp}网络：IPv4 " "$log" || fail "stderr shows no network"
+grep -q "${stamp}Host: " "$log" || fail "stderr shows no host"
+grep -q "${stamp}Network: IPv4 " "$log" || fail "stderr shows no network"
 items=$(printf '%s\n' "$output" | sed -n 's/^共 \([0-9]*\) 项.*/\1/p')
 if [ "${items:-0}" -gt 0 ]; then
-    grep -q "${stamp}[a-z][a-z0-9.-]* 开始\$" "$log" || fail "stderr shows no test item starting"
+    grep -q "${stamp}[a-z][a-z0-9.-]* started\$" "$log" || fail "stderr shows no test item starting"
     grep -q "${stamp}[a-z][a-z0-9.-]* 完成，用时 " "$log" ||
         fail "stderr shows no test item completing"
 fi

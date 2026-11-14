@@ -26,6 +26,8 @@ use tokio::fs;
 use tokio::fs::File;
 use tokio::io::AsyncRead;
 
+use crate::locale;
+use crate::locale::Retry;
 use crate::progress;
 
 /// Verified tools by name, plus the user-facing reason for every tool that failed
@@ -81,14 +83,15 @@ struct Attempts {
 }
 
 impl Attempts {
-    /// After a failed attempt: logs the retry in `retry`'s words and waits, 1, 2 and then 4
+    /// After a failed attempt at `tool`'s download: logs the retry and waits, 1, 2 and then 4
     /// seconds, or gives the reason when the failure would end the same way again or the
-    /// attempts are used up. `retry` gets the number of the attempt that failed and the seconds
-    /// of the wait.
+    /// attempts are used up. `range` is the byte range's number, from 1, and the byte that the
+    /// next attempt goes on from; `None` for a whole file.
     async fn again(
         &mut self,
         error: DownloadError,
-        retry: impl FnOnce(u32, u64) -> String,
+        tool: &ToolSpec,
+        range: Option<(usize, u64)>,
     ) -> Result<(), String> {
         let reason = match error {
             DownloadError::Final(reason) => return Err(reason),
@@ -99,7 +102,15 @@ impl Attempts {
             return Err(reason);
         }
         let wait = FIRST_WAIT * 2_u32.pow(self.failed - 1);
-        tracing::debug!("{}：{reason}", retry(self.failed, wait.as_secs()));
+        let retry = Retry {
+            tool: tool.name,
+            version: tool.version,
+            range,
+            attempt: self.failed,
+            wait: wait.as_secs(),
+            reason: &reason,
+        };
+        tracing::debug!("{}", locale::words().retry(&retry));
         tokio::time::sleep(wait).await;
         Ok(())
     }
@@ -142,9 +153,9 @@ where
             break;
         }
         let installed = match tool.asset_for(arch) {
-            None => Err(format!("没有适用于 {arch} 的版本")),
+            None => Err(locale::words().no_build(arch)),
             Some(asset) => {
-                tracing::debug!("下载 {}", asset.url);
+                tracing::debug!("{}", locale::words().download(asset.url));
                 download(&fetch, tool, asset, dir, connections, cancel).await
             }
         };
@@ -180,7 +191,7 @@ where
     let partial = partial_path(dir, tool);
     let written = tokio::select! {
         written = fetch_checked(fetch, tool, asset, &partial, connections) => written,
-        () = cancel.cancelled() => Err("下载已中断".to_owned()),
+        () = cancel.cancelled() => Err(locale::words().download_interrupted()),
     };
     finish(written, &partial, tool, dir).await
 }
@@ -210,42 +221,22 @@ where
     let first = loop {
         match fetch(asset.url, Some(ranges[0].clone())).await {
             Ok(part) => break part,
-            Err(error) => {
-                attempts
-                    .again(error, |failed, wait| whole_retry(tool, failed, wait))
-                    .await?
-            }
+            Err(error) => attempts.again(error, tool, None).await?,
         }
     };
     match first {
         Part::Whole(body) => {
-            tracing::debug!(
-                "{} {}：服务器不支持分段下载，改用一个连接",
-                tool.name,
-                tool.version
-            );
+            tracing::debug!("{}", locale::words().no_ranges(tool.name, tool.version));
             fetch_whole(fetch, tool, asset, path, Some((body, attempts))).await
         }
         Part::Range(body) => {
             if ranges.len() > 1 {
-                tracing::debug!(
-                    "{} {} 分 {} 段同时下载",
-                    tool.name,
-                    tool.version,
-                    ranges.len()
-                );
+                let line = locale::words().in_ranges(tool.name, tool.version, ranges.len());
+                tracing::debug!("{line}");
             }
             write_ranges(fetch, tool, asset, path, &ranges, (body, attempts)).await
         }
     }
-}
-
-/// The words of the -v log for another try at a whole download.
-fn whole_retry(tool: &ToolSpec, failed: u32, wait: u64) -> String {
-    format!(
-        "{} {} 第 {failed} 次下载未成功，{wait} 秒后重试",
-        tool.name, tool.version
-    )
 }
 
 /// Fetches the whole of `asset` into `path` over one connection, beginning with `first`, an
@@ -280,9 +271,7 @@ where
         let Err(error) = written else {
             return Ok(());
         };
-        attempts
-            .again(error, |failed, wait| whole_retry(tool, failed, wait))
-            .await?;
+        attempts.again(error, tool, None).await?;
     }
 }
 
@@ -361,7 +350,7 @@ async fn write_verified<R: AsyncRead + Unpin>(
     use tokio::io::AsyncReadExt;
     use tokio::io::AsyncWriteExt;
 
-    let write_error = |err: io::Error| DownloadError::Final(format!("无法写入：{err}"));
+    let write_error = |err: io::Error| DownloadError::Final(locale::words().write_failed(&err));
     let mut file = File::create(path).await.map_err(write_error)?;
     let mut hasher = Sha256::new();
     let mut total: u64 = 0;
@@ -370,26 +359,22 @@ async fn write_verified<R: AsyncRead + Unpin>(
         let read = body
             .read(&mut buffer)
             .await
-            .map_err(|err| DownloadError::Transient(format!("下载中断：{err}")))?;
+            .map_err(|err| DownloadError::Transient(locale::words().broke_off(&err)))?;
         if read == 0 {
             break;
         }
         total += read as u64;
         if total > asset.size {
-            return Err(DownloadError::Final(format!(
-                "大小超过声明的 {} 字节",
-                asset.size
-            )));
+            return Err(DownloadError::Final(locale::words().too_large(asset.size)));
         }
         hasher.update(&buffer[..read]);
         file.write_all(&buffer[..read]).await.map_err(write_error)?;
     }
     file.flush().await.map_err(write_error)?;
     if total != asset.size {
-        return Err(DownloadError::Transient(format!(
-            "大小不符：应为 {} 字节，实际 {total} 字节",
-            asset.size
-        )));
+        return Err(DownloadError::Transient(
+            locale::words().wrong_size(asset.size, total),
+        ));
     }
     pinned(hasher, asset).map_err(DownloadError::Final)
 }
@@ -412,7 +397,7 @@ where
 {
     File::create(path)
         .await
-        .map_err(|err| format!("无法写入：{err}"))?;
+        .map_err(|err| locale::words().write_failed(&err))?;
     let others = ranges
         .iter()
         .enumerate()
@@ -456,9 +441,7 @@ where
             Some(body) => write_range(body, range, &mut written, path).await,
             None => match fetch(asset.url, Some(range.start + written..range.end)).await {
                 Ok(Part::Range(body)) => write_range(body, range, &mut written, path).await,
-                Ok(Part::Whole(_)) => Err(DownloadError::Final(
-                    "下载失败：服务器不再分段返回".to_owned(),
-                )),
+                Ok(Part::Whole(_)) => Err(DownloadError::Final(locale::words().ranges_stopped())),
                 Err(error) => Err(error),
             },
         };
@@ -469,15 +452,9 @@ where
             attempts = Attempts::default();
         }
         let resume = range.start + written;
-        let range_retry = |failed, wait| {
-            format!(
-                "{} {} 第 {} 段第 {failed} 次下载未成功，{wait} 秒后从第 {resume} 字节续传",
-                tool.name,
-                tool.version,
-                index + 1
-            )
-        };
-        attempts.again(error, range_retry).await?;
+        attempts
+            .again(error, tool, Some((index + 1, resume)))
+            .await?;
     }
 }
 
@@ -496,7 +473,7 @@ async fn write_range<R: AsyncRead + Unpin>(
     use tokio::io::AsyncSeekExt;
     use tokio::io::AsyncWriteExt;
 
-    let write_error = |err: io::Error| DownloadError::Final(format!("无法写入：{err}"));
+    let write_error = |err: io::Error| DownloadError::Final(locale::words().write_failed(&err));
     let mut file = fs::OpenOptions::new()
         .write(true)
         .open(path)
@@ -511,12 +488,12 @@ async fn write_range<R: AsyncRead + Unpin>(
         let read = match body.read(&mut buffer).await {
             Ok(0) => break Ok(()),
             Ok(read) => read,
-            Err(err) => break Err(DownloadError::Transient(format!("下载中断：{err}"))),
+            Err(err) => break Err(DownloadError::Transient(locale::words().broke_off(&err))),
         };
         if *written + read as u64 > length {
-            break Err(DownloadError::Final(format!(
-                "大小超过一段应有的 {length} 字节"
-            )));
+            break Err(DownloadError::Final(
+                locale::words().range_too_large(length),
+            ));
         }
         file.write_all(&buffer[..read]).await.map_err(write_error)?;
         *written += read as u64;
@@ -525,9 +502,9 @@ async fn write_range<R: AsyncRead + Unpin>(
     file.flush().await.map_err(write_error)?;
     ended?;
     if *written != length {
-        return Err(DownloadError::Transient(format!(
-            "大小不符：一段应为 {length} 字节，实际 {written} 字节"
-        )));
+        return Err(DownloadError::Transient(
+            locale::words().range_wrong_size(length, *written),
+        ));
     }
     Ok(())
 }
@@ -537,7 +514,7 @@ async fn check(asset: &ToolAsset, path: &Path) -> Result<(), String> {
     use sha2::Digest;
     use tokio::io::AsyncReadExt;
 
-    let read_error = |err: io::Error| format!("无法读取下载的文件：{err}");
+    let read_error = |err: io::Error| locale::words().read_failed(&err);
     let mut file = File::open(path).await.map_err(read_error)?;
     let mut hasher = Sha256::new();
     let mut buffer = vec![0_u8; 64 * 1024];
@@ -561,10 +538,7 @@ fn pinned(hasher: Sha256, asset: &ToolAsset) -> Result<(), String> {
         let _ = write!(digest, "{byte:02x}");
     }
     if digest != asset.sha256 {
-        return Err(format!(
-            "SHA-256 不符：应为 {}，实际 {digest}",
-            asset.sha256
-        ));
+        return Err(locale::words().sha_mismatch(asset.sha256, &digest));
     }
     Ok(())
 }
@@ -576,7 +550,9 @@ async fn make_executable(partial: &Path, installed: &Path) -> Result<(), String>
         fs::set_permissions(partial, Permissions::from_mode(0o755)).await?;
         fs::rename(partial, installed).await
     };
-    ready.await.map_err(|err| format!("安装失败：{err}"))
+    ready
+        .await
+        .map_err(|err| locale::words().install_failed(&err))
 }
 
 /// Unpacks the verified archive into the directory `dir/<name>` and returns the path of
@@ -594,14 +570,14 @@ async fn unpack(
         let (archive, staging) = (archive.to_path_buf(), staging.clone());
         tokio::task::spawn_blocking(move || unpack_into(&archive, &staging))
             .await
-            .unwrap_or_else(|err| Err(format!("解压失败：{err}")))
+            .unwrap_or_else(|err| Err(locale::words().unpack_failed(&err)))
     };
     let outcome = match unpacked {
         Ok(()) => match fs::metadata(staging.join(executable)).await {
             Ok(metadata) if metadata.is_file() => fs::rename(&staging, &installed)
                 .await
-                .map_err(|err| format!("安装失败：{err}")),
-            _ => Err(format!("压缩包里没有 {executable}")),
+                .map_err(|err| locale::words().install_failed(&err)),
+            _ => Err(locale::words().no_executable(executable)),
         },
         Err(err) => Err(err),
     };
@@ -617,8 +593,8 @@ async fn unpack(
 fn unpack_into(archive: &Path, staging: &Path) -> Result<(), String> {
     use std::path::Component;
 
-    let damaged = |err: io::Error| format!("压缩包损坏：{err}");
-    let write_error = |err: io::Error| format!("解压失败：{err}");
+    let damaged = |err: io::Error| locale::words().damaged_archive(&err);
+    let write_error = |err: io::Error| locale::words().unpack_failed(&err);
     let file = std::fs::File::open(archive).map_err(write_error)?;
     let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(file));
     std::fs::create_dir(staging).map_err(write_error)?;
@@ -627,7 +603,7 @@ fn unpack_into(archive: &Path, staging: &Path) -> Result<(), String> {
     for entry in entries {
         let mut entry = entry.map_err(damaged)?;
         let path = entry.path().map_err(damaged)?.into_owned();
-        let unsupported = || format!("压缩包里有不支持的条目：{}", path.display());
+        let unsupported = || locale::words().unsupported_entry(&path);
         let mut components = path.components();
         let Some(Component::Normal(first)) = components.next() else {
             return Err(unsupported());

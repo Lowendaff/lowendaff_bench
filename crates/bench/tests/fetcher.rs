@@ -206,14 +206,14 @@ async fn fetcher_streams_bodies_and_turns_failures_into_reasons() {
     };
     assert_eq!(
         not_found,
-        DownloadError::Final("下载失败：HTTP 404".to_owned())
+        DownloadError::Final("download failed: HTTP 404".to_owned())
     );
 
     let Err(DownloadError::Transient(refused)) = fetcher.open("http://127.0.0.1:1/fio", None).await
     else {
         panic!("a closed port should fail, in a way that may pass")
     };
-    assert!(refused.starts_with("下载失败："), "{refused}");
+    assert!(refused.starts_with("download failed: "), "{refused}");
     let hint = fetcher::proxy_hint(|name| std::env::var(name).ok());
     assert!(refused.ends_with(&hint), "{refused}");
 
@@ -258,7 +258,10 @@ async fn a_byte_range_comes_back_as_asked_or_the_whole_file_from_a_server_that_i
         };
         assert_eq!(
             wrong,
-            DownloadError::Final("下载失败：服务器返回的不是所要的那一段".to_owned())
+            DownloadError::Final(
+                "download failed: the server sent another byte range than the one asked for"
+                    .to_owned()
+            )
         );
     }
 }
@@ -283,7 +286,7 @@ async fn the_answers_of_a_busy_or_failing_server_may_pass_and_the_others_will_no
         let Err(error) = fetcher.open(&format!("{base}/status/{code}"), None).await else {
             panic!("{code} should fail")
         };
-        let reason = format!("下载失败：HTTP {code}");
+        let reason = format!("download failed: HTTP {code}");
         let expected = if may_pass {
             DownloadError::Transient(reason)
         } else {
@@ -296,7 +299,7 @@ async fn the_answers_of_a_busy_or_failing_server_may_pass_and_the_others_will_no
 #[test]
 fn the_proxy_hint_names_the_variable_that_is_set_or_how_to_set_one() {
     let unset = fetcher::proxy_hint(|_| None);
-    assert_eq!(unset, "；可设置环境变量 HTTPS_PROXY 或 ALL_PROXY 使用代理");
+    assert_eq!(unset, "; set HTTPS_PROXY or ALL_PROXY to use a proxy");
     assert_eq!(
         fetcher::proxy_hint(|_| Some(String::new())),
         unset,
@@ -316,7 +319,10 @@ fn the_proxy_hint_names_the_variable_that_is_set_or_how_to_set_one() {
                 .contains(&variable)
                 .then(|| "socks5h://alice:s3cret@proxy:1080".to_owned())
         });
-        assert_eq!(hint, format!("；本机设置了 {name}，请确认这个代理可用"));
+        assert_eq!(
+            hint,
+            format!("; {name} is set on this host: check that the proxy works")
+        );
     }
 }
 
