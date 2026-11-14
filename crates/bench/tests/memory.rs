@@ -1,5 +1,6 @@
-//! The memory section of the report, from constructed runs: each chapter of 内存性能, sysbench,
-//! STREAM, latency and NUMA, with its parameters, tables and notes, and each way it ends.
+//! The memory section of the report, from constructed runs: each chapter of memory performance,
+//! sysbench, STREAM, latency and NUMA, with its parameters, tables and notes, and each way it
+//! ends.
 //! Compared with snapshots, and with the words that the memory item's own tests asserted before
 //! the reporter wrote them.
 
@@ -40,7 +41,7 @@ fn section(runs: &[Run<Measured>]) -> String {
         total: Duration::from_secs(5),
     };
     let text = report::terminal::render(&page, None);
-    let start = text.find("【内存性能】").expect("a memory section");
+    let start = text.find("[Memory performance]").expect("a memory section");
     text[start..].to_owned()
 }
 
@@ -85,7 +86,7 @@ fn sysbench_run(
     stop: Option<Stop<sysbench::Failure>>,
 ) -> Run<Measured> {
     let result = Measured::MemorySysbench(Report { output, stop });
-    run("memory.sysbench", "内存 sysbench", status, result)
+    run("memory.sysbench", "Memory sysbench", status, result)
 }
 
 fn stream_run(
@@ -94,7 +95,7 @@ fn stream_run(
     stop: Option<Stop<stream::Failure>>,
 ) -> Run<Measured> {
     let result = Measured::MemoryStream(Report { output, stop });
-    run("memory.stream", "内存 STREAM", status, result)
+    run("memory.stream", "Memory STREAM", status, result)
 }
 
 fn latency_run(
@@ -103,7 +104,7 @@ fn latency_run(
     stop: Option<Stop<latency::Failure>>,
 ) -> Run<Measured> {
     let result = Measured::MemoryLatency(Report { output, stop });
-    run("memory.latency", "内存延迟", status, result)
+    run("memory.latency", "Memory latency", status, result)
 }
 
 fn numa_run(
@@ -112,7 +113,7 @@ fn numa_run(
     stop: Option<Stop<numa::Failure>>,
 ) -> Run<Measured> {
     let result = Measured::MemoryNuma(Report { output, stop });
-    run("memory.numa", "内存 NUMA", status, result)
+    run("memory.numa", "Memory NUMA", status, result)
 }
 
 /// sysbench's runs on four threads, as the memory item's tests had them.
@@ -225,39 +226,39 @@ fn the_four_chapters_show_their_parameters_and_tables_in_the_items_words() {
     let text = section(&four_chapters());
     insta::assert_snapshot!(text);
     for line in [
-        "  内存 sysbench",
-        "    sysbench          1.0.20：顺序读写，每项 10 秒；单线程一块 32 MiB，\
-         多线程每个线程一块 8 MiB",
-        "    sysbench 结果",
-        "  内存 STREAM",
-        "    STREAM            5.10：每个数组 800 万个元素（61 MiB，三个合计 183 MiB），\
-         每项取 10 遍中最快的一遍；多线程按节点均匀绑定",
-        "    STREAM 结果",
-        "  内存延迟",
-        "    延迟              multichase：随机指针追逐，每档 2.5 秒",
-        "    延迟结果",
-        "  内存 NUMA",
-        "    NUMA              2 个节点；带宽用 multiload 的 stream-triad，每格 3 次采样取最快；\
-         延迟同上",
-        "    NUMA 带宽（MiB/s；行是线程所在节点，列是内存所在节点）",
-        "    NUMA 延迟（ns）",
+        "  Memory sysbench",
+        "    sysbench            1.0.20: sequential reads and writes, 10 s each; one block of 32 \
+         MiB for one thread, one of 8 MiB per thread for several",
+        "    sysbench results",
+        "  Memory STREAM",
+        "    STREAM              5.10: 8 million elements per array (61 MiB, 183 MiB for the \
+         three), the fastest of 10 passes each; the threads spread evenly over the nodes",
+        "    STREAM results",
+        "  Memory latency",
+        "    Latency             multichase: random pointer chasing, 2.5 s per level",
+        "    Latency results",
+        "  Memory NUMA",
+        "    NUMA                2 nodes; bandwidth by multiload's stream-triad, the fastest of \
+         3 samples per cell; latency as above",
+        "    NUMA bandwidth (MiB/s; rows: the threads' node, columns: the memory's node)",
+        "    NUMA latency (ns)",
     ] {
         assert!(shows(&text, line), "{line:?} in {text}");
     }
     assert_eq!(
-        row(&text, "项目"),
+        row(&text, "Test"),
         [
-            ["项目", "单线程", "多线程（4 线程）"],
-            ["项目", "单线程", "多线程（4 线程）"]
+            ["Test", "Single thread", "Multi-thread (4 threads)"],
+            ["Test", "Single thread", "Multi-thread (4 threads)"]
         ]
     );
     assert_eq!(
-        row(&text, "读取"),
-        [["读取", "100.00 MiB/s", "400.00 MiB/s"]]
+        row(&text, "Read"),
+        [["Read", "100.00 MiB/s", "400.00 MiB/s"]]
     );
     assert_eq!(
-        row(&text, "写入"),
-        [["写入", "50.00 MiB/s", "200.00 MiB/s"]]
+        row(&text, "Write"),
+        [["Write", "50.00 MiB/s", "200.00 MiB/s"]]
     );
     assert_eq!(
         row(&text, "Copy"),
@@ -267,22 +268,22 @@ fn the_four_chapters_show_their_parameters_and_tables_in_the_items_words() {
         row(&text, "Triad"),
         [["Triad", "11500.4 MB/s", "46000.4 MB/s"]]
     );
-    assert_eq!(row(&text, "层级"), [["层级", "缓冲区", "延迟"]]);
+    assert_eq!(row(&text, "Level"), [["Level", "Buffer", "Latency"]]);
     assert_eq!(row(&text, "L1"), [["L1", "16 KiB", "1.500 ns"]]);
     assert_eq!(row(&text, "L2"), [["L2", "512 KiB", "4.200 ns"]]);
     assert_eq!(row(&text, "L3"), [["L3", "4 MiB", "12.000 ns"]]);
-    assert_eq!(row(&text, "内存  "), [["内存", "32 MiB", "90.500 ns"]]);
+    assert_eq!(row(&text, "Memory  "), [["Memory", "32 MiB", "90.500 ns"]]);
     assert_eq!(
-        row(&text, "节点 0"),
+        row(&text, "Node 0"),
         [
-            vec!["节点 0", "节点 1"],
-            vec!["节点 0", "52000", "31000"],
-            vec!["节点 0", "节点 1"],
-            vec!["节点 0", "95.000", "140.1"]
+            vec!["Node 0", "Node 1"],
+            vec!["Node 0", "52000", "31000"],
+            vec!["Node 0", "Node 1"],
+            vec!["Node 0", "95.000", "140.1"]
         ]
     );
     assert_eq!(
-        text.matches("完成，用时 41.2 秒").count(),
+        text.matches("done in 41.2 s").count(),
         8,
         "each chapter ends on its own, in the section and in the summary"
     );
@@ -303,14 +304,18 @@ fn one_thread_shows_the_single_thread_column_only() {
     ]);
     insta::assert_snapshot!(text);
     for line in [
-        "    sysbench          1.0.20：顺序读写，每项 10 秒；单线程一块 32 MiB",
-        "    STREAM            5.10：每个数组 800 万个元素（61 MiB，三个合计 183 MiB），\
-         每项取 10 遍中最快的一遍",
+        "    sysbench            1.0.20: sequential reads and writes, 10 s each; one block of 32 \
+         MiB for one thread",
+        "    STREAM              5.10: 8 million elements per array (61 MiB, 183 MiB for the \
+         three), the fastest of 10 passes each",
     ] {
         assert!(shows(&text, line), "{line:?} in {text}");
     }
-    assert_eq!(row(&text, "项目"), [["项目", "单线程"], ["项目", "单线程"]]);
-    assert_eq!(row(&text, "读取"), [["读取", "100.00 MiB/s"]]);
+    assert_eq!(
+        row(&text, "Test"),
+        [["Test", "Single thread"], ["Test", "Single thread"]]
+    );
+    assert_eq!(row(&text, "Read"), [["Read", "100.00 MiB/s"]]);
     assert_eq!(row(&text, "Copy"), [["Copy", "10000.1 MB/s"]]);
 }
 
@@ -343,29 +348,33 @@ fn notes_follow_each_chapters_table() {
     ]);
     insta::assert_snapshot!(text);
     for line in [
-        "    说明              没有末级缓存的信息，按 32 MiB 计算",
-        "    说明              可用内存不足，测试数据小于末级缓存总和的 4 倍（32 MiB），\
-         一部分读写落在缓存里，结果偏高",
-        "    说明              多线程写入失败 2 次后成功，最后一次失败的原因：\
-         超过 60 秒仍未结束，已停止",
-        "    说明              未完全符合 STREAM 运行规则（每个数组至少为末级缓存总和的 4 倍）",
-        "    说明              多线程测试失败 1 次后成功，最后一次失败的原因：\
-         STREAM 的结果没有通过校验：Failed Validation on array a[], \
-         AvgRelAbsErr > epsilon (1.000000e-13)",
-        "    说明              没有 L3 的信息，跳过这一档",
-        "    说明              可用内存不足，内存一档的缓冲区小于末级缓存总和的 4 倍（32 MiB），\
-         一部分访问落在缓存里，延迟偏低",
-        "    说明              L1 测试失败 1 次后成功，最后一次失败的原因：multichase 没有输出延迟",
-        "    说明              线程在节点 1、内存在节点 0 的带宽测试失败 1 次后成功，\
-         最后一次失败的原因：超过 60 秒仍未结束，已停止",
+        "    Note                no word on the last-level caches; 32 MiB assumed",
+        "    Note                available memory short: the test data is below 4 times the \
+         last-level caches (32 MiB), so some reads and writes hit the caches and the results \
+         run high",
+        "    Note                multi-thread write: worked after 2 failures; the last reason: \
+         still running after 60 s, stopped",
+        "    Note                not quite within STREAM's run rules (each array at least 4 \
+         times the last-level caches)",
+        "    Note                multi-thread test: worked after 1 failure; the last reason: \
+         STREAM's results failed their check: Failed Validation on array a[], AvgRelAbsErr > \
+         epsilon (1.000000e-13)",
+        "    Note                no word on L3; that level is left out",
+        "    Note                available memory short: the memory level's buffer is below 4 \
+         times the last-level caches (32 MiB), so some reads hit the caches and the latency \
+         runs low",
+        "    Note                L1 test: worked after 1 failure; the last reason: multichase \
+         printed no latency",
+        "    Note                bandwidth test of threads on node 1 and memory on node 0: \
+         worked after 1 failure; the last reason: still running after 60 s, stopped",
     ] {
         assert!(shows(&text, line), "{line:?} in {text}");
     }
     let sysbench_notes = text
         .lines()
-        .skip_while(|line| !line.starts_with("    sysbench 结果"))
-        .take_while(|line| !line.starts_with("  内存 STREAM"))
-        .filter(|line| line.contains("说明"))
+        .skip_while(|line| !line.starts_with("    sysbench results"))
+        .take_while(|line| !line.starts_with("  Memory STREAM"))
+        .filter(|line| line.starts_with("    Note "))
         .count();
     assert_eq!(
         sysbench_notes, 3,
@@ -443,15 +452,17 @@ fn every_way_a_chapter_ends_shows_its_words() {
     let text = section(&runs);
     insta::assert_snapshot!(text);
     for line in [
-        "    失败：单线程读取：sysbench 退出码 1：boom（共试了 4 次）",
-        "    失败：读不到可用内存（/proc/meminfo）",
-        "    跳过：可用内存不足：三个数组最少要 46 MiB，可用内存的一半只有 16 MiB",
-        "    失败：单线程测试：STREAM 退出码 1：boom（共试了 4 次）",
-        "    已中断",
-        "    失败：L3 测试：multichase 没有输出延迟（共试了 4 次）",
-        "    跳过：容器不允许把内存绑定到指定节点",
-        "    失败：线程在节点 0、内存在节点 1 的带宽测试：multiload 没有输出带宽（共试了 4 次）",
-        "    跳过：需要多个 NUMA 节点",
+        "    failed: single-thread read: sysbench exit code 1: boom (4 attempts)",
+        "    failed: cannot read the available memory (/proc/meminfo)",
+        "    skipped: available memory short: the three arrays need at least 46 MiB, and half of \
+         the available memory is only 16 MiB",
+        "    failed: single-thread test: STREAM exit code 1: boom (4 attempts)",
+        "    interrupted",
+        "    failed: L3 test: multichase printed no latency (4 attempts)",
+        "    skipped: the container does not allow binding memory to a node",
+        "    failed: bandwidth test of threads on node 0 and memory on node 1: multiload printed \
+         no bandwidth (4 attempts)",
+        "    skipped: needs several NUMA nodes",
     ] {
         assert!(shows(&text, line), "{line:?} in {text}");
     }
@@ -460,11 +471,11 @@ fn every_way_a_chapter_ends_shows_its_words() {
         [["Copy", "10000.1 MB/s", "—"]],
         "the interrupted STREAM keeps its first run"
     );
-    let numa_tables = text.matches("NUMA 带宽").count();
+    let numa_tables = text.matches("NUMA bandwidth").count();
     assert_eq!(numa_tables, 1, "no table of a refused matrix: {text}");
     assert_eq!(
-        row(&text, "节点 1"),
-        [["节点 1", "—", "—"], ["节点 1", "—", "—"]],
+        row(&text, "Node 1"),
+        [["Node 1", "—", "—"], ["Node 1", "—", "—"]],
         "the failed matrix shows the cells it measured"
     );
 }
@@ -482,7 +493,7 @@ fn each_fault_of_a_run_has_its_words() {
         }
         let text = section(&[numa_run(Status::Completed, Some(output), None)]);
         text.lines()
-            .find_map(|line| line.split_once("最后一次失败的原因：").map(|(_, why)| why))
+            .find_map(|line| line.split_once("the last reason: ").map(|(_, why)| why))
             .expect("a note")
             .to_owned()
     };
@@ -493,37 +504,37 @@ fn each_fault_of_a_run_has_its_words() {
         (
             numa::Fault::Tool(spawn.clone()),
             Kind::Bandwidth,
-            "无法运行 multiload：Text file busy (os error 26)",
+            "cannot run multiload: Text file busy (os error 26)",
         ),
         (
             numa::Fault::Tool(spawn),
             Kind::Latency,
-            "无法运行 multichase：Text file busy (os error 26)",
+            "cannot run multichase: Text file busy (os error 26)",
         ),
         (
             numa::Fault::Tool(read),
             Kind::Latency,
-            "无法读取 multichase 的输出：Broken pipe (os error 32)",
+            "cannot read the output of multichase: Broken pipe (os error 32)",
         ),
         (
             numa::Fault::Tool(signal),
             Kind::Bandwidth,
-            "multiload 被信号终止：没有输出",
+            "multiload ended by a signal: no output",
         ),
         (
             numa::Fault::NoBandwidth,
             Kind::Bandwidth,
-            "multiload 没有输出带宽",
+            "multiload printed no bandwidth",
         ),
         (
             numa::Fault::NoLatency,
             Kind::Latency,
-            "multichase 没有输出延迟",
+            "multichase printed no latency",
         ),
         (
             numa::Fault::Refused,
             Kind::Latency,
-            "容器不允许把内存绑定到指定节点",
+            "the container does not allow binding memory to a node",
         ),
     ] {
         assert_eq!(note(fault, kind), words);
@@ -551,15 +562,16 @@ fn each_fault_of_a_run_has_its_words() {
         latency_run(Status::Completed, Some(latency), None),
     ]);
     for line in [
-        "    说明              单线程读取失败 1 次后成功，最后一次失败的原因：\
-         sysbench 没有输出传输速度",
-        "    说明              多线程读取失败 1 次后成功，最后一次失败的原因：\
-         sysbench 退出码 1：FATAL: Invalid value for memory-block-size: abc",
-        "    说明              单线程写入失败 1 次后成功，最后一次失败的原因：\
-         sysbench 被信号终止：Threads started!",
-        "    说明              单线程测试失败 1 次后成功，最后一次失败的原因：STREAM 没有输出结果",
-        "    说明              L1 测试失败 1 次后成功，最后一次失败的原因：\
-         multichase 退出码 1：mbind: Invalid argument",
+        "    Note                single-thread read: worked after 1 failure; the last reason: \
+         sysbench printed no transfer rate",
+        "    Note                multi-thread read: worked after 1 failure; the last reason: \
+         sysbench exit code 1: FATAL: Invalid value for memory-block-size: abc",
+        "    Note                single-thread write: worked after 1 failure; the last reason: \
+         sysbench ended by a signal: Threads started!",
+        "    Note                single-thread test: worked after 1 failure; the last reason: \
+         STREAM printed no result",
+        "    Note                L1 test: worked after 1 failure; the last reason: multichase \
+         exit code 1: mbind: Invalid argument",
     ] {
         assert!(shows(&text, line), "{line:?} in {text}");
     }
@@ -579,7 +591,7 @@ fn sizes_read_in_the_largest_whole_unit_and_arrays_in_mebibytes() {
             })
             .collect();
         let text = section(&[latency_run(Status::Completed, Some(output), None)]);
-        row(&text, "内存  ")
+        row(&text, "Memory  ")
             .into_iter()
             .map(|cells| cells[1].clone())
             .collect::<Vec<String>>()
@@ -592,7 +604,8 @@ fn sizes_read_in_the_largest_whole_unit_and_arrays_in_mebibytes() {
             16 * KIB,
             11 * MIB + MIB / 2,
             300_000_000,
-            1000
+            1000,
+            1
         ]),
         [
             "256 MiB",
@@ -601,7 +614,8 @@ fn sizes_read_in_the_largest_whole_unit_and_arrays_in_mebibytes() {
             "16 KiB",
             "11.5 MiB",
             "286.1 MiB",
-            "1000 字节"
+            "1000 bytes",
+            "1 byte"
         ]
     );
 
@@ -611,31 +625,35 @@ fn sizes_read_in_the_largest_whole_unit_and_arrays_in_mebibytes() {
         output.threads = threads;
         let text = section(&[stream_run(Status::Completed, Some(output), None)]);
         text.lines()
-            .find_map(|line| line.strip_prefix("  STREAM            "))
+            .find_map(|line| line.strip_prefix("  STREAM              "))
             .expect("the parameters")
             .to_owned()
     };
     assert_eq!(
         arrays(32, 4),
-        "5.10：每个数组 3200 万个元素（244 MiB，三个合计 732 MiB），每项取 10 遍中最快的一遍；\
-         多线程按节点均匀绑定"
+        "5.10: 32 million elements per array (244 MiB, 732 MiB for the three), the fastest of 10 \
+         passes each; the threads spread evenly over the nodes"
     );
     assert_eq!(
         arrays(2, 1),
-        "5.10：每个数组 200 万个元素（15 MiB，三个合计 46 MiB），每项取 10 遍中最快的一遍"
+        "5.10: 2 million elements per array (15 MiB, 46 MiB for the three), the fastest of 10 \
+         passes each"
     );
-    assert!(arrays(64, 1).contains("6400 万个元素（488 MiB，三个合计 1465 MiB）"));
+    assert!(
+        arrays(64, 1).contains("64 million elements per array (488 MiB, 1465 MiB for the three)")
+    );
     let short = |budget: u64| {
         let stop = Some(Stop::Skipped(stream::Failure::Short { budget }));
         let text = section(&[stream_run(Status::Skipped(None), None, stop)]);
         text.lines()
-            .find_map(|line| line.strip_prefix("  跳过："))
+            .find_map(|line| line.strip_prefix("  skipped: "))
             .expect("the reason")
             .to_owned()
     };
     assert_eq!(
         short(30 * MIB),
-        "可用内存不足：三个数组最少要 46 MiB，可用内存的一半只有 30 MiB"
+        "available memory short: the three arrays need at least 46 MiB, and half of the \
+         available memory is only 30 MiB"
     );
 }
 
@@ -646,18 +664,21 @@ fn notes_count_the_missing_levels() {
         output.missing = levels;
         let text = section(&[latency_run(Status::Completed, Some(output), None)]);
         text.lines()
-            .find_map(|line| line.strip_prefix("  说明              "))
+            .find_map(|line| line.strip_prefix("  Note                "))
             .expect("the note")
             .to_owned()
     };
-    assert_eq!(missing(vec![Level::L3]), "没有 L3 的信息，跳过这一档");
+    assert_eq!(
+        missing(vec![Level::L3]),
+        "no word on L3; that level is left out"
+    );
     assert_eq!(
         missing(vec![Level::L2, Level::L3]),
-        "没有 L2、L3 的信息，跳过这两档"
+        "no word on L2 or L3; those levels are left out"
     );
     assert_eq!(
         missing(vec![Level::L1, Level::L2, Level::L3]),
-        "没有 L1、L2、L3 的信息，跳过这三档"
+        "no word on L1, L2 or L3; those levels are left out"
     );
 }
 
@@ -672,9 +693,10 @@ fn a_version_that_was_not_printed_is_left_out() {
         stream_run(Status::Completed, Some(stream), None),
     ]);
     for line in [
-        "    sysbench          顺序读写，每项 10 秒；单线程一块 32 MiB，多线程每个线程一块 8 MiB",
-        "    STREAM            每个数组 800 万个元素（61 MiB，三个合计 183 MiB），\
-         每项取 10 遍中最快的一遍；多线程按节点均匀绑定",
+        "    sysbench            sequential reads and writes, 10 s each; one block of 32 MiB for \
+         one thread, one of 8 MiB per thread for several",
+        "    STREAM              8 million elements per array (61 MiB, 183 MiB for the three), \
+         the fastest of 10 passes each; the threads spread evenly over the nodes",
     ] {
         assert!(shows(&text, line), "{line:?} in {text}");
     }

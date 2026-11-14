@@ -23,18 +23,18 @@ type Build = Box<dyn Fn(Option<&serde_json::Value>) -> Result<Planned<Measured>,
 #[must_use]
 pub fn all() -> Vec<Entry> {
     vec![
-        // 硬盘健康: SMART through smartctl, on dedicated servers only. Before 硬盘性能, so that
-        // the disks are idle and fio's writes are not counted.
+        // Disk health: SMART through smartctl, on dedicated servers only. Before disk performance,
+        // so that the disks are idle and fio's writes are not counted.
         entry::<plugin_disk::health::Smartctl>(Measured::DiskHealth),
-        // CPU 性能: sysbench, before fio's writes can disturb it.
+        // CPU performance: sysbench, before fio's writes can disturb it.
         entry::<plugin_cpu::sysbench::Sysbench>(Measured::CpuSysbench),
-        // 内存性能's chapters: sysbench, STREAM, multichase's latency and the NUMA matrix, after
-        // CPU 性能 and before fio's writes.
+        // Memory performance in chapters: sysbench, STREAM, multichase's latency and the NUMA
+        // matrix, after CPU performance and before fio's writes.
         entry::<plugin_memory::sysbench::Sysbench>(Measured::MemorySysbench),
         entry::<plugin_memory::stream::Stream>(Measured::MemoryStream),
         entry::<plugin_memory::latency::Latency>(Measured::MemoryLatency),
         entry::<plugin_memory::numa::Numa>(Measured::MemoryNuma),
-        // 硬盘性能: fio with YABS's method, on every platform.
+        // Disk performance: fio with YABS's method, on every platform.
         entry::<plugin_disk::fio::Fio>(Measured::DiskFio),
         // Geekbench 7: last, being the longest, with a download, an upload and perhaps swap that
         // must not disturb the disk test.

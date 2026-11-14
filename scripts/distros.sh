@@ -1,6 +1,6 @@
 #!/bin/sh
 # Reads the host in containers of many distributions, with every test item skipped: the report
-# must name Docker as the platform, its 系统 line must equal the image's own os-release
+# must name Docker as the platform, its OS line must equal the image's own os-release
 # PRETTY_NAME, and its uptime and load must be marked as the host's, which Docker shares.
 # Then Geekbench 7 runs without a network, so that nothing is downloaded or uploaded:
 # its reason to skip must fit the image's own glibc. CI runs it on both
@@ -39,13 +39,13 @@ for image in $images; do
         fail "$name: cannot read os-release"
     output=$(docker run --rm -v "$bin:/usr/local/bin/lowendaff-bench:ro" -w /root "$image" \
         lowendaff-bench --skip cpu,memory,disk 2>&1) || fail "$name: exited with $?: $output"
-    printf '%s\n' "$output" | grep -qx '运行环境：Docker 容器' ||
+    printf '%s\n' "$output" | grep -qx 'Environment: Docker container' ||
         fail "$name: the platform was not detected as Docker: $output"
-    reported=$(printf '%s\n' "$output" | sed -n 's/^  系统  *//p')
-    [ "$reported" = "$expected" ] || fail "$name: 系统 is \"$reported\", expected \"$expected\""
+    reported=$(printf '%s\n' "$output" | sed -n 's/^  OS  *//p')
+    [ "$reported" = "$expected" ] || fail "$name: OS is \"$reported\", expected \"$expected\""
     # Docker shares the kernel's uptime and load, so both are the host's.
-    for label in 运行时间 负载; do
-        printf '%s\n' "$output" | grep -q "^  $label  *.*（宿主机）\$" ||
+    for label in Uptime Load; do
+        printf '%s\n' "$output" | grep -q "^  $label  *.* (host)\$" ||
             fail "$name: $label is not marked as the host's: $output"
     done
 
@@ -55,15 +55,15 @@ for image in $images; do
     major=${glibc%%.*}
     minor=${glibc#*.}
     if [ -z "$glibc" ]; then
-        reason='需要 glibc 2.35 或更新，本机没有 glibc'
+        reason='needs glibc 2.35 or newer; this host has no glibc'
     elif [ "$major" -gt 2 ] || { [ "$major" -eq 2 ] && [ "$minor" -ge 35 ]; }; then
-        reason='需要 IPv4 网络连接'
+        reason='needs an IPv4 connection'
     else
-        reason="需要 glibc 2.35 或更新，本机是 $glibc"
+        reason="needs glibc 2.35 or newer; this host has $glibc"
     fi
     output=$(docker run --rm --network none -v "$bin:/usr/local/bin/lowendaff-bench:ro" -w /root \
         "$image" lowendaff-bench --only cpu.geekbench 2>&1) || fail "$name: exited with $?: $output"
-    printf '%s\n' "$output" | grep -qx "  跳过：$reason" ||
+    printf '%s\n' "$output" | grep -qx "  skipped: $reason" ||
         fail "$name: Geekbench 7 was not skipped with \"$reason\": $output"
     echo "distros: $name: $reported; Geekbench 7: $reason"
 done

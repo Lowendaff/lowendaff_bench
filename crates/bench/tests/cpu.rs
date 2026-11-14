@@ -1,4 +1,4 @@
-//! The CPU section of the report, from constructed runs: for CPU 性能 the tool and its
+//! The CPU section of the report, from constructed runs: for CPU performance the tool and its
 //! parameters, the runs, the ratio and the notes on retries; for Geekbench 7 its version, scores,
 //! link and notes; and each way a run ends. Compared with snapshots, and with the words that the
 //! items' own tests asserted before the reporter wrote them.
@@ -37,7 +37,7 @@ fn sysbench_run(
     Run {
         id: "cpu.sysbench",
         group: "cpu",
-        title: Some("CPU 性能"),
+        title: Some("CPU performance"),
         started: Some(Duration::from_secs(1)),
         elapsed: Some(Duration::from_millis(40_100)),
         status,
@@ -57,7 +57,7 @@ fn section(runs: &[Run<Measured>]) -> String {
         total: Duration::from_secs(50),
     };
     let text = report::terminal::render(&page, None);
-    let start = text.find("【CPU 性能】").expect("a CPU section");
+    let start = text.find("[CPU performance]").expect("a CPU section");
     text[start..].to_owned()
 }
 
@@ -101,15 +101,16 @@ fn both_runs_show_in_a_table_with_the_ratio_and_the_retries() {
     let text = section(&[sysbench_run(Status::Completed, Some(output), None)]);
     insta::assert_snapshot!(text);
     for line in [
-        "  sysbench 1.0.20：素数上限 10000，每项 20 秒",
-        "  项目    线程数  每秒事件数",
-        "  单线程       1    12842.07",
-        "  多线程       4    49847.67",
-        "  倍数              多线程是单线程的 3.88 倍",
-        "  说明              单线程测试失败 1 次后成功，最后一次失败的原因：sysbench 退出码 1：x",
-        "  说明              多线程测试失败 2 次后成功，最后一次失败的原因：\
-         sysbench 没有输出每秒事件数",
-        "  完成，用时 40.1 秒",
+        "  sysbench 1.0.20: prime limit 10000, 20 s each",
+        "  Test           Threads  Events/s",
+        "  Single thread        1  12842.07",
+        "  Multi-thread         4  49847.67",
+        "  Ratio               multi-thread is 3.88 times single-thread",
+        "  Note                single-thread test: worked after 1 failure; the last reason: \
+         sysbench exit code 1: x",
+        "  Note                multi-thread test: worked after 2 failures; the last reason: \
+         sysbench printed no events per second",
+        "  done in 40.1 s",
     ] {
         assert!(
             text.lines().any(|shown| shown == line),
@@ -126,7 +127,7 @@ fn the_ratio_has_two_decimals() {
         multi: Some(run(2, "150.00", Vec::new())),
     };
     let text = section(&[sysbench_run(Status::Completed, Some(output), None)]);
-    let ratio = "  倍数              多线程是单线程的 1.50 倍";
+    let ratio = "  Ratio               multi-thread is 1.50 times single-thread";
     assert!(text.lines().any(|line| line == ratio), "{text}");
 }
 
@@ -163,7 +164,7 @@ fn every_way_a_run_ends_shows_its_words() {
             ..sysbench_run(
                 Status::Skipped(Some(Unmet::Tool {
                     name: "sysbench",
-                    why: "下载失败".to_owned(),
+                    why: "download failed".to_owned(),
                 })),
                 None,
                 None,
@@ -175,13 +176,13 @@ fn every_way_a_run_ends_shows_its_words() {
     let text = section(&runs);
     insta::assert_snapshot!(text);
     for line in [
-        "    sysbench：素数上限 10000，每项 20 秒",
-        "    失败：sysbench 退出码 1：boom（共试了 4 次）",
-        "    失败：多线程测试失败：超过 60 秒仍未结束，已停止（共试了 4 次）",
-        "    失败：已中断",
-        "    跳过：工具 sysbench 不可用：下载失败",
-        "    超时，已保留超时前的结果",
-        "    已中断",
+        "    sysbench: prime limit 10000, 20 s each",
+        "    failed: sysbench exit code 1: boom (4 attempts)",
+        "    failed: multi-thread test: still running after 60 s, stopped (4 attempts)",
+        "    failed: interrupted",
+        "    skipped: tool sysbench unavailable: download failed",
+        "    timed out; the results until then are kept",
+        "    interrupted",
     ] {
         assert!(
             text.lines().any(|shown| shown == line),
@@ -196,7 +197,7 @@ fn each_fault_of_a_tool_has_its_words() {
         let stop = Stop::Failed(sysbench::Failure::Single(vec![fault]));
         let text = section(&[sysbench_run(Status::Failed(None), None, Some(stop))]);
         text.lines()
-            .find_map(|line| line.strip_prefix("  失败："))
+            .find_map(|line| line.strip_prefix("  failed: "))
             .expect("a failure line")
             .to_owned()
     };
@@ -205,35 +206,39 @@ fn each_fault_of_a_tool_has_its_words() {
             Fault::Tool(job::Fault::Spawn(
                 "No such file or directory (os error 2)".to_owned(),
             )),
-            "无法运行 sysbench：No such file or directory (os error 2)（共试了 1 次）",
+            "cannot run sysbench: No such file or directory (os error 2) (1 attempt)",
         ),
         (
             Fault::Tool(job::Fault::Read("Broken pipe (os error 32)".to_owned())),
-            "无法读取 sysbench 的输出：Broken pipe (os error 32)（共试了 1 次）",
+            "cannot read the output of sysbench: Broken pipe (os error 32) (1 attempt)",
         ),
-        (timed_out(), "超过 60 秒仍未结束，已停止（共试了 1 次）"),
+        (timed_out(), "still running after 60 s, stopped (1 attempt)"),
         (
             exit(1, "Invalid value for the 'cpu_max_prime' option: 'abc'"),
-            "sysbench 退出码 1：Invalid value for the 'cpu_max_prime' option: 'abc'（共试了 1 次）",
+            "sysbench exit code 1: Invalid value for the 'cpu_max_prime' option: 'abc' \
+             (1 attempt)",
         ),
         (
             Fault::Tool(job::Fault::Exit {
                 code: 2,
                 last: None,
             }),
-            "sysbench 退出码 2：没有输出（共试了 1 次）",
+            "sysbench exit code 2: no output (1 attempt)",
         ),
         (
             Fault::Tool(job::Fault::Signal {
                 last: Some("Killed".to_owned()),
             }),
-            "sysbench 被信号终止：Killed（共试了 1 次）",
+            "sysbench ended by a signal: Killed (1 attempt)",
         ),
         (
             Fault::Tool(job::Fault::Signal { last: None }),
-            "sysbench 被信号终止：没有输出（共试了 1 次）",
+            "sysbench ended by a signal: no output (1 attempt)",
         ),
-        (Fault::NoRate, "sysbench 没有输出每秒事件数（共试了 1 次）"),
+        (
+            Fault::NoRate,
+            "sysbench printed no events per second (1 attempt)",
+        ),
     ];
     for (fault, words) in cases {
         assert_eq!(failed(fault), words);
@@ -301,18 +306,18 @@ fn geekbench_shows_its_version_scores_link_and_notes() {
     insta::assert_snapshot!(text);
     for line in [
         "  Geekbench 7.1.0",
-        "  单核              1771",
-        "  多核              4347",
-        "  结果链接          https://browser.geekbench.com/v7/cpu/840201",
-        "  说明              可用内存不足（估计需要 5 GiB，可用 1.6 GiB），临时加了 4 GiB swap，\
-         分数可能偏低",
-        "  说明              无法让 Geekbench 在内存耗尽时优先被结束：\
+        "  Single-core         1771",
+        "  Multi-core          4347",
+        "  Result link         https://browser.geekbench.com/v7/cpu/840201",
+        "  Note                available memory short (needs about 5 GiB, 1.6 GiB available); \
+         added 4 GiB of temporary swap, so the scores may be low",
+        "  Note                cannot make Geekbench the first to go when memory runs out: \
          No such file or directory (os error 2)",
-        "  说明              上传失败 2 次后重跑成功，失败原因：\
+        "  Note                ran again after 2 failed uploads; the reason: \
          unable to resolve host browser.geekbench.com",
-        "  说明              无法关闭临时 swap：Device or resource busy (os error 16)；\
-         请手动执行 swapoff /root/run/swapfile，再删除这个文件",
-        "  完成，用时 300.0 秒",
+        "  Note                cannot turn off the temporary swap: Device or resource busy \
+         (os error 16); run swapoff /root/run/swapfile by hand, then delete the file",
+        "  done in 300.0 s",
     ] {
         assert!(
             text.lines().any(|shown| shown == line),
@@ -407,19 +412,20 @@ fn every_way_geekbench_ends_shows_its_words() {
     let text = section(&runs);
     insta::assert_snapshot!(text);
     for line in [
-        "    结果链接          不可用",
-        "    说明              可用内存可能不足（估计需要 2 GiB，可用 0.5 GiB），\
-         无法临时加 swap：本机 vm.swappiness 为 0，内核不会把内存换出到 swap",
-        "    失败：上传失败（unable to resolve host browser.geekbench.com），\
-         免费版只有上传成功才给出分数",
-        "    失败：运行中因内存不足被系统终止",
-        "    失败：超过 60 分钟仍未结束，已停止",
-        "    失败：Geekbench 没有输出分数",
-        "    失败：Geekbench 退出码 255：Error: The `--no-upload` switch is only available in \
-         Geekbench 7 Pro.",
-        "    失败：已中断",
-        "    跳过：需要 glibc 2.35 或更新，本机是 2.31",
-        "    跳过：需要 IPv4 网络连接",
+        "    Result link         unavailable",
+        "    Note                available memory may be short (needs about 2 GiB, 0.5 GiB \
+         available); no temporary swap: vm.swappiness is 0 here, so the kernel would not swap \
+         memory out",
+        "    failed: the upload failed (unable to resolve host browser.geekbench.com); the free \
+         version gives scores only after an upload",
+        "    failed: ended by the system for want of memory while running",
+        "    failed: still running after 60 minutes, stopped",
+        "    failed: Geekbench printed no scores",
+        "    failed: Geekbench exit code 255: Error: The `--no-upload` switch is only available \
+         in Geekbench 7 Pro.",
+        "    failed: interrupted",
+        "    skipped: needs glibc 2.35 or newer; this host has 2.31",
+        "    skipped: needs an IPv4 connection",
     ] {
         assert!(
             text.lines().any(|shown| shown == line),
@@ -427,7 +433,7 @@ fn every_way_geekbench_ends_shows_its_words() {
         );
     }
     assert!(
-        !text.contains("后重跑成功"),
+        !text.contains("ran again after"),
         "only a run that gave scores ran again with success: {text}"
     );
 }
@@ -438,7 +444,7 @@ fn each_fault_of_geekbench_has_its_words() {
         let failure = geekbench::Failure::Run(geekbench::Fault::Tool(fault));
         let text = section(&[failed(geekbench::Output::default(), failure)]);
         text.lines()
-            .find_map(|line| line.strip_prefix("  失败："))
+            .find_map(|line| line.strip_prefix("  failed: "))
             .expect("a failure line")
             .to_owned()
     };
@@ -448,23 +454,23 @@ fn each_fault_of_geekbench_has_its_words() {
                 code: 1,
                 last: Some("https://browser.geekbench.com/v7/cpu/1".to_owned()),
             },
-            "Geekbench 退出码 1：https://browser.geekbench.com/v7/cpu/1",
+            "Geekbench exit code 1: https://browser.geekbench.com/v7/cpu/1",
         ),
         (
             job::Fault::Signal { last: None },
-            "Geekbench 被信号终止：没有输出",
+            "Geekbench ended by a signal: no output",
         ),
         (
             job::Fault::Spawn("Exec format error (os error 8)".to_owned()),
-            "无法运行 Geekbench：Exec format error (os error 8)",
+            "cannot run Geekbench: Exec format error (os error 8)",
         ),
         (
             job::Fault::Read("Broken pipe (os error 32)".to_owned()),
-            "无法读取 Geekbench 的输出：Broken pipe (os error 32)",
+            "cannot read the output of Geekbench: Broken pipe (os error 32)",
         ),
         (
             job::Fault::TimedOut(Duration::from_secs(3600)),
-            "超过 60 分钟仍未结束，已停止",
+            "still running after 60 minutes, stopped",
         ),
     ];
     for (fault, words) in cases {
@@ -477,7 +483,7 @@ fn each_note_on_memory_has_its_words() {
     let note = |output: geekbench::Output| {
         let text = section(&[geekbench_run(Status::Completed, Some(output), None)]);
         text.lines()
-            .filter_map(|line| line.strip_prefix("  说明              "))
+            .filter_map(|line| line.strip_prefix("  Note                "))
             .map(str::to_owned)
             .collect::<Vec<String>>()
     };
@@ -489,17 +495,24 @@ fn each_note_on_memory_has_its_words() {
         }),
         ..geekbench::Output::default()
     };
-    let estimate = "可用内存可能不足（估计需要 5 GiB，可用 1.6 GiB），无法临时加 swap：";
+    let estimate = "available memory may be short (needs about 5 GiB, 1.6 GiB available); \
+                    no temporary swap: ";
     let cases = [
         (
             NoSwap::NoRoom(Some(GIB + GIB / 2)),
-            "运行目录所在的磁盘只剩 1.5 GiB",
+            "the run directory's disk has only 1.5 GiB free",
         ),
-        (NoSwap::NoRoom(None), "无法读取运行目录所在磁盘的剩余空间"),
-        (NoSwap::Denied, "没有权限（容器里通常不允许）"),
+        (
+            NoSwap::NoRoom(None),
+            "the free space of the run directory's disk cannot be read",
+        ),
+        (
+            NoSwap::Denied,
+            "not permitted (containers usually forbid it)",
+        ),
         (
             NoSwap::Unsupported,
-            "运行目录所在的文件系统不支持 swap 文件",
+            "the run directory's filesystem does not support swap files",
         ),
         (
             NoSwap::Error("No space left on device (os error 28)".to_owned()),
@@ -517,7 +530,7 @@ fn each_note_on_memory_has_its_words() {
     };
     assert_eq!(
         note(kept),
-        ["无法恢复本程序的 oom_score_adj：Permission denied (os error 13)"]
+        ["cannot restore this program's oom_score_adj: Permission denied (os error 13)"]
     );
     let done = geekbench::Output {
         first_to_go: Some(Adjustment::Done),

@@ -1,8 +1,11 @@
 //! The English catalog, the one for every locale without a catalog of its own.
 
 mod download;
+mod host;
+mod items;
 mod log;
 mod program;
+mod report;
 
 /// English.
 pub struct English;

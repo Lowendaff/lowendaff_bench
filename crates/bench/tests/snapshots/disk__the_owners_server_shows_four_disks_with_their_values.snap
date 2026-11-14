@@ -2,16 +2,16 @@
 source: crates/bench/tests/disk.rs
 expression: text
 ---
-【硬盘】
+[Disks]
   smartctl 7.5
-  设备  健康  通电时间    温度   已用寿命  累计写入  坏块     接口错误
-  sda   通过  46167 小时  25 °C  23%       48.2 TB   0 / —           3
-  sdb   通过  38112 小时  28 °C  49%       169.0 TB  380 / —         0
-  sdc   通过  53544 小时  27 °C  79%       277.2 TB  0 / —           0
-  sdd   通过  35124 小时  27 °C  30%       155.6 TB  13 / —          0
-  完成，用时 0.4 秒
+  Device  Health  Power-on  Temp.  Worn  Written   Bad blocks  Link errors
+  sda     passed  46167 h   25 °C  23%   48.2 TB   0 / —                 3
+  sdb     passed  38112 h   28 °C  49%   169.0 TB  380 / —               0
+  sdc     passed  53544 h   27 °C  79%   277.2 TB  0 / —                 0
+  sdd     passed  35124 h   27 °C  30%   155.6 TB  13 / —                0
+  done in 0.4 s
 
-【汇总】
-  硬盘健康          完成，用时 0.4 秒
+[Summary]
+  Disk health         done in 0.4 s
 
-共 1 项：完成 1，跳过 0，失败 0，超时 0，中断 0。总用时 5.0 秒
+1 item: 1 done, 0 skipped, 0 failed, 0 timed out, 0 interrupted. Total time 5.0 s

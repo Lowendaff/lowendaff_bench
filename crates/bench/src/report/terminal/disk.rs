@@ -1,5 +1,5 @@
-//! The disk group's words: 硬盘健康 (smartctl) and 硬盘性能 (fio, in YABS's formats), and why each
-//! stopped short.
+//! The disk group's chapters: disk health (smartctl) and disk performance (fio, in YABS's
+//! formats), and why each stopped short, in the catalog's words.
 
 use bench_tool::job;
 use plugin_disk::fio;
@@ -14,6 +14,10 @@ use plugin_disk::health::result::Health;
 
 use super::Out;
 use super::tool;
+use crate::locale;
+use crate::locale::FioRow;
+use crate::locale::Unit;
+use crate::locale::Verdict;
 use crate::results::Report;
 
 /// What a missing value shows.
@@ -22,13 +26,14 @@ const MISSING: &str = "—";
 const MIB: u64 = 1024 * 1024;
 const GIB: u64 = 1024 * MIB;
 
-/// 硬盘健康: the tool, then the disks in a table, a note on each disk that needs one, and a note
-/// on each device node that smartctl created and that could not be removed.
+/// Disk health: the tool, then the disks in a table, a note on each disk that needs one, and a
+/// note on each device node that smartctl created and that could not be removed.
 pub(super) fn health(
     out: &mut Out,
     report: &Report<health::Output, health::Failure>,
     indent: &str,
 ) {
+    let words = locale::words();
     let Some(output) = &report.output else {
         return;
     };
@@ -38,17 +43,7 @@ pub(super) fn health(
             .as_deref()
             .map_or_else(String::new, |version| format!(" {version}"));
         out.line(&format!("{indent}smartctl{version}"));
-        let headers = [
-            "设备",
-            "健康",
-            "通电时间",
-            "温度",
-            "已用寿命",
-            "累计写入",
-            "坏块",
-            "接口错误",
-        ]
-        .map(str::to_owned);
+        let headers = words.health_headers().map(str::to_owned);
         let with_host = several_cards(&output.disks);
         let rows: Vec<Vec<String>> = output
             .disks
@@ -57,44 +52,41 @@ pub(super) fn health(
             .collect();
         out.table(indent, &headers, &rows);
         for disk in &output.disks {
-            if let Some(note) = note(&disk.health) {
-                let name = location(&disk.location, with_host);
-                out.field(indent, "说明", &format!("{name} {note}"));
+            let name = location(&disk.location, with_host);
+            if let Some(note) = note(&name, &disk.health) {
+                out.field(indent, &words.note(), &note);
             }
         }
     }
     for left in &output.nodes_left {
-        let note = format!("无法删除 {}：{}", left.path.display(), left.error);
-        out.field(indent, "说明", &note);
+        let note = words.node_left(&left.path, &left.error);
+        out.field(indent, &words.note(), &note);
     }
 }
 
-/// Why 硬盘健康 stopped short.
+/// Why disk health stopped short.
 pub(super) fn health_failure(failure: &health::Failure) -> String {
+    let words = locale::words();
     match failure {
-        health::Failure::NoDisks => "smartctl 没有找到硬盘".to_owned(),
+        health::Failure::NoDisks => words.no_disks(),
         health::Failure::Scan(health::Fault::Tool(job::Fault::TimedOut(limit))) => {
-            format!("smartctl 扫描硬盘失败：超过 {} 秒仍未完成", limit.as_secs())
+            words.scan_timed_out(limit.as_secs())
         }
-        health::Failure::Scan(fault) => format!("smartctl 扫描硬盘失败：{}", smartctl(fault)),
-        health::Failure::AllFailed => "所有硬盘都读取失败".to_owned(),
-        health::Failure::Cancelled => "已中断".to_owned(),
+        health::Failure::Scan(fault) => words.scan_failed(&smartctl(fault)),
+        health::Failure::AllFailed => words.all_failed(),
+        health::Failure::Cancelled => words.interrupted(),
     }
 }
 
-/// The 设备 cell: a kernel name, or a disk on a RAID card, which names its card when the disks
+/// The device cell: a kernel name, or a disk on a RAID card, which names its card when the disks
 /// sit on more than one.
 fn location(location: &Location, with_host: bool) -> String {
     match location {
         Location::Named(name) => name.clone(),
         Location::Card { host, numbers } => {
             let numbers: Vec<String> = numbers.iter().map(u32::to_string).collect();
-            let numbers = numbers.join(":");
-            if with_host {
-                format!("RAID 卡 host{host} 的 {numbers} 号盘")
-            } else {
-                format!("RAID 卡 {numbers} 号盘")
-            }
+            let host = with_host.then_some(*host);
+            locale::words().card_disk(&numbers.join(":"), host)
         }
     }
 }
@@ -112,11 +104,12 @@ fn several_cards(disks: &[Disk]) -> bool {
 
 /// One disk's row.
 fn cells(disk: &Disk, with_host: bool) -> Vec<String> {
+    let words = locale::words();
     let values = &disk.values;
     vec![
         location(&disk.location, with_host),
         verdict(&disk.health).to_owned(),
-        shown(values.hours, |hours| format!("{hours} 小时")),
+        shown(values.hours, |hours| words.hours(hours)),
         shown(values.temperature, |degrees| format!("{degrees} °C")),
         shown(values.endurance_used, |percent| format!("{percent}%")),
         shown(values.written, written),
@@ -125,25 +118,25 @@ fn cells(disk: &Disk, with_host: bool) -> Vec<String> {
     ]
 }
 
-/// The 健康 cell.
+/// The health cell.
 fn verdict(health: &Health) -> &'static str {
-    match health {
-        Health::Passed => "通过",
-        Health::Failed => "未通过",
-        Health::Unknown { .. } => "未知",
-        Health::Unsupported => "不支持",
-        Health::ReadFailed(_) => "读取失败",
-    }
+    let verdict = match health {
+        Health::Passed => Verdict::Passed,
+        Health::Failed => Verdict::Failed,
+        Health::Unknown { .. } => Verdict::Unknown,
+        Health::Unsupported => Verdict::Unsupported,
+        Health::ReadFailed(_) => Verdict::ReadFailed,
+    };
+    locale::words().verdict(verdict)
 }
 
-/// The 说明 line's text after the disk's name, for a disk that needs one.
-fn note(health: &Health) -> Option<String> {
+/// The note on the disk named `disk`, for a disk that needs one.
+fn note(disk: &str, health: &Health) -> Option<String> {
+    let words = locale::words();
     match health {
-        Health::ReadFailed(fault) => Some(format!("读取失败：{}", read_failure(fault))),
-        Health::Unsupported => Some("不支持 SMART".to_owned()),
-        Health::Unknown { smart_off: true } => {
-            Some("的 SMART 功能已关闭，本程序不会替它打开".to_owned())
-        }
+        Health::ReadFailed(fault) => Some(words.disk_read_failed(disk, &read_failure(fault))),
+        Health::Unsupported => Some(words.no_smart(disk)),
+        Health::Unknown { smart_off: true } => Some(words.smart_off(disk)),
         Health::Passed | Health::Failed | Health::Unknown { smart_off: false } => None,
     }
 }
@@ -152,7 +145,7 @@ fn note(health: &Health) -> Option<String> {
 fn read_failure(fault: &health::Fault) -> String {
     match fault {
         health::Fault::Tool(job::Fault::TimedOut(limit)) => {
-            format!("超过 {} 秒仍未读完，已停止", limit.as_secs())
+            locale::words().disk_read_timed_out(limit.as_secs())
         }
         fault => smartctl(fault),
     }
@@ -160,16 +153,17 @@ fn read_failure(fault: &health::Fault) -> String {
 
 /// Why smartctl gave nothing to read.
 fn smartctl(fault: &health::Fault) -> String {
+    let words = locale::words();
     match fault {
-        health::Fault::Tool(fault) => tool::fault("smartctl", fault, tool::seconds),
-        health::Fault::Unparsable => "smartctl 的输出无法解析".to_owned(),
+        health::Fault::Tool(fault) => tool::fault("smartctl", fault, Unit::Seconds),
+        health::Fault::Unparsable => words.unparsable(),
         health::Fault::Message(message) => message.clone(),
-        health::Fault::Unopened => "打不开设备，或读不到设备识别信息".to_owned(),
-        health::Fault::Refused => "smartctl 不接受命令参数".to_owned(),
+        health::Fault::Unopened => words.unopened(),
+        health::Fault::Refused => words.arguments_refused(),
     }
 }
 
-/// The 坏块 cell: SATA's reallocated and pending sectors, or one count.
+/// The bad blocks cell: SATA's reallocated and pending sectors, or one count.
 fn bad_blocks(bad_blocks: &BadBlocks) -> String {
     match bad_blocks {
         BadBlocks::Sectors {
@@ -208,9 +202,11 @@ fn shown<T>(value: Option<T>, format: impl FnOnce(T) -> String) -> String {
     value.map_or_else(|| MISSING.to_owned(), format)
 }
 
-/// 硬盘性能: the tool, the method and the file's size, YABS's note on ZFS, then a table for each
-/// two block sizes in YABS's layout, each followed by a note on each test without a result.
+/// Disk performance: the tool, the method and the file's size, YABS's note on ZFS, then a table
+/// for each two block sizes in YABS's layout, each followed by a note on each test without a
+/// result.
 pub(super) fn fio(out: &mut Out, report: &Report<fio::Output, fio::Failure>, indent: &str) {
+    let words = locale::words();
     let Some(output) = &report.output else {
         return;
     };
@@ -219,16 +215,10 @@ pub(super) fn fio(out: &mut Out, report: &Report<fio::Output, fio::Failure>, ind
         .as_deref()
         .map_or_else(String::new, |version| format!(" {version}"));
     out.line(&format!("{indent}fio{version}"));
-    let method = format!(
-        "与 YABS 相同：读写各半的随机测试，测试文件 {}",
-        file_size(output.size)
-    );
-    out.field(indent, "测试方式", &method);
+    let (method_label, method) = words.fio_method(&file_size(output.size));
+    out.field(indent, method_label, &method);
     if let Some(needed) = output.zfs_needed {
-        let note = format!(
-            "测试目录在 ZFS 上，可用空间少于 {needed} GiB，结果可能不准（与 YABS 的提示相同）"
-        );
-        out.field(indent, "说明", &note);
+        out.field(indent, &words.note(), &words.zfs_note(needed));
     }
     for pair in BLOCK_SIZES {
         let outcomes = pair.map(|block_size| {
@@ -242,16 +232,21 @@ pub(super) fn fio(out: &mut Out, report: &Report<fio::Output, fio::Failure>, ind
             continue;
         }
         let [first, second] = pair;
-        out.line(&format!("{indent}{} 与 {}", label(first), label(second)));
-        let headers = ["块大小".to_owned(), label(first), label(second)];
+        let title = words.block_sizes(&label(first), &label(second));
+        out.line(&format!("{indent}{title}"));
+        let headers = [
+            words.block_size_header().to_owned(),
+            label(first),
+            label(second),
+        ];
         let mut rows = Vec::new();
-        for (name, pick) in [
-            ("读取", read as fn(&Rates) -> (u64, u64)),
-            ("写入", write),
-            ("合计", total),
+        for (row, pick) in [
+            (FioRow::Read, read as fn(&Rates) -> (u64, u64)),
+            (FioRow::Write, write),
+            (FioRow::Total, total),
         ] {
             let [first, second] = outcomes.map(|outcome| cell(outcome, pick));
-            rows.push(vec![name.to_owned(), first, second]);
+            rows.push(vec![words.fio_row(row).to_owned(), first, second]);
         }
         out.table(indent, &headers, &rows);
         for (block_size, outcome) in pair.into_iter().zip(outcomes) {
@@ -259,48 +254,43 @@ pub(super) fn fio(out: &mut Out, report: &Report<fio::Output, fio::Failure>, ind
                 continue;
             };
             let note = match fault {
-                fio::Fault::Tool(job::Fault::TimedOut(limit)) => format!(
-                    "{} 超过 {} 秒仍未结束，已停止",
-                    label(block_size),
-                    limit.as_secs()
-                ),
-                fault => format!("{} 出错：{}", label(block_size), fio_fault(fault)),
+                fio::Fault::Tool(job::Fault::TimedOut(limit)) => {
+                    words.block_timed_out(&label(block_size), limit.as_secs())
+                }
+                fault => words.block_failed(&label(block_size), &fio_fault(fault)),
             };
-            out.field(indent, "说明", &note);
+            out.field(indent, &words.note(), &note);
         }
     }
 }
 
-/// Why 硬盘性能 stopped short.
+/// Why disk performance stopped short.
 pub(super) fn fio_failure(failure: &fio::Failure) -> String {
+    let words = locale::words();
     match failure {
-        fio::Failure::NoSpaceInfo => "无法读取测试目录的可用空间".to_owned(),
-        fio::Failure::InMemory => {
-            "测试目录在内存盘上，测到的会是内存速度；请在硬盘上的目录运行，或用 --work-dir 指定"
-                .to_owned()
+        fio::Failure::NoSpaceInfo => words.no_space_info(),
+        fio::Failure::InMemory => words.in_memory(),
+        fio::Failure::Space { needed, available } => {
+            words.no_space(&file_size(*needed), &free_space(*available))
         }
-        fio::Failure::Space { needed, available } => format!(
-            "测试目录可用空间不足 {}（只有 {}）",
-            file_size(*needed),
-            free_space(*available)
-        ),
-        fio::Failure::NoDirectIo => "测试目录所在的文件系统不支持直接 I/O".to_owned(),
-        fio::Failure::Setup(fault) => format!("生成测试文件失败：{}", fio_fault(fault)),
-        fio::Failure::NoResult => "四种块大小都没有结果".to_owned(),
-        fio::Failure::Cancelled => "已中断".to_owned(),
+        fio::Failure::NoDirectIo => words.no_direct_io(),
+        fio::Failure::Setup(fault) => words.setup_failed(&fio_fault(fault)),
+        fio::Failure::NoResult => words.no_block_size(),
+        fio::Failure::Cancelled => words.interrupted(),
     }
 }
 
 /// Why a run of fio gave no rates: fio's own error line when it ended badly.
 fn fio_fault(fault: &fio::Fault) -> String {
+    let words = locale::words();
     match fault {
         fio::Fault::Tool(job::Fault::Exit { last, .. } | job::Fault::Signal { last }) => {
-            last.clone().unwrap_or_else(|| "fio 没有输出".to_owned())
+            last.clone().unwrap_or_else(|| words.no_output("fio"))
         }
-        fio::Fault::Tool(fault) => tool::fault("fio", fault, tool::seconds),
-        fio::Fault::NoResult => "fio 没有输出结果".to_owned(),
-        fio::Fault::Error(error) => format!("fio 报告错误 {error}"),
-        fio::Fault::Field(field) => format!("无法解析 fio 输出的第 {field} 个字段"),
+        fio::Fault::Tool(fault) => tool::fault("fio", fault, Unit::Seconds),
+        fio::Fault::NoResult => words.no_result("fio"),
+        fio::Fault::Error(error) => words.fio_reported(&error.to_string()),
+        fio::Fault::Field(field) => words.fio_field(*field),
     }
 }
 
@@ -357,13 +347,16 @@ fn total(rates: &Rates) -> (u64, u64) {
 /// A test's cell: the rate with its IOPS, or what kept it from one; `—` for a test that never
 /// ended, as after an interrupt.
 fn cell(outcome: Option<&Outcome>, pick: fn(&Rates) -> (u64, u64)) -> String {
+    let words = locale::words();
     match outcome {
         Some(Outcome::Done(rates)) => {
             let (kib, operations) = pick(rates);
-            format!("{}（{}）", speed(kib), iops(operations))
+            words.rate(&speed(kib), &iops(operations))
         }
-        Some(Outcome::Failed(fio::Fault::Tool(job::Fault::TimedOut(_)))) => "超时".to_owned(),
-        Some(Outcome::Failed(_)) => "出错".to_owned(),
+        Some(Outcome::Failed(fio::Fault::Tool(job::Fault::TimedOut(_)))) => {
+            words.fio_timed_out().to_owned()
+        }
+        Some(Outcome::Failed(_)) => words.fio_error().to_owned(),
         None => MISSING.to_owned(),
     }
 }

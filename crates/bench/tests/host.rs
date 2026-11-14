@@ -1,4 +1,4 @@
-//! 【系统信息】: the host profile in words. The six captured hosts (bench-host's fixtures) are
+//! [System]: the host profile in words. The six captured hosts (bench-host's fixtures) are
 //! compared with snapshots; constructed profiles cover each form that a line about the hardware,
 //! a section that did not answer, or an address family can take.
 
@@ -34,8 +34,10 @@ use bench_host::platform::PlatformKind;
 use bench_host::profile::CpuFacts;
 use bench_host::profile::HostProfile;
 use bench_host::profile::Read;
+use bench_host::profile::Seen;
 use bench_host::profile::Sources;
 use bench_host::profile::StorageFacts;
+use bench_host::profile::SystemFacts;
 use bench_host::raid::Attachment;
 use bench_host::raid::Card;
 use bench_host::raid::Ids;
@@ -44,12 +46,13 @@ use bench_host::smbios::Ecc;
 use bench_host::smbios::Slot;
 use bench_host::smbios::Smbios;
 use bench_host::smbios::Unreadable;
+use bench_host::storage::Disk;
 use bench_host::storage::Space;
 use bench_host::system;
 use bench_host::system::Counters;
 use unicode_width::UnicodeWidthStr;
 
-/// The report of a run without plugins: its header, 【系统信息】 and an empty summary.
+/// The report of a run without plugins: its header, [System] and an empty summary.
 fn render(host: &HostProfile, show_ip: bool) -> String {
     let page = Page {
         version: "0.1.0",
@@ -64,7 +67,7 @@ fn render(host: &HostProfile, show_ip: bool) -> String {
 
 /// The values of the section's lines with this label, in order.
 fn field(text: &str, label: &str) -> Vec<String> {
-    let fill = 16_usize.saturating_sub(label.width());
+    let fill = 18_usize.saturating_sub(label.width());
     let prefix = format!("  {label}{}  ", " ".repeat(fill));
     text.lines()
         .filter_map(|line| line.strip_prefix(&prefix))
@@ -155,10 +158,10 @@ fn dedicated(hardware: Hardware) -> String {
 fn machine_lines_drop_missing_parts_and_repeated_vendors() {
     let text = dedicated(bare());
     for (label, value) in [
-        ("整机", "不可用"),
-        ("主板", "不可用"),
-        ("固件", "不可用"),
-        ("BMC", "未检测到"),
+        ("Machine", "unavailable"),
+        ("Board", "unavailable"),
+        ("Firmware", "unavailable"),
+        ("BMC", "not detected"),
     ] {
         assert_eq!(field(&text, label), [value], "{label}");
     }
@@ -170,10 +173,10 @@ fn machine_lines_drop_missing_parts_and_repeated_vendors() {
         },
         ..bare()
     });
-    assert_eq!(field(&text, "整机"), ["Radxa ROCK 3A"]);
-    assert_eq!(field(&text, "主板"), ["Supermicro X11DPi-N"]);
+    assert_eq!(field(&text, "Machine"), ["Radxa ROCK 3A"]);
+    assert_eq!(field(&text, "Board"), ["Supermicro X11DPi-N"]);
     // Only month/day/year becomes year-month-day.
-    assert_eq!(field(&text, "BIOS"), ["1.2（2024/01/05）"]);
+    assert_eq!(field(&text, "BIOS"), ["1.2 (2024/01/05)"]);
     let firmware = |firmware, label| {
         let text = dedicated(Hardware {
             machine: Machine {
@@ -189,21 +192,21 @@ fn machine_lines_drop_missing_parts_and_repeated_vendors() {
         ["2023-07-04"]
     );
     assert_eq!(
-        firmware(Firmware::UBoot("2024.01".to_owned()), "固件"),
+        firmware(Firmware::UBoot("2024.01".to_owned()), "Firmware"),
         ["U-Boot 2024.01"]
     );
     assert_eq!(
-        firmware(Firmware::RaspberryPi(1_713_139_200), "固件"),
-        ["树莓派引导程序，2024-04-15 构建"]
+        firmware(Firmware::RaspberryPi(1_713_139_200), "Firmware"),
+        ["Raspberry Pi bootloader, built 2024-04-15"]
     );
     // 2024-02-29 23:59:59 UTC and the epoch.
     assert_eq!(
-        firmware(Firmware::RaspberryPi(1_709_251_199), "固件"),
-        ["树莓派引导程序，2024-02-29 构建"]
+        firmware(Firmware::RaspberryPi(1_709_251_199), "Firmware"),
+        ["Raspberry Pi bootloader, built 2024-02-29"]
     );
     assert_eq!(
-        firmware(Firmware::RaspberryPi(0), "固件"),
-        ["树莓派引导程序，1970-01-01 构建"]
+        firmware(Firmware::RaspberryPi(0), "Firmware"),
+        ["Raspberry Pi bootloader, built 1970-01-01"]
     );
 }
 
@@ -224,7 +227,7 @@ fn bmc_lines_say_what_is_missing_and_why() {
             firmware: None,
             ipmi: Some("1.5".to_owned()),
         }),
-        ["厂商编号 12345，IPMI 1.5"]
+        ["vendor 12345, IPMI 1.5"]
     );
     assert_eq!(
         bmc(Bmc::Driver {
@@ -232,7 +235,7 @@ fn bmc_lines_say_what_is_missing_and_why() {
             firmware: Some("1.73.14".to_owned()),
             ipmi: Some("2.0".to_owned()),
         }),
-        ["Supermicro，固件 1.73.14，IPMI 2.0"]
+        ["Supermicro, firmware 1.73.14, IPMI 2.0"]
     );
     assert_eq!(
         bmc(Bmc::Driver {
@@ -240,7 +243,7 @@ fn bmc_lines_say_what_is_missing_and_why() {
             firmware: None,
             ipmi: None,
         }),
-        ["有"]
+        ["present"]
     );
     let interface = |kind, version| {
         bmc(Bmc::Interface(Interface {
@@ -250,21 +253,36 @@ fn bmc_lines_say_what_is_missing_and_why() {
     };
     assert_eq!(
         interface(InterfaceKind::Ssif, Some((2, 0))),
-        ["有（IPMI 2.0，SSIF 接口）；厂商和固件不可用：内核没有加载 IPMI 驱动"]
+        [
+            "present (IPMI 2.0, SSIF interface); vendor and firmware unavailable: the kernel has \
+         not loaded the IPMI driver"
+        ]
     );
     assert_eq!(
         interface(InterfaceKind::Smic, None),
-        ["有（SMIC 接口）；厂商和固件不可用：内核没有加载 IPMI 驱动"]
+        [
+            "present (SMIC interface); vendor and firmware unavailable: the kernel has not loaded \
+         the IPMI driver"
+        ]
     );
     assert_eq!(
         interface(InterfaceKind::Bt, Some((1, 5))),
-        ["有（IPMI 1.5，BT 接口）；厂商和固件不可用：内核没有加载 IPMI 驱动"]
+        [
+            "present (IPMI 1.5, BT interface); vendor and firmware unavailable: the kernel has not \
+         loaded the IPMI driver"
+        ]
     );
     assert_eq!(
         interface(InterfaceKind::Kcs, None),
-        ["有（KCS 接口）；厂商和固件不可用：内核没有加载 IPMI 驱动"]
+        [
+            "present (KCS interface); vendor and firmware unavailable: the kernel has not loaded \
+         the IPMI driver"
+        ]
     );
-    let nothing = ["有；接口、厂商和固件不可用：内核没有加载 IPMI 驱动"];
+    let nothing = [
+        "present; interface, vendor and firmware unavailable: the kernel has not \
+     loaded the IPMI driver",
+    ];
     assert_eq!(
         bmc(Bmc::Interface(Interface {
             kind: None,
@@ -292,40 +310,43 @@ fn the_ecc_line_combines_smbios_and_edac() {
             smbios(vec![], vec![Ecc::MultiBit, Ecc::Crc]),
             edac(3, 1, vec![])
         ),
-        ["有（多比特纠错）、有（CRC 校验）；本次开机以来已纠正 3 次，不可纠正 1 次"]
+        ["yes (multi-bit correction), yes (CRC); since boot 3 corrected, 1 uncorrected"]
     );
     assert_eq!(
         ecc(smbios(vec![], vec![Ecc::Parity]), None),
-        ["无纠错（只有奇偶校验）；错误次数不可用：内核没有加载 EDAC 驱动"]
+        [
+            "no correction (parity only); error counts unavailable: the kernel has not loaded an \
+         EDAC driver"
+        ]
     );
     assert_eq!(
         ecc(smbios(vec![], vec![Ecc::Unknown]), None),
-        ["未知；错误次数不可用：内核没有加载 EDAC 驱动"]
+        ["unknown; error counts unavailable: the kernel has not loaded an EDAC driver"]
     );
     assert_eq!(
         ecc(smbios(vec![], vec![Ecc::None]), edac(0, 0, vec![])),
-        ["无"]
+        ["none"]
     );
     // Without type 16, EDAC's mode.
     assert_eq!(
         ecc(smbios(vec![], vec![]), edac(0, 0, vec![Ecc::SingleBit])),
-        ["有（单比特纠错）；本次开机以来已纠正 0 次，不可纠正 0 次"]
+        ["yes (single-bit correction); since boot 0 corrected, 0 uncorrected"]
     );
     assert_eq!(
         ecc(Err(Unreadable::Absent), edac(2, 0, vec![])),
-        ["纠错方式不可用；本次开机以来已纠正 2 次，不可纠正 0 次"]
+        ["way of correction unavailable; since boot 2 corrected, 0 uncorrected"]
     );
     assert_eq!(
         ecc(smbios(vec![], vec![]), None),
-        ["不可用：SMBIOS 里没有内存纠错信息，也没有 EDAC 驱动"]
+        ["unavailable: SMBIOS has no word on error correction, and there is no EDAC driver"]
     );
     assert_eq!(
         ecc(Err(Unreadable::Absent), None),
-        ["不可用：没有 SMBIOS，也没有 EDAC 驱动"]
+        ["unavailable: there is no SMBIOS, and there is no EDAC driver"]
     );
     assert_eq!(
         ecc(Err(Unreadable::DevMem(io::Error::other("refused"))), None),
-        ["不可用：读不到 SMBIOS，也没有 EDAC 驱动"]
+        ["unavailable: SMBIOS cannot be read, and there is no EDAC driver"]
     );
 }
 
@@ -383,20 +404,23 @@ fn the_memory_table_shows_sizes_types_and_speeds() {
         ..bare()
     });
     assert_eq!(
-        table(&text, "内存条"),
+        table(&text, "Memory modules"),
         [
-            "插槽 | 容量 | 类型 | 速度 | 厂商 | 型号",
-            "DIMM 0 | 16 GB | DDR5 | 2666 MT/s（额定 2933） | Micron | MTC20F2085S1RC48BA1",
-            "DIMM 1 | 512 MB | RDIMM | 2933 MT/s（额定） | — | —",
-            "插槽 3 | 512 KB | — | 3200 MT/s | 80CE | —",
-            "DIMM 3 | 未知 | — | — | — | —",
-            "DIMM 4 | 未启用 | DDR4 RDIMM | 2400 MT/s | Hynix | HMA82GR7AFR8N-UH",
-            "DIMM 5 | 空 | — | — | — | —",
+            "Slot | Size | Type | Speed | Vendor | Model",
+            "DIMM 0 | 16 GB | DDR5 | 2666 MT/s (rated 2933) | Micron | MTC20F2085S1RC48BA1",
+            "DIMM 1 | 512 MB | RDIMM | 2933 MT/s (rated) | — | —",
+            "Slot 3 | 512 KB | — | 3200 MT/s | 80CE | —",
+            "DIMM 3 | unknown | — | — | — | —",
+            "DIMM 4 | not in use | DDR4 RDIMM | 2400 MT/s | Hynix | HMA82GR7AFR8N-UH",
+            "DIMM 5 | empty | — | — | — | —",
         ]
     );
     assert_eq!(
-        field(&text, "说明"),
-        ["DIMM 4 插着内存条但没有启用：固件报告容量为 0，没有计入内存总量"]
+        field(&text, "Note"),
+        [
+            "DIMM 4 holds a module that the firmware reports as not in use, with a size of 0; the \
+         total leaves it out"
+        ]
     );
 }
 
@@ -409,24 +433,24 @@ fn without_slots_the_memory_line_says_where_else_it_looked() {
                 board_memory,
                 ..bare()
             }),
-            "内存条",
+            "Memory modules",
         )
     };
     assert_eq!(
         modules(smbios(vec![], vec![]), Some(2 << 30)),
-        ["板载内存 2.0 GiB（来自设备树）；没有可插拔内存条的信息"]
+        ["onboard memory 2.0 GiB (from the device tree); no word on removable modules"]
     );
     assert_eq!(
         modules(smbios(vec![], vec![]), None),
-        ["不可用：SMBIOS 里没有内存条信息"]
+        ["unavailable: SMBIOS describes no modules"]
     );
     assert_eq!(
         modules(Err(Unreadable::Absent), None),
-        ["不可用：读不到 SMBIOS"]
+        ["unavailable: SMBIOS cannot be read"]
     );
     assert_eq!(
         modules(Err(Unreadable::DevMem(io::Error::other("refused"))), None),
-        ["不可用：读不到 SMBIOS（/dev/mem：refused）"]
+        ["unavailable: SMBIOS cannot be read (/dev/mem: refused)"]
     );
 }
 
@@ -440,9 +464,9 @@ fn raid_lines_group_disks_and_name_cards_by_their_ids() {
             }),
             ..HostProfile::default()
         };
-        field(&render(&host, false), "RAID 卡")
+        field(&render(&host, false), "RAID card")
     };
-    assert_eq!(raid(vec![]), ["无"]);
+    assert_eq!(raid(vec![]), ["none"]);
     let card = |ids, driver: Option<&str>, disks: Vec<(&str, Attachment)>| Card {
         address: "0000:5e:00.0".to_owned(),
         ids,
@@ -482,10 +506,10 @@ fn raid_lines_group_disks_and_name_cards_by_their_ids() {
         raid(cards),
         [
             concat!(
-                "PCI 1000:005d（子系统 1000:9361，驱动 megaraid_sas）：",
-                "阵列 sda；直通 sdb、sdd；未知 sdc"
+                "PCI 1000:005d (subsystem 1000:9361, driver megaraid_sas): ",
+                "array sda; pass-through sdb, sdd; unknown sdc"
             ),
-            "PCI 9005:028f（未加载驱动）：没有连接硬盘",
+            "PCI 9005:028f (no driver loaded): no disks attached",
         ]
     );
 }
@@ -503,19 +527,75 @@ fn a_section_that_did_not_answer_says_so() {
     };
     let text = render(&host, false);
     let unknown = render(&HostProfile::default(), false);
-    for label in ["架构", "硬盘", "文件系统"] {
-        assert_eq!(field(&unknown, label), ["不可用"], "{label}: {unknown}");
+    for label in ["Architecture", "Disks", "Filesystems"] {
+        assert_eq!(
+            field(&unknown, label),
+            ["unavailable"],
+            "{label}: {unknown}"
+        );
     }
     for (label, value) in [
-        ("硬件", "不可用（超时）"),
-        ("CPU", "不可用（超时）"),
-        ("内存", "不可用"),
-        ("硬盘", "不可用（超时）"),
-        ("系统", "不可用（超时）"),
-        ("架构", "x86_64"),
+        ("Hardware", "unavailable (timed out)"),
+        ("CPU", "unavailable (timed out)"),
+        ("Memory", "unavailable"),
+        ("Disks", "unavailable (timed out)"),
+        ("OS", "unavailable (timed out)"),
+        ("Architecture", "x86_64"),
     ] {
         assert_eq!(field(&text, label), [value], "{label}: {text}");
     }
+}
+
+#[test]
+fn the_uptime_counts_days_hours_and_minutes_in_the_singular_for_one() {
+    let uptime = |seconds| {
+        let host = HostProfile {
+            system: Read::Done(SystemFacts {
+                uptime: Some(Seen {
+                    value: Duration::from_secs(seconds),
+                    host: false,
+                }),
+                ..SystemFacts::default()
+            }),
+            ..HostProfile::default()
+        };
+        field(&render(&host, false), "Uptime")
+    };
+    for (seconds, shown) in [
+        (59, "0 minutes"),
+        (60, "1 minute"),
+        (3_600, "1 hour, 0 minutes"),
+        (2 * 3_600 + 120, "2 hours, 2 minutes"),
+        (86_400 + 3_660, "1 day, 1 hour, 1 minute"),
+        (2 * 86_400, "2 days, 0 hours, 0 minutes"),
+    ] {
+        assert_eq!(uptime(seconds), [shown], "{seconds} s");
+    }
+}
+
+#[test]
+fn a_disk_with_nothing_on_it_is_not_mounted() {
+    let host = HostProfile {
+        storage: Read::Done(StorageFacts {
+            disks: vec![Disk {
+                name: "sdb".to_owned(),
+                interface: "SATA",
+                size: 500 << 30,
+                rotational: Some(true),
+                model: None,
+                uses: Vec::new(),
+            }],
+            ..StorageFacts::default()
+        }),
+        ..HostProfile::default()
+    };
+    assert_eq!(
+        table(&render(&host, false), "Disks"),
+        [
+            "Device | Interface | Size | Medium | Model | Use",
+            "sdb | SATA | 500.0 GiB | HDD | — | not mounted",
+        ]
+    );
 }
 
 fn target(text: &str) -> std::net::SocketAddr {
@@ -537,11 +617,11 @@ fn each_family_says_whether_it_works_and_where_its_address_came_from() {
     let text = |family: &Family, name| report::terminal::family_text(family, name, false);
     assert_eq!(
         text(&found("203.0.113.7", "Cloudflare"), "IPv4"),
-        "可用；公网地址 203.0.*.*（来自 Cloudflare）"
+        "available; public address 203.0.*.* (from Cloudflare)"
     );
     assert_eq!(
         text(&found("2001:db8:85a3::8a2e:370:7334", "ipify"), "IPv6"),
-        "可用；公网地址 2001:db8:*（来自 ipify）"
+        "available; public address 2001:db8:* (from ipify)"
     );
     let failed = Family {
         targets: vec![(target("1.1.1.1:443"), Reach::Connected)],
@@ -553,7 +633,8 @@ fn each_family_says_whether_it_works_and_where_its_address_came_from() {
     };
     assert_eq!(
         text(&failed, "IPv4"),
-        "可用；公网地址不可用：Cloudflare 超时，ipify 返回 HTTP 503，icanhazip 返回的不是 IPv4 地址"
+        "available; public address unavailable: Cloudflare timed out, ipify returned HTTP 503, \
+         icanhazip returned no IPv4 address"
     );
     let other = Family {
         address: Address::NotFound(vec![
@@ -565,7 +646,8 @@ fn each_family_says_whether_it_works_and_where_its_address_came_from() {
     };
     assert_eq!(
         text(&other, "IPv6"),
-        "可用；公网地址不可用：a 返回的不是公网地址，b 没有 IPv6 地址，c 无法连接"
+        "available; public address unavailable: a returned no public address, b has no IPv6 \
+         address, c cannot be reached"
     );
     let no_route = Family {
         targets: vec![
@@ -574,7 +656,10 @@ fn each_family_says_whether_it_works_and_where_its_address_came_from() {
         ],
         address: Address::NotAsked,
     };
-    assert_eq!(text(&no_route, "IPv6"), "不可用：本机没有 IPv6 路由");
+    assert_eq!(
+        text(&no_route, "IPv6"),
+        "unavailable: this host has no IPv6 route"
+    );
     let mixed = Family {
         targets: vec![
             (target("1.1.1.1:443"), Reach::TimedOut),
@@ -586,14 +671,19 @@ fn each_family_says_whether_it_works_and_where_its_address_came_from() {
     };
     assert_eq!(
         text(&mixed, "IPv4"),
-        "不可用：连接 1.1.1.1 超时，223.5.5.5 拒绝连接，没有到 8.8.8.8 的路由，无法连接 9.9.9.9"
+        "unavailable: connecting to 1.1.1.1 timed out, 223.5.5.5 refused the connection, no \
+         route to 8.8.8.8, cannot connect to 9.9.9.9"
     );
-    assert_eq!(text(&Family::default(), "IPv4"), "不可用", "not probed");
+    assert_eq!(
+        text(&Family::default(), "IPv4"),
+        "unavailable",
+        "not probed"
+    );
     let not_asked = Family {
         targets: vec![(target("1.1.1.1:443"), Reach::Connected)],
         address: Address::NotAsked,
     };
-    assert_eq!(text(&not_asked, "IPv4"), "可用");
+    assert_eq!(text(&not_asked, "IPv4"), "available");
 }
 
 #[test]
@@ -608,11 +698,11 @@ fn addresses_show_in_full_only_on_request() {
     let masked = render(&host, false);
     assert_eq!(
         field(&masked, "IPv4"),
-        ["可用；公网地址 203.0.*.*（来自 Cloudflare）"]
+        ["available; public address 203.0.*.* (from Cloudflare)"]
     );
     assert_eq!(
         field(&masked, "IPv6"),
-        ["可用；公网地址 2001:db8:*（来自 icanhazip）"]
+        ["available; public address 2001:db8:* (from icanhazip)"]
     );
     for full in ["203.0.113.7", "2001:db8::7"] {
         assert!(!masked.contains(full), "{full} in {masked}");
@@ -620,11 +710,11 @@ fn addresses_show_in_full_only_on_request() {
     let shown = render(&host, true);
     assert_eq!(
         field(&shown, "IPv4"),
-        ["可用；公网地址 203.0.113.7（来自 Cloudflare）"]
+        ["available; public address 203.0.113.7 (from Cloudflare)"]
     );
     assert_eq!(
         field(&shown, "IPv6"),
-        ["可用；公网地址 2001:db8::7（来自 icanhazip）"]
+        ["available; public address 2001:db8::7 (from icanhazip)"]
     );
 }
 
@@ -742,35 +832,59 @@ fn a_proxmox_container_reports_what_lxcfs_shows() {
 }
 
 #[test]
-fn platforms_are_named_in_chinese() {
+fn each_platform_has_its_name() {
     let names = [
-        (Platform::Dedicated, "未检测到虚拟化"),
-        (Platform::Vm(Hypervisor::Kvm), "KVM 虚拟机"),
-        (Platform::Vm(Hypervisor::Qemu), "QEMU 虚拟机（纯软件模拟）"),
-        (Platform::Vm(Hypervisor::Xen), "Xen 虚拟机"),
-        (Platform::Vm(Hypervisor::Vmware), "VMware 虚拟机"),
-        (Platform::Vm(Hypervisor::HyperV), "Hyper-V 虚拟机"),
-        (Platform::Vm(Hypervisor::VirtualBox), "VirtualBox 虚拟机"),
-        (Platform::Vm(Hypervisor::Parallels), "Parallels 虚拟机"),
-        (Platform::Vm(Hypervisor::AmazonEc2), "Amazon EC2 虚拟机"),
+        (Platform::Dedicated, "no virtualization detected"),
+        (Platform::Vm(Hypervisor::Kvm), "KVM virtual machine"),
+        (
+            Platform::Vm(Hypervisor::Qemu),
+            "QEMU virtual machine (pure software emulation)",
+        ),
+        (Platform::Vm(Hypervisor::Xen), "Xen virtual machine"),
+        (Platform::Vm(Hypervisor::Vmware), "VMware virtual machine"),
+        (Platform::Vm(Hypervisor::HyperV), "Hyper-V virtual machine"),
+        (
+            Platform::Vm(Hypervisor::VirtualBox),
+            "VirtualBox virtual machine",
+        ),
+        (
+            Platform::Vm(Hypervisor::Parallels),
+            "Parallels virtual machine",
+        ),
+        (
+            Platform::Vm(Hypervisor::AmazonEc2),
+            "Amazon EC2 virtual machine",
+        ),
         (
             Platform::Vm(Hypervisor::GoogleCompute),
-            "Google Compute Engine 虚拟机",
+            "Google Compute Engine virtual machine",
         ),
-        (Platform::Vm(Hypervisor::Bhyve), "bhyve 虚拟机"),
-        (Platform::Vm(Hypervisor::Other), "虚拟机（类型未知）"),
-        (Platform::Container(ContainerKind::Lxc), "LXC 容器"),
-        (Platform::Container(ContainerKind::Openvz), "OpenVZ 容器"),
-        (Platform::Container(ContainerKind::Docker), "Docker 容器"),
-        (Platform::Container(ContainerKind::Podman), "Podman 容器"),
+        (Platform::Vm(Hypervisor::Bhyve), "bhyve virtual machine"),
+        (
+            Platform::Vm(Hypervisor::Other),
+            "virtual machine (type unknown)",
+        ),
+        (Platform::Container(ContainerKind::Lxc), "LXC container"),
+        (
+            Platform::Container(ContainerKind::Openvz),
+            "OpenVZ container",
+        ),
+        (
+            Platform::Container(ContainerKind::Docker),
+            "Docker container",
+        ),
+        (
+            Platform::Container(ContainerKind::Podman),
+            "Podman container",
+        ),
         (
             Platform::Container(ContainerKind::SystemdNspawn),
-            "systemd-nspawn 容器",
+            "systemd-nspawn container",
         ),
         (Platform::Container(ContainerKind::Wsl), "WSL"),
         (
             Platform::Container(ContainerKind::Other),
-            "容器（类型未知）",
+            "container (type unknown)",
         ),
     ];
     for (platform, name) in names {
@@ -780,14 +894,14 @@ fn platforms_are_named_in_chinese() {
             ..HostProfile::default()
         };
         assert!(
-            render(&host, false).contains(&format!("\n运行环境：{name}\n")),
+            render(&host, false).contains(&format!("\nEnvironment: {name}\n")),
             "{name}"
         );
     }
     let kinds = [
-        (PlatformKind::Dedicated, "独立服务器"),
-        (PlatformKind::Vm, "虚拟机"),
-        (PlatformKind::Container, "容器"),
+        (PlatformKind::Dedicated, "dedicated server"),
+        (PlatformKind::Vm, "virtual machine"),
+        (PlatformKind::Container, "container"),
     ];
     for (kind, name) in kinds {
         assert_eq!(report::terminal::kind_text(kind), name);
@@ -807,7 +921,7 @@ fn an_arm_cpu_unknown_to_the_table_shows_its_codes() {
             }),
             ..HostProfile::default()
         };
-        field(&render(&host, false), "CPU 型号")
+        field(&render(&host, false), "CPU model")
     };
     assert_eq!(
         model(Some(Model::Name("ARM Neoverse-N1".to_owned()))),
@@ -818,21 +932,21 @@ fn an_arm_cpu_unknown_to_the_table_shows_its_codes() {
             vendor: "Apple",
             part: 0
         })),
-        ["Apple（型号代码 0x000）"]
+        ["Apple (part code 0x000)"]
     );
     assert_eq!(
         model(Some(Model::UnknownVendor {
             implementer: 0x99,
             part: Some(1)
         })),
-        ["ARM 处理器（厂商代码 0x99，型号代码 0x001）"]
+        ["ARM CPU (vendor code 0x99, part code 0x001)"]
     );
     assert_eq!(
         model(Some(Model::UnknownVendor {
             implementer: 0x99,
             part: None
         })),
-        ["ARM 处理器（厂商代码 0x99）"]
+        ["ARM CPU (vendor code 0x99)"]
     );
-    assert_eq!(model(None), ["不可用"]);
+    assert_eq!(model(None), ["unavailable"]);
 }

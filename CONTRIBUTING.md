@@ -7,8 +7,10 @@ recorded in design documents outside the repository.
 ## Languages
 
 - Code, identifiers, comments, documents and commit messages are English.
-- Text that the program shows its users is Chinese; messages for developers, such as the
-  registry checks, are English.
+- Text that the program shows its users is English, and comes from the message catalog in
+  `crates/bench/src/locale/`: a trait per part of the program, which each language implements
+  in a module of its own. Messages for developers, such as the registry checks, are English and
+  written in place.
 - Pull request bodies are English, in the sections of the template.
 
 ## Layout
@@ -20,7 +22,8 @@ crates/
   bench-tool/  the pins of the external tools, and the code that runs a tool with a time limit,
                cancellation, retries, process groups and CPU placement
   bench/       the program: the command line, the registry, the orchestrator, the result enum,
-               the report, the progress log, the network checks and the tool downloads
+               the report, the progress log, the network checks, the tool downloads and the
+               message catalog
   swap-file/   a temporary swap file, with the only unsafe code
 plugins/
   cpu/         cpu.sysbench, cpu.geekbench
@@ -59,10 +62,11 @@ A new test item starts with a design document (below). Then:
    progress lines tell the log what it is doing.
 2. Add its variant to `Measured` in `crates/bench/src/results.rs`, and register it with that
    variant in `registry::all()`, where its place is its place in the run order.
-3. Name it in the reporter's `NAMES`, and write its words in
-   `crates/bench/src/report/terminal/<group>.rs`; the registry's checks fail for a plugin
-   without a name, and a variant without words does not compile. A new group also gets its
-   section in `SECTIONS`, which orders the report.
+3. Name it in the catalog's `item_name`, and write its part of the report in
+   `crates/bench/src/report/terminal/<group>.rs`, with its words in the catalog; the registry's
+   checks fail for a plugin without a name, and a variant without a report does not compile. A
+   new group also gets its section in `SECTIONS`, which orders the report, and its title in the
+   catalog's `group_title`.
 4. Test the parsers with recorded output, the measurement with recorded runs, comparing each
    tool's whole command, and the words with insta snapshots in `crates/bench/tests/`.
 5. Add the item to the README's table of items, and its tool to the table of third-party tools;

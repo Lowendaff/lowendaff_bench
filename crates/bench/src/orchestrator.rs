@@ -212,7 +212,7 @@ pub fn plan(
 }
 
 /// Splits the plan by host: the plugins that apply here, and the names of those that do not, for
-/// the 本机不适用 line.
+/// the summary's "Not applicable here" line.
 #[must_use]
 pub fn for_host<R>(
     plan: Vec<Planned<R>>,

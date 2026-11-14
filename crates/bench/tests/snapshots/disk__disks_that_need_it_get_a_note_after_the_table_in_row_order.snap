@@ -2,22 +2,22 @@
 source: crates/bench/tests/disk.rs
 expression: text
 ---
-【硬盘】
+[Disks]
   smartctl 7.5
-  设备  健康      通电时间    温度   已用寿命  累计写入  坏块   接口错误
-  sda   通过      46167 小时  25 °C  23%       48.2 TB   0 / —  3
-  sdc   读取失败  —           —      —         —         —      —
-  sdd   不支持    —           —      —         —         —      —
-  sde   未知      —           —      —         —         —      —
-  sdf   未知      —           —      —         —         —      —
-  sdg   未通过    —           —      —         —         —      —
-  说明              sdc 读取失败：打不开设备，或读不到设备识别信息
-  说明              sdd 不支持 SMART
-  说明              sde 的 SMART 功能已关闭，本程序不会替它打开
-  说明              无法删除 /dev/megaraid_sas_ioctl_node：Is a directory (os error 21)
-  完成，用时 0.4 秒
+  Device  Health       Power-on  Temp.  Worn  Written  Bad blocks  Link errors
+  sda     passed       46167 h   25 °C  23%   48.2 TB  0 / —       3
+  sdc     read failed  —         —      —     —        —           —
+  sdd     unsupported  —         —      —     —        —           —
+  sde     unknown      —         —      —     —        —           —
+  sdf     unknown      —         —      —     —        —           —
+  sdg     failed       —         —      —     —        —           —
+  Note                sdc: read failed: cannot open the device, or read its identity
+  Note                sdd does not support SMART
+  Note                sde has SMART turned off, and this program does not turn it on
+  Note                cannot delete /dev/megaraid_sas_ioctl_node: Is a directory (os error 21)
+  done in 0.4 s
 
-【汇总】
-  硬盘健康          完成，用时 0.4 秒
+[Summary]
+  Disk health         done in 0.4 s
 
-共 1 项：完成 1，跳过 0，失败 0，超时 0，中断 0。总用时 5.0 秒
+1 item: 1 done, 0 skipped, 0 failed, 0 timed out, 0 interrupted. Total time 5.0 s

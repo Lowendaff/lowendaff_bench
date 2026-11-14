@@ -1,6 +1,7 @@
 //! The terminal report, written once when every plugin is done: the host profile, a section per
-//! group of plugins, in an order of its own, then the summary. Columns line up by display width,
-//! so CJK and ASCII line up, and tables wrap to the terminal's width when there is one.
+//! group of plugins, in an order of its own, then the summary. Its words come from the catalog
+//! (`crate::locale`). Columns line up by display width, so that wide characters line up too, and
+//! tables wrap to the terminal's width when there is one.
 
 mod cpu;
 mod disk;
@@ -18,6 +19,7 @@ use comfy_table::ContentArrangement;
 use comfy_table::Table;
 use comfy_table::presets;
 
+use crate::locale;
 use crate::orchestrator::Run;
 use crate::results::Measured;
 
@@ -31,36 +33,13 @@ pub use summary::fault_text;
 pub use summary::run_status;
 pub use summary::unmet_text;
 
-/// Labels pad to this display width, so that values line up.
-const LABEL_WIDTH: usize = 16;
-
-/// The sections of the plugins, in the report's order, after the host's: a group's id and its
-/// title.
-const SECTIONS: [(&str, &str); 3] = [
-    ("cpu", "CPU 性能"),
-    ("memory", "内存性能"),
-    ("disk", "硬盘"),
-];
-
-/// The names of the plugins, by id.
-const NAMES: [(&str, &str); 8] = [
-    ("cpu.sysbench", "CPU 性能"),
-    ("cpu.geekbench", "Geekbench 7"),
-    ("memory.sysbench", "内存 sysbench"),
-    ("memory.stream", "内存 STREAM"),
-    ("memory.latency", "内存延迟"),
-    ("memory.numa", "内存 NUMA"),
-    ("disk.health", "硬盘健康"),
-    ("disk.fio", "硬盘性能"),
-];
+/// The sections of the plugins, in the report's order, after the host's: the groups' ids.
+const SECTIONS: [&str; 3] = ["cpu", "memory", "disk"];
 
 /// The reporter's name for a plugin, by its id.
 #[must_use]
 pub fn name(id: &str) -> Option<&'static str> {
-    NAMES
-        .iter()
-        .find(|(known, _)| *known == id)
-        .map(|(_, name)| *name)
+    locale::words().item_name(id)
 }
 
 /// Everything the report shows.
@@ -86,16 +65,15 @@ pub fn render(page: &Page, width: Option<u16>) -> String {
         text: String::new(),
         width,
     };
+    let words = locale::words();
     out.line(&format!("lowendaff-bench {}", page.version));
-    out.line(&format!(
-        "运行环境：{}",
-        host::platform_text(page.host.platform)
-    ));
+    let platform = host::platform_text(page.host.platform);
+    out.line(&words.environment(&platform));
     host::section(&mut out, page.host, page.show_ip);
     let groups: Vec<&str> = page.runs.iter().map(|run| run.group).collect();
     for (group, title) in sections(&groups) {
         let runs: Vec<&Run<Measured>> = page.runs.iter().filter(|run| run.group == group).collect();
-        out.line(&format!("\n【{title}】"));
+        out.line(&format!("\n{}", words.section(title)));
         let several = runs.len() > 1;
         for run in runs {
             let indent = if several {
@@ -112,16 +90,20 @@ pub fn render(page: &Page, width: Option<u16>) -> String {
 }
 
 /// The sections of these groups, in the report's order: the groups it knows, in an order of
-/// their own, then any other group, in the order given and titled by its name.
+/// their own, then any other group, in the order given; each with its title, or its name when the
+/// catalog has no title for it.
 #[must_use]
 pub fn sections<'a>(groups: &[&'a str]) -> Vec<(&'a str, &'a str)> {
+    let words = locale::words();
+    let title = |group: &'a str| words.group_title(group).unwrap_or(group);
     let mut sections: Vec<(&str, &str)> = SECTIONS
         .into_iter()
-        .filter(|(group, _)| groups.contains(group))
+        .filter(|group| groups.contains(group))
+        .map(|group| (group, title(group)))
         .collect();
     for group in groups {
         if !sections.iter().any(|(known, _)| known == group) {
-            sections.push((group, group));
+            sections.push((group, title(group)));
         }
     }
     sections
@@ -154,9 +136,10 @@ impl Out {
         let _ = writeln!(self.text, "{line}");
     }
 
-    /// A label padded to [`LABEL_WIDTH`] and its value.
+    /// A label padded to the catalog's label width, and its value.
     fn field(&mut self, indent: &str, label: &str, value: &str) {
-        self.line(&format!("{indent}{}  {value}", pad(label, LABEL_WIDTH)));
+        let label = pad(label, locale::words().label_width());
+        self.line(&format!("{indent}{label}  {value}"));
     }
 
     /// A table without borders: columns two spaces apart, those holding only numbers aligned to
@@ -195,7 +178,7 @@ fn is_number(cell: &str) -> bool {
     cell.parse::<f64>().is_ok()
 }
 
-/// Pads to a display width; CJK characters count as two columns.
+/// Pads to a display width; wide characters, as in CJK, count as two columns.
 fn pad(text: &str, width: usize) -> String {
     use unicode_width::UnicodeWidthStr;
 
@@ -214,7 +197,13 @@ mod tests {
             text: String::new(),
             width: Some(14),
         };
-        out.table("  ", &["项目说明 甲乙".to_owned(), "x".to_owned()], &[]);
-        assert_eq!(out.text, "  项目说明   x\n  甲乙\n");
+        out.table("  ", &["Headline abcd".to_owned(), "x".to_owned()], &[]);
+        assert_eq!(out.text, "  Headline   x\n  abcd\n");
+    }
+
+    #[test]
+    fn a_wide_character_takes_two_columns() {
+        // As an emoji or a CJK character does in a terminal.
+        assert_eq!(super::pad("\u{1F600}x", 5), "\u{1F600}x  ");
     }
 }

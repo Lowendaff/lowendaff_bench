@@ -240,7 +240,7 @@ fn runs() -> Vec<Run<Measured>> {
             "disk.fio",
             Status::Skipped(Some(Unmet::Tool {
                 name: "fio",
-                why: "下载失败：HTTP 404".to_owned(),
+                why: "download failed: HTTP 404".to_owned(),
             })),
             None,
             None,
@@ -271,7 +271,7 @@ fn every_status_in_its_group() {
         version: "0.1.0",
         host: &host(),
         show_ip: false,
-        not_applicable: &["内存 NUMA"],
+        not_applicable: &["Memory NUMA"],
         runs: &runs,
         total: Duration::from_secs_f64(137.8),
     };
@@ -325,7 +325,7 @@ fn a_run_with_one_plugin_per_section() {
 
 #[test]
 fn tables_wrap_to_a_terminals_width_only() {
-    let long = "很长的设备名称，在窄终端上需要换行才能看全，写到文件里则保持一行";
+    let long = "a long device name that wraps on a narrow terminal and stays on one line in a file";
     let runs = vec![run(
         "disk.health",
         Status::Completed,
@@ -354,7 +354,7 @@ fn tables_wrap_to_a_terminals_width_only() {
 }
 
 #[test]
-fn requirements_and_faults_are_written_in_chinese() {
+fn requirements_and_faults_have_their_words() {
     let needed = GlibcVersion {
         major: 2,
         minor: 35,
@@ -366,31 +366,31 @@ fn requirements_and_faults_are_written_in_chinese() {
     let texts = [
         (
             Unmet::Glibc { needed, found },
-            "需要 glibc 2.35 或更新，本机是 2.34",
+            "needs glibc 2.35 or newer; this host has 2.34",
         ),
         (
             Unmet::Glibc {
                 needed,
                 found: None,
             },
-            "需要 glibc 2.35 或更新，本机没有 glibc",
+            "needs glibc 2.35 or newer; this host has no glibc",
         ),
-        (Unmet::Network(Net::Ipv4), "需要 IPv4 网络连接"),
-        (Unmet::Network(Net::Ipv6), "需要 IPv6 网络连接"),
-        (Unmet::Network(Net::Any), "需要网络连接"),
+        (Unmet::Network(Net::Ipv4), "needs an IPv4 connection"),
+        (Unmet::Network(Net::Ipv6), "needs an IPv6 connection"),
+        (Unmet::Network(Net::Any), "needs a network connection"),
         (
             Unmet::Tool {
                 name: "fio",
-                why: "下载失败：HTTP 404".to_owned(),
+                why: "download failed: HTTP 404".to_owned(),
             },
-            "工具 fio 不可用：下载失败：HTTP 404",
+            "tool fio unavailable: download failed: HTTP 404",
         ),
         (
             Unmet::Tool {
                 name: "fio",
                 why: String::new(),
             },
-            "工具 fio 不可用",
+            "tool fio unavailable",
         ),
     ];
     for (unmet, text) in texts {
@@ -398,14 +398,14 @@ fn requirements_and_faults_are_written_in_chinese() {
     }
     assert_eq!(
         report::terminal::fault_text(&Fault::Panic("boom".into())),
-        "插件崩溃：boom"
+        "the plugin crashed: boom"
     );
     assert_eq!(
         report::terminal::fault_text(&Fault::WorkDir("No space left on device".into())),
-        "无法创建工作目录：No space left on device"
+        "cannot create the work directory: No space left on device"
     );
     assert_eq!(
         report::terminal::fault_text(&Fault::Aborted("task was cancelled".into())),
-        "任务异常结束：task was cancelled"
+        "the task ended abnormally: task was cancelled"
     );
 }

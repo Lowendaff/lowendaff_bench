@@ -209,7 +209,10 @@ plugin!(InfoEverywhere, on("info.any", &[], &[]));
 #[test]
 fn a_correct_registry_passes() {
     assert_eq!(
-        registry::validate(&[named::<Good>("硬盘性能"), named::<AlsoFio>("硬盘顺序读写")]),
+        registry::validate(&[
+            named::<Good>("Disk performance"),
+            named::<AlsoFio>("Disk sequential I/O")
+        ]),
         Vec::<String>::new()
     );
 }
@@ -217,11 +220,11 @@ fn a_correct_registry_passes() {
 #[test]
 fn registry_checks_catch_common_plugin_mistakes() {
     let problems = registry::validate(&[
-        named::<Good>("硬盘性能"),
-        named::<Good>("硬盘性能"),
-        named::<BadId>("错误的 id"),
-        named::<Lax>("宽松的配置"),
-        named::<Strict>("严格的配置"),
+        named::<Good>("Disk performance"),
+        named::<Good>("Disk performance"),
+        named::<BadId>("Bad id"),
+        named::<Lax>("Lax config"),
+        named::<Strict>("Strict config"),
     ]);
     let expected = [
         "disk.fio: duplicate id",
@@ -246,11 +249,11 @@ fn registry_checks_catch_common_plugin_mistakes() {
 #[test]
 fn registry_checks_catch_bad_tool_pins() {
     let problems = registry::validate(&[
-        named::<Good>("硬盘性能"),
-        named::<BrokenTool>("网络"),
-        named::<ConflictingFio>("旧的 fio"),
-        named::<NestedArchive>("嵌套的压缩包"),
-        named::<Archive>("压缩包"),
+        named::<Good>("Disk performance"),
+        named::<BrokenTool>("Network"),
+        named::<ConflictingFio>("Old fio"),
+        named::<NestedArchive>("Nested archive"),
+        named::<Archive>("Archive"),
     ]);
     let expected = [
         "net.iperf: tool iperf3 has no aarch64 build",
@@ -272,9 +275,9 @@ fn registry_checks_catch_bad_tool_pins() {
 #[test]
 fn no_two_plugins_share_a_name_whatever_their_platforms() {
     let problems = registry::validate(&[
-        named::<InfoVm>("信息"),
-        named::<InfoDedicated>("信息"),
-        named::<InfoEverywhere>("信息"),
+        named::<InfoVm>("Info"),
+        named::<InfoDedicated>("Info"),
+        named::<InfoEverywhere>("Info"),
     ]);
     assert_eq!(
         problems,
@@ -288,7 +291,7 @@ fn no_two_plugins_share_a_name_whatever_their_platforms() {
 #[test]
 fn the_reporter_must_name_each_plugin_and_its_limit_must_be_positive() {
     let problems = registry::validate(&[
-        named::<Good>("硬盘性能"),
+        named::<Good>("Disk performance"),
         registry::entry::<FioAgain>(unused),
         registry::entry::<Lax>(unused),
         named::<Unnamed>(""),

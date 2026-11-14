@@ -117,8 +117,8 @@ fn plugins_are_logged_by_id_in_the_reports_words() {
         [
             "memory.stream started",
             "memory.stream single thread",
-            "memory.stream 完成，用时 21.3 秒",
-            "cpu.geekbench 跳过：需要 IPv4 网络连接",
+            "memory.stream done in 21.3 s",
+            "cpu.geekbench skipped: needs an IPv4 connection",
         ]
     );
 }
@@ -232,9 +232,9 @@ fn the_host_and_its_network_are_logged_with_masked_addresses() {
     assert_eq!(
         lines,
         [
-            "Host: KVM 虚拟机, x86_64",
-            "Network: IPv4 可用；公网地址 203.0.*.*（来自 Cloudflare）",
-            "Network: IPv6 可用；公网地址 2001:db8:*（来自 ipify）",
+            "Host: KVM virtual machine, x86_64",
+            "Network: IPv4 available; public address 203.0.*.* (from Cloudflare)",
+            "Network: IPv6 available; public address 2001:db8:* (from ipify)",
         ]
     );
 }

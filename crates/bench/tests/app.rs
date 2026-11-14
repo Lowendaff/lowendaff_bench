@@ -393,18 +393,20 @@ async fn a_run_prints_sections_and_summary_then_removes_its_directory() {
     assert_eq!(code, 0);
     assert!(
         text.starts_with(&format!(
-            "lowendaff-bench {}\n运行环境：未检测到虚拟化\n\n【系统信息】\n",
+            "lowendaff-bench {}\nEnvironment: no virtualization detected\n\n[System]\n",
             env!("CARGO_PKG_VERSION")
         )),
         "{text}"
     );
-    assert!(text.contains("\n\n【test】\n"), "{text}");
+    assert!(text.contains("\n\n[test]\n"), "{text}");
     assert!(
-        text.contains("  单核              3\n"),
+        text.contains("  Single-core         3\n"),
         "the score that the config gave: {text}"
     );
     assert!(
-        text.contains("\n共 1 项：完成 1，跳过 0，失败 0，超时 0，中断 0。总用时 "),
+        text.contains(
+            "\n1 item: 1 done, 0 skipped, 0 failed, 0 timed out, 0 interrupted. Total time "
+        ),
         "{text}"
     );
 }
@@ -419,12 +421,12 @@ async fn an_interrupted_run_exits_130_and_still_lists_every_plugin() {
 
     assert_eq!(code, EXIT_INTERRUPTED);
     assert!(
-        text.contains("【test】\n  test.good\n    已中断\n  test.other\n    已中断\n"),
+        text.contains("[test]\n  test.good\n    interrupted\n  test.other\n    interrupted\n"),
         "two plugins of one group share a section: {text}"
     );
-    assert_eq!(text.matches("【test】").count(), 1, "{text}");
+    assert_eq!(text.matches("[test]").count(), 1, "{text}");
     assert!(
-        text.contains("共 2 项：完成 0，跳过 0，失败 0，超时 0，中断 2。"),
+        text.contains("2 items: 0 done, 0 skipped, 0 failed, 0 timed out, 2 interrupted."),
         "{text}"
     );
 }
@@ -545,14 +547,14 @@ async fn a_plugin_that_needs_numa_nodes_runs_only_where_two_can_be_used() {
             "{count} nodes: {text}"
         );
         assert_eq!(
-            text.contains("  本机不适用：test.numa\n"),
+            text.contains("  Not applicable here: test.numa\n"),
             !runs,
             "{count} nodes: {text}"
         );
         let total = if runs {
-            "共 1 项：完成 1，"
+            "1 item: 1 done,"
         } else {
-            "共 0 项：完成 0，"
+            "0 items: 0 done,"
         };
         assert!(
             text.contains(total),
@@ -574,18 +576,18 @@ async fn only_plugins_for_the_detected_platform_run() {
     assert_eq!(code, 0);
     assert!(
         text.starts_with(&format!(
-            "lowendaff-bench {}\n运行环境：KVM 虚拟机\n",
+            "lowendaff-bench {}\nEnvironment: KVM virtual machine\n",
             env!("CARGO_PKG_VERSION")
         )),
         "{text}"
     );
-    assert!(text.contains("\n\n【test】\n"), "{text}");
+    assert!(text.contains("\n\n[test]\n"), "{text}");
     assert!(
-        text.contains("  本机不适用：test.info-dedicated、test.disk-health、test.numa\n"),
+        text.contains("  Not applicable here: test.info-dedicated, test.disk-health, test.numa\n"),
         "{text}"
     );
     assert!(
-        summary_line(&text, "test.info-vm").is_some_and(|line| line.contains("完成")),
+        summary_line(&text, "test.info-vm").is_some_and(|line| line.contains("done")),
         "{text}"
     );
     assert!(
@@ -593,7 +595,7 @@ async fn only_plugins_for_the_detected_platform_run() {
         "tools of plugins that do not apply must not be downloaded: {log:?}"
     );
     assert!(
-        text.contains("\n共 1 项：完成 1，跳过 0，失败 0，超时 0，中断 0。"),
+        text.contains("\n1 item: 1 done, 0 skipped, 0 failed, 0 timed out, 0 interrupted."),
         "{text}"
     );
 }
@@ -622,16 +624,16 @@ async fn a_tool_that_cannot_be_provisioned_skips_its_plugins_with_the_reason() {
     let (code, text, log) = execute(planned, host, &CancellationToken::new()).await;
 
     assert_eq!(code, 0);
-    let reason = "工具 smartctl 不可用：no build for riscv64";
-    assert!(text.contains(&format!("\n  跳过：{reason}\n")), "{text}");
+    let reason = "tool smartctl unavailable: no build for riscv64";
+    assert!(text.contains(&format!("\n  skipped: {reason}\n")), "{text}");
     assert_eq!(
         log,
         [
-            "Host: 未检测到虚拟化, riscv64".to_owned(),
-            "Network: IPv4 不可用".to_owned(),
-            "Network: IPv6 不可用".to_owned(),
+            "Host: no virtualization detected, riscv64".to_owned(),
+            "Network: IPv4 unavailable".to_owned(),
+            "Network: IPv6 unavailable".to_owned(),
             "Tools: smartctl 7.4 failed: no build for riscv64".to_owned(),
-            format!("test.smartctl 跳过：{reason}"),
+            format!("test.smartctl skipped: {reason}"),
         ]
     );
 }
@@ -686,8 +688,11 @@ async fn tools_of_items_the_host_cannot_run_are_not_downloaded() {
         ..HostProfile::default()
     };
     let cases = [
-        (without_glibc, "需要 glibc 2.35 或更新，本机没有 glibc"),
-        (without_ipv4, "需要 IPv4 网络连接"),
+        (
+            without_glibc,
+            "needs glibc 2.35 or newer; this host has no glibc",
+        ),
+        (without_ipv4, "needs an IPv4 connection"),
     ];
     for (host, reason) in cases {
         let planned = app::prepare(&cli(&[]), &registry).unwrap();
@@ -711,7 +716,7 @@ async fn tools_of_items_the_host_cannot_run_are_not_downloaded() {
             !log.iter().any(|line| line.starts_with("Tools: ")),
             "{log:?}"
         );
-        assert!(text.contains(&format!("跳过：{reason}")), "{text}");
+        assert!(text.contains(&format!("skipped: {reason}")), "{text}");
     }
 }
 
@@ -812,7 +817,7 @@ async fn the_program_hands_its_plugins_the_tools_it_downloaded() {
             "{log:?}"
         );
         assert!(
-            summary_line(&text, "test.script").is_some_and(|line| line.contains("完成，用时")),
+            summary_line(&text, "test.script").is_some_and(|line| line.contains("done in")),
             "the plugin ran the tool it was handed: {text}"
         );
     }
@@ -842,14 +847,14 @@ async fn ctrl_c_during_the_downloads_ends_the_run_at_once() {
         "{log:?}"
     );
     assert!(
-        summary_line(&text, "test.script").is_some_and(|line| line.ends_with("已中断")),
+        summary_line(&text, "test.script").is_some_and(|line| line.ends_with("interrupted")),
         "{text}"
     );
 }
 
 #[tokio::test]
 async fn the_report_wraps_its_tables_to_the_width_it_is_given() {
-    let mount_point = "/srv/一个很长的挂载点名称，在窄终端上需要换行";
+    let mount_point = "/srv/a long mount point name that wraps on a narrow terminal";
     let filesystem = Filesystem {
         mount_point: mount_point.to_owned(),
         fs_type: "ext4".to_owned(),
@@ -990,9 +995,10 @@ fn the_list_shows_where_each_plugin_applies() {
         String::from_utf8(out).unwrap(),
         "4 test items\n\
          [test] (group: test)\n\
-         \x20 test.info-dedicated  test.info-dedicated (applies to: 独立服务器)\n\
-         \x20 test.info-vm  test.info-vm (applies to: 虚拟机)\n\
-         \x20 test.disk-health  test.disk-health (applies to: 独立服务器) (tools: smartctl 7.4)\n\
+         \x20 test.info-dedicated  test.info-dedicated (applies to: dedicated server)\n\
+         \x20 test.info-vm  test.info-vm (applies to: virtual machine)\n\
+         \x20 test.disk-health  test.disk-health (applies to: dedicated server) \
+         (tools: smartctl 7.4)\n\
          \x20 test.numa  test.numa (applies to: several NUMA nodes)\n"
     );
 }
@@ -1018,9 +1024,9 @@ fn the_list_keeps_each_group_together_in_the_reports_order() {
     assert_eq!(
         headings,
         [
-            "[CPU 性能] (group: cpu)",
-            "[内存性能] (group: memory)",
-            "[硬盘] (group: disk)"
+            "[CPU performance] (group: cpu)",
+            "[Memory performance] (group: memory)",
+            "[Disks] (group: disk)"
         ]
     );
     let ids: Vec<&str> = text
@@ -1048,7 +1054,7 @@ fn the_list_keeps_each_group_together_in_the_reports_order() {
     assert_eq!(
         cpu,
         [
-            "  cpu.sysbench  CPU 性能 (tools: sysbench 1.0.20)",
+            "  cpu.sysbench  CPU performance (tools: sysbench 1.0.20)",
             "  cpu.geekbench  Geekbench 7 (tools: geekbench 7.1.0)"
         ],
         "the reporter names the plugins"
@@ -1060,10 +1066,10 @@ fn the_list_keeps_each_group_together_in_the_reports_order() {
     assert_eq!(
         memory,
         [
-            "  memory.sysbench  内存 sysbench (tools: sysbench 1.0.20)",
-            "  memory.stream  内存 STREAM (tools: stream 5.10)",
-            "  memory.latency  内存延迟 (tools: multichase 2026.10.01)",
-            "  memory.numa  内存 NUMA (applies to: several NUMA nodes) \
+            "  memory.sysbench  Memory sysbench (tools: sysbench 1.0.20)",
+            "  memory.stream  Memory STREAM (tools: stream 5.10)",
+            "  memory.latency  Memory latency (tools: multichase 2026.10.01)",
+            "  memory.numa  Memory NUMA (applies to: several NUMA nodes) \
              (tools: multichase 2026.10.01)"
         ]
     );
@@ -1074,8 +1080,8 @@ fn the_list_keeps_each_group_together_in_the_reports_order() {
     assert_eq!(
         disk,
         [
-            "  disk.health  硬盘健康 (applies to: 独立服务器) (tools: smartctl 7.5)",
-            "  disk.fio  硬盘性能 (tools: fio 3.43)"
+            "  disk.health  Disk health (applies to: dedicated server) (tools: smartctl 7.5)",
+            "  disk.fio  Disk performance (tools: fio 3.43)"
         ]
     );
 }
@@ -1090,7 +1096,7 @@ fn the_plan_keeps_the_reporters_names() {
     assert_eq!(
         names,
         [
-            ("cpu.sysbench", Some("CPU 性能")),
+            ("cpu.sysbench", Some("CPU performance")),
             ("cpu.geekbench", Some("Geekbench 7"))
         ]
     );
@@ -1102,8 +1108,8 @@ fn the_plan_keeps_the_reporters_names() {
     assert_eq!(
         names,
         [
-            ("disk.health", Some("硬盘健康")),
-            ("disk.fio", Some("硬盘性能"))
+            ("disk.health", Some("Disk health")),
+            ("disk.fio", Some("Disk performance"))
         ]
     );
     let planned = app::prepare(&cli(&["--only", "memory"]), &registry::all()).unwrap();
@@ -1114,10 +1120,10 @@ fn the_plan_keeps_the_reporters_names() {
     assert_eq!(
         names,
         [
-            ("memory.sysbench", Some("内存 sysbench")),
-            ("memory.stream", Some("内存 STREAM")),
-            ("memory.latency", Some("内存延迟")),
-            ("memory.numa", Some("内存 NUMA"))
+            ("memory.sysbench", Some("Memory sysbench")),
+            ("memory.stream", Some("Memory STREAM")),
+            ("memory.latency", Some("Memory latency")),
+            ("memory.numa", Some("Memory NUMA"))
         ],
         "the group selects its four plugins"
     );
@@ -1133,6 +1139,6 @@ fn the_items_that_do_not_apply_here_are_named_as_the_report_names_them() {
 
     let (applicable, names) = orchestrator::for_host(planned, &vm);
 
-    assert_eq!(names, ["硬盘健康", "内存 NUMA"]);
+    assert_eq!(names, ["Disk health", "Memory NUMA"]);
     assert_eq!(applicable.len(), 6, "the others run");
 }

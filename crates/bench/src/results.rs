@@ -22,20 +22,20 @@ pub struct Report<O, F> {
 /// does not compile.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Measured {
-    /// CPU 性能 (`cpu.sysbench`).
+    /// CPU performance (`cpu.sysbench`).
     CpuSysbench(Report<sysbench::Output, sysbench::Failure>),
     /// Geekbench 7 (`cpu.geekbench`).
     CpuGeekbench(Report<geekbench::Output, geekbench::Failure>),
-    /// 内存 sysbench (`memory.sysbench`).
+    /// Memory sysbench (`memory.sysbench`).
     MemorySysbench(Report<plugin_memory::sysbench::Output, plugin_memory::sysbench::Failure>),
-    /// 内存 STREAM (`memory.stream`).
+    /// Memory STREAM (`memory.stream`).
     MemoryStream(Report<stream::Output, stream::Failure>),
-    /// 内存延迟 (`memory.latency`).
+    /// Memory latency (`memory.latency`).
     MemoryLatency(Report<latency::Output, latency::Failure>),
-    /// 内存 NUMA (`memory.numa`).
+    /// Memory NUMA (`memory.numa`).
     MemoryNuma(Report<numa::Output, numa::Failure>),
-    /// 硬盘健康 (`disk.health`).
+    /// Disk health (`disk.health`).
     DiskHealth(Report<health::Output, health::Failure>),
-    /// 硬盘性能 (`disk.fio`).
+    /// Disk performance (`disk.fio`).
     DiskFio(Report<fio::Output, fio::Failure>),
 }

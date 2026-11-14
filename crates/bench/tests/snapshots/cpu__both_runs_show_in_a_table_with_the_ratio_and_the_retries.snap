@@ -2,17 +2,17 @@
 source: crates/bench/tests/cpu.rs
 expression: text
 ---
-【CPU 性能】
-  sysbench 1.0.20：素数上限 10000，每项 20 秒
-  项目    线程数  每秒事件数
-  单线程       1    12842.07
-  多线程       4    49847.67
-  倍数              多线程是单线程的 3.88 倍
-  说明              单线程测试失败 1 次后成功，最后一次失败的原因：sysbench 退出码 1：x
-  说明              多线程测试失败 2 次后成功，最后一次失败的原因：sysbench 没有输出每秒事件数
-  完成，用时 40.1 秒
+[CPU performance]
+  sysbench 1.0.20: prime limit 10000, 20 s each
+  Test           Threads  Events/s
+  Single thread        1  12842.07
+  Multi-thread         4  49847.67
+  Ratio               multi-thread is 3.88 times single-thread
+  Note                single-thread test: worked after 1 failure; the last reason: sysbench exit code 1: x
+  Note                multi-thread test: worked after 2 failures; the last reason: sysbench printed no events per second
+  done in 40.1 s
 
-【汇总】
-  CPU 性能          完成，用时 40.1 秒
+[Summary]
+  CPU performance     done in 40.1 s
 
-共 1 项：完成 1，跳过 0，失败 0，超时 0，中断 0。总用时 50.0 秒
+1 item: 1 done, 0 skipped, 0 failed, 0 timed out, 0 interrupted. Total time 50.0 s

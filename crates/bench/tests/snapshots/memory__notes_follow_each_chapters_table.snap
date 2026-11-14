@@ -2,56 +2,56 @@
 source: crates/bench/tests/memory.rs
 expression: text
 ---
-【内存性能】
-  内存 sysbench
-    sysbench          1.0.20：顺序读写，每项 10 秒；单线程一块 32 MiB，多线程每个线程一块 8 MiB
-    sysbench 结果
-    项目  单线程        多线程（4 线程）
-    读取  100.00 MiB/s  400.00 MiB/s
-    写入  50.00 MiB/s   200.00 MiB/s
-    说明              没有末级缓存的信息，按 32 MiB 计算
-    说明              可用内存不足，测试数据小于末级缓存总和的 4 倍（32 MiB），一部分读写落在缓存里，结果偏高
-    说明              多线程写入失败 2 次后成功，最后一次失败的原因：超过 60 秒仍未结束，已停止
-    完成，用时 41.2 秒
-  内存 STREAM
-    STREAM            5.10：每个数组 800 万个元素（61 MiB，三个合计 183 MiB），每项取 10 遍中最快的一遍；多线程按节点均匀绑定
-    STREAM 结果
-    项目   单线程        多线程（4 线程）
-    Copy   10000.1 MB/s  40000.1 MB/s
-    Scale  9000.2 MB/s   36000.2 MB/s
-    Add    11000.3 MB/s  44000.3 MB/s
-    Triad  11500.4 MB/s  46000.4 MB/s
-    说明              未完全符合 STREAM 运行规则（每个数组至少为末级缓存总和的 4 倍）
-    说明              多线程测试失败 1 次后成功，最后一次失败的原因：STREAM 的结果没有通过校验：Failed Validation on array a[], AvgRelAbsErr > epsilon (1.000000e-13)
-    完成，用时 41.2 秒
-  内存延迟
-    延迟              multichase：随机指针追逐，每档 2.5 秒
-    延迟结果
-    层级  缓冲区   延迟
-    L1    16 KiB   1.500 ns
-    L2    512 KiB  4.200 ns
-    内存  32 MiB   90.500 ns
-    说明              没有 L3 的信息，跳过这一档
-    说明              可用内存不足，内存一档的缓冲区小于末级缓存总和的 4 倍（32 MiB），一部分访问落在缓存里，延迟偏低
-    说明              L1 测试失败 1 次后成功，最后一次失败的原因：multichase 没有输出延迟
-    完成，用时 41.2 秒
-  内存 NUMA
-    NUMA              2 个节点；带宽用 multiload 的 stream-triad，每格 3 次采样取最快；延迟同上
-    NUMA 带宽（MiB/s；行是线程所在节点，列是内存所在节点）
-            节点 0  节点 1
-    节点 0   52000   31000
-    节点 1   31000   52000
-    NUMA 延迟（ns）
-            节点 0  节点 1
-    节点 0  95.000   140.1
-    节点 1   140.1  95.000
-    说明              线程在节点 1、内存在节点 0 的带宽测试失败 1 次后成功，最后一次失败的原因：超过 60 秒仍未结束，已停止
-    完成，用时 41.2 秒
+[Memory performance]
+  Memory sysbench
+    sysbench            1.0.20: sequential reads and writes, 10 s each; one block of 32 MiB for one thread, one of 8 MiB per thread for several
+    sysbench results
+    Test   Single thread  Multi-thread (4 threads)
+    Read   100.00 MiB/s   400.00 MiB/s
+    Write  50.00 MiB/s    200.00 MiB/s
+    Note                no word on the last-level caches; 32 MiB assumed
+    Note                available memory short: the test data is below 4 times the last-level caches (32 MiB), so some reads and writes hit the caches and the results run high
+    Note                multi-thread write: worked after 2 failures; the last reason: still running after 60 s, stopped
+    done in 41.2 s
+  Memory STREAM
+    STREAM              5.10: 8 million elements per array (61 MiB, 183 MiB for the three), the fastest of 10 passes each; the threads spread evenly over the nodes
+    STREAM results
+    Test   Single thread  Multi-thread (4 threads)
+    Copy   10000.1 MB/s   40000.1 MB/s
+    Scale  9000.2 MB/s    36000.2 MB/s
+    Add    11000.3 MB/s   44000.3 MB/s
+    Triad  11500.4 MB/s   46000.4 MB/s
+    Note                not quite within STREAM's run rules (each array at least 4 times the last-level caches)
+    Note                multi-thread test: worked after 1 failure; the last reason: STREAM's results failed their check: Failed Validation on array a[], AvgRelAbsErr > epsilon (1.000000e-13)
+    done in 41.2 s
+  Memory latency
+    Latency             multichase: random pointer chasing, 2.5 s per level
+    Latency results
+    Level   Buffer   Latency
+    L1      16 KiB   1.500 ns
+    L2      512 KiB  4.200 ns
+    Memory  32 MiB   90.500 ns
+    Note                no word on L3; that level is left out
+    Note                available memory short: the memory level's buffer is below 4 times the last-level caches (32 MiB), so some reads hit the caches and the latency runs low
+    Note                L1 test: worked after 1 failure; the last reason: multichase printed no latency
+    done in 41.2 s
+  Memory NUMA
+    NUMA                2 nodes; bandwidth by multiload's stream-triad, the fastest of 3 samples per cell; latency as above
+    NUMA bandwidth (MiB/s; rows: the threads' node, columns: the memory's node)
+            Node 0  Node 1
+    Node 0   52000   31000
+    Node 1   31000   52000
+    NUMA latency (ns)
+            Node 0  Node 1
+    Node 0  95.000   140.1
+    Node 1   140.1  95.000
+    Note                bandwidth test of threads on node 1 and memory on node 0: worked after 1 failure; the last reason: still running after 60 s, stopped
+    done in 41.2 s
 
-【汇总】
-  内存 sysbench     完成，用时 41.2 秒
-  内存 STREAM       完成，用时 41.2 秒
-  内存延迟          完成，用时 41.2 秒
-  内存 NUMA         完成，用时 41.2 秒
+[Summary]
+  Memory sysbench     done in 41.2 s
+  Memory STREAM       done in 41.2 s
+  Memory latency      done in 41.2 s
+  Memory NUMA         done in 41.2 s
 
-共 4 项：完成 4，跳过 0，失败 0，超时 0，中断 0。总用时 5.0 秒
+4 items: 4 done, 0 skipped, 0 failed, 0 timed out, 0 interrupted. Total time 5.0 s

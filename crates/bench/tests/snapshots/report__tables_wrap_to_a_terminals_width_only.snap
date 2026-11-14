@@ -3,43 +3,47 @@ source: crates/bench/tests/report.rs
 expression: narrow
 ---
 lowendaff-bench 0.1.0
-运行环境：KVM 虚拟机
+Environment: KVM virtual machine
 
-【系统信息】
-  CPU 型号          Example CPU @ 2.00GHz
-  CPU 核心          2 个
-  CPU 频率          2000 MHz
-  CPU 缓存          L1d 32 KiB / L2 4 MiB
-  AES 指令          支持
-  硬件虚拟化        不支持
-  内存总量          2 GiB
-  内存已用          1 GiB
-  Swap              无
-  硬盘
-  设备  接口    容量      型号  用途
-  vda   virtio  40.0 GiB  —     系统盘（/）
-  文件系统
-  挂载点         类型  容量      已用      可用      所在硬盘
-  /（测试目录）  ext4  39.0 GiB  10.0 GiB  27.0 GiB  vda
-  系统              Debian GNU/Linux 13 (trixie)
-  内核              6.12.73+deb13-amd64
-  架构              x86_64
-  运行时间          3 天 4 小时 0 分钟
-  负载              0.10 / 0.20 / 0.30
-  TCP 拥塞控制      bbr（队列 fq）
-  IPv4              可用；公网地址 203.0.*.*（来自 Cloudflare）
-  IPv6              不可用：本机没有 IPv6 路由
+[System]
+  CPU model           Example CPU @ 2.00GHz
+  CPU cores           2 vCPUs
+  CPU clock           2000 MHz
+  CPU caches          L1d 32 KiB / L2 4 MiB
+  AES                 supported
+  Virtualization      not supported
+  Memory total        2 GiB
+  Memory used         1 GiB
+  Swap                none
+  Disks
+  Device  Interface  Size      Model  Use
+  vda     virtio     40.0 GiB  —      system disk (/)
+  Filesystems
+  Mount point         Type  Size      Used      Available  Disks
+  / (test directory)  ext4  39.0 GiB  10.0 GiB  27.0 GiB   vda
+  OS                  Debian GNU/Linux 13 (trixie)
+  Kernel              6.12.73+deb13-amd64
+  Architecture        x86_64
+  Uptime              3 days, 4 hours, 0 minutes
+  Load                0.10 / 0.20 / 0.30
+  TCP congestion      bbr (queue fq)
+  IPv4                available; public address 203.0.*.* (from Cloudflare)
+  IPv6                unavailable: this host has no IPv6 route
 
-【硬盘】
+[Disks]
   smartctl 7.5
-  设备                 健康  通电时间  温度   已用寿命  累计写入  坏块  接口错误
-  很长的设备名称，在   通过  —         25 °C  —         —         —     —
-  窄终端上需要换行才
-  能看全，写到文件里
-  则保持一行
-  完成，用时 1.0 秒
+  Device         Health  Power-on  Temp.  Worn  Written  Bad blocks  Link errors
+  a long device  passed  —         25 °C  —     —        —           —
+  name that
+  wraps on a
+  narrow
+  terminal and
+  stays on one
+  line in a
+  file
+  done in 1.0 s
 
-【汇总】
-  硬盘健康          完成，用时 1.0 秒
+[Summary]
+  Disk health         done in 1.0 s
 
-共 1 项：完成 1，跳过 0，失败 0，超时 0，中断 0。总用时 1.0 秒
+1 item: 1 done, 0 skipped, 0 failed, 0 timed out, 0 interrupted. Total time 1.0 s

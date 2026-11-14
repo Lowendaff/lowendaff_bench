@@ -3,48 +3,48 @@ source: crates/bench/tests/report.rs
 expression: "report::terminal::render(&page, None)"
 ---
 lowendaff-bench 0.1.0
-运行环境：KVM 虚拟机
+Environment: KVM virtual machine
 
-【系统信息】
-  CPU 型号          Example CPU @ 2.00GHz
-  CPU 核心          2 个
-  CPU 频率          2000 MHz
-  CPU 缓存          L1d 32 KiB / L2 4 MiB
-  AES 指令          支持
-  硬件虚拟化        不支持
-  内存总量          2 GiB
-  内存已用          1 GiB
-  Swap              无
-  硬盘
-  设备  接口    容量      型号  用途
-  vda   virtio  40.0 GiB  —     系统盘（/）
-  文件系统
-  挂载点         类型  容量      已用      可用      所在硬盘
-  /（测试目录）  ext4  39.0 GiB  10.0 GiB  27.0 GiB  vda
-  系统              Debian GNU/Linux 13 (trixie)
-  内核              6.12.73+deb13-amd64
-  架构              x86_64
-  运行时间          3 天 4 小时 0 分钟
-  负载              0.10 / 0.20 / 0.30
-  TCP 拥塞控制      bbr（队列 fq）
-  IPv4              可用；公网地址 203.0.*.*（来自 Cloudflare）
-  IPv6              不可用：本机没有 IPv6 路由
+[System]
+  CPU model           Example CPU @ 2.00GHz
+  CPU cores           2 vCPUs
+  CPU clock           2000 MHz
+  CPU caches          L1d 32 KiB / L2 4 MiB
+  AES                 supported
+  Virtualization      not supported
+  Memory total        2 GiB
+  Memory used         1 GiB
+  Swap                none
+  Disks
+  Device  Interface  Size      Model  Use
+  vda     virtio     40.0 GiB  —      system disk (/)
+  Filesystems
+  Mount point         Type  Size      Used      Available  Disks
+  / (test directory)  ext4  39.0 GiB  10.0 GiB  27.0 GiB   vda
+  OS                  Debian GNU/Linux 13 (trixie)
+  Kernel              6.12.73+deb13-amd64
+  Architecture        x86_64
+  Uptime              3 days, 4 hours, 0 minutes
+  Load                0.10 / 0.20 / 0.30
+  TCP congestion      bbr (queue fq)
+  IPv4                available; public address 203.0.*.* (from Cloudflare)
+  IPv6                unavailable: this host has no IPv6 route
 
-【CPU 性能】
-  跳过：需要 IPv4 网络连接
+[CPU performance]
+  skipped: needs an IPv4 connection
 
-【硬盘】
+[Disks]
   fio 3.43
-  测试方式          与 YABS 相同：读写各半的随机测试，测试文件 2 GiB
-  4K 与 64K
-  块大小  4K                    64K
-  读取    97.32 MB/s（23.7k）   —
-  写入    97.58 MB/s（23.8k）   —
-  合计    194.90 MB/s（47.5k）  —
-  完成，用时 0.2 秒
+  Method              as YABS: random reads and writes, half each, on a test file of 2 GiB
+  4K and 64K
+  Block size  4K                   64K
+  Read        97.32 MB/s (23.7k)   —
+  Write       97.58 MB/s (23.8k)   —
+  Total       194.90 MB/s (47.5k)  —
+  done in 0.2 s
 
-【汇总】
-  硬盘性能          完成，用时 0.2 秒
-  Geekbench 7       跳过：需要 IPv4 网络连接
+[Summary]
+  Disk performance    done in 0.2 s
+  Geekbench 7         skipped: needs an IPv4 connection
 
-共 2 项：完成 1，跳过 1，失败 0，超时 0，中断 0。总用时 1.0 秒
+2 items: 1 done, 1 skipped, 0 failed, 0 timed out, 0 interrupted. Total time 1.0 s

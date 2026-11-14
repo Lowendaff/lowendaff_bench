@@ -5,20 +5,61 @@
 
 mod download;
 mod en;
+mod host;
+mod items;
 mod log;
 mod program;
+mod report;
 
 use std::sync::OnceLock;
 
 pub use download::DownloadWords;
 pub use download::Retry;
+pub use host::Cores;
+pub use host::HostHeader;
+pub use host::HostLabel;
+pub use host::HostWords;
+pub use host::NoEcc;
+pub use host::NoModules;
+pub use items::CpuWords;
+pub use items::DiskWords;
+pub use items::FioRow;
+pub use items::MemoryWords;
+pub use items::NoSwapWhy;
+pub use items::Probe;
+pub use items::Verdict;
 pub use log::LogWords;
 pub use program::ProgramWords;
+pub use report::ReportWords;
+pub use report::Totals;
+pub use report::Unit;
 
 /// The texts of one language: every trait of the catalog.
-pub trait Words: ProgramWords + LogWords + DownloadWords + Sync {}
+pub trait Words:
+    ProgramWords
+    + LogWords
+    + DownloadWords
+    + ReportWords
+    + HostWords
+    + CpuWords
+    + MemoryWords
+    + DiskWords
+    + Sync
+{
+}
 
-impl<T: ProgramWords + LogWords + DownloadWords + Sync> Words for T {}
+impl<T> Words for T where
+    T: ProgramWords
+        + LogWords
+        + DownloadWords
+        + ReportWords
+        + HostWords
+        + CpuWords
+        + MemoryWords
+        + DiskWords
+        + Sync
+{
+}
 
 /// The catalogs, by the language code that a locale such as `en_US.UTF-8` starts with. The first
 /// is the one for every other locale.

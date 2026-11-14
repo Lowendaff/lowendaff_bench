@@ -1,4 +1,5 @@
-//! The CPU group's words: CPU 性能 (sysbench) and Geekbench 7, and why each stopped short.
+//! The CPU group's chapters: CPU performance (sysbench) and Geekbench 7, and why each stopped
+//! short, in the catalog's words.
 
 use bench_tool::job::Adjustment;
 use plugin_cpu::geekbench;
@@ -11,26 +12,30 @@ use plugin_cpu::sysbench::measure::SECONDS;
 
 use super::Out;
 use super::tool;
+use crate::locale;
+use crate::locale::NoSwapWhy;
+use crate::locale::Unit;
 use crate::results::Report;
 
-/// CPU 性能: the tool and its parameters, the runs in a table, how many times the single-thread
-/// rate the multi-thread one is, and a note on each run that worked only after retries.
+/// CPU performance: the tool and its parameters, the runs in a table, how many times the
+/// single-thread rate the multi-thread one is, and a note on each run that worked only after
+/// retries.
 pub(super) fn sysbench(
     out: &mut Out,
     report: &Report<sysbench::Output, sysbench::Failure>,
     indent: &str,
 ) {
+    let words = locale::words();
     let Some(output) = &report.output else {
         return;
     };
-    let version = output
-        .version
-        .as_deref()
-        .map_or_else(String::new, |version| format!(" {version}"));
-    out.line(&format!(
-        "{indent}sysbench{version}：素数上限 {MAX_PRIME}，每项 {SECONDS} 秒"
-    ));
-    let headers = ["项目", "线程数", "每秒事件数"].map(str::to_owned);
+    let parameters = words.sysbench_parameters(
+        output.version.as_deref(),
+        u64::from(MAX_PRIME),
+        u64::from(SECONDS),
+    );
+    out.line(&format!("{indent}{parameters}"));
+    let headers = words.cpu_headers().map(str::to_owned);
     let row = |name: &str, run: &sysbench::result::Run| {
         vec![
             name.to_owned(),
@@ -38,51 +43,51 @@ pub(super) fn sysbench(
             run.rate.text.clone(),
         ]
     };
-    let mut rows = vec![row("单线程", &output.single)];
-    let mut runs = vec![("单线程测试", &output.single)];
+    let mut rows = vec![row(words.cpu_row(false), &output.single)];
+    let mut runs = vec![(words.cpu_test(false), &output.single)];
     if let Some(multi) = &output.multi {
-        rows.push(row("多线程", multi));
-        runs.push(("多线程测试", multi));
+        rows.push(row(words.cpu_row(true), multi));
+        runs.push((words.cpu_test(true), multi));
     }
     out.table(indent, &headers, &rows);
     if let Some(multi) = &output.multi {
         let ratio = multi.rate.value / output.single.rate.value;
-        out.field(indent, "倍数", &format!("多线程是单线程的 {ratio:.2} 倍"));
+        out.field(indent, words.ratio_label(), &words.ratio(ratio));
     }
     for (name, run) in runs {
         let Some(last) = run.retries.last() else {
             continue;
         };
-        let note = format!(
-            "{name}失败 {} 次后成功，最后一次失败的原因：{}",
-            run.retries.len(),
-            sysbench_fault(last)
-        );
-        out.field(indent, "说明", &note);
+        let note = words.retried(name, run.retries.len(), &sysbench_fault(last));
+        out.field(indent, &words.note(), &note);
     }
 }
 
-/// Why CPU 性能 stopped short: the run whose every attempt failed, its last reason and the
-/// number of attempts.
+/// Why CPU performance stopped short: the run whose every attempt failed, its last reason and
+/// the number of attempts.
 pub(super) fn sysbench_failure(failure: &sysbench::Failure) -> String {
+    let words = locale::words();
     match failure {
         sysbench::Failure::Single(faults) => attempts(faults),
-        sysbench::Failure::Multi(faults) => format!("多线程测试失败：{}", attempts(faults)),
-        sysbench::Failure::Cancelled => "已中断".to_owned(),
+        sysbench::Failure::Multi(faults) => {
+            let last = faults.last().map(sysbench_fault).unwrap_or_default();
+            words.every_attempt_failed(words.cpu_test(true), &last, faults.len())
+        }
+        sysbench::Failure::Cancelled => words.interrupted(),
     }
 }
 
 /// The last attempt's reason, and how many attempts there were.
 fn attempts(faults: &[sysbench::Fault]) -> String {
     let last = faults.last().map(sysbench_fault).unwrap_or_default();
-    format!("{last}（共试了 {} 次）", faults.len())
+    locale::words().attempts(&last, faults.len())
 }
 
 /// Why an attempt of sysbench gave no rate.
 fn sysbench_fault(fault: &sysbench::Fault) -> String {
     match fault {
-        sysbench::Fault::Tool(fault) => tool::fault("sysbench", fault, tool::seconds),
-        sysbench::Fault::NoRate => "sysbench 没有输出每秒事件数".to_owned(),
+        sysbench::Fault::Tool(fault) => tool::fault("sysbench", fault, Unit::Seconds),
+        sysbench::Fault::NoRate => locale::words().no_rate(),
     }
 }
 
@@ -93,6 +98,7 @@ pub(super) fn geekbench(
     report: &Report<geekbench::Output, geekbench::Failure>,
     indent: &str,
 ) {
+    let words = locale::words();
     let Some(output) = &report.output else {
         return;
     };
@@ -100,106 +106,83 @@ pub(super) fn geekbench(
         if let Some(version) = &scores.version {
             out.line(&format!("{indent}Geekbench {version}"));
         }
-        out.field(indent, "单核", &scores.single.to_string());
-        out.field(indent, "多核", &scores.multi.to_string());
-        out.field(
-            indent,
-            "结果链接",
-            scores.url.as_deref().unwrap_or("不可用"),
-        );
+        let [single, multi, link] = words.geekbench_labels();
+        out.field(indent, single, &scores.single.to_string());
+        out.field(indent, multi, &scores.multi.to_string());
+        let url = scores.url.clone().unwrap_or_else(|| words.unavailable());
+        out.field(indent, link, &url);
     }
+    let note = words.note();
     if let Some(memory) = &output.memory {
-        out.field(indent, "说明", &memory_note(memory));
+        out.field(indent, &note, &memory_note(memory));
     }
-    if let Some(note) = output.first_to_go.as_ref().and_then(first_to_go_note) {
-        out.field(indent, "说明", &note);
+    if let Some(first_to_go) = output.first_to_go.as_ref().and_then(first_to_go_note) {
+        out.field(indent, &note, &first_to_go);
     }
     if output.scores.is_some()
         && let Some(last) = output.uploads.last()
     {
-        let count = output.uploads.len();
-        let note = format!("上传失败 {count} 次后重跑成功，失败原因：{last}");
-        out.field(indent, "说明", &note);
+        let uploads = words.uploads_retried(output.uploads.len(), last);
+        out.field(indent, &note, &uploads);
     }
     if let Some(left) = &output.swap_left {
-        let note = format!(
-            "无法关闭临时 swap：{}；请手动执行 swapoff {}，再删除这个文件",
-            left.error,
-            left.path.display()
-        );
-        out.field(indent, "说明", &note);
+        out.field(indent, &note, &words.swap_left(&left.error, &left.path));
     }
 }
 
 /// Why Geekbench 7 has no scores.
 pub(super) fn geekbench_failure(failure: &geekbench::Failure) -> String {
+    let words = locale::words();
     match failure {
-        geekbench::Failure::Upload(reason) => {
-            format!("上传失败（{reason}），免费版只有上传成功才给出分数")
-        }
+        geekbench::Failure::Upload(reason) => words.upload_failed(reason),
         geekbench::Failure::Run(geekbench::Fault::Tool(fault)) => {
-            tool::fault("Geekbench", fault, tool::minutes)
+            tool::fault("Geekbench", fault, Unit::Minutes)
         }
-        geekbench::Failure::Run(geekbench::Fault::NoScores) => "Geekbench 没有输出分数".to_owned(),
-        geekbench::Failure::OutOfMemory => "运行中因内存不足被系统终止".to_owned(),
-        geekbench::Failure::Cancelled => "已中断".to_owned(),
+        geekbench::Failure::Run(geekbench::Fault::NoScores) => words.no_scores(),
+        geekbench::Failure::OutOfMemory => words.out_of_memory(),
+        geekbench::Failure::Cancelled => words.interrupted(),
     }
 }
 
 /// What was done about memory, when it may be short.
 fn memory_note(memory: &Memory) -> String {
+    let words = locale::words();
     match memory {
         Memory::Swapped {
             need,
             available,
             gib,
-        } => format!(
-            "可用内存不足（{}），临时加了 {gib} GiB swap，分数可能偏低",
-            estimate(*need, *available)
-        ),
+        } => words.swapped(need / GIB, &tenths(*available), *gib),
         Memory::Short {
             need,
             available,
             why,
-        } => format!(
-            "可用内存可能不足（{}），无法临时加 swap：{}",
-            estimate(*need, *available),
-            no_swap(why)
-        ),
-    }
-}
-
-/// Why no temporary swap was added.
-fn no_swap(why: &NoSwap) -> String {
-    match why {
-        NoSwap::Unused => "本机 vm.swappiness 为 0，内核不会把内存换出到 swap".to_owned(),
-        NoSwap::NoRoom(Some(free)) => format!("运行目录所在的磁盘只剩 {} GiB", tenths(*free)),
-        NoSwap::NoRoom(None) => "无法读取运行目录所在磁盘的剩余空间".to_owned(),
-        NoSwap::Denied => "没有权限（容器里通常不允许）".to_owned(),
-        NoSwap::Unsupported => "运行目录所在的文件系统不支持 swap 文件".to_owned(),
-        NoSwap::Error(error) => error.clone(),
+        } => {
+            let free = match why {
+                NoSwap::NoRoom(Some(free)) => Some(tenths(*free)),
+                _ => None,
+            };
+            let why = match why {
+                NoSwap::Unused => NoSwapWhy::Unused,
+                NoSwap::NoRoom(_) => NoSwapWhy::NoRoom(free.as_deref()),
+                NoSwap::Denied => NoSwapWhy::Denied,
+                NoSwap::Unsupported => NoSwapWhy::Unsupported,
+                NoSwap::Error(error) => NoSwapWhy::Error(error),
+            };
+            words.memory_short(need / GIB, &tenths(*available), why)
+        }
     }
 }
 
 /// A note when Geekbench could not be made the kernel's first choice, or when the program kept
 /// that choice for itself.
 fn first_to_go_note(adjustment: &Adjustment) -> Option<String> {
+    let words = locale::words();
     match adjustment {
         Adjustment::Done => None,
-        Adjustment::NotSet(error) => {
-            Some(format!("无法让 Geekbench 在内存耗尽时优先被结束：{error}"))
-        }
-        Adjustment::NotRestored(error) => Some(format!("无法恢复本程序的 oom_score_adj：{error}")),
+        Adjustment::NotSet(error) => Some(words.first_to_go_not_set(error)),
+        Adjustment::NotRestored(error) => Some(words.oom_not_restored(error)),
     }
-}
-
-/// `估计需要 5 GiB，可用 1.6 GiB`.
-fn estimate(need: u64, available: u64) -> String {
-    format!(
-        "估计需要 {} GiB，可用 {} GiB",
-        need / GIB,
-        tenths(available)
-    )
 }
 
 /// Bytes in GiB with one decimal, rounded down, so that nothing looks larger than it is.

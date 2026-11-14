@@ -1,5 +1,5 @@
-//! The memory group's words: the chapters of 内存性能, sysbench, STREAM, latency and NUMA, each
-//! with its parameters, its tables and its notes; and why each stopped short.
+//! The memory group's chapters, sysbench, STREAM, latency and NUMA, each with its parameters, its
+//! tables and its notes, and why each stopped short, in the catalog's words.
 
 use bench_api::Stop;
 use plugin_memory::Value;
@@ -20,16 +20,13 @@ use plugin_memory::sysbench::result::Operation;
 
 use super::Out;
 use super::tool;
+use crate::locale;
+use crate::locale::Probe;
+use crate::locale::Unit;
 use crate::results::Report;
 
 /// What a missing value shows.
 const MISSING: &str = "—";
-
-/// The note when the kernel describes no caches.
-const CACHE_UNKNOWN: &str = "没有末级缓存的信息，按 32 MiB 计算";
-
-/// The note when STREAM's arrays are below four times the last-level caches.
-const STREAM_RULE: &str = "未完全符合 STREAM 运行规则（每个数组至少为末级缓存总和的 4 倍）";
 
 /// sysbench's chapter: its parameters, reading and writing with one thread and with all of them,
 /// and its notes.
@@ -38,26 +35,24 @@ pub(super) fn sysbench(
     report: &Report<sysbench::Output, sysbench::Failure>,
     indent: &str,
 ) {
+    let words = locale::words();
     let Some(output) = &report.output else {
         return;
     };
-    let mut parameters = version(output.version.as_deref());
-    parameters.push_str(&format!(
-        "顺序读写，每项 {} 秒；单线程一块 {}",
-        sysbench::measure::SECONDS,
-        size(output.single)
-    ));
-    if let Some(per_thread) = output.per_thread {
-        parameters.push_str(&format!("，多线程每个线程一块 {}", size(per_thread)));
-    }
+    let parameters = words.memory_sysbench(
+        output.version.as_deref(),
+        u64::from(sysbench::measure::SECONDS),
+        &size(output.single),
+        output.per_thread.map(size).as_deref(),
+    );
     out.field(indent, "sysbench", &parameters);
     let mut notes = cache_note(output.cache_unknown);
     let threads = columns(output.threads);
     let headers = headers(&threads);
-    let rows: Vec<Vec<String>> = [(Operation::Read, "读取"), (Operation::Write, "写入")]
+    let rows: Vec<Vec<String>> = [Operation::Read, Operation::Write]
         .into_iter()
-        .map(|(operation, word)| {
-            let mut cells = vec![word.to_owned()];
+        .map(|operation| {
+            let mut cells = vec![words.operation(operation == Operation::Write).to_owned()];
             cells.extend(threads.iter().map(|&threads| {
                 let run = output
                     .runs
@@ -71,51 +66,44 @@ pub(super) fn sysbench(
             cells
         })
         .collect();
-    out.line(&format!("{indent}sysbench 结果"));
+    out.line(&format!("{indent}{}", words.results("sysbench")));
     out.table(indent, &headers, &rows);
     if let Some(four) = output.small {
-        notes.push(format!(
-            "可用内存不足，测试数据小于末级缓存总和的 4 倍（{}），\
-                 一部分读写落在缓存里，结果偏高",
-            size(four)
-        ));
+        notes.push(words.sysbench_small(&size(four)));
     }
     for run in &output.runs {
         let name = sysbench_run(run.operation, run.threads);
         notes.extend(retried(&name, &run.retries, sysbench_fault));
     }
     for note in notes {
-        out.field(indent, "说明", &note);
+        out.field(indent, &words.note(), &note);
     }
 }
 
 /// Why sysbench's chapter stopped short.
 pub(super) fn sysbench_failure(failure: &sysbench::Failure) -> String {
+    let words = locale::words();
     match failure {
-        sysbench::Failure::NoMemoryInfo => NO_MEMORY_INFO.to_owned(),
+        sysbench::Failure::NoMemoryInfo => words.no_memory_info(),
         sysbench::Failure::Run {
             operation,
             threads,
             faults,
         } => failed(&sysbench_run(*operation, *threads), faults, sysbench_fault),
-        sysbench::Failure::Cancelled => "已中断".to_owned(),
+        sysbench::Failure::Cancelled => words.interrupted(),
     }
 }
 
-/// The name of a sysbench run, such as `单线程读取`.
+/// The name of a sysbench run, such as `single-thread read`.
 fn sysbench_run(operation: Operation, threads: usize) -> String {
-    let word = match operation {
-        Operation::Read => "读取",
-        Operation::Write => "写入",
-    };
-    format!("{}{word}", threads_word(threads))
+    locale::words().sysbench_run(operation == Operation::Write, threads > 1)
 }
 
 /// Why an attempt of sysbench gave no rate.
 fn sysbench_fault(fault: &sysbench::Fault) -> String {
     match fault {
-        sysbench::Fault::Tool(fault) => tool::fault("sysbench", fault, tool::seconds),
-        sysbench::Fault::NoRate => "sysbench 没有输出传输速度".to_owned(),
+        sysbench::Fault::Tool(fault) => tool::fault("sysbench", fault, Unit::Seconds),
+        sysbench::Fault::NoRate => locale::words().no_transfer_rate(),
     }
 }
 
@@ -126,22 +114,18 @@ pub(super) fn stream(
     report: &Report<stream::Output, stream::Failure>,
     indent: &str,
 ) {
+    let words = locale::words();
     let Some(output) = &report.output else {
         return;
     };
     let array = plan::array_bytes(output.millions);
-    let spread = if output.threads > 1 {
-        "；多线程按节点均匀绑定"
-    } else {
-        ""
-    };
-    let mut parameters = version(output.version.as_deref());
-    parameters.push_str(&format!(
-        "每个数组 {} 万个元素（{} MiB，三个合计 {} MiB），每项取 10 遍中最快的一遍{spread}",
-        output.millions * 100,
+    let parameters = words.memory_stream(
+        output.version.as_deref(),
+        output.millions,
         mib(array),
-        mib(3 * array)
-    ));
+        mib(3 * array),
+        output.threads > 1,
+    );
     out.field(indent, "STREAM", &parameters);
     let mut notes = cache_note(output.cache_unknown);
     let threads = columns(output.threads);
@@ -161,44 +145,42 @@ pub(super) fn stream(
             cells
         })
         .collect();
-    out.line(&format!("{indent}STREAM 结果"));
+    out.line(&format!("{indent}{}", words.results("STREAM")));
     out.table(indent, &headers, &rows);
     if output.below_rule {
-        notes.push(STREAM_RULE.to_owned());
+        notes.push(words.stream_rule());
     }
     for run in &output.runs {
-        let name = format!("{}测试", threads_word(run.threads));
+        let name = words.stream_run(run.threads > 1);
         notes.extend(retried(&name, &run.retries, stream_fault));
     }
     for note in notes {
-        out.field(indent, "说明", &note);
+        out.field(indent, &words.note(), &note);
     }
 }
 
 /// Why STREAM's chapter stopped short.
 pub(super) fn stream_failure(failure: &stream::Failure) -> String {
+    let words = locale::words();
     match failure {
-        stream::Failure::NoMemoryInfo => NO_MEMORY_INFO.to_owned(),
-        stream::Failure::Short { budget } => format!(
-            "可用内存不足：三个数组最少要 {} MiB，可用内存的一半只有 {}",
-            mib(3 * plan::array_bytes(STREAM_SIZES[0])),
-            size(*budget)
-        ),
-        stream::Failure::Run { threads, faults } => failed(
-            &format!("{}测试", threads_word(*threads)),
-            faults,
-            stream_fault,
-        ),
-        stream::Failure::Cancelled => "已中断".to_owned(),
+        stream::Failure::NoMemoryInfo => words.no_memory_info(),
+        stream::Failure::Short { budget } => {
+            words.stream_short(mib(3 * plan::array_bytes(STREAM_SIZES[0])), &size(*budget))
+        }
+        stream::Failure::Run { threads, faults } => {
+            failed(&words.stream_run(*threads > 1), faults, stream_fault)
+        }
+        stream::Failure::Cancelled => words.interrupted(),
     }
 }
 
 /// Why an attempt of STREAM gave no rates.
 fn stream_fault(fault: &stream::Fault) -> String {
+    let words = locale::words();
     match fault {
-        stream::Fault::Tool(fault) => tool::fault("STREAM", fault, tool::seconds),
-        stream::Fault::Invalid(line) => format!("STREAM 的结果没有通过校验：{line}"),
-        stream::Fault::NoResult => "STREAM 没有输出结果".to_owned(),
+        stream::Fault::Tool(fault) => tool::fault("STREAM", fault, Unit::Seconds),
+        stream::Fault::Invalid(line) => words.stream_invalid(line),
+        stream::Fault::NoResult => words.no_result("STREAM"),
     }
 }
 
@@ -208,12 +190,13 @@ pub(super) fn latency(
     report: &Report<latency::Output, latency::Failure>,
     indent: &str,
 ) {
+    let words = locale::words();
     let Some(output) = &report.output else {
         return;
     };
-    out.field(indent, "延迟", "multichase：随机指针追逐，每档 2.5 秒");
+    out.field(indent, words.latency_label(), &words.latency_method());
     let mut notes = cache_note(output.cache_unknown);
-    let headers = ["层级", "缓冲区", "延迟"].map(str::to_owned);
+    let headers = words.latency_headers().map(str::to_owned);
     let rows: Vec<Vec<String>> = output
         .rows
         .iter()
@@ -225,77 +208,65 @@ pub(super) fn latency(
             ]
         })
         .collect();
-    out.line(&format!("{indent}延迟结果"));
+    out.line(&format!("{indent}{}", words.results(words.latency_label())));
     out.table(indent, &headers, &rows);
     if !output.missing.is_empty() {
-        notes.push(missing(&output.missing));
+        let names: Vec<&str> = output.missing.iter().map(|&each| level(each)).collect();
+        notes.push(words.levels_missing(&names));
     }
     if let Some(four) = output.small {
-        notes.push(format!(
-            "可用内存不足，内存一档的缓冲区小于末级缓存总和的 4 倍（{}），\
-                 一部分访问落在缓存里，延迟偏低",
-            size(four)
-        ));
+        notes.push(words.latency_small(&size(four)));
     }
     for row in &output.rows {
-        let name = spaced(level(row.level), "测试");
+        let name = words.latency_run(level(row.level));
         notes.extend(retried(&name, &row.retries, latency_fault));
     }
     for note in notes {
-        out.field(indent, "说明", &note);
+        out.field(indent, &words.note(), &note);
     }
 }
 
 /// Why the latency chapter stopped short.
 pub(super) fn latency_failure(failure: &latency::Failure) -> String {
+    let words = locale::words();
     match failure {
-        latency::Failure::NoMemoryInfo => NO_MEMORY_INFO.to_owned(),
+        latency::Failure::NoMemoryInfo => words.no_memory_info(),
         latency::Failure::Run { level: run, faults } => {
-            failed(&spaced(level(*run), "测试"), faults, latency_fault)
+            failed(&words.latency_run(level(*run)), faults, latency_fault)
         }
-        latency::Failure::Cancelled => "已中断".to_owned(),
+        latency::Failure::Cancelled => words.interrupted(),
     }
 }
 
 /// Why an attempt of multichase gave no latency.
 fn latency_fault(fault: &latency::Fault) -> String {
     match fault {
-        latency::Fault::Tool(fault) => tool::fault("multichase", fault, tool::seconds),
-        latency::Fault::NoLatency => "multichase 没有输出延迟".to_owned(),
+        latency::Fault::Tool(fault) => tool::fault("multichase", fault, Unit::Seconds),
+        latency::Fault::NoLatency => locale::words().no_latency(),
     }
 }
 
 /// The NUMA chapter: what it runs, the bandwidth and the latency from each node's CPUs to each
 /// node's memory, and its notes. A chapter that the kernel refused to bind shows only why.
 pub(super) fn numa(out: &mut Out, report: &Report<numa::Output, numa::Failure>, indent: &str) {
+    let words = locale::words();
     let Some(output) = &report.output else {
         return;
     };
     if matches!(report.stop, Some(Stop::Skipped(numa::Failure::Refused))) {
         return;
     }
-    let parameters = format!(
-        "{} 个节点；带宽用 multiload 的 stream-triad，每格 3 次采样取最快；延迟同上",
-        output.nodes
-    );
-    out.field(indent, "NUMA", &parameters);
+    out.field(indent, "NUMA", &words.numa_method(output.nodes));
     let mut notes = cache_note(output.cache_unknown);
     let mut headers = vec![String::new()];
-    headers.extend(output.columns.iter().map(|node| format!("节点 {node}")));
-    let tables = [
-        (
-            Kind::Bandwidth,
-            "NUMA 带宽（MiB/s；行是线程所在节点，列是内存所在节点）",
-        ),
-        (Kind::Latency, "NUMA 延迟（ns）"),
-    ];
-    for (kind, title) in tables {
+    headers.extend(output.columns.iter().map(|node| words.node(*node)));
+    for kind in [Kind::Bandwidth, Kind::Latency] {
         let rows: Vec<Vec<String>> = output
             .rows
             .iter()
             .zip(&output.cells)
             .map(|(row, cells)| {
-                let mut line = vec![format!("节点 {row}")];
+                let mut line = vec![words.node(*row)];
                 line.extend(cells.iter().map(|cell| {
                     let measured = match kind {
                         Kind::Bandwidth => cell.bandwidth.as_ref(),
@@ -309,7 +280,7 @@ pub(super) fn numa(out: &mut Out, report: &Report<numa::Output, numa::Failure>, 
                 line
             })
             .collect();
-        out.line(&format!("{indent}{title}"));
+        out.line(&format!("{indent}{}", words.numa_title(probe(kind))));
         out.table(indent, &headers, &rows);
     }
     for (row, cells) in output.rows.iter().zip(&output.cells) {
@@ -322,70 +293,64 @@ pub(super) fn numa(out: &mut Out, report: &Report<numa::Output, numa::Failure>, 
                 let Some(Measured { retries, .. }) = measured else {
                     continue;
                 };
-                let name = numa_run(*row, *column, kind);
+                let name = words.numa_run(*row, *column, probe(kind));
                 notes.extend(retried(&name, retries, |fault| numa_fault(fault, kind)));
             }
         }
     }
     for note in notes {
-        out.field(indent, "说明", &note);
+        out.field(indent, &words.note(), &note);
     }
 }
 
 /// Why the NUMA chapter stopped short.
 pub(super) fn numa_failure(failure: &numa::Failure) -> String {
+    let words = locale::words();
     match failure {
-        numa::Failure::NoMemoryInfo => NO_MEMORY_INFO.to_owned(),
-        numa::Failure::OneNode => "需要多个 NUMA 节点".to_owned(),
-        numa::Failure::Refused => "容器不允许把内存绑定到指定节点".to_owned(),
+        numa::Failure::NoMemoryInfo => words.no_memory_info(),
+        numa::Failure::OneNode => words.one_node(),
+        numa::Failure::Refused => words.bind_refused(),
         numa::Failure::Run {
             row,
             column,
             kind,
             faults,
-        } => failed(&numa_run(*row, *column, *kind), faults, |fault| {
-            numa_fault(fault, *kind)
-        }),
-        numa::Failure::Cancelled => "已中断".to_owned(),
+        } => failed(
+            &words.numa_run(*row, *column, probe(*kind)),
+            faults,
+            |fault| numa_fault(fault, *kind),
+        ),
+        numa::Failure::Cancelled => words.interrupted(),
     }
 }
 
-/// The name of a run of the NUMA matrix, such as `线程在节点 0、内存在节点 1 的带宽测试`.
-fn numa_run(row: usize, column: usize, kind: Kind) -> String {
-    let test = match kind {
-        Kind::Bandwidth => "带宽测试",
-        Kind::Latency => "延迟测试",
-    };
-    format!("线程在节点 {row}、内存在节点 {column} 的{test}")
+/// What a NUMA run measures, as the catalog names it.
+fn probe(kind: Kind) -> Probe {
+    match kind {
+        Kind::Bandwidth => Probe::Bandwidth,
+        Kind::Latency => Probe::Latency,
+    }
 }
 
 /// Why an attempt of a NUMA run gave no value.
 fn numa_fault(fault: &numa::Fault, kind: Kind) -> String {
+    let words = locale::words();
     let tool = match kind {
         Kind::Bandwidth => "multiload",
         Kind::Latency => "multichase",
     };
     match fault {
-        numa::Fault::Tool(fault) => tool::fault(tool, fault, tool::seconds),
-        numa::Fault::NoBandwidth => "multiload 没有输出带宽".to_owned(),
-        numa::Fault::NoLatency => "multichase 没有输出延迟".to_owned(),
-        numa::Fault::Refused => "容器不允许把内存绑定到指定节点".to_owned(),
+        numa::Fault::Tool(fault) => tool::fault(tool, fault, Unit::Seconds),
+        numa::Fault::NoBandwidth => words.no_bandwidth(),
+        numa::Fault::NoLatency => words.no_latency(),
+        numa::Fault::Refused => words.bind_refused(),
     }
-}
-
-/// Why a plugin could not size its runs.
-const NO_MEMORY_INFO: &str = "读不到可用内存（/proc/meminfo）";
-
-/// The version that a tool printed, followed by the colon that leads its parameters; nothing
-/// when it printed none.
-fn version(version: Option<&str>) -> String {
-    version.map_or_else(String::new, |version| format!("{version}："))
 }
 
 /// The cache note, when the last-level caches were assumed.
 fn cache_note(cache_unknown: bool) -> Vec<String> {
     if cache_unknown {
-        vec![CACHE_UNKNOWN.to_owned()]
+        vec![locale::words().cache_unknown()]
     } else {
         Vec::new()
     }
@@ -400,29 +365,12 @@ fn columns(threads: usize) -> Vec<usize> {
     }
 }
 
-/// The header of a table of runs: 项目, then a column for each number of threads.
+/// The header of a table of runs: the test, then a column for each number of threads.
 fn headers(threads: &[usize]) -> Vec<String> {
-    let mut headers = vec!["项目".to_owned()];
-    headers.extend(threads.iter().map(|&threads| column(threads)));
+    let words = locale::words();
+    let mut headers = vec![words.test_header().to_owned()];
+    headers.extend(threads.iter().map(|&threads| words.threads_column(threads)));
     headers
-}
-
-/// The header of the column of runs with `threads` threads.
-fn column(threads: usize) -> String {
-    if threads > 1 {
-        format!("多线程（{threads} 线程）")
-    } else {
-        "单线程".to_owned()
-    }
-}
-
-/// The name of the runs with `threads` threads, such as in `单线程读取`.
-fn threads_word(threads: usize) -> &'static str {
-    if threads > 1 {
-        "多线程"
-    } else {
-        "单线程"
-    }
 }
 
 /// A level's name in the latency table.
@@ -431,16 +379,7 @@ fn level(level: Level) -> &'static str {
         Level::L1 => "L1",
         Level::L2 => "L2",
         Level::L3 => "L3",
-        Level::Memory => "内存",
-    }
-}
-
-/// `name` followed by `word`, with a space after a Latin name.
-fn spaced(name: &str, word: &str) -> String {
-    if name.ends_with(|c: char| c.is_ascii_alphanumeric()) {
-        format!("{name} {word}")
-    } else {
-        format!("{name}{word}")
+        Level::Memory => locale::words().memory_level(),
     }
 }
 
@@ -452,32 +391,17 @@ fn shown(value: Option<&Value>, unit: &str) -> String {
     )
 }
 
-/// The note on the cache levels left out of the latency table.
-fn missing(levels: &[Level]) -> String {
-    let count = match levels.len() {
-        1 => "一",
-        2 => "两",
-        _ => "三",
-    };
-    let names: Vec<&str> = levels.iter().map(|&each| level(each)).collect();
-    format!("没有 {} 的信息，跳过这{count}档", names.join("、"))
-}
-
 /// A note on a run that worked after failed attempts, or `None` when its first attempt did.
-/// `run` names the run, such as `单线程读取`.
+/// `run` names the run, such as `single-thread read`.
 fn retried<F>(run: &str, faults: &[F], words: impl Fn(&F) -> String) -> Option<String> {
     let last = faults.last()?;
-    Some(format!(
-        "{run}失败 {} 次后成功，最后一次失败的原因：{}",
-        faults.len(),
-        words(last)
-    ))
+    Some(locale::words().retried(run, faults.len(), &words(last)))
 }
 
 /// Why a run failed: its name, the last attempt's reason, and the number of attempts.
 fn failed<F>(run: &str, faults: &[F], words: impl Fn(&F) -> String) -> String {
     let last = faults.last().map_or_else(String::new, words);
-    format!("{run}：{last}（共试了 {} 次）", faults.len())
+    locale::words().every_attempt_failed(run, &last, faults.len())
 }
 
 /// A size such as `256 MiB`, `16 KiB`, `1 GiB` or `30.5 MiB`.
@@ -491,7 +415,7 @@ fn size(bytes: u64) -> String {
     } else if bytes.is_multiple_of(KIB) {
         format!("{} KiB", bytes / KIB)
     } else {
-        format!("{bytes} 字节")
+        locale::words().bytes(bytes)
     }
 }
 

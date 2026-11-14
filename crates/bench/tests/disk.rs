@@ -1,7 +1,7 @@
-//! The disk section of the report, from constructed runs: for 硬盘健康 the tool, the disks in a
-//! table, the notes and each way the item ends; for 硬盘性能 YABS's number formats and layout,
-//! the notes and each way the item ends. Compared with snapshots, and with the words that the
-//! items' own tests asserted before the reporter wrote them.
+//! The disk section of the report, from constructed runs: for disk health the tool, the disks in
+//! a table, the notes and each way the item ends; for disk performance YABS's number formats and
+//! layout, the notes and each way the item ends. Compared with snapshots, and with the words that
+//! the items' own tests asserted before the reporter wrote them.
 
 use std::fs;
 use std::path::Path;
@@ -37,7 +37,7 @@ fn health_run(
     Run {
         id: "disk.health",
         group: "disk",
-        title: Some("硬盘健康"),
+        title: Some("Disk health"),
         started: Some(Duration::from_secs(1)),
         elapsed: Some(Duration::from_millis(400)),
         status,
@@ -57,7 +57,7 @@ fn section(runs: &[Run<Measured>]) -> String {
         total: Duration::from_secs(5),
     };
     let text = report::terminal::render(&page, None);
-    let start = text.find("【硬盘】").expect("a disk section");
+    let start = text.find("[Disks]").expect("a disk section");
     text[start..].to_owned()
 }
 
@@ -113,16 +113,16 @@ fn the_owners_server_shows_four_disks_with_their_values() {
     insta::assert_snapshot!(text);
     for line in [
         "  smartctl 7.5",
-        "  设备  健康  通电时间    温度   已用寿命  累计写入  坏块     接口错误",
-        "  sda   通过  46167 小时  25 °C  23%       48.2 TB   0 / —           3",
-        "  sdb   通过  38112 小时  28 °C  49%       169.0 TB  380 / —         0",
-        "  sdc   通过  53544 小时  27 °C  79%       277.2 TB  0 / —           0",
-        "  sdd   通过  35124 小时  27 °C  30%       155.6 TB  13 / —          0",
-        "  完成，用时 0.4 秒",
+        "  Device  Health  Power-on  Temp.  Worn  Written   Bad blocks  Link errors",
+        "  sda     passed  46167 h   25 °C  23%   48.2 TB   0 / —                 3",
+        "  sdb     passed  38112 h   28 °C  49%   169.0 TB  380 / —               0",
+        "  sdc     passed  53544 h   27 °C  79%   277.2 TB  0 / —                 0",
+        "  sdd     passed  35124 h   27 °C  30%   155.6 TB  13 / —                0",
+        "  done in 0.4 s",
     ] {
         assert!(shows(&text, line), "{line:?} in {text}");
     }
-    assert!(!text.contains("说明"), "nothing to explain: {text}");
+    assert!(!text.contains("Note"), "nothing to explain: {text}");
 }
 
 #[test]
@@ -148,26 +148,39 @@ fn disks_that_need_it_get_a_note_after_the_table_in_row_order() {
     let text = section(&[health_run(Status::Completed, Some(output), None)]);
     insta::assert_snapshot!(text);
     for line in [
-        "  sdc   读取失败  —           —      —         —         —      —",
-        "  说明              sdc 读取失败：打不开设备，或读不到设备识别信息",
-        "  说明              sdd 不支持 SMART",
-        "  说明              sde 的 SMART 功能已关闭，本程序不会替它打开",
-        "  说明              无法删除 /dev/megaraid_sas_ioctl_node：Is a directory (os error 21)",
+        "  sdc     read failed  —         —      —     —        —           —",
+        "  Note                sdc: read failed: cannot open the device, or read its identity",
+        "  Note                sdd does not support SMART",
+        "  Note                sde has SMART turned off, and this program does not turn it on",
+        "  Note                cannot delete /dev/megaraid_sas_ioctl_node: Is a directory (os \
+         error 21)",
     ] {
         assert!(shows(&text, line), "{line:?} in {text}");
     }
     let cells: Vec<&str> = text
         .lines()
         .filter_map(|line| line.strip_prefix("  sd"))
-        .filter_map(|line| line.split_whitespace().nth(1))
+        .filter_map(|line| {
+            line.split("  ")
+                .map(str::trim)
+                .filter(|cell| !cell.is_empty())
+                .nth(1)
+        })
         .collect();
     assert_eq!(
         cells,
-        ["通过", "读取失败", "不支持", "未知", "未知", "未通过"],
-        "the 健康 column"
+        [
+            "passed",
+            "read failed",
+            "unsupported",
+            "unknown",
+            "unknown",
+            "failed"
+        ],
+        "the Health column"
     );
     assert_eq!(
-        text.matches("说明").count(),
+        text.matches("Note").count(),
         4,
         "no note without a known reason: {text}"
     );
@@ -184,32 +197,38 @@ fn each_reason_a_disk_cannot_be_read_has_its_words() {
         let run = health_run(Status::Completed, Some(output(vec![disk])), None);
         section(&[run])
             .lines()
-            .find_map(|line| line.strip_prefix("  说明              sdb 读取失败："))
+            .find_map(|line| line.strip_prefix("  Note                sdb: read failed: "))
             .expect("a note")
             .to_owned()
     };
     let cases = [
         (
             health::Fault::Tool(job::Fault::TimedOut(Duration::from_secs(60))),
-            "超过 60 秒仍未读完，已停止",
+            "still reading after 60 s, stopped",
         ),
         (
             health::Fault::Tool(job::Fault::Spawn("Text file busy (os error 26)".to_owned())),
-            "无法运行 smartctl：Text file busy (os error 26)",
+            "cannot run smartctl: Text file busy (os error 26)",
         ),
         (
             health::Fault::Tool(job::Fault::Read("Broken pipe (os error 32)".to_owned())),
-            "无法读取 smartctl 的输出：Broken pipe (os error 32)",
+            "cannot read the output of smartctl: Broken pipe (os error 32)",
         ),
-        (health::Fault::Unparsable, "smartctl 的输出无法解析"),
+        (
+            health::Fault::Unparsable,
+            "smartctl's output cannot be parsed",
+        ),
         (
             health::Fault::Message(
                 "Smartctl open device: /dev/sdz [SAT] failed: No such device".to_owned(),
             ),
             "Smartctl open device: /dev/sdz [SAT] failed: No such device",
         ),
-        (health::Fault::Unopened, "打不开设备，或读不到设备识别信息"),
-        (health::Fault::Refused, "smartctl 不接受命令参数"),
+        (
+            health::Fault::Unopened,
+            "cannot open the device, or read its identity",
+        ),
+        (health::Fault::Refused, "smartctl refused its arguments"),
     ];
     for (fault, words) in cases {
         assert_eq!(note(fault), words);
@@ -231,7 +250,7 @@ fn raid_card_disks_name_their_card_only_when_there_are_several() {
         let run = health_run(Status::Completed, Some(output(disks)), None);
         section(&[run])
             .lines()
-            .filter(|line| line.ends_with("—") && line.contains("通过"))
+            .filter(|line| line.ends_with("—") && line.contains("passed"))
             .map(|line| {
                 line.trim()
                     .split("  ")
@@ -243,7 +262,7 @@ fn raid_card_disks_name_their_card_only_when_there_are_several() {
     };
     assert_eq!(
         names(vec![disk(card(0, &[8])), disk(card(0, &[9]))]),
-        ["RAID 卡 8 号盘", "RAID 卡 9 号盘"]
+        ["RAID card disk 8", "RAID card disk 9"]
     );
     assert_eq!(
         names(vec![
@@ -251,9 +270,13 @@ fn raid_card_disks_name_their_card_only_when_there_are_several() {
             disk(card(0, &[9])),
             disk(card(1, &[9]))
         ]),
-        ["sda", "RAID 卡 host0 的 9 号盘", "RAID 卡 host1 的 9 号盘"]
+        [
+            "sda",
+            "disk 9 of RAID card host0",
+            "disk 9 of RAID card host1"
+        ]
     );
-    assert_eq!(names(vec![disk(card(3, &[0, 5]))]), ["RAID 卡 0:5 号盘"]);
+    assert_eq!(names(vec![disk(card(3, &[0, 5]))]), ["RAID card disk 0:5"]);
 }
 
 #[test]
@@ -325,14 +348,7 @@ fn the_values_print_as_the_item_printed_them() {
     assert_eq!(
         worn,
         [
-            "sdx",
-            "通过",
-            "28761 小时",
-            "61 °C",
-            "104%",
-            "21.6 TB",
-            "2",
-            "—"
+            "sdx", "passed", "28761 h", "61 °C", "104%", "21.6 TB", "2", "—"
         ]
     );
 }
@@ -369,14 +385,14 @@ fn every_way_the_item_ends_shows_its_words() {
     let text = section(&runs);
     insta::assert_snapshot!(text);
     for line in [
-        "    跳过：smartctl 没有找到硬盘",
-        "    失败：smartctl 扫描硬盘失败：超过 60 秒仍未完成",
-        "    失败：smartctl 扫描硬盘失败：Smartctl open device: /dev/sdz [SAT] failed: \
-         No such device",
-        "    失败：smartctl 扫描硬盘失败：smartctl 的输出无法解析",
-        "    失败：所有硬盘都读取失败",
-        "    失败：已中断",
-        "    超时，已保留超时前的结果",
+        "    skipped: smartctl found no disks",
+        "    failed: smartctl's scan for disks failed: still running after 60 s",
+        "    failed: smartctl's scan for disks failed: Smartctl open device: /dev/sdz [SAT] \
+         failed: No such device",
+        "    failed: smartctl's scan for disks failed: smartctl's output cannot be parsed",
+        "    failed: no disk could be read",
+        "    failed: interrupted",
+        "    timed out; the results until then are kept",
     ] {
         assert!(shows(&text, line), "{line:?} in {text}");
     }
@@ -409,7 +425,7 @@ fn fio_run(
     Run {
         id: "disk.fio",
         group: "disk",
-        title: Some("硬盘性能"),
+        title: Some("Disk performance"),
         started: Some(Duration::from_secs(2)),
         elapsed: Some(Duration::from_millis(150_300)),
         status,
@@ -505,38 +521,39 @@ fn the_tables_have_yabss_rows_one_column_per_block_size_and_a_note_per_failed_te
     insta::assert_snapshot!(text);
     for line in [
         "  fio 3.43",
-        "  测试方式          与 YABS 相同：读写各半的随机测试，测试文件 2 GiB",
-        "  4K 与 64K",
-        "  512K 与 1M",
-        "  说明              512K 超过 35 秒仍未结束，已停止",
-        "  说明              1M 出错：fio: error=No space left on device",
-        "  完成，用时 150.3 秒",
+        "  Method              as YABS: random reads and writes, half each, on a test file of 2 \
+         GiB",
+        "  4K and 64K",
+        "  512K and 1M",
+        "  Note                512K still running after 35 s, stopped",
+        "  Note                1M failed: fio: error=No space left on device",
+        "  done in 150.3 s",
     ] {
         assert!(shows(&text, line), "{line:?} in {text}");
     }
     assert_eq!(
-        row(&text, "块大小"),
-        [["块大小", "4K", "64K"], ["块大小", "512K", "1M"]]
+        row(&text, "Block size"),
+        [["Block size", "4K", "64K"], ["Block size", "512K", "1M"]]
     );
     assert_eq!(
-        row(&text, "读取"),
+        row(&text, "Read"),
         [
-            ["读取", "92.82 MB/s（22.6k）", "1.09 GB/s（16.6k）"],
-            ["读取", "超时", "出错"]
+            ["Read", "92.82 MB/s (22.6k)", "1.09 GB/s (16.6k)"],
+            ["Read", "timed out", "error"]
         ]
     );
     assert_eq!(
-        row(&text, "写入"),
+        row(&text, "Write"),
         [
-            ["写入", "93.07 MB/s（22.7k）", "1.09 GB/s（16.6k）"],
-            ["写入", "超时", "出错"]
+            ["Write", "93.07 MB/s (22.7k)", "1.09 GB/s (16.6k)"],
+            ["Write", "timed out", "error"]
         ]
     );
     assert_eq!(
-        row(&text, "合计"),
+        row(&text, "Total"),
         [
-            ["合计", "185.89 MB/s（45.3k）", "2.18 GB/s（33.3k）"],
-            ["合计", "超时", "出错"]
+            ["Total", "185.89 MB/s (45.3k)", "2.18 GB/s (33.3k)"],
+            ["Total", "timed out", "error"]
         ]
     );
 }
@@ -548,14 +565,15 @@ fn the_arm_file_size_and_yabss_note_on_zfs_follow_the_method() {
     let text = section(&[fio_run(Status::Cancelled, Some(output), None)]);
     insta::assert_snapshot!(text);
     for line in [
-        "  测试方式          与 YABS 相同：读写各半的随机测试，测试文件 512 MiB",
-        "  说明              测试目录在 ZFS 上，可用空间少于 48 GiB，\
-         结果可能不准（与 YABS 的提示相同）",
+        "  Method              as YABS: random reads and writes, half each, on a test file of \
+         512 MiB",
+        "  Note                the test directory is on ZFS with less than 48 GiB available, so \
+         the results may be off (as YABS warns)",
     ] {
         assert!(shows(&text, line), "{line:?} in {text}");
     }
     // Interrupted after 4K: 64K never ended, and the second table never started.
-    assert_eq!(row(&text, "读取"), [["读取", "92.82 MB/s（22.6k）", "—"]]);
+    assert_eq!(row(&text, "Read"), [["Read", "92.82 MB/s (22.6k)", "—"]]);
     assert!(!text.contains("512K"), "{text}");
 }
 
@@ -565,21 +583,24 @@ fn each_fault_of_a_test_has_its_words() {
         let output = fio_output(2 * GIB, vec![("4k", Outcome::Failed(fault))]);
         let text = section(&[fio_run(Status::Completed, Some(output), None)]);
         text.lines()
-            .find_map(|line| line.strip_prefix("  说明              4K 出错："))
+            .find_map(|line| line.strip_prefix("  Note                4K failed: "))
             .expect("a note")
             .to_owned()
     };
     let cases = [
-        (fio::Fault::NoResult, "fio 没有输出结果"),
-        (fio::Fault::Error(28), "fio 报告错误 28"),
-        (fio::Fault::Field(7), "无法解析 fio 输出的第 7 个字段"),
-        (fio::Fault::Field(48), "无法解析 fio 输出的第 48 个字段"),
+        (fio::Fault::NoResult, "fio printed no result"),
+        (fio::Fault::Error(28), "fio reported error 28"),
+        (fio::Fault::Field(7), "cannot parse field 7 of fio's output"),
+        (
+            fio::Fault::Field(48),
+            "cannot parse field 48 of fio's output",
+        ),
         (
             fio::Fault::Tool(job::Fault::Exit {
                 code: 1,
                 last: None,
             }),
-            "fio 没有输出",
+            "fio printed nothing",
         ),
         (
             fio::Fault::Tool(job::Fault::Signal {
@@ -589,11 +610,11 @@ fn each_fault_of_a_test_has_its_words() {
         ),
         (
             fio::Fault::Tool(job::Fault::Spawn("Text file busy (os error 26)".to_owned())),
-            "无法运行 fio：Text file busy (os error 26)",
+            "cannot run fio: Text file busy (os error 26)",
         ),
         (
             fio::Fault::Tool(job::Fault::Read("Broken pipe (os error 32)".to_owned())),
-            "无法读取 fio 的输出：Broken pipe (os error 32)",
+            "cannot read the output of fio: Broken pipe (os error 32)",
         ),
     ];
     for (fault, words) in cases {
@@ -630,16 +651,16 @@ fn every_way_fio_ends_shows_its_words() {
     let text = section(&runs);
     insta::assert_snapshot!(text);
     for line in [
-        "    跳过：测试目录在内存盘上，测到的会是内存速度；\
-         请在硬盘上的目录运行，或用 --work-dir 指定",
-        "    跳过：测试目录可用空间不足 2 GiB（只有 1.9 GiB）",
-        "    失败：无法读取测试目录的可用空间",
-        "    跳过：测试目录所在的文件系统不支持直接 I/O",
-        "    失败：生成测试文件失败：fio: pid=0, err=28/file:filesetup.c:241, func=write, \
-         error=No space left on device",
-        "    失败：生成测试文件失败：无法运行 fio：Text file busy (os error 26)",
-        "    失败：四种块大小都没有结果",
-        "    失败：已中断",
+        "    skipped: the test directory is on a RAM disk, which would measure memory; run in a \
+         directory on a disk, or name one with --work-dir",
+        "    skipped: the test directory has less than 2 GiB free (only 1.9 GiB)",
+        "    failed: cannot read the free space of the test directory",
+        "    skipped: the test directory's filesystem does not support direct I/O",
+        "    failed: cannot create the test file: fio: pid=0, err=28/file:filesetup.c:241, \
+         func=write, error=No space left on device",
+        "    failed: cannot create the test file: cannot run fio: Text file busy (os error 26)",
+        "    failed: none of the four block sizes has a result",
+        "    failed: interrupted",
     ] {
         assert!(shows(&text, line), "{line:?} in {text}");
     }
@@ -655,7 +676,7 @@ fn the_free_space_shown_is_cut_not_rounded() {
         );
         section(&[run])
             .lines()
-            .find_map(|line| line.strip_prefix("  跳过："))
+            .find_map(|line| line.strip_prefix("  skipped: "))
             .expect("the reason")
             .to_owned()
     };
@@ -669,11 +690,11 @@ fn the_free_space_shown_is_cut_not_rounded() {
     ] {
         assert_eq!(
             reason(2 * GIB, available),
-            format!("测试目录可用空间不足 2 GiB（只有 {shown}）")
+            format!("the test directory has less than 2 GiB free (only {shown})")
         );
     }
     assert_eq!(
         reason(512 * MIB, 512 * MIB - 1),
-        "测试目录可用空间不足 512 MiB（只有 511.9 MiB）"
+        "the test directory has less than 512 MiB free (only 511.9 MiB)"
     );
 }
