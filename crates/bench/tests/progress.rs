@@ -16,6 +16,7 @@ use bench::provision;
 use bench::provision::Part;
 use bench::provision::Provisioned;
 use bench::results::Measured;
+use bench_api::CancellationToken;
 use bench_api::Net;
 use bench_api::ToolAsset;
 use bench_api::ToolEnd;
@@ -180,6 +181,7 @@ fn download() {
         "x86_64",
         dir.path(),
         1,
+        &CancellationToken::new(),
         |_url, _range| async { Err::<Part<&[u8]>, String>("下载失败：离线".to_owned()) },
     ));
     assert_eq!(provisioned.failed.len(), 1);

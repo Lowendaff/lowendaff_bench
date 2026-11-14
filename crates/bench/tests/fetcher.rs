@@ -13,6 +13,7 @@ use bench::fetcher::Fetcher;
 use bench::provision;
 use bench::provision::MIN_RANGE;
 use bench::provision::Part;
+use bench_api::CancellationToken;
 use bench_api::ToolAsset;
 use bench_api::ToolForm;
 use bench_api::ToolSpec;
@@ -275,6 +276,7 @@ async fn provisioning_through_the_real_client_installs_verified_tools_whole_or_i
         std::env::consts::ARCH,
         dir.path(),
         32,
+        &CancellationToken::new(),
         |url, range| fetcher.open(url, range),
     )
     .await;

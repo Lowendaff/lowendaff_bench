@@ -179,6 +179,7 @@ async fn provision_all_reports_every_failure_with_its_reason() {
         "x86_64",
         dir.path(),
         32,
+        &CancellationToken::new(),
         fetch,
     )
     .await;
@@ -265,6 +266,7 @@ async fn a_plugin_runs_the_tool_it_was_provisioned_with() {
         std::env::consts::ARCH,
         run_dir.path(),
         32,
+        &CancellationToken::new(),
         |_, _| async { Ok::<_, String>(Part::Whole(SCRIPT)) },
     )
     .await;
@@ -386,11 +388,15 @@ struct Outcome {
 async fn provision_from(tool: ToolSpec, served: &Served, connections: usize) -> Outcome {
     let dir = tempfile::tempdir().expect("a directory for the tools");
     let (log, capturing) = Captured::start(true);
-    let provisioned =
-        provision::provision_all(&[tool], "x86_64", dir.path(), connections, |_, range| {
-            served.open(range)
-        })
-        .await;
+    let provisioned = provision::provision_all(
+        &[tool],
+        "x86_64",
+        dir.path(),
+        connections,
+        &CancellationToken::new(),
+        |_, range| served.open(range),
+    )
+    .await;
     drop(capturing);
     let installed = provisioned
         .ready
@@ -575,4 +581,74 @@ async fn ranges_that_do_not_add_up_to_the_pinned_file_fail_and_leave_nothing() {
         "{reason}"
     );
     assert_eq!(outcome.left, Vec::<String>::new());
+}
+
+#[tokio::test]
+async fn ctrl_c_stops_the_download_under_way_and_the_tools_after_it() {
+    let body = contents(4 * MIN_RANGE);
+    let big = pinned_to(body);
+    let dir = tempfile::tempdir().expect("a directory for the tools");
+    let cancel = CancellationToken::new();
+    let asked = Mutex::new(Vec::new());
+    // The first range comes; the others never do, and Ctrl-C comes meanwhile.
+    let fetch = |url: &'static str, range: Option<Range<u64>>| {
+        asked
+            .lock()
+            .expect("no test panics while holding it")
+            .push(url);
+        let cancel = &cancel;
+        async move {
+            let range = range.expect("the large file comes in ranges");
+            if range.start > 0 {
+                cancel.cancel();
+                std::future::pending::<()>().await;
+            }
+            let end = usize::try_from(range.end).expect("in memory");
+            Ok::<_, String>(Part::Range(&body[..end]))
+        }
+    };
+
+    let provisioned =
+        provision::provision_all(&[big, FIO], "x86_64", dir.path(), 32, &cancel, fetch).await;
+
+    assert_eq!(provisioned.ready, BTreeMap::new());
+    assert_eq!(
+        provisioned.failed,
+        BTreeMap::from([("big".to_owned(), "下载已中断".to_owned())])
+    );
+    let asked = asked
+        .into_inner()
+        .expect("no test panicked while holding it");
+    assert_eq!(
+        asked.len(),
+        4,
+        "the four ranges of the large file, and nothing of fio"
+    );
+    assert!(
+        asked.iter().all(|url| *url == big.assets[0].url),
+        "{asked:?}"
+    );
+    assert_eq!(
+        entries(dir.path()),
+        Vec::<String>::new(),
+        "the partial file is removed"
+    );
+}
+
+#[tokio::test]
+async fn nothing_is_downloaded_after_ctrl_c() {
+    let dir = tempfile::tempdir().expect("a directory for the tools");
+    let cancel = CancellationToken::new();
+    cancel.cancel();
+    let fetch = |url: &'static str, _range| async move {
+        Err::<Part<&[u8]>, String>(format!("asked for {url}"))
+    };
+
+    let provisioned =
+        provision::provision_all(&[FIO], "x86_64", dir.path(), 32, &cancel, fetch).await;
+
+    assert!(
+        provisioned.ready.is_empty() && provisioned.failed.is_empty(),
+        "{provisioned:?}"
+    );
 }

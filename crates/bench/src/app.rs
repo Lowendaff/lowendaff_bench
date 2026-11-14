@@ -255,7 +255,8 @@ where
         let tools_dir = run_dir.path().join("tools");
         fs::create_dir(&tools_dir).map_err(|err| format!("无法创建工具目录：{err}"))?;
         let provisioned =
-            provision::provision_all(&tools, &host.arch, &tools_dir, connections, fetch).await;
+            provision::provision_all(&tools, &host.arch, &tools_dir, connections, cancel, fetch)
+                .await;
         ready = provisioned.ready;
         failed_tools = provisioned.failed;
     }

@@ -74,7 +74,8 @@ sudo lowendaff-bench --download-connections 8  # at most 8 connections per downl
   A file of 2 MiB or more comes in byte ranges over up to 32 connections at once
   (`--download-connections` sets the number, from 1 to 256), when its server serves ranges: a slow
   route often limits each connection rather than the host. Each range must come back exactly as
-  asked for, and the whole file must match its pinned size and SHA-256 before it is used.
+  asked for, and the whole file must match its pinned size and SHA-256 before it is used. Ctrl-C
+  stops the downloads too.
 - **Proxies.** Tool downloads go through the proxy that `HTTPS_PROXY` or `ALL_PROXY` names
   (lowercase names work too); `NO_PROXY` exempts hosts. HTTP and SOCKS5 proxies work, and with
   `socks5h://` the proxy resolves the names. On a server that reaches GitHub poorly, for

@@ -143,11 +143,13 @@ type Asked = (&'static str, Option<Range<u64>>);
 
 /// The downloads of a test run: every address gets `body`, whole or the byte range asked for, or
 /// fails when there is none, and the addresses and ranges asked for are noted. A file comes over
-/// up to `connections` connections, or as many as the program uses by default.
+/// up to `connections` connections, or as many as the program uses by default. With `interrupt`,
+/// a download instead never ends, and Ctrl-C comes meanwhile.
 #[derive(Default)]
 struct Downloads {
     body: Option<&'static [u8]>,
     connections: Option<usize>,
+    interrupt: Option<CancellationToken>,
     asked: Mutex<Vec<Asked>>,
 }
 
@@ -161,6 +163,10 @@ impl Downloads {
             .lock()
             .expect("no test panics while holding the addresses")
             .push((url, range.clone()));
+        if let Some(cancel) = &self.interrupt {
+            cancel.cancel();
+            std::future::pending::<()>().await;
+        }
         let body = self
             .body
             .ok_or_else(|| format!("no download in this test: {url}"))?;
@@ -805,6 +811,35 @@ async fn the_program_hands_its_plugins_the_tools_it_downloaded() {
             "the plugin ran the tool it was handed: {text}"
         );
     }
+}
+
+#[tokio::test]
+async fn ctrl_c_during_the_downloads_ends_the_run_at_once() {
+    let registry = [entry::<RunsScript>()];
+    let planned = app::prepare(&cli(&[]), &registry).unwrap();
+    let host = HostProfile {
+        arch: "x86_64".to_owned(),
+        ..HostProfile::default()
+    };
+    let cancel = CancellationToken::new();
+    let downloads = Downloads {
+        body: Some(script()),
+        interrupt: Some(cancel.clone()),
+        ..Downloads::default()
+    };
+
+    let (code, text, log) = run(planned, host, &cancel, &downloads, None, false).await;
+
+    assert_eq!(code, EXIT_INTERRUPTED);
+    assert_eq!(downloads.asked(), ["https://example.invalid/script-x86_64"]);
+    assert!(
+        log.contains(&"准备工具：script 1.0 失败：下载已中断".to_owned()),
+        "{log:?}"
+    );
+    assert!(
+        summary_line(&text, "test.script").is_some_and(|line| line.ends_with("已中断")),
+        "{text}"
+    );
 }
 
 #[tokio::test]

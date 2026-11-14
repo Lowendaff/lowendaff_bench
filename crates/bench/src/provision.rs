@@ -12,6 +12,7 @@ use std::ops::Range;
 use std::path::Path;
 use std::path::PathBuf;
 
+use bench_api::CancellationToken;
 use bench_api::Requirements;
 use bench_api::ToolAsset;
 use bench_api::ToolForm;
@@ -62,12 +63,14 @@ pub fn required_tools(requirements: impl IntoIterator<Item = Requirements>) -> V
 /// Installs every tool into `dir`, and logs how each one went. `fetch` opens the download for a
 /// URL, the whole file or a byte range of it (HTTPS in production, an in-memory body in tests),
 /// and returns a user-facing error on failure. A file comes over up to `connections`
-/// connections at once, one byte range each.
+/// connections at once, one byte range each. When `cancel` fires, the download under way stops
+/// at once and fails, and the tools after it are not downloaded.
 pub async fn provision_all<F, Fut, R>(
     tools: &[ToolSpec],
     arch: &str,
     dir: &Path,
     connections: usize,
+    cancel: &CancellationToken,
     fetch: F,
 ) -> Provisioned
 where
@@ -77,11 +80,14 @@ where
 {
     let mut result = Provisioned::default();
     for tool in tools {
+        if cancel.is_cancelled() {
+            break;
+        }
         let installed = match tool.asset_for(arch) {
             None => Err(format!("没有适用于 {arch} 的版本")),
             Some(asset) => {
                 tracing::debug!("下载 {}", asset.url);
-                download(&fetch, tool, asset, dir, connections).await
+                download(&fetch, tool, asset, dir, connections, cancel).await
             }
         };
         match installed {
@@ -97,13 +103,16 @@ where
     result
 }
 
-/// Downloads `asset` and installs it.
+/// Downloads `asset` and installs it, unless `cancel` fires first: then every connection of
+/// the download closes at once, and the partial file is removed. Unpacking is not stopped: it
+/// is short, and it runs on a thread that would go on regardless.
 async fn download<F, Fut, R>(
     fetch: &F,
     tool: &ToolSpec,
     asset: &ToolAsset,
     dir: &Path,
     connections: usize,
+    cancel: &CancellationToken,
 ) -> Result<PathBuf, String>
 where
     F: Fn(&'static str, Option<Range<u64>>) -> Fut,
@@ -111,7 +120,10 @@ where
     R: AsyncRead + Unpin,
 {
     let partial = partial_path(dir, tool);
-    let written = fetch_checked(fetch, tool, asset, &partial, connections).await;
+    let written = tokio::select! {
+        written = fetch_checked(fetch, tool, asset, &partial, connections) => written,
+        () = cancel.cancelled() => Err("下载已中断".to_owned()),
+    };
     finish(written, &partial, tool, dir).await
 }
 
