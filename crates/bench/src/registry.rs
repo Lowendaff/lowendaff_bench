@@ -12,7 +12,6 @@ use bench_api::Requirements;
 use bench_api::ToolForm;
 use bench_api::ToolSpec;
 use bench_api::typed;
-use bench_host::platform::PlatformKind;
 
 use crate::orchestrator::Planned;
 use crate::report;
@@ -125,7 +124,7 @@ pub fn validate(entries: &[Entry]) -> Vec<String> {
     let mut problems = Vec::new();
     let mut ids = BTreeSet::new();
     let mut tools: BTreeMap<&str, ToolSpec> = BTreeMap::new();
-    let mut by_title: BTreeMap<&str, Vec<(&str, &[PlatformKind])>> = BTreeMap::new();
+    let mut names: BTreeMap<&str, &str> = BTreeMap::new();
     for entry in entries {
         let id = entry.id;
         if !valid_id(id) {
@@ -152,25 +151,16 @@ pub fn validate(entries: &[Entry]) -> Vec<String> {
         if entry.timeout.is_zero() {
             problems.push(format!("{id}: timeout must be positive"));
         }
-        // Variants of one test item share its title; exactly one of them may run anywhere.
-        if let Some(title) = entry.title {
-            let platforms = entry.requires.platforms;
-            let variants = by_title.entry(title).or_default();
-            for (other, other_platforms) in variants.iter() {
-                if *other == id {
-                    // A duplicate registration; the duplicate-id check reports it.
-                    continue;
-                }
-                let overlap = platforms.is_empty()
-                    || other_platforms.is_empty()
-                    || platforms.iter().any(|kind| other_platforms.contains(kind));
-                if overlap {
-                    problems.push(format!(
-                        "{id}: shares its title with {other}, so their platforms must not overlap"
-                    ));
+        // The report and its summary tell the plugins apart by their names.
+        if let Some(name) = entry.title {
+            match names.get(name) {
+                // A duplicate registration, which the duplicate-id check reports.
+                Some(other) if *other == id => {}
+                Some(other) => problems.push(format!("{id}: shares its name with {other}")),
+                None => {
+                    names.insert(name, id);
                 }
             }
-            variants.push((id, platforms));
         }
         if let Err(err) = entry.build(Some(&serde_json::json!({}))) {
             problems.push(format!(

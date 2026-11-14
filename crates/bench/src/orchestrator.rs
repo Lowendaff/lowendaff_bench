@@ -232,8 +232,8 @@ pub fn plan(
     }
 }
 
-/// Splits the plan by host: the plugins that apply here, and the titles of the test items that
-/// run here in no variant, for the 本机不适用 line.
+/// Splits the plan by host: the plugins that apply here, and the names of those that do not, for
+/// the 本机不适用 line.
 #[must_use]
 pub fn for_host<R>(
     plan: Vec<Planned<R>>,
@@ -242,17 +242,11 @@ pub fn for_host<R>(
     let (applicable, elsewhere): (Vec<Planned<R>>, Vec<Planned<R>>) = plan
         .into_iter()
         .partition(|planned| planned.requires.applies_to(host));
-    let mut titles = Vec::new();
-    for planned in &elsewhere {
-        let title = planned.title.unwrap_or(planned.id);
-        let runs_here = applicable
-            .iter()
-            .any(|other| other.title.unwrap_or(other.id) == title);
-        if !runs_here && !titles.contains(&title) {
-            titles.push(title);
-        }
-    }
-    (applicable, titles)
+    let names = elsewhere
+        .iter()
+        .map(|planned| planned.title.unwrap_or(planned.id))
+        .collect();
+    (applicable, names)
 }
 
 /// What the host must offer a plugin besides its tools, checked before any download: its

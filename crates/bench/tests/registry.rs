@@ -169,15 +169,6 @@ plugin!(
     InfoDedicated,
     variant("info.dedicated", "信息", &[], &[PlatformKind::Dedicated])
 );
-plugin!(
-    InfoVmOrContainer,
-    variant(
-        "info.shared",
-        "信息",
-        &[],
-        &[PlatformKind::Vm, PlatformKind::Container]
-    )
-);
 plugin!(InfoEverywhere, variant("info.any", "信息", &[], &[]));
 
 #[test]
@@ -244,25 +235,17 @@ fn registry_checks_catch_bad_tool_pins() {
 }
 
 #[test]
-fn plugins_that_share_a_title_need_disjoint_platforms() {
-    assert_eq!(
-        registry::validate(&[
-            registry::legacy::<InfoVm>(),
-            registry::legacy::<InfoDedicated>(),
-        ]),
-        Vec::<String>::new()
-    );
+fn no_two_plugins_share_a_name_whatever_their_platforms() {
     let problems = registry::validate(&[
         registry::legacy::<InfoVm>(),
-        registry::legacy::<InfoVmOrContainer>(),
+        registry::legacy::<InfoDedicated>(),
         registry::legacy::<InfoEverywhere>(),
     ]);
     assert_eq!(
         problems,
         [
-            "info.shared: shares its title with info.vm, so their platforms must not overlap",
-            "info.any: shares its title with info.vm, so their platforms must not overlap",
-            "info.any: shares its title with info.shared, so their platforms must not overlap",
+            "info.dedicated: shares its name with info.vm",
+            "info.any: shares its name with info.vm",
         ]
     );
 }

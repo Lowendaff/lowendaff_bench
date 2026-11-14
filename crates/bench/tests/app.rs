@@ -310,7 +310,8 @@ async fn an_interrupted_run_exits_130_and_still_lists_every_plugin() {
     );
 }
 
-/// Two variants of one test item, and an item that applies to dedicated servers only.
+/// A test item for each kind of platform but containers, and one that applies to dedicated
+/// servers only.
 #[derive(Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 struct InfoDedicated {}
@@ -318,7 +319,7 @@ struct InfoDedicated {}
 impl Plugin for InfoDedicated {
     const DESCRIPTOR: Descriptor = Descriptor {
         id: "test.info-dedicated",
-        title: "系统信息",
+        title: "独立服务器信息",
         requires: Requirements {
             platforms: &[PlatformKind::Dedicated],
             ..Requirements::NONE
@@ -339,7 +340,7 @@ struct InfoVm {}
 impl Plugin for InfoVm {
     const DESCRIPTOR: Descriptor = Descriptor {
         id: "test.info-vm",
-        title: "系统信息",
+        title: "虚拟机信息",
         requires: Requirements {
             platforms: &[PlatformKind::Vm],
             ..Requirements::NONE
@@ -487,7 +488,6 @@ async fn only_plugins_for_the_detected_platform_run() {
     let (code, text, log) = execute(planned, host, &CancellationToken::new()).await;
 
     assert_eq!(code, 0);
-    // The other variant of 系统信息 runs instead, so only 硬盘健康 is reported.
     assert!(
         text.starts_with(&format!(
             "lowendaff-bench {}\n运行环境：KVM 虚拟机\n",
@@ -497,7 +497,7 @@ async fn only_plugins_for_the_detected_platform_run() {
     );
     assert!(text.contains("\n\n【test】\n"), "{text}");
     assert!(
-        text.contains("  本机不适用：硬盘健康、节点之间的测试\n"),
+        text.contains("  本机不适用：独立服务器信息、硬盘健康、节点之间的测试\n"),
         "{text}"
     );
     assert!(text.contains("虚拟机版"), "{text}");
@@ -726,8 +726,8 @@ fn the_list_shows_where_each_plugin_applies() {
         String::from_utf8(out).unwrap(),
         "共 4 个测试项\n\
          【test】（分组：test）\n\
-         \x20 test.info-dedicated  系统信息（适用：独立服务器）\n\
-         \x20 test.info-vm  系统信息（适用：虚拟机）\n\
+         \x20 test.info-dedicated  独立服务器信息（适用：独立服务器）\n\
+         \x20 test.info-vm  虚拟机信息（适用：虚拟机）\n\
          \x20 test.disk-health  硬盘健康（适用：独立服务器）（工具：smartctl 7.4）\n\
          \x20 test.numa  节点之间的测试（适用：多个 NUMA 节点）\n"
     );
