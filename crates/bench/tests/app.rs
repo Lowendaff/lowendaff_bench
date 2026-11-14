@@ -31,10 +31,13 @@ use bench_host::network::Address;
 use bench_host::network::Family;
 use bench_host::network::Network;
 use bench_host::network::Reach;
+use bench_host::numa::Layout;
+use bench_host::numa::Node;
 use bench_host::platform::Hypervisor;
 use bench_host::platform::Platform;
 use bench_host::platform::PlatformKind;
 use bench_host::profile::HostProfile;
+use bench_host::profile::Read;
 use common::Captured;
 use serde::Deserialize;
 
@@ -383,6 +386,7 @@ impl Plugin for DiskHealth {
             net: Net::None,
             platforms: &[PlatformKind::Dedicated],
             glibc: None,
+            numa: false,
         },
         ..Good::DESCRIPTOR
     };
@@ -392,12 +396,80 @@ impl Plugin for DiskHealth {
     }
 }
 
+/// A test between NUMA nodes, which needs two of them.
+#[derive(Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct Numa {}
+
+impl Plugin for Numa {
+    const DESCRIPTOR: Descriptor = Descriptor {
+        id: "test.numa",
+        title: "节点之间的测试",
+        requires: Requirements {
+            numa: true,
+            ..Requirements::NONE
+        },
+        ..Good::DESCRIPTOR
+    };
+
+    async fn run(&self, ctx: &Context) -> Result<(), PluginError> {
+        ctx.emit(Record::fact("nodes", "节点", "测过了"));
+        Ok(())
+    }
+}
+
 fn platform_plugins() -> Vec<Entry> {
     vec![
         registry::legacy::<InfoDedicated>(),
         registry::legacy::<InfoVm>(),
         registry::legacy::<DiskHealth>(),
+        registry::legacy::<Numa>(),
     ]
+}
+
+/// A host whose NUMA layout has `count` nodes, each with a CPU and memory.
+fn with_nodes(count: usize) -> HostProfile {
+    HostProfile {
+        platform: Platform::Dedicated,
+        numa: Read::Done(Layout {
+            nodes: (0..count)
+                .map(|id| Node {
+                    id,
+                    cpus: vec![id],
+                    total: Some(1 << 30),
+                    free: Some(1 << 29),
+                })
+                .collect(),
+            cpus: Some((0..count).collect()),
+            mems: None,
+        }),
+        ..HostProfile::default()
+    }
+}
+
+#[tokio::test]
+async fn a_plugin_that_needs_numa_nodes_runs_only_where_two_can_be_used() {
+    let registry = [registry::legacy::<Numa>()];
+    for (count, runs) in [(1, false), (2, true)] {
+        let planned = app::prepare(&cli(&[]), &registry).unwrap();
+        let (code, text, _) = execute(planned, with_nodes(count), &CancellationToken::new()).await;
+        assert_eq!(code, 0);
+        assert_eq!(text.contains("测过了"), runs, "{count} nodes: {text}");
+        assert_eq!(
+            text.contains("  本机不适用：节点之间的测试\n"),
+            !runs,
+            "{count} nodes: {text}"
+        );
+        let total = if runs {
+            "共 1 项：完成 1，"
+        } else {
+            "共 0 项：完成 0，"
+        };
+        assert!(
+            text.contains(total),
+            "{count} nodes, not counted elsewhere: {text}"
+        );
+    }
 }
 
 #[tokio::test]
@@ -424,7 +496,10 @@ async fn only_plugins_for_the_detected_platform_run() {
         "{text}"
     );
     assert!(text.contains("\n\n【test】\n"), "{text}");
-    assert!(text.contains("  本机不适用：硬盘健康\n"), "{text}");
+    assert!(
+        text.contains("  本机不适用：硬盘健康、节点之间的测试\n"),
+        "{text}"
+    );
     assert!(text.contains("虚拟机版"), "{text}");
     assert!(!text.contains("独立服务器版"), "{text}");
     assert!(
@@ -509,6 +584,7 @@ impl Plugin for NeedsGlibcAndIpv4 {
                 major: 2,
                 minor: 35,
             }),
+            numa: false,
         },
         ..Good::DESCRIPTOR
     };
@@ -648,11 +724,12 @@ fn the_list_shows_where_each_plugin_applies() {
 
     assert_eq!(
         String::from_utf8(out).unwrap(),
-        "共 3 个测试项\n\
+        "共 4 个测试项\n\
          【test】（分组：test）\n\
          \x20 test.info-dedicated  系统信息（适用：独立服务器）\n\
          \x20 test.info-vm  系统信息（适用：虚拟机）\n\
-         \x20 test.disk-health  硬盘健康（适用：独立服务器）（工具：smartctl 7.4）\n"
+         \x20 test.disk-health  硬盘健康（适用：独立服务器）（工具：smartctl 7.4）\n\
+         \x20 test.numa  节点之间的测试（适用：多个 NUMA 节点）\n"
     );
 }
 

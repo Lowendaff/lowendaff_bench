@@ -64,6 +64,7 @@ const fn variant(
             net: Net::None,
             platforms,
             glibc: None,
+            numa: false,
         },
         timeout: Duration::from_secs(10),
     }

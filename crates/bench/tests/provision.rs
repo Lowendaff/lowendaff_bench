@@ -193,6 +193,7 @@ fn required_tools_are_unique_and_in_plan_order() {
             net: Net::None,
             platforms: &[],
             glibc: None,
+            numa: false,
         },
         timeout: Duration::from_secs(1),
     };
@@ -221,6 +222,7 @@ impl Plugin for RunsFio {
             net: Net::None,
             platforms: &[],
             glibc: None,
+            numa: false,
         },
         timeout: Duration::from_secs(10),
     };
