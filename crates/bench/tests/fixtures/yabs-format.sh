@@ -1,6 +1,6 @@
 #!/bin/bash
 # Prints what YABS's own format_speed and format_iops make of the values that
-# tests/report.rs checks, one tab-separated line each: kind, input, output.
+# tests/disk.rs checks, one tab-separated line each: kind, input, output.
 # yabs-format.txt holds the output; see README.md for how it was made.
 #
 # Usage: yabs-format.sh <yabs.sh>

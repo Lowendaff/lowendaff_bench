@@ -5,6 +5,7 @@ use bench_api::Record;
 use bench_api::typed::Stop;
 use plugin_cpu::geekbench;
 use plugin_cpu::sysbench;
+use plugin_disk::fio;
 use plugin_disk::health;
 
 /// A plugin's result, complete or as far as it got, and its own reason when it stopped short.
@@ -28,4 +29,6 @@ pub enum Measured {
     CpuGeekbench(Report<geekbench::Output, geekbench::Failure>),
     /// 硬盘健康 (`disk.health`).
     DiskHealth(Report<health::Output, health::Failure>),
+    /// 硬盘性能 (`disk.fio`).
+    DiskFio(Report<fio::Output, fio::Failure>),
 }

@@ -21,6 +21,8 @@ use comfy_table::presets;
 use crate::orchestrator::Run;
 use crate::results::Measured;
 
+pub use disk::iops;
+pub use disk::speed;
 pub use host::family_text;
 pub use host::kind_text;
 pub use host::platform_text;
@@ -42,10 +44,11 @@ const SECTIONS: [(&str, &str); 3] = [
 
 /// The names of the plugins of the typed contract, by id; the plugins of the first contract
 /// bring their titles.
-const NAMES: [(&str, &str); 3] = [
+const NAMES: [(&str, &str); 4] = [
     ("cpu.sysbench", "CPU 性能"),
     ("cpu.geekbench", "Geekbench 7"),
     ("disk.health", "硬盘健康"),
+    ("disk.fio", "硬盘性能"),
 ];
 
 /// The reporter's name for a plugin of the typed contract, by its id.
@@ -128,6 +131,7 @@ fn plugin(out: &mut Out, run: &Run<Measured>, indent: &str) {
         Some(Measured::CpuSysbench(report)) => cpu::sysbench(out, report, indent),
         Some(Measured::CpuGeekbench(report)) => cpu::geekbench(out, report, indent),
         Some(Measured::DiskHealth(report)) => disk::health(out, report, indent),
+        Some(Measured::DiskFio(report)) => disk::fio(out, report, indent),
         None => {}
     }
     out.line(&format!("{indent}{}", run_status(run)));

@@ -57,6 +57,10 @@ fn reason(run: &Run<Measured>) -> Option<String> {
             .stop
             .as_ref()
             .map(|stop| disk::health_failure(failure(stop))),
+        Some(Measured::DiskFio(report)) => report
+            .stop
+            .as_ref()
+            .map(|stop| disk::fio_failure(failure(stop))),
         None => None,
     }
 }
