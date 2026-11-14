@@ -2,6 +2,7 @@
 //! group of plugins, in an order of its own, then the summary. Columns line up by display width,
 //! so CJK and ASCII line up, and tables wrap to the terminal's width when there is one.
 
+mod cpu;
 mod host;
 mod legacy;
 mod summary;
@@ -24,7 +25,6 @@ pub use host::platform_text;
 pub use host::why_text;
 pub use summary::fault_text;
 pub use summary::run_status;
-use summary::status_text;
 pub use summary::unmet_text;
 
 /// Labels pad to this display width, so that values line up.
@@ -37,6 +37,22 @@ const SECTIONS: [(&str, &str); 3] = [
     ("memory", "内存性能"),
     ("disk", "硬盘"),
 ];
+
+/// The names of the plugins of the typed contract, by id; the plugins of the first contract
+/// bring their titles.
+const NAMES: [(&str, &str); 2] = [
+    ("cpu.sysbench", "CPU 性能"),
+    ("cpu.geekbench", "Geekbench 7"),
+];
+
+/// The reporter's name for a plugin of the typed contract, by its id.
+#[must_use]
+pub fn name(id: &str) -> Option<&'static str> {
+    NAMES
+        .iter()
+        .find(|(known, _)| *known == id)
+        .map(|(_, name)| *name)
+}
 
 /// Everything the report shows.
 pub struct Page<'a> {
@@ -104,11 +120,13 @@ pub fn sections<'a>(groups: &[&'a str]) -> Vec<(&'a str, &'a str)> {
 
 /// One plugin's block: what it left, then how it ended.
 fn plugin(out: &mut Out, run: &Run<Measured>, indent: &str) {
-    let reason = match &run.result {
+    match &run.result {
         Some(Measured::Legacy(report)) => legacy::block(out, report, indent),
-        None => None,
-    };
-    out.line(&format!("{indent}{}", status_text(run, reason)));
+        Some(Measured::CpuSysbench(report)) => cpu::sysbench(out, report, indent),
+        Some(Measured::CpuGeekbench(report)) => cpu::geekbench(out, report, indent),
+        None => {}
+    }
+    out.line(&format!("{indent}{}", run_status(run)));
 }
 
 /// The report being written.

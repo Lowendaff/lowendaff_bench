@@ -76,6 +76,7 @@ version = "0.1.0"
 dependencies = [
  "bench-api",
  "bench-host",
+ "bench-tool",
  "clap",
  "comfy-table",
  "flate2",
@@ -84,7 +85,6 @@ dependencies = [
  "plugin-cpu",
  "plugin-disk",
  "plugin-disk-health",
- "plugin-geekbench",
  "plugin-memory",
  "reqwest",
  "rustix",
@@ -129,6 +129,11 @@ name = "bench-tool"
 version = "0.1.0"
 dependencies = [
  "bench-api",
+ "bench-host",
+ "rustix",
+ "serde",
+ "tempfile",
+ "tokio",
 ]
 
 [[package]]
@@ -901,6 +906,7 @@ dependencies = [
  "bench-host",
  "bench-tool",
  "serde",
+ "swap-file",
  "tempfile",
  "tokio",
 ]
@@ -925,20 +931,6 @@ dependencies = [
  "bench-tool",
  "serde",
  "serde_json",
- "tempfile",
- "tokio",
-]
-
-[[package]]
-name = "plugin-geekbench"
-version = "0.1.0"
-dependencies = [
- "bench-api",
- "bench-host",
- "bench-tool",
- "rustix",
- "serde",
- "swap-file",
  "tempfile",
  "tokio",
 ]

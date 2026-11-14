@@ -16,6 +16,8 @@ use bench::orchestrator::Run;
 use bench::orchestrator::Settings;
 use bench::orchestrator::Status;
 use bench::orchestrator::Unmet;
+use bench::registry;
+use bench::registry::Entry;
 use bench::results::Measured;
 use bench_api::CancellationToken;
 use bench_api::Context;
@@ -26,7 +28,6 @@ use bench_api::Net;
 use bench_api::Plugin;
 use bench_api::PluginError;
 use bench_api::Record;
-use bench_api::Registration;
 use bench_api::Requirements;
 use bench_api::ToolAsset;
 use bench_api::ToolForm;
@@ -288,18 +289,18 @@ impl Plugin for Interrupts {
 
 // ---------------------------------------------------------------- harness
 
-fn registry() -> Vec<Registration> {
+fn plugins() -> Vec<Entry> {
     vec![
-        bench_api::register::<Good>(),
-        bench_api::register::<UsesWorkDir>(),
-        bench_api::register::<Failing>(),
-        bench_api::register::<Panicking>(),
-        bench_api::register::<Demanding>(),
-        bench_api::register::<Hanging>(),
-        bench_api::register::<Cooperative>(),
-        bench_api::register::<CpuBound>(),
-        bench_api::register::<BlocksThread>(),
-        bench_api::register::<Sleeper>(),
+        registry::legacy::<Good>(),
+        registry::legacy::<UsesWorkDir>(),
+        registry::legacy::<Failing>(),
+        registry::legacy::<Panicking>(),
+        registry::legacy::<Demanding>(),
+        registry::legacy::<Hanging>(),
+        registry::legacy::<Cooperative>(),
+        registry::legacy::<CpuBound>(),
+        registry::legacy::<BlocksThread>(),
+        registry::legacy::<Sleeper>(),
     ]
 }
 
@@ -331,7 +332,7 @@ async fn run(
     grace_ms: u64,
 ) -> (Vec<Run<Measured>>, Recorder) {
     let work_root = tempfile::tempdir().expect("create a temporary work root");
-    let planned = orchestrator::plan(&registry(), selection, &config).expect("valid plan");
+    let planned = orchestrator::plan(&plugins(), selection, &config).expect("valid plan");
     let mut recorder = Recorder::default();
     let settings = Settings {
         grace: Duration::from_millis(grace_ms),
@@ -349,6 +350,7 @@ async fn run(
 fn records(run: &Run<Measured>) -> &[Record] {
     match &run.result {
         Some(Measured::Legacy(report)) => report.output.as_deref().unwrap_or_default(),
+        Some(other) => panic!("only plugins of the first contract run here: {other:?}"),
         None => &[],
     }
 }
@@ -361,6 +363,7 @@ fn ids(run: &Run<Measured>) -> Vec<&str> {
 fn stop(run: &Run<Measured>) -> Option<&Stop<String>> {
     match &run.result {
         Some(Measured::Legacy(report)) => report.stop.as_ref(),
+        Some(other) => panic!("only plugins of the first contract run here: {other:?}"),
         None => None,
     }
 }
@@ -394,7 +397,7 @@ async fn a_completed_run_keeps_the_records_built_from_config() {
 #[tokio::test]
 async fn work_dir_lives_under_the_run_root_and_is_removed() {
     let work_root = tempfile::tempdir().unwrap();
-    let planned = orchestrator::plan(&registry(), &["test.work-dir"], &BTreeMap::new()).unwrap();
+    let planned = orchestrator::plan(&plugins(), &["test.work-dir"], &BTreeMap::new()).unwrap();
     let settings = Settings {
         grace: Duration::from_secs(1),
         work_root: work_root.path().to_path_buf(),
@@ -700,7 +703,7 @@ fn config_errors_are_reported_together_before_anything_runs() {
         ),
         ("test.goood".to_owned(), serde_json::json!({})),
     ]);
-    let Err(errors) = orchestrator::plan(&registry(), &["test.good", "test.nope"], &config) else {
+    let Err(errors) = orchestrator::plan(&plugins(), &["test.good", "test.nope"], &config) else {
         panic!("plan should fail")
     };
 

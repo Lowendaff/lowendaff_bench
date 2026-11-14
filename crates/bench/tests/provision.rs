@@ -11,6 +11,7 @@ use bench::orchestrator::Quiet;
 use bench::orchestrator::Settings;
 use bench::orchestrator::Status;
 use bench::provision;
+use bench::registry;
 use bench::results::Measured;
 use bench::results::Report;
 use bench_api::CancellationToken;
@@ -241,7 +242,7 @@ impl Plugin for RunsFio {
 #[tokio::test]
 async fn a_plugin_runs_the_tool_it_was_provisioned_with() {
     let run_dir = tempfile::tempdir().unwrap();
-    let registry = [bench_api::register::<RunsFio>()];
+    let registry = [registry::legacy::<RunsFio>()];
     let planned = orchestrator::plan(&registry, &["disk.fio"], &BTreeMap::new()).unwrap();
     let tools = provision::required_tools(planned.iter().map(|planned| *planned.requires()));
     let provisioned =

@@ -1,0 +1,42 @@
+---
+source: crates/bench/tests/cpu.rs
+expression: text
+---
+【CPU 性能】
+  Geekbench 7
+    Geekbench 7.1.0
+    单核              1771
+    多核              4347
+    结果链接          不可用
+    完成，用时 300.0 秒
+  Geekbench 7
+    说明              可用内存可能不足（估计需要 2 GiB，可用 0.5 GiB），无法临时加 swap：本机 vm.swappiness 为 0，内核不会把内存换出到 swap
+    失败：上传失败（unable to resolve host browser.geekbench.com），免费版只有上传成功才给出分数
+  Geekbench 7
+    说明              可用内存不足（估计需要 5 GiB，可用 1.0 GiB），临时加了 4 GiB swap，分数可能偏低
+    失败：运行中因内存不足被系统终止
+  Geekbench 7
+    失败：超过 60 分钟仍未结束，已停止
+  Geekbench 7
+    失败：Geekbench 没有输出分数
+  Geekbench 7
+    失败：Geekbench 退出码 255：Error: The `--no-upload` switch is only available in Geekbench 7 Pro.
+  Geekbench 7
+    失败：已中断
+  Geekbench 7
+    跳过：需要 glibc 2.35 或更新，本机是 2.31
+  Geekbench 7
+    跳过：需要 IPv4 网络连接
+
+【汇总】
+  Geekbench 7       完成，用时 300.0 秒
+  Geekbench 7       失败：上传失败（unable to resolve host browser.geekbench.com），免费版只有上传成功才给出分数
+  Geekbench 7       失败：运行中因内存不足被系统终止
+  Geekbench 7       失败：超过 60 分钟仍未结束，已停止
+  Geekbench 7       失败：Geekbench 没有输出分数
+  Geekbench 7       失败：Geekbench 退出码 255：Error: The `--no-upload` switch is only available in Geekbench 7 Pro.
+  Geekbench 7       失败：已中断
+  Geekbench 7       跳过：需要 glibc 2.35 或更新，本机是 2.31
+  Geekbench 7       跳过：需要 IPv4 网络连接
+
+共 9 项：完成 1，跳过 2，失败 6，超时 0，中断 0。总用时 50.0 秒

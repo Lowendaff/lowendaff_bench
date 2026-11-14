@@ -1,0 +1,19 @@
+---
+source: crates/bench/tests/cpu.rs
+expression: text
+---
+【CPU 性能】
+  Geekbench 7.1.0
+  单核              1771
+  多核              4347
+  结果链接          https://browser.geekbench.com/v7/cpu/840201
+  说明              可用内存不足（估计需要 5 GiB，可用 1.6 GiB），临时加了 4 GiB swap，分数可能偏低
+  说明              无法让 Geekbench 在内存耗尽时优先被结束：No such file or directory (os error 2)
+  说明              上传失败 2 次后重跑成功，失败原因：unable to resolve host browser.geekbench.com
+  说明              无法关闭临时 swap：Device or resource busy (os error 16)；请手动执行 swapoff /root/run/swapfile，再删除这个文件
+  完成，用时 300.0 秒
+
+【汇总】
+  Geekbench 7       完成，用时 300.0 秒
+
+共 1 项：完成 1，跳过 0，失败 0，超时 0，中断 0。总用时 50.0 秒

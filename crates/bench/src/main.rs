@@ -8,7 +8,7 @@ use bench::app;
 use bench::app::Cli;
 use bench::network;
 use bench::progress;
-use bench::registry::REGISTRY;
+use bench::registry;
 use bench_api::CancellationToken;
 use bench_host::profile::HostProfile;
 use tokio::runtime;
@@ -16,8 +16,9 @@ use tokio::signal;
 
 fn main() -> ExitCode {
     let cli = Cli::from_env();
+    let registry = registry::all();
     if cli.list {
-        app::list(REGISTRY, &mut io::stdout());
+        app::list(&registry, &mut io::stdout());
         return ExitCode::SUCCESS;
     }
     if !rustix::process::geteuid().is_root() {
@@ -25,7 +26,7 @@ fn main() -> ExitCode {
         return ExitCode::from(app::EXIT_USAGE);
     }
     progress::init(cli.verbose);
-    let planned = match app::prepare(&cli, REGISTRY) {
+    let planned = match app::prepare(&cli, &registry) {
         Ok(planned) => planned,
         Err(errors) => {
             for error in errors {

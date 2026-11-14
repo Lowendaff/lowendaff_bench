@@ -21,6 +21,8 @@ use bench_api::typed::Descriptor;
 use bench_api::typed::Measurement;
 use bench_api::typed::Plugin;
 use bench_api::typed::Stop;
+use bench_api::typed::ToolEnd;
+use bench_api::typed::ToolRun;
 use bench_api::typed::ToolVersion;
 use serde::Deserialize;
 use serde::Serialize;
@@ -65,6 +67,11 @@ impl Plugin for Counts {
     async fn run(&self, ctx: &Context<Count>) -> Result<Count, Stop<Why>> {
         for count in 1..=2 {
             ctx.progress(format!("第 {count} 次"));
+            ctx.ran(ToolRun {
+                command: vec!["count".to_owned(), count.to_string()],
+                end: ToolEnd::Exit(0),
+                tail: Vec::new(),
+            });
             ctx.publish(&Count(count));
         }
         Ok(Count(3))
@@ -212,6 +219,10 @@ impl Observer<Left> for Recorder {
         self.0.push(format!("{id} {line}"));
     }
 
+    fn on_tool(&mut self, id: &'static str, run: &ToolRun) {
+        self.0.push(format!("{id} ran {}", run.command.join(" ")));
+    }
+
     fn on_finish(&mut self, run: &Run<Left>) {
         self.0.push(format!("finish {} {:?}", run.id, run.status));
     }
@@ -265,9 +276,12 @@ async fn a_returned_result_replaces_what_was_published() {
         [
             "start test.counts",
             "test.counts 第 1 次",
+            "test.counts ran count 1",
             "test.counts 第 2 次",
+            "test.counts ran count 2",
             "finish test.counts Completed"
-        ]
+        ],
+        "progress lines and tool runs in the order the plugin sent them"
     );
 }
 

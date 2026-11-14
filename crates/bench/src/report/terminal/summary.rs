@@ -1,10 +1,12 @@
 //! The 汇总 section, and the words for how each plugin ended.
 
 use bench_api::Net;
+use bench_api::typed::Stop;
 
 use super::LABEL_WIDTH;
 use super::Out;
 use super::Page;
+use super::cpu;
 use super::pad;
 use crate::orchestrator::Fault;
 use crate::orchestrator::Run;
@@ -39,27 +41,36 @@ pub(super) fn section(out: &mut Out, page: &Page) {
 }
 
 /// The plugin's own reason, when it stopped short.
-fn reason(run: &Run<Measured>) -> Option<&str> {
-    use bench_api::typed::Stop;
-
+fn reason(run: &Run<Measured>) -> Option<String> {
     match &run.result {
-        Some(Measured::Legacy(report)) => match &report.stop {
-            Some(Stop::Skipped(reason) | Stop::Failed(reason)) => Some(reason),
-            None => None,
-        },
+        Some(Measured::Legacy(report)) => report.stop.as_ref().map(|stop| failure(stop).clone()),
+        Some(Measured::CpuSysbench(report)) => report
+            .stop
+            .as_ref()
+            .map(|stop| cpu::sysbench_failure(failure(stop))),
+        Some(Measured::CpuGeekbench(report)) => report
+            .stop
+            .as_ref()
+            .map(|stop| cpu::geekbench_failure(failure(stop))),
         None => None,
+    }
+}
+
+/// The plugin's own reason in a stop, whether it skipped or failed.
+fn failure<F>(stop: &Stop<F>) -> &F {
+    match stop {
+        Stop::Skipped(failure) | Stop::Failed(failure) => failure,
     }
 }
 
 /// How a plugin ended, with its own reason when it stopped short.
 #[must_use]
 pub fn run_status(run: &Run<Measured>) -> String {
-    status_text(run, reason(run))
+    status_text(run, reason(run).as_deref())
 }
 
 /// How a plugin ended; `reason` is the plugin's own when it stopped short.
-#[must_use]
-pub(super) fn status_text<R>(run: &Run<R>, reason: Option<&str>) -> String {
+fn status_text<R>(run: &Run<R>, reason: Option<&str>) -> String {
     let reason = reason.unwrap_or_default();
     match &run.status {
         // A plugin that completed has run, so its time is known.

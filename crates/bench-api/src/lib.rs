@@ -6,7 +6,6 @@
 #![warn(missing_docs)]
 
 use std::collections::BTreeMap;
-use std::collections::BTreeSet;
 use std::error;
 use std::fmt;
 use std::future::Future;
@@ -33,7 +32,7 @@ pub mod typed;
 /// Architectures every pinned tool must cover.
 pub const RELEASE_ARCHES: [&str; 2] = ["x86_64", "aarch64"];
 
-/// Static facts about a plugin type, checked by [`validate_registry`].
+/// Static facts about a plugin type, which the registry checks.
 #[derive(Debug, Clone, Copy)]
 pub struct Descriptor {
     /// Stable id: lowercase dotted segments such as `disk.fio`.
@@ -532,133 +531,4 @@ fn build_plugin<P: Plugin>(
         Some(value) => P::deserialize(value).map_err(|err| err.to_string())?,
     };
     Ok(Arc::new(plugin))
-}
-
-/// Contract checks every registry must pass; the binary crate runs them as one test.
-/// Messages are for developers, so they are English.
-#[must_use]
-pub fn validate_registry(registry: &[Registration]) -> Vec<String> {
-    let mut problems = Vec::new();
-    let mut ids = BTreeSet::new();
-    let mut tools: BTreeMap<&str, ToolSpec> = BTreeMap::new();
-    let mut by_title: BTreeMap<&str, Vec<(&str, &[PlatformKind])>> = BTreeMap::new();
-    for registration in registry {
-        let descriptor = registration.descriptor;
-        let id = descriptor.id;
-        if !valid_id(id) {
-            problems.push(format!(
-                "{id}: id must be lowercase dotted segments of [a-z0-9-]"
-            ));
-        }
-        if !ids.insert(id) {
-            problems.push(format!("{id}: duplicate id"));
-        }
-        if descriptor.title.is_empty() || descriptor.version.is_empty() {
-            problems.push(format!("{id}: title and version must be set"));
-        }
-        if descriptor.timeout.is_zero() {
-            problems.push(format!("{id}: timeout must be positive"));
-        }
-        // Variants of one test item share its title; exactly one of them may run anywhere.
-        let platforms = descriptor.requires.platforms;
-        let variants = by_title.entry(descriptor.title).or_default();
-        for (other, other_platforms) in variants.iter() {
-            if *other == id {
-                // A duplicate registration; the duplicate-id check reports it.
-                continue;
-            }
-            let overlap = platforms.is_empty()
-                || other_platforms.is_empty()
-                || platforms.iter().any(|kind| other_platforms.contains(kind));
-            if overlap {
-                problems.push(format!(
-                    "{id}: shares its title with {other}, so their platforms must not overlap"
-                ));
-            }
-        }
-        variants.push((id, platforms));
-        if let Err(err) = registration.build(Some(&serde_json::json!({}))) {
-            problems.push(format!(
-                "{id}: empty config table must build (missing #[serde(default)]?): {err}"
-            ));
-        }
-        if registration
-            .build(Some(&serde_json::json!({ "__unknown_field__": true })))
-            .is_ok()
-        {
-            problems.push(format!(
-                "{id}: config accepts unknown fields (missing #[serde(deny_unknown_fields)]?)"
-            ));
-        }
-        for tool in descriptor.requires.tools {
-            check_tool(id, tool, &mut problems);
-            match tools.get(tool.name) {
-                Some(seen) if seen != tool => {
-                    problems.push(format!(
-                        "{id}: tool {} differs from another plugin's declaration",
-                        tool.name
-                    ));
-                }
-                Some(_) => {}
-                None => {
-                    tools.insert(tool.name, *tool);
-                }
-            }
-        }
-    }
-    problems
-}
-
-fn check_tool(owner: &str, tool: &ToolSpec, problems: &mut Vec<String>) {
-    let name = tool.name;
-    if name.is_empty() || tool.version.is_empty() {
-        problems.push(format!("{owner}: tool name and version must be set"));
-    }
-    for arch in RELEASE_ARCHES {
-        if tool.asset_for(arch).is_none() {
-            problems.push(format!("{owner}: tool {name} has no {arch} build"));
-        }
-    }
-    for asset in tool.assets {
-        if !asset.url.starts_with("https://") {
-            problems.push(format!(
-                "{owner}: tool {name} must be downloaded over https"
-            ));
-        }
-        let is_hex = asset
-            .sha256
-            .bytes()
-            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b));
-        if asset.sha256.len() != 64 || !is_hex {
-            problems.push(format!(
-                "{owner}: tool {name} sha256 must be 64 lowercase hex digits"
-            ));
-        }
-        if asset.size == 0 {
-            problems.push(format!("{owner}: tool {name} size must be positive"));
-        }
-    }
-    if let ToolForm::TarGz { executable } = tool.form {
-        let plain = !executable.is_empty()
-            && executable != "."
-            && executable != ".."
-            && !executable.contains('/');
-        if !plain {
-            problems.push(format!(
-                "{owner}: tool {name} must name its executable in the archive by file name"
-            ));
-        }
-    }
-}
-
-fn valid_id(id: &str) -> bool {
-    !id.is_empty()
-        && id.split('.').all(|segment| {
-            !segment.is_empty()
-                && !segment.starts_with('-')
-                && !segment.ends_with('-')
-                && segment
-                    .bytes()
-                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
-        })
 }

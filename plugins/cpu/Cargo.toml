@@ -1,6 +1,6 @@
 [package]
 name = "plugin-cpu"
-description = "CPU performance test item for lowendaff-bench (CPU 性能)"
+description = "CPU test items for lowendaff-bench: CPU 性能 and Geekbench 7"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
@@ -11,7 +11,8 @@ bench-api.workspace = true
 bench-host.workspace = true
 bench-tool.workspace = true
 serde.workspace = true
-tokio = { workspace = true, features = ["macros", "process", "rt", "time"] }
+swap-file.workspace = true
+tokio = { workspace = true, features = ["rt"] }
 
 [dev-dependencies]
 tempfile.workspace = true

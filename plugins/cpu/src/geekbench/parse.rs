@@ -1,37 +1,31 @@
 //! What Geekbench's console says. The free version has no other output, so this reads the
 //! English lines that 7.1.0 prints.
 
-/// The scores of a run that uploaded its result.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Scores {
-    /// The single-core score.
-    pub single: u32,
-    /// The multi-core score.
-    pub multi: u32,
-    /// The public result page, without the claim link.
-    pub url: Option<String>,
-}
+use bench_tool::job;
+
+use super::result::Fault;
+use super::result::Scores;
 
 /// How a run ended, from its exit code and its output.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Verdict {
     /// The upload succeeded and the scores were printed.
     Scores(Scores),
-    /// The benchmark ran, but the upload failed for this reason. The free version then
-    /// shows no scores.
+    /// The benchmark ran, but the upload failed for this reason. The free version then shows no
+    /// scores.
     UploadFailed(String),
-    /// Anything else, with the reason.
-    Failed(String),
+    /// Anything else.
+    Failed(Fault),
 }
 
-/// The verdict on a run, given its exit code (`None` after a signal) and its standard output
-/// followed by its standard error.
+/// The verdict on a run that finished.
 #[must_use]
-pub fn verdict(code: Option<i32>, output: &str) -> Verdict {
-    if let Some(scores) = scores(output) {
+pub fn verdict(output: &job::Output) -> Verdict {
+    let text = &output.text;
+    if let Some(scores) = scores(text) {
         return Verdict::Scores(scores);
     }
-    let lines: Vec<&str> = output.lines().map(str::trim).collect();
+    let lines: Vec<&str> = text.lines().map(str::trim).collect();
     if let Some(reason) = lines
         .iter()
         .find_map(|line| line.strip_prefix("console_upload_failed "))
@@ -44,19 +38,22 @@ pub fn verdict(code: Option<i32>, output: &str) -> Verdict {
     let succeeded = lines
         .iter()
         .any(|line| line.starts_with("Upload succeeded"));
+    let last = last_line(text);
     if uploading && !succeeded {
-        return Verdict::UploadFailed(last_line(output).to_owned());
+        return Verdict::UploadFailed(last.unwrap_or_default().to_owned());
     }
-    match code {
-        Some(0) => Verdict::Failed("Geekbench 没有输出分数".to_owned()),
-        Some(code) => Verdict::Failed(format!("Geekbench 退出码 {code}：{}", last_line(output))),
-        None => Verdict::Failed(format!("Geekbench 被信号终止：{}", last_line(output))),
-    }
+    let last = last.map(str::to_owned);
+    Verdict::Failed(match output.code {
+        Some(0) => Fault::NoScores,
+        Some(code) => Fault::Tool(job::Fault::Exit { code, last }),
+        None => Fault::Tool(job::Fault::Signal { last }),
+    })
 }
 
-/// The scores under `Benchmark Summary`, and the result link after `Upload succeeded`.
-fn scores(output: &str) -> Option<Scores> {
-    let summary = output
+/// The scores under `Benchmark Summary`, the result link after `Upload succeeded`, and the
+/// version in the first line.
+fn scores(text: &str) -> Option<Scores> {
+    let summary = text
         .lines()
         .skip_while(|line| line.trim() != "Benchmark Summary");
     let mut single = None;
@@ -69,25 +66,34 @@ fn scores(output: &str) -> Option<Scores> {
             multi = score.trim().parse().ok();
         }
     }
-    let url = output
+    let url = text
         .lines()
         .skip_while(|line| !line.trim().starts_with("Upload succeeded"))
         .map(str::trim)
         .find(|line| line.starts_with("https://browser.geekbench.com/") && !line.contains("/claim"))
         .map(str::to_owned);
     Some(Scores {
+        version: version(text),
         single: single?,
         multi: multi?,
         url,
     })
 }
 
-/// The last line with text, never the claim link, for a reason that quotes Geekbench.
-fn last_line(output: &str) -> &str {
-    output
-        .lines()
+/// The version in the first line, `Geekbench 7.1.0 : https://www.geekbench.com/`, or
+/// `Geekbench 7.1.0 Preview : ...` for the build for aarch64.
+fn version(text: &str) -> Option<String> {
+    let (name, _) = text.lines().next()?.split_once(" : ")?;
+    let version = name.strip_prefix("Geekbench ")?.trim();
+    version
+        .starts_with(|c: char| c.is_ascii_digit())
+        .then(|| version.to_owned())
+}
+
+/// The last line with text, never the link that claims the result, to quote in a reason.
+fn last_line(text: &str) -> Option<&str> {
+    text.lines()
         .rev()
         .map(str::trim)
         .find(|line| !line.is_empty() && !line.contains("claim?key="))
-        .unwrap_or("没有输出")
 }

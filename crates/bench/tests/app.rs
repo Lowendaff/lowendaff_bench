@@ -10,6 +10,8 @@ use bench::app::Cli;
 use bench::app::EXIT_INTERRUPTED;
 use bench::orchestrator::Planned;
 use bench::progress;
+use bench::registry;
+use bench::registry::Entry;
 use bench::results::Measured;
 use bench_api::CancellationToken;
 use bench_api::Context;
@@ -19,7 +21,6 @@ use bench_api::Net;
 use bench_api::Plugin;
 use bench_api::PluginError;
 use bench_api::Record;
-use bench_api::Registration;
 use bench_api::Requirements;
 use bench_api::ToolAsset;
 use bench_api::ToolForm;
@@ -80,10 +81,9 @@ impl Plugin for Other {
     }
 }
 
-const REGISTRY: &[Registration] = &[
-    bench_api::register::<Good>(),
-    bench_api::register::<Other>(),
-];
+fn plugins() -> Vec<Entry> {
+    vec![registry::legacy::<Good>(), registry::legacy::<Other>()]
+}
 
 /// A group of one plugin, whose id is the group's name.
 #[derive(Default, Deserialize)]
@@ -102,11 +102,13 @@ impl Plugin for Lone {
     }
 }
 
-const GROUPS: &[Registration] = &[
-    bench_api::register::<Good>(),
-    bench_api::register::<Lone>(),
-    bench_api::register::<Other>(),
-];
+fn groups() -> Vec<Entry> {
+    vec![
+        registry::legacy::<Good>(),
+        registry::legacy::<Lone>(),
+        registry::legacy::<Other>(),
+    ]
+}
 
 fn cli(args: &[&str]) -> Cli {
     use clap::Parser;
@@ -166,41 +168,44 @@ fn ids_are_comma_separated_and_work_dir_defaults_to_cwd() {
 #[test]
 fn selection_keeps_registry_order_and_rejects_unknown_ids() {
     assert_eq!(
-        app::select(REGISTRY, &[], &[]).unwrap(),
+        app::select(&plugins(), &[], &[]).unwrap(),
         ["test.good", "test.other"]
     );
     assert_eq!(
-        app::select(REGISTRY, &ids(&["test.other", "test.good"]), &[]).unwrap(),
+        app::select(&plugins(), &ids(&["test.other", "test.good"]), &[]).unwrap(),
         ["test.good", "test.other"]
     );
     assert_eq!(
-        app::select(REGISTRY, &[], &ids(&["test.good"])).unwrap(),
+        app::select(&plugins(), &[], &ids(&["test.good"])).unwrap(),
         ["test.other"]
     );
     assert_eq!(
-        app::select(REGISTRY, &ids(&["nope"]), &ids(&["nada"])).unwrap_err(),
+        app::select(&plugins(), &ids(&["nope"]), &ids(&["nada"])).unwrap_err(),
         ["未知测试项或分组 `nope`", "未知测试项或分组 `nada`"]
     );
 }
 
 #[test]
 fn a_group_name_selects_every_plugin_of_the_group() {
-    assert_eq!(bench_api::validate_registry(GROUPS), Vec::<String>::new());
+    assert_eq!(registry::validate(&groups()), Vec::<String>::new());
     assert_eq!(
-        app::select(GROUPS, &ids(&["test"]), &[]).unwrap(),
+        app::select(&groups(), &ids(&["test"]), &[]).unwrap(),
         ["test.good", "test.other"]
     );
-    assert_eq!(app::select(GROUPS, &[], &ids(&["test"])).unwrap(), ["lone"]);
     assert_eq!(
-        app::select(GROUPS, &ids(&["test.other", "lone"]), &[]).unwrap(),
+        app::select(&groups(), &[], &ids(&["test"])).unwrap(),
+        ["lone"]
+    );
+    assert_eq!(
+        app::select(&groups(), &ids(&["test.other", "lone"]), &[]).unwrap(),
         ["lone", "test.other"]
     );
     assert_eq!(
-        app::select(GROUPS, &ids(&["test"]), &ids(&["test.good"])).unwrap(),
+        app::select(&groups(), &ids(&["test"]), &ids(&["test.good"])).unwrap(),
         ["test.other"]
     );
     assert_eq!(
-        app::select(GROUPS, &ids(&["tes", "test."]), &ids(&["good", "lon"])).unwrap_err(),
+        app::select(&groups(), &ids(&["tes", "test."]), &ids(&["good", "lon"])).unwrap_err(),
         [
             "未知测试项或分组 `tes`",
             "未知测试项或分组 `test.`",
@@ -239,7 +244,7 @@ fn config_file_holds_plugin_tables_only() {
 
     let bad_value = write("bad.toml", "[plugins.\"test.good\"]\nsamples = \"many\"\n");
     let config = bad_value.to_string_lossy().into_owned();
-    let Err(errors) = app::prepare(&cli(&["--config", &config]), REGISTRY) else {
+    let Err(errors) = app::prepare(&cli(&["--config", &config]), &plugins()) else {
         panic!("bad config must not plan")
     };
     assert!(
@@ -260,7 +265,7 @@ async fn a_run_prints_sections_and_summary_then_removes_its_directory() {
             "--config",
             &config.to_string_lossy(),
         ]),
-        REGISTRY,
+        &plugins(),
     )
     .unwrap();
 
@@ -286,7 +291,7 @@ async fn a_run_prints_sections_and_summary_then_removes_its_directory() {
 async fn an_interrupted_run_exits_130_and_still_lists_every_plugin() {
     let cancel = CancellationToken::new();
     cancel.cancel();
-    let planned = app::prepare(&cli(&[]), REGISTRY).unwrap();
+    let planned = app::prepare(&cli(&[]), &plugins()).unwrap();
 
     let (code, text, _) = execute(planned, HostProfile::default(), &cancel).await;
 
@@ -387,19 +392,21 @@ impl Plugin for DiskHealth {
     }
 }
 
-const PLATFORM_REGISTRY: &[Registration] = &[
-    bench_api::register::<InfoDedicated>(),
-    bench_api::register::<InfoVm>(),
-    bench_api::register::<DiskHealth>(),
-];
+fn platform_plugins() -> Vec<Entry> {
+    vec![
+        registry::legacy::<InfoDedicated>(),
+        registry::legacy::<InfoVm>(),
+        registry::legacy::<DiskHealth>(),
+    ]
+}
 
 #[tokio::test]
 async fn only_plugins_for_the_detected_platform_run() {
     assert_eq!(
-        bench_api::validate_registry(PLATFORM_REGISTRY),
+        registry::validate(&platform_plugins()),
         Vec::<String>::new()
     );
-    let planned = app::prepare(&cli(&[]), PLATFORM_REGISTRY).unwrap();
+    let planned = app::prepare(&cli(&[]), &platform_plugins()).unwrap();
     let host = HostProfile {
         platform: Platform::Vm(Hypervisor::Kvm),
         ..HostProfile::default()
@@ -452,7 +459,7 @@ impl Plugin for NeedsSmartctl {
 
 #[tokio::test]
 async fn a_tool_that_cannot_be_provisioned_skips_its_plugins_with_the_reason() {
-    let registry = [bench_api::register::<NeedsSmartctl>()];
+    let registry = [registry::legacy::<NeedsSmartctl>()];
     let planned = app::prepare(&cli(&[]), &registry).unwrap();
     // No download is tried: the tool has no build for this architecture.
     let host = HostProfile {
@@ -524,7 +531,7 @@ fn ipv4_only() -> Network {
 
 #[tokio::test]
 async fn tools_of_items_the_host_cannot_run_are_not_downloaded() {
-    let registry = [bench_api::register::<NeedsGlibcAndIpv4>()];
+    let registry = [registry::legacy::<NeedsGlibcAndIpv4>()];
     let without_glibc = HostProfile {
         libc: Libc::NoGlibc,
         network: ipv4_only(),
@@ -575,7 +582,7 @@ impl Plugin for ShowsEnv {
 
 #[tokio::test]
 async fn plugins_of_the_first_contract_see_the_profile_through_env() {
-    let registry = [bench_api::register::<ShowsEnv>()];
+    let registry = [registry::legacy::<ShowsEnv>()];
     let host = HostProfile {
         platform: Platform::Vm(Hypervisor::Kvm),
         arch: "riscv64".to_owned(),
@@ -619,7 +626,7 @@ async fn the_hosts_addresses_appear_in_full_only_in_the_report_and_only_on_reque
     };
     let full = ["203.0.113.7", "2001:db8::7"];
     for show_ip in [false, true] {
-        let planned = app::prepare(&cli(&[]), REGISTRY).unwrap();
+        let planned = app::prepare(&cli(&[]), &plugins()).unwrap();
         let (_, text, log) =
             execute_showing(planned, host(), &CancellationToken::new(), show_ip).await;
         let log = log.join("\n");
@@ -637,7 +644,7 @@ async fn the_hosts_addresses_appear_in_full_only_in_the_report_and_only_on_reque
 #[test]
 fn the_list_shows_where_each_plugin_applies() {
     let mut out = Vec::new();
-    app::list(PLATFORM_REGISTRY, &mut out);
+    app::list(&platform_plugins(), &mut out);
 
     assert_eq!(
         String::from_utf8(out).unwrap(),
@@ -652,7 +659,7 @@ fn the_list_shows_where_each_plugin_applies() {
 #[test]
 fn the_list_keeps_each_group_together_in_the_reports_order() {
     let mut out = Vec::new();
-    app::list(GROUPS, &mut out);
+    app::list(&groups(), &mut out);
     assert_eq!(
         String::from_utf8(out).unwrap(),
         "共 3 个测试项\n\
@@ -664,7 +671,7 @@ fn the_list_keeps_each_group_together_in_the_reports_order() {
     );
 
     let mut out = Vec::new();
-    app::list(bench::registry::REGISTRY, &mut out);
+    app::list(&registry::all(), &mut out);
     let text = String::from_utf8(out).unwrap();
     let headings: Vec<&str> = text.lines().filter(|line| line.starts_with('【')).collect();
     assert_eq!(
@@ -688,6 +695,34 @@ fn the_list_keeps_each_group_together_in_the_reports_order() {
             "memory",
             "disk.health",
             "disk.fio"
+        ]
+    );
+    let cpu: Vec<&str> = text
+        .lines()
+        .filter(|line| line.starts_with("  cpu."))
+        .collect();
+    assert_eq!(
+        cpu,
+        [
+            "  cpu.sysbench  CPU 性能（工具：sysbench 1.0.20）",
+            "  cpu.geekbench  Geekbench 7（工具：geekbench 7.1.0）"
+        ],
+        "the reporter names the plugins of the typed contract"
+    );
+}
+
+#[test]
+fn the_plan_keeps_the_reporters_names() {
+    let planned = app::prepare(&cli(&["--only", "cpu"]), &registry::all()).unwrap();
+    let names: Vec<(&str, Option<&str>)> = planned
+        .iter()
+        .map(|planned| (planned.id(), planned.title()))
+        .collect();
+    assert_eq!(
+        names,
+        [
+            ("cpu.sysbench", Some("CPU 性能")),
+            ("cpu.geekbench", Some("Geekbench 7"))
         ]
     );
 }

@@ -8,6 +8,7 @@ valid:
   - use bench_api::typed;
   - use bench_api::typed::Context;
   - use std::fs;
+  - use super::parse;
 invalid:
   - use crate::orchestrator::plan;
   - use bench::app::execute;

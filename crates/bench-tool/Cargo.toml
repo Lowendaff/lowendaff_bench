@@ -8,6 +8,14 @@ license.workspace = true
 
 [dependencies]
 bench-api.workspace = true
+rustix = { version = "1", features = ["process"] }
+serde.workspace = true
+tokio = { workspace = true, features = ["macros", "process", "time"] }
+
+[dev-dependencies]
+bench-host.workspace = true
+tempfile.workspace = true
+tokio = { workspace = true, features = ["macros", "rt", "test-util"] }
 
 [lints]
 workspace = true

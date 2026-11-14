@@ -1,11 +1,12 @@
-//! The estimate, the available memory and the temporary swap.
+//! The estimate, the available memory, the temporary swap and why it may be missing, and the
+//! kernel's count of processes killed for lack of memory.
 
 use bench_host::Root;
 use bench_host::memory::CgroupLimits;
 use bench_host::memory::Memory;
-use plugin_geekbench::memory;
-use plugin_geekbench::memory::GIB;
-use plugin_geekbench::memory::Plan;
+use plugin_cpu::geekbench::memory;
+use plugin_cpu::geekbench::memory::GIB;
+use plugin_cpu::geekbench::memory::Plan;
 
 const MIB: u64 = 1 << 20;
 
@@ -144,4 +145,43 @@ fn swap_goes_unused_with_swappiness_zero_under_the_multi_gen_lru_only() {
         "the classic LRU swaps to prevent OOM even with swappiness 0"
     );
     assert!(!unused(None, Some("0x0007")), "an unknown swappiness");
+}
+
+#[test]
+fn the_oom_kill_count_comes_from_vmstat() {
+    let host = tempfile::tempdir().expect("a temporary directory");
+    std::fs::create_dir(host.path().join("proc")).expect("proc");
+    let vmstat = host.path().join("proc/vmstat");
+    std::fs::write(
+        &vmstat,
+        "oom_kill_disabled 0\npgfault 99\noom_kill 7\nunevictable 0\n",
+    )
+    .expect("vmstat");
+    let root = Root::new(host.path());
+    assert_eq!(memory::oom_kills(&root), Some(7));
+
+    std::fs::write(&vmstat, "pgfault 99\n").expect("vmstat");
+    assert_eq!(
+        memory::oom_kills(&root),
+        None,
+        "kernels before 4.13 do not count"
+    );
+}
+
+#[test]
+fn each_error_of_swap_has_its_kind() {
+    use std::io;
+
+    use plugin_cpu::geekbench::measure;
+    use plugin_cpu::geekbench::result::NoSwap;
+
+    let error = |kind: io::ErrorKind| measure::no_swap(&io::Error::from(kind));
+    assert_eq!(error(io::ErrorKind::PermissionDenied), NoSwap::Denied);
+    assert_eq!(error(io::ErrorKind::InvalidInput), NoSwap::Unsupported);
+    let full = io::Error::from_raw_os_error(28);
+    assert_eq!(
+        measure::no_swap(&full),
+        NoSwap::Error(full.to_string()),
+        "any other error is quoted"
+    );
 }

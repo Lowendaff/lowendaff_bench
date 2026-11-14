@@ -51,6 +51,45 @@ pub struct ToolVersion {
     pub version: String,
 }
 
+/// What a plugin reports while it runs, for the progress log on stderr.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Progress {
+    /// A line of the plugin's own, in Chinese.
+    Line(String),
+    /// A tool it ran, which the log shows with `-v`.
+    Tool(ToolRun),
+}
+
+/// A tool that a plugin ran: its command, how it ended, and what it printed last when it did
+/// not exit with 0.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ToolRun {
+    /// The program's file name, then its arguments.
+    pub command: Vec<String>,
+    /// How the run ended.
+    pub end: ToolEnd,
+    /// Its last lines with text, oldest first, when it did not exit with 0 and its output may be
+    /// quoted.
+    pub tail: Vec<String>,
+}
+
+/// How a tool's run ended.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ToolEnd {
+    /// It exited with this code.
+    Exit(i32),
+    /// A signal ended it.
+    Signal,
+    /// It ran past this limit and was stopped.
+    TimedOut(Duration),
+    /// The plugin was cancelled, and the tool stopped.
+    Cancelled,
+    /// It could not start, for the system's reason.
+    Spawn(String),
+    /// What it printed could not be read, for the system's reason.
+    Read(String),
+}
+
 /// What every typed result tells besides its own data.
 pub trait Measurement: Serialize + Clone + Send + Sync + 'static {
     /// The tools used, with the versions they reported.
@@ -79,14 +118,14 @@ pub struct Context<O> {
     cancel: CancellationToken,
     deadline: Instant,
     work_dir: PathBuf,
-    progress: UnboundedSender<String>,
+    progress: UnboundedSender<Progress>,
     published: watch::Sender<Option<O>>,
 }
 
 /// The orchestrator's end of a [`Context`].
 pub struct Channels<O> {
-    /// The plugin's progress lines, in order.
-    pub progress: UnboundedReceiver<String>,
+    /// The plugin's progress lines and tool runs, in order.
+    pub progress: UnboundedReceiver<Progress>,
     /// The last result that the plugin published; `None` until it publishes one.
     pub published: watch::Receiver<Option<O>>,
 }
@@ -154,7 +193,13 @@ impl<O: Measurement> Context<O> {
     /// One line of progress, in Chinese, for the log on stderr. A line that arrives after the
     /// orchestrator stopped listening is dropped.
     pub fn progress(&self, text: impl Into<String>) {
-        let _ = self.progress.send(text.into());
+        let _ = self.progress.send(Progress::Line(text.into()));
+    }
+
+    /// A tool that the plugin ran, for the log with `-v`; dropped like a progress line when
+    /// nobody listens.
+    pub fn ran(&self, run: ToolRun) {
+        let _ = self.progress.send(Progress::Tool(run));
     }
 
     /// Replaces the last partial result. The report shows the last one published when the

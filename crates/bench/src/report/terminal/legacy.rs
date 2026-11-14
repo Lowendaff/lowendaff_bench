@@ -2,17 +2,12 @@
 //! measurements as labelled lines and tables under their titles.
 
 use bench_api::Record;
-use bench_api::typed::Stop;
 
 use super::Out;
 use crate::results::Report;
 
-/// Writes the records, and returns the plugin's own reason when it stopped short.
-pub(super) fn block<'a>(
-    out: &mut Out,
-    report: &'a Report<Vec<Record>, String>,
-    indent: &str,
-) -> Option<&'a str> {
+/// Writes the records.
+pub(super) fn block(out: &mut Out, report: &Report<Vec<Record>, String>, indent: &str) {
     for record in report.output.iter().flatten() {
         match record {
             Record::Fact { label, value, .. } => out.field(indent, label, value),
@@ -22,9 +17,5 @@ pub(super) fn block<'a>(
                 out.table(indent, table.headers(), table.rows());
             }
         }
-    }
-    match &report.stop {
-        Some(Stop::Skipped(reason) | Stop::Failed(reason)) => Some(reason),
-        None => None,
     }
 }
