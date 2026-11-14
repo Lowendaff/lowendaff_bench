@@ -3,6 +3,7 @@
 
 use std::collections::BTreeMap;
 use std::fs;
+use std::future::Future;
 use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
@@ -12,8 +13,8 @@ use std::time::Instant;
 
 use bench_api::CancellationToken;
 use bench_host::profile::HostProfile;
+use tokio::io::AsyncRead;
 
-use crate::fetcher::Fetcher;
 use crate::orchestrator;
 use crate::orchestrator::Planned;
 use crate::orchestrator::Settings;
@@ -188,18 +189,34 @@ pub fn load_config(path: Option<&Path>) -> Result<BTreeMap<String, serde_json::V
     Ok(config)
 }
 
+/// How the report is written.
+pub struct ReportOptions<W> {
+    /// Where the report goes.
+    pub out: W,
+    /// The terminal's width, to which the report's tables wrap; `None` when they must not wrap,
+    /// as in a file.
+    pub width: Option<u16>,
+    /// Whether the public addresses show in full.
+    pub show_ip: bool,
+}
+
 /// Runs a prepared plan on the host that `host` describes, inside a fresh run directory under
-/// `work_dir`, which is removed afterwards, and writes the report to `out`: its tables wrap to
-/// `width`, and the public addresses show in full with `show_ip`. Returns the process exit code.
-pub async fn execute(
+/// `work_dir`, which is removed afterwards, with the tools that `fetch` downloads from their
+/// pinned addresses, and writes the report as `report` says. Returns the process exit code.
+pub async fn execute<F, Fut, R, W>(
     planned: Vec<Planned<Measured>>,
     host: HostProfile,
     work_dir: &Path,
     cancel: &CancellationToken,
-    mut out: impl Write,
-    width: Option<u16>,
-    show_ip: bool,
-) -> Result<u8, String> {
+    fetch: F,
+    report: ReportOptions<W>,
+) -> Result<u8, String>
+where
+    F: Fn(&'static str) -> Fut,
+    Fut: Future<Output = Result<R, String>>,
+    R: AsyncRead + Unpin,
+    W: Write,
+{
     let started = Instant::now();
     let run_dir = tempfile::Builder::new()
         .prefix("lowendaff-bench-")
@@ -219,9 +236,7 @@ pub async fn execute(
     if !tools.is_empty() {
         let tools_dir = run_dir.path().join("tools");
         fs::create_dir(&tools_dir).map_err(|err| format!("无法创建工具目录：{err}"))?;
-        let fetcher = Fetcher::try_new()?;
-        let provisioned =
-            provision::provision_all(&tools, &host.arch, &tools_dir, |url| fetcher.open(url)).await;
+        let provisioned = provision::provision_all(&tools, &host.arch, &tools_dir, fetch).await;
         ready = provisioned.ready;
         failed_tools = provisioned.failed;
     }
@@ -236,6 +251,11 @@ pub async fn execute(
         host: Arc::clone(&host),
     };
     let runs = orchestrator::run_plan(planned, cancel, &settings, &mut Log).await;
+    let ReportOptions {
+        mut out,
+        width,
+        show_ip,
+    } = report;
     let page = Page {
         version: env!("CARGO_PKG_VERSION"),
         host: &host,

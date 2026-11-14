@@ -10,6 +10,7 @@ use std::time::Duration;
 use bench::app;
 use bench::app::Cli;
 use bench::app::EXIT_INTERRUPTED;
+use bench::app::ReportOptions;
 use bench::orchestrator;
 use bench::orchestrator::Planned;
 use bench::progress;
@@ -39,6 +40,8 @@ use bench_host::platform::Platform;
 use bench_host::platform::PlatformKind;
 use bench_host::profile::HostProfile;
 use bench_host::profile::Read;
+use bench_host::profile::StorageFacts;
+use bench_host::storage::Filesystem;
 use common::Captured;
 use plugin_cpu::geekbench;
 use plugin_cpu::geekbench::result::Scores;
@@ -131,23 +134,44 @@ fn ids(list: &[&str]) -> Vec<String> {
     list.iter().map(|id| (*id).to_owned()).collect()
 }
 
-/// Runs the plan as the program does, and returns the exit code, the report and the progress
-/// log, once the run directory is gone. Every run is captured, so that no test logs while
-/// another listens (see `common`).
-async fn execute(
-    planned: Vec<Planned<Measured>>,
-    host: HostProfile,
-    cancel: &CancellationToken,
-) -> (u8, String, Vec<String>) {
-    execute_showing(planned, host, cancel, false).await
+/// The downloads of a test run: every address gets `body`, or fails when there is none, and the
+/// addresses asked for are noted.
+#[derive(Default)]
+struct Downloads {
+    body: Option<&'static [u8]>,
+    asked: Mutex<Vec<&'static str>>,
 }
 
-/// [`execute`], with the public addresses in full in the report when `show_ip` is set. The log
-/// starts as the program's does, with the host and its network.
-async fn execute_showing(
+impl Downloads {
+    async fn open(&self, url: &'static str) -> Result<&'static [u8], String> {
+        self.asked
+            .lock()
+            .expect("no test panics while holding the addresses")
+            .push(url);
+        self.body
+            .ok_or_else(|| format!("no download in this test: {url}"))
+    }
+
+    /// The addresses asked for, in order.
+    fn asked(&self) -> Vec<&'static str> {
+        self.asked
+            .lock()
+            .expect("no test panics while holding the addresses")
+            .clone()
+    }
+}
+
+/// Runs the plan as the program does, downloading through `downloads`, with the report's tables
+/// wrapped to `width` and the public addresses in full when `show_ip` is set, and returns the
+/// exit code, the report and the progress log, once the run directory is gone. The log starts
+/// as the program's does, with the host and its network. Every run is captured, so that no test
+/// logs while another listens (see `common`).
+async fn run(
     planned: Vec<Planned<Measured>>,
     host: HostProfile,
     cancel: &CancellationToken,
+    downloads: &Downloads,
+    width: Option<u16>,
     show_ip: bool,
 ) -> (u8, String, Vec<String>) {
     let work = tempfile::tempdir().expect("a work directory for the run");
@@ -155,7 +179,13 @@ async fn execute_showing(
     let (log, capturing) = Captured::start(true);
     progress::host(&host);
     progress::network(&host.network);
-    let code = app::execute(planned, host, work.path(), cancel, &mut out, None, show_ip)
+    let report = ReportOptions {
+        out: &mut out,
+        width,
+        show_ip,
+    };
+    let fetch = |url| downloads.open(url);
+    let code = app::execute(planned, host, work.path(), cancel, fetch, report)
         .await
         .expect("the run starts");
     drop(capturing);
@@ -165,6 +195,15 @@ async fn execute_showing(
     assert_eq!(left, 0, "run directory must be removed");
     let report = String::from_utf8(out).expect("the report is UTF-8");
     (code, report, log.lines())
+}
+
+/// [`run`] without downloads, with the report as in a file and the addresses masked.
+async fn execute(
+    planned: Vec<Planned<Measured>>,
+    host: HostProfile,
+    cancel: &CancellationToken,
+) -> (u8, String, Vec<String>) {
+    run(planned, host, cancel, &Downloads::default(), None, false).await
 }
 
 #[test]
@@ -581,13 +620,140 @@ async fn tools_of_items_the_host_cannot_run_are_not_downloaded() {
     ];
     for (host, reason) in cases {
         let planned = app::prepare(&cli(&[]), &registry).unwrap();
-        let (code, text, log) = execute(planned, host, &CancellationToken::new()).await;
+        let downloads = Downloads::default();
+        let (code, text, log) = run(
+            planned,
+            host,
+            &CancellationToken::new(),
+            &downloads,
+            None,
+            false,
+        )
+        .await;
         assert_eq!(code, 0);
+        assert_eq!(
+            downloads.asked(),
+            Vec::<&str>::new(),
+            "nothing is downloaded for an item that is skipped anyway"
+        );
         assert!(
             !log.iter().any(|line| line.starts_with("准备工具")),
-            "nothing is downloaded for an item that is skipped anyway: {log:?}"
+            "{log:?}"
         );
         assert!(text.contains(&format!("跳过：{reason}")), "{text}");
+    }
+}
+
+/// A shell script that these tests serve as a tool.
+const SCRIPT: &[u8] = b"#!/bin/sh\necho ok\n";
+
+const SCRIPT_TOOL: ToolSpec = ToolSpec {
+    name: "script",
+    version: "1.0",
+    form: ToolForm::Executable,
+    assets: &[
+        ToolAsset {
+            arch: "x86_64",
+            url: "https://example.invalid/script-x86_64",
+            sha256: "b4d644d4279594903f1a9911956432d9473041f2984fc6014c14d7402c7d126c",
+            size: 18,
+        },
+        ToolAsset {
+            arch: "aarch64",
+            url: "https://example.invalid/script-aarch64",
+            sha256: "b4d644d4279594903f1a9911956432d9473041f2984fc6014c14d7402c7d126c",
+            size: 18,
+        },
+    ],
+};
+
+/// Runs the tool that it was handed, and fails unless the tool says ok.
+#[derive(Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct RunsScript {}
+
+impl Plugin for RunsScript {
+    type Output = Output;
+    type Failure = Failure;
+    const DESCRIPTOR: Descriptor = Descriptor {
+        requires: Requirements {
+            tools: &[SCRIPT_TOOL],
+            ..Requirements::NONE
+        },
+        ..descriptor("test.script")
+    };
+
+    async fn run(&self, ctx: &Context<Output>) -> Result<Output, Stop<Failure>> {
+        let program = ctx
+            .tool(SCRIPT_TOOL.name)
+            .expect("the orchestrator runs a plugin only when its tools are ready");
+        let said = tokio::process::Command::new(program)
+            .kill_on_drop(true)
+            .output()
+            .await
+            .map(|output| output.stdout);
+        match said {
+            Ok(said) if said == b"ok\n" => Ok(Output::default()),
+            _ => Err(Stop::Failed(Failure::Cancelled)),
+        }
+    }
+}
+
+#[tokio::test]
+async fn the_program_hands_its_plugins_the_tools_it_downloaded() {
+    let registry = [entry::<RunsScript>()];
+    let planned = app::prepare(&cli(&[]), &registry).unwrap();
+    let host = HostProfile {
+        arch: "x86_64".to_owned(),
+        ..HostProfile::default()
+    };
+    let downloads = Downloads {
+        body: Some(SCRIPT),
+        ..Downloads::default()
+    };
+
+    let cancel = CancellationToken::new();
+    let (code, text, log) = run(planned, host, &cancel, &downloads, None, false).await;
+
+    assert_eq!(code, 0);
+    assert_eq!(downloads.asked(), ["https://example.invalid/script-x86_64"]);
+    assert!(
+        log.contains(&"准备工具：script 1.0 就绪".to_owned()),
+        "{log:?}"
+    );
+    assert!(
+        summary_line(&text, "test.script").is_some_and(|line| line.contains("完成，用时")),
+        "the plugin ran the tool it was handed: {text}"
+    );
+}
+
+#[tokio::test]
+async fn the_report_wraps_its_tables_to_the_width_it_is_given() {
+    let mount_point = "/srv/一个很长的挂载点名称，在窄终端上需要换行";
+    let filesystem = Filesystem {
+        mount_point: mount_point.to_owned(),
+        fs_type: "ext4".to_owned(),
+        devices: Vec::new(),
+        zfs_pool: None,
+        disks: Vec::new(),
+        space: None,
+    };
+    let host = || HostProfile {
+        storage: Read::Done(StorageFacts {
+            filesystems: vec![filesystem.clone()],
+            ..StorageFacts::default()
+        }),
+        ..HostProfile::default()
+    };
+    let downloads = Downloads::default();
+    let cancel = CancellationToken::new();
+    for (width, wraps) in [(None, false), (Some(40), true)] {
+        let (_, text, _) = run(Vec::new(), host(), &cancel, &downloads, width, false).await;
+        assert_eq!(
+            !text.lines().any(|line| line.contains(mount_point)),
+            wraps,
+            "{width:?}: {text}"
+        );
     }
 }
 
@@ -680,8 +846,9 @@ async fn the_hosts_addresses_appear_in_full_only_in_the_report_and_only_on_reque
     let full = ["203.0.113.7", "2001:db8::7"];
     for show_ip in [false, true] {
         let planned = app::prepare(&cli(&[]), &plugins()).unwrap();
-        let (_, text, log) =
-            execute_showing(planned, host(), &CancellationToken::new(), show_ip).await;
+        let downloads = Downloads::default();
+        let cancel = CancellationToken::new();
+        let (_, text, log) = run(planned, host(), &cancel, &downloads, None, show_ip).await;
         let log = log.join("\n");
         assert!(
             log.contains("203.0.*.*") && log.contains("2001:db8:*"),

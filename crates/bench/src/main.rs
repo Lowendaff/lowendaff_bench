@@ -6,6 +6,8 @@ use std::thread;
 
 use bench::app;
 use bench::app::Cli;
+use bench::app::ReportOptions;
+use bench::fetcher::Fetcher;
 use bench::network;
 use bench::progress;
 use bench::registry;
@@ -62,15 +64,19 @@ fn main() -> ExitCode {
             .await
             .map_err(|err| format!("无法探测网络：{err}"))?;
         progress::network(&host.network);
-        let out = io::stdout();
+        let fetcher = Fetcher::try_new()?;
+        let report = ReportOptions {
+            out: io::stdout(),
+            width: width(),
+            show_ip: cli.show_ip,
+        };
         app::execute(
             planned,
             host,
             &cli.work_dir,
             &cancel,
-            out,
-            width(),
-            cli.show_ip,
+            |url| fetcher.open(url),
+            report,
         )
         .await
     });
