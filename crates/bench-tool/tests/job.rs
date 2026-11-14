@@ -1,6 +1,6 @@
 //! Running a tool once: what it printed and how it ended, its limit, cancellation, its directory
-//! and environment, its report for the log, and on Linux its process group and its
-//! `oom_score_adj`.
+//! and environment, its report for the log, and on Linux its process group, its `oom_score_adj`
+//! and its CPUs.
 
 use std::collections::BTreeMap;
 #[cfg(target_os = "linux")]
@@ -62,6 +62,11 @@ fn words(words: &[&str]) -> Vec<String> {
 fn shell(script: &str, limit: Duration) -> Job {
     Job::new("/bin/sh", ["-c", script], limit)
 }
+
+/// Held by the tests that change `oom_score_adj`, which is the process's: under `cargo test`,
+/// tests run as threads of one process, and would see one another's value.
+#[cfg(target_os = "linux")]
+static OOM_SCORE_ADJ: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 #[tokio::test]
 async fn a_run_gives_its_output_then_its_errors_and_its_exit_code() {
@@ -362,6 +367,7 @@ async fn without_a_group_of_its_own_the_workers_outlive_the_tool() {
 async fn a_tool_that_goes_first_starts_with_oom_score_adj_1000() {
     use bench_tool::job::Adjustment;
 
+    let _alone = OOM_SCORE_ADJ.lock().await;
     let (ctx, _channels) = context(CancellationToken::new());
     let own = std::fs::read_to_string("/proc/self/oom_score_adj").expect("our own value");
     let mut job = shell(
@@ -395,6 +401,97 @@ async fn without_proc_a_tool_that_goes_first_starts_all_the_same() {
     );
     assert_eq!(
         outcome.ended,
+        Ok(Output {
+            code: Some(0),
+            text: "ran\n".to_owned(),
+        })
+    );
+}
+
+/// The last CPU of `Cpus_allowed_list` in a status file, and the whole list.
+#[cfg(target_os = "linux")]
+fn allowed(status: &str) -> (String, usize) {
+    let list = status
+        .lines()
+        .find_map(|line| line.strip_prefix("Cpus_allowed_list:"))
+        .expect("a CPU list")
+        .trim()
+        .to_owned();
+    let last = list
+        .rsplit([',', '-'])
+        .next()
+        .and_then(|cpu| cpu.parse().ok())
+        .expect("a CPU number");
+    (list, last)
+}
+
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn a_placed_tool_runs_on_its_cpus_while_the_test_keeps_its_own() {
+    let own = || std::fs::read_to_string("/proc/thread-self/status").expect("the thread's status");
+    let (before, cpu) = allowed(&own());
+    let (ctx, _channels) = context(CancellationToken::new());
+    let mut job = Job::new("/bin/cat", ["/proc/self/status"], Duration::from_secs(30));
+    job.cpus = Some(vec![cpu]);
+    let Ok(output) = job.run(&ctx).await.ended else {
+        panic!("cat runs");
+    };
+    assert_eq!(output.code, Some(0), "{}", output.text);
+    assert_eq!(allowed(&output.text).0, cpu.to_string(), "the child's CPUs");
+    assert_eq!(
+        allowed(&own()).0,
+        before,
+        "the test's thread keeps its CPUs"
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn a_tool_that_goes_first_can_be_placed_too() {
+    use bench_tool::job::Adjustment;
+
+    let _alone = OOM_SCORE_ADJ.lock().await;
+    let own = || std::fs::read_to_string("/proc/thread-self/status").expect("the thread's status");
+    let (_, cpu) = allowed(&own());
+    let (ctx, _channels) = context(CancellationToken::new());
+    let mut job = shell(
+        "grep Cpus_allowed_list /proc/$$/status; cat /proc/$$/oom_score_adj",
+        Duration::from_secs(30),
+    );
+    job.first_to_go = true;
+    job.cpus = Some(vec![cpu]);
+    let outcome = job.run(&ctx).await;
+    assert_eq!(outcome.adjustment, Some(Adjustment::Done));
+    let Ok(output) = outcome.ended else {
+        panic!("the shell runs");
+    };
+    assert_eq!(allowed(&output.text).0, cpu.to_string(), "{}", output.text);
+    assert!(output.text.ends_with("\n1000\n"), "{}", output.text);
+}
+
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn a_cpu_beyond_an_affinity_mask_cannot_be_used() {
+    let (ctx, _channels) = context(CancellationToken::new());
+    let mut job = Job::new("/bin/true", Vec::<String>::new(), Duration::from_secs(30));
+    job.cpus = Some(vec![0, 1 << 20]);
+    let ended = job.run(&ctx).await.ended;
+    assert_eq!(
+        ended,
+        Err(RunError::Fault(Fault::Spawn(
+            "CPU 1048576 is beyond an affinity mask".to_owned()
+        )))
+    );
+}
+
+#[cfg(not(target_os = "linux"))]
+#[tokio::test]
+async fn elsewhere_the_scheduler_places_a_tool() {
+    let (ctx, _channels) = context(CancellationToken::new());
+    let mut job = shell("echo ran", Duration::from_secs(30));
+    job.cpus = Some(vec![1 << 20]);
+    assert_eq!(
+        job.run(&ctx).await.ended,
         Ok(Output {
             code: Some(0),
             text: "ran\n".to_owned(),

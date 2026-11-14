@@ -52,6 +52,7 @@ impl Plugin for Geekbench {
                 major: 2,
                 minor: 35,
             }),
+            numa: false,
         },
         // Up to four runs of up to an hour each, and the swap.
         timeout: Duration::from_secs(250 * 60),

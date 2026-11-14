@@ -25,7 +25,6 @@ use bench_api::typed::Stop;
 use bench_api::typed::ToolRun;
 use bench_host::glibc::GlibcVersion;
 use bench_host::glibc::Libc;
-use bench_host::platform::Platform;
 use bench_host::profile::HostProfile;
 use tokio::task::JoinError;
 use tokio::task::JoinHandle;
@@ -233,16 +232,16 @@ pub fn plan(
     }
 }
 
-/// Splits the plan by platform: the plugins that apply here, and the titles of the test items
-/// that run here in no variant, for the 本机不适用 line.
+/// Splits the plan by host: the plugins that apply here, and the titles of the test items that
+/// run here in no variant, for the 本机不适用 line.
 #[must_use]
-pub fn for_platform<R>(
+pub fn for_host<R>(
     plan: Vec<Planned<R>>,
-    platform: Platform,
+    host: &HostProfile,
 ) -> (Vec<Planned<R>>, Vec<&'static str>) {
     let (applicable, elsewhere): (Vec<Planned<R>>, Vec<Planned<R>>) = plan
         .into_iter()
-        .partition(|planned| planned.requires.applies_to(platform));
+        .partition(|planned| planned.requires.applies_to(host));
     let mut titles = Vec::new();
     for planned in &elsewhere {
         let title = planned.title.unwrap_or(planned.id);

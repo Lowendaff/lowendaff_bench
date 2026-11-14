@@ -6,9 +6,12 @@ use std::path::Path;
 use bench_host::Root;
 use bench_host::cache::Cache;
 use bench_host::cache::CacheKind;
+use bench_host::numa::Layout;
 use bench_host::numa::Node;
+use bench_host::numa::Threads;
 use bench_host::platform::PlatformKind;
 use plugin_memory::plan::Cell;
+use plugin_memory::plan::Chase;
 use plugin_memory::plan::GIB;
 use plugin_memory::plan::Host;
 use plugin_memory::plan::KIB;
@@ -16,7 +19,6 @@ use plugin_memory::plan::Level;
 use plugin_memory::plan::MIB;
 use plugin_memory::plan::Matrix;
 use plugin_memory::plan::Plan;
-use plugin_memory::plan::Row;
 
 /// A host captured by bench-host's `capture.sh`.
 fn captured(name: &str, kind: PlatformKind) -> Host {
@@ -35,9 +37,11 @@ fn host(cache: u64, available: u64, threads: usize) -> Host {
         available,
         threads,
         caches: vec![unified(3, cache, &cpus)],
-        nodes: vec![node(0, &cpus, Some(available))],
-        cpus: Some(cpus),
-        mems: None,
+        layout: Layout {
+            nodes: vec![node(0, &cpus, Some(available))],
+            cpus: Some(cpus),
+            mems: None,
+        },
     }
 }
 
@@ -65,8 +69,8 @@ fn socket(first: usize, sibling: usize) -> Vec<usize> {
     (first..first + 16).chain(sibling..sibling + 16).collect()
 }
 
-fn level(name: &'static str, buffer: u64) -> Level {
-    Level { name, buffer }
+fn chase(level: Level, buffer: u64) -> Chase {
+    Chase { level, buffer }
 }
 
 #[test]
@@ -88,12 +92,12 @@ fn the_owners_server_measures_beyond_its_two_l3_caches() {
     );
     assert_eq!(plan.stream, Some(32), "the first array of at least 176 MiB");
     assert_eq!(
-        plan.levels,
+        plan.chases,
         [
-            level("L1", 16 * KIB),
-            level("L2", 512 * KIB),
-            level("L3", 11 * MIB),
-            level("内存", 256 * MIB),
+            chase(Level::L1, 16 * KIB),
+            chase(Level::L2, 512 * KIB),
+            chase(Level::L3, 11 * MIB),
+            chase(Level::Memory, 256 * MIB),
         ]
     );
     assert!(plan.missing.is_empty());
@@ -106,11 +110,11 @@ fn the_owners_server_measures_beyond_its_two_l3_caches() {
         plan.matrix,
         Some(Matrix {
             rows: vec![
-                Row {
+                Threads {
                     node: 0,
                     cpus: socket(0, 32),
                 },
-                Row {
+                Threads {
                     node: 1,
                     cpus: socket(16, 48),
                 },
@@ -133,12 +137,12 @@ fn the_owners_vm_runs_a_smaller_stream_than_its_caches_ask() {
     // An array of 122 MiB would be the first of at least 64 MiB, but three need 366 MiB.
     assert_eq!(plan.stream, Some(8));
     assert_eq!(
-        plan.levels,
+        plan.chases,
         [
-            level("L1", 16 * KIB),
-            level("L2", 2 * MIB),
-            level("L3", 8 * MIB),
-            level("内存", 64 * MIB),
+            chase(Level::L1, 16 * KIB),
+            chase(Level::L2, 2 * MIB),
+            chase(Level::L3, 8 * MIB),
+            chase(Level::Memory, 64 * MIB),
         ]
     );
     assert_eq!(plan.matrix, None, "one node");
@@ -160,14 +164,14 @@ fn the_owners_board_has_no_l3_and_shares_its_l2() {
     assert_eq!(plan.per_thread, MIB, "512 KiB per thread, raised to 1 MiB");
     assert_eq!(plan.stream, Some(2));
     assert_eq!(
-        plan.levels,
+        plan.chases,
         [
-            level("L1", 16 * KIB),
-            level("L2", 256 * KIB),
-            level("内存", 2 * MIB),
+            chase(Level::L1, 16 * KIB),
+            chase(Level::L2, 256 * KIB),
+            chase(Level::Memory, 2 * MIB),
         ]
     );
-    assert_eq!(plan.missing, ["L3"]);
+    assert_eq!(plan.missing, [Level::L3]);
     assert_eq!(plan.matrix, None);
 }
 
@@ -179,8 +183,8 @@ fn unknown_caches_count_as_32_mib() {
     assert!(plan.cache_unknown);
     assert_eq!(plan.cache, 32 * MIB);
     assert_eq!(plan.single, 128 * MIB);
-    assert_eq!(plan.levels, [level("内存", 128 * MIB)]);
-    assert_eq!(plan.missing, ["L1", "L2", "L3"]);
+    assert_eq!(plan.chases, [chase(Level::Memory, 128 * MIB)]);
+    assert_eq!(plan.missing, [Level::L1, Level::L2, Level::L3]);
 
     // Instruction caches alone say nothing of data.
     host.caches = vec![Cache {
@@ -191,7 +195,11 @@ fn unknown_caches_count_as_32_mib() {
     }];
     let plan = Plan::new(&host);
     assert!(plan.cache_unknown);
-    assert_eq!(plan.missing, ["L1", "L2", "L3"], "no latency level either");
+    assert_eq!(
+        plan.missing,
+        [Level::L1, Level::L2, Level::L3],
+        "no latency level either"
+    );
 
     // Caches the kernel gives no size are as good as none.
     host.caches = vec![unified(3, 0, &[0, 1])];
@@ -211,15 +219,15 @@ fn every_instance_of_the_last_level_counts() {
     assert_eq!(plan.single, 64 * MIB);
     assert_eq!(plan.per_thread, 8 * MIB, "64 MiB over 8 threads");
     assert_eq!(
-        plan.levels,
+        plan.chases,
         [
-            level("L2", 512 * KIB),
-            level("L3", 4 * MIB),
-            level("内存", 64 * MIB),
+            chase(Level::L2, 512 * KIB),
+            chase(Level::L3, 4 * MIB),
+            chase(Level::Memory, 64 * MIB),
         ],
         "half of one instance of each cache level"
     );
-    assert_eq!(plan.missing, ["L1"]);
+    assert_eq!(plan.missing, [Level::L1]);
 }
 
 #[test]
@@ -257,7 +265,7 @@ fn buffers_shrink_to_half_the_available_memory() {
     assert_eq!(plan.single, 32 * MIB);
     assert_eq!(plan.per_thread, 8 * MIB, "four buffers in 32 MiB");
     assert_eq!(plan.stream, None, "the smallest STREAM needs 46 MiB");
-    assert_eq!(plan.levels.last(), Some(&level("内存", 32 * MIB)));
+    assert_eq!(plan.chases.last(), Some(&chase(Level::Memory, 32 * MIB)));
 
     // Many threads keep 1 MiB each while they fit.
     let plan = Plan::new(&host(44 * MIB, 64 * GIB, 256));
@@ -283,12 +291,14 @@ fn the_matrix_has_a_row_per_node_the_threads_may_use_and_a_column_per_node_of_me
         available: 64 * GIB,
         threads: 4,
         caches: vec![unified(3, 8 * MIB, &[0, 1]), unified(3, 8 * MIB, &[2, 3])],
-        nodes: vec![
-            node(0, &[0, 1], Some(16 * GIB)),
-            node(1, &[2, 3], Some(16 * GIB)),
-        ],
-        cpus: Some(vec![0, 1, 2, 3]),
-        mems: Some(vec![0, 1]),
+        layout: Layout {
+            nodes: vec![
+                node(0, &[0, 1], Some(16 * GIB)),
+                node(1, &[2, 3], Some(16 * GIB)),
+            ],
+            cpus: Some(vec![0, 1, 2, 3]),
+            mems: Some(vec![0, 1]),
+        },
     };
     let matrix = Plan::new(&both).matrix.expect("two nodes");
     let rows: Vec<usize> = matrix.rows.iter().map(|row| row.node).collect();
@@ -304,11 +314,11 @@ fn the_matrix_has_a_row_per_node_the_threads_may_use_and_a_column_per_node_of_me
 
     // A container on node 0's CPUs: one row, still both columns.
     let mut pinned = both.clone();
-    pinned.cpus = Some(vec![1]);
+    pinned.layout.cpus = Some(vec![1]);
     let matrix = Plan::new(&pinned).matrix.expect("one row, two columns");
     assert_eq!(
         matrix.rows,
-        [Row {
+        [Threads {
             node: 0,
             cpus: vec![1],
         }]
@@ -318,28 +328,38 @@ fn the_matrix_has_a_row_per_node_the_threads_may_use_and_a_column_per_node_of_me
 
     // A node of memory only is a column; a node without memory is no column.
     let mut cxl = both.clone();
-    cxl.nodes.push(node(2, &[], Some(64 * GIB)));
-    cxl.nodes[1].total = Some(0);
-    cxl.mems = Some(vec![0, 1, 2]);
+    cxl.layout.nodes.push(node(2, &[], Some(64 * GIB)));
+    cxl.layout.nodes[1].total = Some(0);
+    cxl.layout.mems = Some(vec![0, 1, 2]);
     let matrix = Plan::new(&cxl).matrix.expect("two rows, two columns");
     let rows: Vec<usize> = matrix.rows.iter().map(|row| row.node).collect();
     assert_eq!((rows, matrix.columns), (vec![0, 1], vec![0, 2]));
 
     // A node the process may not allocate on is no column.
     let mut bound = both.clone();
-    bound.mems = Some(vec![1]);
+    bound.layout.mems = Some(vec![1]);
     assert_eq!(
         Plan::new(&bound).matrix.map(|matrix| matrix.columns),
         Some(vec![1])
     );
 
-    // One cell, or unknown CPUs: no matrix.
+    // Threads on a node without memory, memory on a node without CPUs: one cell between them.
+    let mut apart = both.clone();
+    apart.layout.nodes[0].total = Some(0);
+    apart.layout.cpus = Some(vec![0, 1]);
+    let matrix = Plan::new(&apart)
+        .matrix
+        .expect("one cell between two nodes");
+    let rows: Vec<usize> = matrix.rows.iter().map(|row| row.node).collect();
+    assert_eq!((rows, matrix.columns), (vec![0], vec![1]));
+
+    // One node, or unknown CPUs: no matrix.
     let mut single = both.clone();
-    single.cpus = Some(vec![0]);
-    single.mems = Some(vec![0]);
+    single.layout.cpus = Some(vec![0]);
+    single.layout.mems = Some(vec![0]);
     assert_eq!(Plan::new(&single).matrix, None);
     let mut unknown = both;
-    unknown.cpus = None;
+    unknown.layout.cpus = None;
     assert_eq!(Plan::new(&unknown).matrix, None);
 }
 
@@ -349,12 +369,14 @@ fn a_node_whose_cpus_share_no_known_cache_counts_all_of_them() {
         available: 64 * GIB,
         threads: 4,
         caches: vec![unified(3, 8 * MIB, &[0, 1])],
-        nodes: vec![
-            node(0, &[0, 1], Some(16 * GIB)),
-            node(1, &[2, 3], Some(16 * GIB)),
-        ],
-        cpus: Some(vec![0, 1, 2, 3]),
-        mems: None,
+        layout: Layout {
+            nodes: vec![
+                node(0, &[0, 1], Some(16 * GIB)),
+                node(1, &[2, 3], Some(16 * GIB)),
+            ],
+            cpus: Some(vec![0, 1, 2, 3]),
+            mems: None,
+        },
     };
     let matrix = Plan::new(&host).matrix.expect("two nodes");
     assert_eq!(
@@ -374,12 +396,14 @@ fn a_cell_fits_in_half_of_its_nodes_free_memory() {
         threads: 4,
         // One L3 shared across both nodes, as with sub-NUMA clustering.
         caches: vec![unified(3, 32 * MIB, &[0, 1, 2, 3])],
-        nodes: vec![
-            node(0, &[0, 1], Some(16 * GIB)),
-            node(1, &[2, 3], Some(40 * MIB)),
-        ],
-        cpus: Some(vec![0, 1, 2, 3]),
-        mems: None,
+        layout: Layout {
+            nodes: vec![
+                node(0, &[0, 1], Some(16 * GIB)),
+                node(1, &[2, 3], Some(40 * MIB)),
+            ],
+            cpus: Some(vec![0, 1, 2, 3]),
+            mems: None,
+        },
     };
     let matrix = Plan::new(&host).matrix.expect("two nodes");
     assert_eq!(

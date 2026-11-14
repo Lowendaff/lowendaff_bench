@@ -231,7 +231,33 @@ fn a_section_that_does_not_answer_in_time_is_left_behind() {
     assert_eq!(profile.storage, Read::TimedOut);
     assert!(matches!(profile.cpu, Read::Done(_)), "{:?}", profile.cpu);
     assert!(matches!(profile.memory, Read::Done(Some(_))));
+    assert!(matches!(profile.numa, Read::Done(_)));
     assert!(matches!(profile.system, Read::Done(_)));
+}
+
+#[test]
+fn a_numa_layout_that_does_not_answer_in_time_is_left_behind() {
+    let dir = common::host((&[("/sys/devices/system/node/node0/cpulist", "0\n")], &[]));
+    // Opening a FIFO without a writer blocks, as a stuck file could.
+    let fifo = dir.path().join("sys/devices/system/node/node0/meminfo");
+    let made = std::process::Command::new("mkfifo")
+        .arg(&fifo)
+        .status()
+        .expect("mkfifo runs");
+    assert!(made.success());
+    let sources = Sources {
+        root: Root::new(dir.path()),
+        arch: "x86_64".to_owned(),
+        platform: Platform::Vm(Hypervisor::Kvm),
+        libc: Libc::GlibcUnknown,
+        work_dir: None,
+        space: |_: &str| -> Option<Space> { None },
+        kernel: || None,
+    };
+    let profile = HostProfile::read(sources, Duration::from_millis(500));
+    assert_eq!(profile.numa, Read::TimedOut);
+    assert!(matches!(profile.cpu, Read::Done(_)), "{:?}", profile.cpu);
+    assert!(matches!(profile.storage, Read::Done(_)));
 }
 
 #[test]

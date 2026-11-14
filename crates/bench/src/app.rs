@@ -98,11 +98,14 @@ fn item(entry: &Entry, out: &mut impl Write) {
         .iter()
         .map(|kind| report::terminal::kind_text(*kind))
         .collect();
-    let platforms = if platforms.is_empty() {
+    let mut platforms = if platforms.is_empty() {
         String::new()
     } else {
         format!("（适用：{}）", platforms.join("、"))
     };
+    if entry.requires.numa {
+        platforms.push_str("（适用：多个 NUMA 节点）");
+    }
     let tools: Vec<String> = entry
         .requires
         .tools
@@ -212,7 +215,7 @@ pub async fn execute(
         platform: host.platform,
         libc: host.libc,
     };
-    let (planned, not_applicable) = orchestrator::for_platform(planned, host.platform);
+    let (planned, not_applicable) = orchestrator::for_host(planned, &host);
 
     // Only the tools of items this host can run, so that nothing is downloaded in vain, such
     // as Geekbench on a host without glibc or IPv4.

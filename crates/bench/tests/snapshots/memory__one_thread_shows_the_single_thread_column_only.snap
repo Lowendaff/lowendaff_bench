@@ -1,0 +1,27 @@
+---
+source: crates/bench/tests/memory.rs
+expression: text
+---
+【内存性能】
+  内存 sysbench
+    sysbench          1.0.20：顺序读写，每项 10 秒；单线程一块 32 MiB
+    sysbench 结果
+    项目  单线程
+    读取  100.00 MiB/s
+    写入  50.00 MiB/s
+    完成，用时 41.2 秒
+  内存 STREAM
+    STREAM            5.10：每个数组 800 万个元素（61 MiB，三个合计 183 MiB），每项取 10 遍中最快的一遍
+    STREAM 结果
+    项目   单线程
+    Copy   10000.1 MB/s
+    Scale  9000.2 MB/s
+    Add    11000.3 MB/s
+    Triad  11500.4 MB/s
+    完成，用时 41.2 秒
+
+【汇总】
+  内存 sysbench     完成，用时 41.2 秒
+  内存 STREAM       完成，用时 41.2 秒
+
+共 2 项：完成 2，跳过 0，失败 0，超时 0，中断 0。总用时 5.0 秒

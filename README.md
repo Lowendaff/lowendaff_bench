@@ -11,10 +11,11 @@ A comprehensive test tool for Linux servers, virtual or dedicated, written in Ru
 The program prints its results in Chinese. [`glossary.md`](glossary.md) gives the English term
 that this README, the code and the commit messages use for each word it prints often.
 
-**Status:** the plugin framework is in place, with five test items so far: disk health, CPU
-performance, memory performance, disk performance and Geekbench 7. The plugin model is being
-reworked, one pull request at a time; no test item is added meanwhile. The conventions for code,
-commits and pull requests are in [`CONTRIBUTING.md`](CONTRIBUTING.md).
+**Status:** the plugin framework is in place, with eight test items so far: disk health, CPU
+performance, memory performance in four (`memory.sysbench`, `memory.stream`, `memory.latency` and
+`memory.numa`), disk performance and Geekbench 7. The plugin model is being reworked, one pull
+request at a time; no test item is added meanwhile. The conventions for code, commits and pull
+requests are in [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 The tool first reads its host: where it runs (a dedicated server, a virtual machine or a
 container), its CPU, memory, disks and system, and whether it reaches the Internet over IPv4 and
@@ -22,7 +23,8 @@ IPv6, with the public address of each. The report starts with this system inform
 memory and swap, disks and filesystems, distribution, kernel, uptime, load, TCP congestion
 control, and the two address families; on dedicated servers also the machine, board and
 firmware, the BMC, ECC, the memory modules and RAID cards. Only the test items made for the
-platform run; `--list` shows the items by group, and which platforms each applies to.
+platform run, and the test between NUMA nodes only where two of them can be used; `--list` shows
+the items by group, and where each applies.
 
 | Test item | Shows |
 |-----------|-------|

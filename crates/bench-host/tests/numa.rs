@@ -1,6 +1,6 @@
 //! The host facts of 内存性能: the cache instances, the NUMA nodes, the
-//! CPUs and nodes this process may use, and the memory a test may use, from the captured hosts
-//! and from synthetic ones.
+//! CPUs and nodes this process may use, the NUMA layout a test between the nodes can use, and
+//! the memory a test may use, from the captured hosts and from synthetic ones.
 
 mod common;
 
@@ -11,7 +11,9 @@ use bench_host::cache::CacheKind;
 use bench_host::cpu;
 use bench_host::memory;
 use bench_host::numa;
+use bench_host::numa::Layout;
 use bench_host::numa::Node;
+use bench_host::numa::Threads;
 use bench_host::platform::PlatformKind;
 
 const KIB: u64 = 1024;
@@ -293,6 +295,113 @@ fn the_cpus_and_nodes_a_process_may_use_come_from_its_status() {
         "more CPUs than any kernel has"
     );
     assert_eq!(lists("x"), (None, None));
+}
+
+#[test]
+fn the_layout_holds_the_nodes_and_what_this_process_may_use() {
+    let server = Layout::read(&common::fixture("dedicated-pve-x86_64"));
+    assert_eq!(
+        server.nodes,
+        numa::read(&common::fixture("dedicated-pve-x86_64"))
+    );
+    assert_eq!(server.cpus, Some((0..64).collect()));
+    assert_eq!(server.mems, Some(vec![0, 1]));
+    assert_eq!(
+        server.thread_nodes(),
+        [
+            Threads {
+                node: 0,
+                cpus: socket(0, 32),
+            },
+            Threads {
+                node: 1,
+                cpus: socket(16, 48),
+            },
+        ]
+    );
+    let memory: Vec<usize> = server.memory_nodes().iter().map(|node| node.id).collect();
+    assert_eq!(memory, [0, 1]);
+    assert_eq!(server.usable(), 2);
+
+    for name in ["kvm-debian13-x86_64", "rock3a-debian13-aarch64"] {
+        assert_eq!(Layout::read(&common::fixture(name)).usable(), 1, "{name}");
+    }
+    let docker = Layout::read(&common::fixture("docker-debian13-aarch64"));
+    assert_eq!(docker, Layout::default(), "nothing captured");
+    assert_eq!(docker.usable(), 0);
+}
+
+/// A node with `cpus`, and `total` bytes of memory when given.
+fn node(id: usize, cpus: &[usize], total: Option<u64>) -> Node {
+    Node {
+        id,
+        cpus: cpus.to_vec(),
+        total,
+        free: total,
+    }
+}
+
+#[test]
+fn usable_nodes_count_where_threads_and_memory_can_go_once() {
+    let two = || vec![node(0, &[0, 1], Some(KIB)), node(1, &[2, 3], Some(KIB))];
+    let layout = |nodes: Vec<Node>, cpus: Option<Vec<usize>>, mems: Option<Vec<usize>>| Layout {
+        nodes,
+        cpus,
+        mems,
+    };
+    let all = Some(vec![0, 1, 2, 3]);
+    assert_eq!(layout(two(), all.clone(), Some(vec![0, 1])).usable(), 2);
+    assert_eq!(
+        layout(two(), all.clone(), None).usable(),
+        2,
+        "every node with memory, when the allowed nodes are unknown"
+    );
+
+    // Threads on node 0 only, memory on both: a test can still reach node 1's memory.
+    let one_cpuset = layout(two(), Some(vec![0, 1]), Some(vec![0, 1]));
+    assert_eq!(
+        one_cpuset.thread_nodes(),
+        [Threads {
+            node: 0,
+            cpus: vec![0, 1],
+        }]
+    );
+    assert_eq!(one_cpuset.usable(), 2);
+    assert_eq!(
+        layout(two(), Some(vec![1]), Some(vec![0])).usable(),
+        1,
+        "one CPU and memory of the same node"
+    );
+    assert_eq!(
+        layout(two(), None, Some(vec![0, 1])).usable(),
+        0,
+        "threads cannot be placed when the allowed CPUs are unknown"
+    );
+    assert_eq!(
+        layout(two(), all.clone(), Some(Vec::new())).usable(),
+        0,
+        "no memory to place"
+    );
+
+    // A node of memory only, such as CXL memory, holds no threads but counts for memory.
+    let with_memory_node = vec![node(0, &[0, 1, 2, 3], Some(KIB)), node(1, &[], Some(KIB))];
+    let cxl = layout(with_memory_node, all.clone(), None);
+    assert_eq!(cxl.thread_nodes().len(), 1);
+    assert_eq!(cxl.memory_nodes().len(), 2);
+    assert_eq!(cxl.usable(), 2);
+    // Threads on a node without memory, memory on a node without CPUs: one cell between two
+    // nodes.
+    let apart = vec![node(0, &[0, 1, 2, 3], Some(0)), node(1, &[], Some(KIB))];
+    assert_eq!(layout(apart, all.clone(), None).usable(), 2);
+    let unknown = vec![node(0, &[0, 1], None), node(1, &[2, 3], Some(KIB))];
+    let unknown = layout(unknown, all, None);
+    assert_eq!(
+        unknown.memory_nodes().len(),
+        1,
+        "a node whose memory is unknown holds none"
+    );
+    assert_eq!(unknown.usable(), 2);
+    assert_eq!(Layout::default().usable(), 0);
 }
 
 #[test]

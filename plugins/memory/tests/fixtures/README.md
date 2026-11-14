@@ -1,6 +1,6 @@
 # Tool output fixtures
 
-What the released tools printed: `sysbench-1.0.20-1`, `stream-5.10-1` and `multichase-2026.10.01-1`. Recorded on 2026-11-10 in `debian:13-slim`, limited to four CPUs (`--cpuset-cpus 0-3`), under Docker Desktop on Apple silicon: natively for aarch64, and under emulation for x86_64, whose numbers therefore say nothing about speed. Each file is the tool's standard output followed by its standard error, as the plugin reads them, with `LC_ALL=C`.
+What the released tools printed: `sysbench-1.0.20-1`, `stream-5.10-1` and `multichase-2026.10.01-1`. Recorded on 2026-11-10 in `debian:13-slim`, limited to four CPUs (`--cpuset-cpus 0-3`), under Docker Desktop on Apple silicon: natively for aarch64, and under emulation for x86_64, whose numbers therefore say nothing about speed. Each file is the tool's standard output followed by its standard error, as the plugins read them, with `LC_ALL=C`.
 
 | File | Command | Exit |
 |------|---------|------|

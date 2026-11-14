@@ -144,6 +144,7 @@ impl Plugin for Demanding {
                 major: 2,
                 minor: 35,
             }),
+            numa: false,
         },
         ..descriptor("test.needs", 10_000)
     };

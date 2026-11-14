@@ -68,6 +68,13 @@ HostProfile {
             },
         ),
     ),
+    numa: Done(
+        Layout {
+            nodes: [],
+            cpus: None,
+            mems: None,
+        },
+    ),
     storage: Done(
         StorageFacts {
             disks: [],

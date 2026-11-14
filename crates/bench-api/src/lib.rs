@@ -19,6 +19,8 @@ use bench_host::glibc::GlibcVersion;
 use bench_host::glibc::Libc;
 use bench_host::platform::Platform;
 use bench_host::platform::PlatformKind;
+use bench_host::profile::HostProfile;
+use bench_host::profile::Read;
 use serde::de::DeserializeOwned;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::UnboundedReceiver;
@@ -60,21 +62,28 @@ pub struct Requirements {
     /// The oldest glibc that the test's tools run on, or `None` when they do not need glibc.
     /// The orchestrator checks it before downloading the tools.
     pub glibc: Option<GlibcVersion>,
+    /// Whether the test needs at least two NUMA nodes that it can use, as a test between them
+    /// does. On any other host the plugin does not run.
+    pub numa: bool,
 }
 
 impl Requirements {
-    /// No tools, no network, every platform, any C library.
+    /// No tools, no network, every platform, any C library, any NUMA layout.
     pub const NONE: Self = Self {
         tools: &[],
         net: Net::None,
         platforms: &[],
         glibc: None,
+        numa: false,
     };
 
-    /// Whether the plugin runs on `platform`.
+    /// Whether the plugin runs on `host`: on one of its platforms, and with two NUMA nodes or
+    /// more when it needs them. A layout that could not be read has none.
     #[must_use]
-    pub fn applies_to(&self, platform: Platform) -> bool {
-        self.platforms.is_empty() || self.platforms.contains(&platform.kind())
+    pub fn applies_to(&self, host: &HostProfile) -> bool {
+        let platform = self.platforms.is_empty() || self.platforms.contains(&host.platform.kind());
+        let numa = !self.numa || matches!(&host.numa, Read::Done(layout) if layout.usable() >= 2);
+        platform && numa
     }
 }
 
