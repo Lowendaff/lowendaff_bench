@@ -1,9 +1,8 @@
 # Contributing
 
-This guide holds the conventions that every change follows; CI enforces most of them (README
-"Gates"). The decisions behind them are recorded in design documents outside the repository. The
-plugin model is being reworked, one pull request at a time; the crate layout and the steps to add
-a plugin join this guide when that work ends.
+This guide holds the layout of the code, the steps to add a test item and the conventions that
+every change follows; CI enforces most of them (README "Gates"). The decisions behind them are
+recorded in design documents outside the repository.
 
 ## Languages
 
@@ -11,6 +10,67 @@ a plugin join this guide when that work ends.
 - Text that the program shows its users is Chinese; messages for developers, such as the
   registry checks, are English.
 - Pull request bodies are English, in the sections of the template.
+
+## Layout
+
+```text
+crates/
+  bench-host/  the host's facts, read from files, and the host profile that holds them
+  bench-api/   the plugin contract: Plugin, Descriptor, Requirements, Context, Measurement
+  bench-tool/  the pins of the external tools, and the code that runs a tool with a time limit,
+               cancellation, retries, process groups and CPU placement
+  bench/       the program: the command line, the registry, the orchestrator, the result enum,
+               the report, the progress log, the network checks and the tool downloads
+  swap-file/   a temporary swap file, with the only unsafe code
+plugins/
+  cpu/         cpu.sysbench, cpu.geekbench
+  memory/      memory.sysbench, memory.stream, memory.latency, memory.numa
+  disk/        disk.health, disk.fio
+```
+
+Each test item is a plugin, whose id is `<group>.<name>`, in the crate of its group,
+`plugins/<group>`. A plugin's module, `plugins/<group>/src/<name>/`, holds:
+
+| File | Holds |
+|------|-------|
+| `mod.rs` | the plugin: its descriptor, and its `run`, which hands the tool to the measurement |
+| `result.rs` | its `Output` and `Failure`: numbers and kinds of reasons, never words |
+| `measure.rs` | the measurement, which runs the tool through an injected function |
+| `parse.rs` | pure functions that read the tool's output |
+
+Its tests are `plugins/<group>/tests/<name>_*.rs`, with the tool's recorded output in
+`tests/fixtures/`. The plugins of a group share only the group's own helpers, such as the
+memory plugins' working-set plan. Every plugin calls its types `Output` and `Failure`, written
+with the module, as in `stream::Output`.
+
+A run goes this way: the program reads its arguments and checks for root, builds the selected
+plugins from their config in the registry's order, reads the host profile, leaves out the plugins
+that do not apply to the host, downloads the tools of the others, runs each plugin with its time
+limit while its progress goes to stderr, and writes the report to stdout once every plugin is
+done.
+
+## Adding a test item
+
+A new test item starts with a design document (below). Then:
+
+1. Write the plugin's module, as above. Its descriptor names its requirements (tools, network,
+   platforms, glibc, NUMA nodes) and its time limit, set by its worst case. It publishes its
+   result after each measurement, so that a timeout or an interrupt keeps the last one, and its
+   progress lines tell the log what it is doing.
+2. Add its variant to `Measured` in `crates/bench/src/results.rs`, and register it with that
+   variant in `registry::all()`, where its place is its place in the run order.
+3. Name it in the reporter's `NAMES`, and write its words in
+   `crates/bench/src/report/terminal/<group>.rs`; the registry's checks fail for a plugin
+   without a name, and a variant without words does not compile. A new group also gets its
+   section in `SECTIONS`, which orders the report.
+4. Test the parsers with recorded output, the measurement with recorded runs, comparing each
+   tool's whole command, and the words with insta snapshots in `crates/bench/tests/`.
+5. Add the item to the README's table of items, and its tool to the table of third-party tools;
+   a new tool is built and released first (README "Third-party tools"), then pinned in
+   `crates/bench-tool`.
+6. A new group's crate depends on `bench-api` and `bench-tool` along the direction below: it
+   joins their `wrappers` lists in `deny.toml` and gets an entry of its own, used by `bench`
+   alone. The rules against printing and against Chinese strings cover `plugins/*/src` already.
 
 ## Code
 

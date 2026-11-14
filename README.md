@@ -11,11 +11,10 @@ A comprehensive test tool for Linux servers, virtual or dedicated, written in Ru
 The program prints its results in Chinese. [`glossary.md`](glossary.md) gives the English term
 that this README, the code and the commit messages use for each word it prints often.
 
-**Status:** the plugin framework is in place, with eight test items so far: disk health, CPU
-performance, memory performance in four (`memory.sysbench`, `memory.stream`, `memory.latency` and
-`memory.numa`), disk performance and Geekbench 7. The plugin model is being reworked, one pull
-request at a time; no test item is added meanwhile. The conventions for code, commits and pull
-requests are in [`CONTRIBUTING.md`](CONTRIBUTING.md).
+**Status:** eight test items, each a plugin with a result of its own type: disk health, CPU
+performance, four items of memory performance, disk performance and Geekbench 7.
+[`CONTRIBUTING.md`](CONTRIBUTING.md) holds the layout of the code, the steps to add a test item
+and the conventions for code, commits and pull requests.
 
 The tool first reads its host: where it runs (a dedicated server, a virtual machine or a
 container), its CPU, memory, disks and system, and whether it reaches the Internet over IPv4 and
@@ -28,11 +27,17 @@ the items by group, and where each applies.
 
 | Test item | Shows |
 |-----------|-------|
-| Disk health | Dedicated servers only: each physical disk's SMART health as smartctl judges it, with power-on time, temperature, endurance used, data written, bad blocks and interface errors. Disks behind MegaRAID and 3SNIC RAID cards are included |
-| CPU performance | sysbench's CPU test (primes up to 10000), 20 seconds with one thread and 20 seconds with every usable thread: events per second, and how many times the single-thread rate the multi-thread one is |
-| Memory performance | sysbench's read and write bandwidth and STREAM's Copy, Scale, Add and Triad, each with one thread and with every usable thread; multichase's latency in each cache level and in memory; on machines with several NUMA nodes, the bandwidth (multiload's stream-triad) and latency from each node's CPUs to each node's memory. Every run fits in half of the available memory |
-| Disk performance | Speed and IOPS of the test directory's filesystem, measured with fio exactly as YABS does: mixed random reads and writes (50/50) at 4K, 64K, 512K and 1M. Skipped on a RAM disk or without enough free space |
-| Geekbench 7 | Geekbench 7's single- and multi-core scores and the public result link. The free version uploads every result to the Geekbench Browser; `--skip cpu.geekbench` leaves it out. Needs IPv4 and glibc 2.35 or later, and adds temporary swap when memory is short |
+| Disk health (`disk.health`) | Dedicated servers only: each physical disk's SMART health as smartctl judges it, with power-on time, temperature, endurance used, data written, bad blocks and interface errors. Disks behind MegaRAID and 3SNIC RAID cards are included |
+| CPU performance (`cpu.sysbench`) | sysbench's CPU test (primes up to 10000), 20 seconds with one thread and 20 seconds with every usable thread: events per second, and how many times the single-thread rate the multi-thread one is |
+| Memory sysbench (`memory.sysbench`) | sysbench's sequential read and write bandwidth, each with one thread and with every usable thread |
+| Memory STREAM (`memory.stream`) | STREAM's Copy, Scale, Add and Triad, each with one thread and with every usable thread |
+| Memory latency (`memory.latency`) | multichase's latency in each cache level and in memory |
+| Memory NUMA (`memory.numa`) | Machines with two usable NUMA nodes or more: the bandwidth (multiload's stream-triad) and the latency from each node's CPUs to each node's memory |
+| Disk performance (`disk.fio`) | Speed and IOPS of the test directory's filesystem, measured with fio exactly as YABS does: mixed random reads and writes (50/50) at 4K, 64K, 512K and 1M. Skipped on a RAM disk or without enough free space |
+| Geekbench 7 (`cpu.geekbench`) | Geekbench 7's single- and multi-core scores and the public result link. The free version uploads every result to the Geekbench Browser; `--skip cpu.geekbench` leaves it out. Needs IPv4 and glibc 2.35 or later, and adds temporary swap when memory is short |
+
+The four memory items make up the report's memory section. Each reads the available memory when
+it starts, and every run fits in half of it.
 
 ## Usage
 
@@ -168,9 +173,9 @@ repository builds the tools and publishes them as immutable GitHub releases, exc
 |------|---------|---------|---------|---------|
 | fio, with libaio 0.3.113 linked statically | 3.43 | GPL-2.0; libaio LGPL-2.1 | Disk performance (`disk.fio`) | `fio-3.43-2` |
 | smartctl, from smartmontools | 7.5 | GPL-2.0-or-later | Disk health (`disk.health`) | `smartctl-7.5-1` |
-| sysbench, with its bundled LuaJIT and Concurrency Kit | 1.0.20 | GPL-2.0-or-later; LuaJIT MIT; Concurrency Kit BSD-2-Clause | CPU performance (`cpu.sysbench`), memory performance (`memory`) | `sysbench-1.0.20-1` |
-| STREAM, built for six array sizes | 5.10 | STREAM's own: free to use and change, but published results must follow its run rules or say that they do not | Memory performance (`memory`) | `stream-5.10-1` |
-| multichase and multiload, with glibc 2.41 linked statically | commit `8b68e918` of 2026-10-01 | Apache-2.0; glibc LGPL-2.1 | Memory performance (`memory`) | `multichase-2026.10.01-1` |
+| sysbench, with its bundled LuaJIT and Concurrency Kit | 1.0.20 | GPL-2.0-or-later; LuaJIT MIT; Concurrency Kit BSD-2-Clause | CPU performance (`cpu.sysbench`), memory sysbench (`memory.sysbench`) | `sysbench-1.0.20-1` |
+| STREAM, built for six array sizes | 5.10 | STREAM's own: free to use and change, but published results must follow its run rules or say that they do not | Memory STREAM (`memory.stream`) | `stream-5.10-1` |
+| multichase and multiload, with glibc 2.41 linked statically | commit `8b68e918` of 2026-10-01 | Apache-2.0; glibc LGPL-2.1 | Memory latency (`memory.latency`), memory NUMA (`memory.numa`) | `multichase-2026.10.01-1` |
 
 Each release holds the binaries for x86_64 and aarch64, the exact sources they were built from,
 the build script, the license texts (also that of the C library linked statically: musl's, which
