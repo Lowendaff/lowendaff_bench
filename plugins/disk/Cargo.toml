@@ -1,6 +1,6 @@
 [package]
 name = "plugin-disk"
-description = "Disk test items for lowendaff-bench: 硬盘健康 and 硬盘性能"
+description = "Disk test items for lowendaff-bench: disk health and disk performance"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true

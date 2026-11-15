@@ -1,5 +1,5 @@
 #!/bin/sh
-# Builds static STREAM programs for the 内存性能 test item from the source
+# Builds static STREAM programs for the memory performance test item from the source
 # pinned by SHA-256, one per array size, since STREAM fixes the size when it is compiled.
 # It runs inside the image named below on the architecture it builds for; the tools
 # workflow (.github/workflows/tools.yml) starts it and publishes what it writes as RELEASE.

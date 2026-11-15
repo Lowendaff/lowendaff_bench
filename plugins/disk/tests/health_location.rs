@@ -156,6 +156,6 @@ fn named_disks_come_first_by_name_then_raid_card_disks_by_card_and_number() {
             card(0, &[21]),
             card(1, &[5]),
         ],
-        "plain string order, as 系统信息 lists its disks"
+        "plain string order, as the system information lists its disks"
     );
 }

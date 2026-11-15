@@ -8,7 +8,7 @@ use bench::provision::Part;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), String> {
-    let url = std::env::args().nth(1).ok_or("用法：fetch <url>")?;
+    let url = std::env::args().nth(1).ok_or("usage: fetch <url>")?;
     use tokio::io::AsyncReadExt;
 
     let (Part::Whole(mut body) | Part::Range(mut body)) = Fetcher::try_new()?
@@ -18,7 +18,7 @@ async fn main() -> Result<(), String> {
     let mut bytes = Vec::new();
     body.read_to_end(&mut bytes)
         .await
-        .map_err(|err| format!("读取失败：{err}"))?;
-    println!("{url}：{} 字节", bytes.len());
+        .map_err(|err| format!("cannot read: {err}"))?;
+    println!("{url}: {} bytes", bytes.len());
     Ok(())
 }

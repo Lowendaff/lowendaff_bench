@@ -1,4 +1,4 @@
-//! What 硬盘健康 read: where each disk sits, smartctl's verdict and the disk's values, and why a
+//! What disk health read: where each disk sits, smartctl's verdict and the disk's values, and why a
 //! read or the whole item failed. Numbers and kinds of reasons only, with smartctl's and the
 //! system's own messages; the reporter words them. Serial numbers are only compared, to find a
 //! disk listed twice, and are never kept.
@@ -13,7 +13,7 @@ use serde::Serialize;
 
 use super::location::Location;
 
-/// 硬盘健康's result.
+/// Disk health's result.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct Output {
     /// The version that smartctl printed, such as `7.5`.
@@ -126,7 +126,7 @@ pub struct NodeLeft {
     pub error: String,
 }
 
-/// Why 硬盘健康 has no complete result.
+/// Why disk health has no complete result.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub enum Failure {
     /// The scan found no disk; the item skips.

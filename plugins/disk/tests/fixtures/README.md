@@ -1,4 +1,4 @@
-# Fixtures for 硬盘性能
+# Fixtures for disk performance
 
 ## `fio/`
 

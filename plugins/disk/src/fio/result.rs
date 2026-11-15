@@ -1,5 +1,5 @@
-//! What 硬盘性能 measured: the rates of each test, or why a test or the whole item has none.
-//! Numbers and kinds of reasons only, with fio's own error line; the reporter words them in
+//! What disk performance measured: the rates of each test, or why a test or the whole item has
+//! none. Numbers and kinds of reasons only, with fio's own error line; the reporter words them in
 //! YABS's formats.
 
 use bench_api::Measurement;
@@ -8,7 +8,7 @@ use bench_tool::FIO;
 use bench_tool::job;
 use serde::Serialize;
 
-/// 硬盘性能's result.
+/// Disk performance's result.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Output {
     /// The version that fio printed, such as `3.43`.
@@ -79,7 +79,7 @@ pub enum Fault {
     Field(usize),
 }
 
-/// Why 硬盘性能 has no complete result.
+/// Why disk performance has no complete result.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub enum Failure {
     /// The free space of the test directory cannot be read.

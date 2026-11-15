@@ -1,5 +1,5 @@
-//! What CPU 性能 measured: the rate of each run and the attempts it took, or why a run failed.
-//! Numbers and kinds of reasons only; the reporter words them.
+//! What CPU performance measured: the rate of each run and the attempts it took, or why a run
+//! failed. Numbers and kinds of reasons only; the reporter words them.
 
 use bench_api::Measurement;
 use bench_api::ToolVersion;
@@ -27,7 +27,7 @@ pub struct Run {
     pub retries: Vec<Fault>,
 }
 
-/// CPU 性能's result.
+/// CPU performance's result.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Output {
     /// The version that sysbench printed, such as `1.0.20`.
@@ -59,7 +59,7 @@ pub enum Fault {
     NoRate,
 }
 
-/// Why CPU 性能 has no complete result.
+/// Why CPU performance has no complete result.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub enum Failure {
     /// Every attempt of the run with one thread failed; their faults, oldest first.

@@ -75,7 +75,7 @@ pub enum Virtualization {
 }
 
 /// Threads a test can run at once: the logical CPUs, or in a container
-/// the CPUs of its cpuset when it has one. 系统基础信息 shows the same number.
+/// the CPUs of its cpuset when it has one. The system information shows the same number.
 #[must_use]
 pub fn threads(logical: usize, kind: PlatformKind, cpuset: Option<usize>) -> usize {
     match kind {

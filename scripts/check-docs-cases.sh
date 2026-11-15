@@ -22,6 +22,23 @@ write() {
     git add "$1"
 }
 
+# write_bytes <path> <octal escapes>: writes the bytes, with a final newline, and stages the file.
+# This file holds no CJK character itself: the cases write them as escapes.
+write_bytes() {
+    mkdir -p "$(dirname "$1")"
+    # shellcheck disable=SC2059 # the format is the escapes
+    printf "$2\n" > "$1"
+    git add "$1"
+}
+
+# Chinese, Japanese kana, a rare ideograph, Korean, fullwidth punctuation, an emoji.
+chinese='\344\270\255\346\226\207'
+kana='\343\203\206\343\202\271\343\203\210'
+rare='\343\220\200'
+korean='\355\225\234\352\265\255\354\226\264'
+comma='\357\274\214'
+emoji='\360\237\230\200'
+
 write README.md '# readme
 
 Two × 3 at 25 °C — fine… These are not CJK. The design of the tool, and its designated runs.'
@@ -64,21 +81,48 @@ check() {
 check accept 'the base, with other non-ASCII characters and the word design'
 
 for file in README.md CONTRIBUTING.md .github/pull_request_template.md; do
-    write "$file" '运行环境 KVM 虚拟机'
+    write_bytes "$file" "Environment: $chinese"
     check reject "Chinese in $file" "$file:1:"
 done
-write README.md 'テスト'
+write_bytes README.md "$kana"
 check reject 'Japanese kana' 'README.md:1:'
-write README.md '㐀'
+write_bytes README.md "$rare"
 check reject 'a rare ideograph' 'README.md:1:'
-# U+F900, written as bytes: editors may normalize it to the ordinary ideograph U+8C48.
-printf '\357\244\200\n' > README.md
-git add README.md
+# U+F900, which editors may normalize to the ordinary ideograph U+8C48.
+write_bytes README.md '\357\244\200'
 check reject 'a compatibility ideograph' 'README.md:1:'
-write README.md '한국어'
+write_bytes README.md "$korean"
 check reject 'Korean' 'README.md:1:'
-write README.md 'ok，fine'
+write_bytes README.md "ok${comma}fine"
 check reject 'fullwidth punctuation' 'README.md:1:'
+
+write_bytes crates/bench/src/lib.rs "pub const DONE: &str = \"$chinese\";"
+check reject 'Chinese in a string of the program' 'crates/bench/src/lib.rs:1:'
+write_bytes plugins/cpu/src/lib.rs "//! The $chinese test item."
+check reject 'Chinese in a comment' 'plugins/cpu/src/lib.rs:1:'
+write_bytes crates/bench/tests/report.rs "const SHOWN: &str = \"$chinese\";"
+check reject 'Chinese in a test' 'crates/bench/tests/report.rs:1:'
+write_bytes crates/bench/tests/snapshots/report__all.snap "[$chinese]"
+check reject 'Chinese in a snapshot' 'report__all.snap:1:'
+write_bytes plugins/disk/tests/fixtures/fio/output.txt "fio: $chinese"
+check reject 'Chinese in fixture data' 'output.txt:1:'
+write_bytes scripts/smoke.sh "grep -q '$chinese'"
+check reject 'Chinese in a script' 'scripts/smoke.sh:1:'
+write_bytes crates/bench/src/locale/en/report.rs "\"$chinese\""
+check reject 'Chinese in the English catalog' 'locale/en/report.rs:1:'
+write_bytes crates/bench/src/locale/report.rs "/// $chinese"
+check reject "Chinese beside the catalogs, in the traits" 'locale/report.rs:1:'
+write_bytes crates/bench/src/locale/zh.rs "\"$chinese\""
+check reject 'a catalog that is not a directory of its own' 'locale/zh.rs:1:'
+write_bytes plugins/cpu/src/locale/zh/report.rs "\"$chinese\""
+check reject 'a catalog outside the program' 'plugins/cpu/src/locale/zh/report.rs:1:'
+write_bytes crates/bench/src/locale/zh/report.rs "\"$chinese\""
+write_bytes crates/bench/src/locale/zh/host.rs "\"$kana$korean$comma\""
+check accept 'the catalog of another language'
+# A degree sign, a dash, a multiplication sign and the emoji.
+other="25 \302\260C \342\200\224 2 \303\227 3 $emoji"
+write_bytes crates/bench/src/lib.rs "pub const SHOWN: &str = \"$other\";"
+check accept 'other characters outside ASCII in the program'
 
 write scripts/build.sh '# The flags follow docs/design/cpu.md.'
 check reject 'a path to the design documents' 'scripts/build.sh:1:'

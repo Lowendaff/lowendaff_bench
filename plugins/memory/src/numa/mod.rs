@@ -21,7 +21,7 @@ pub use result::Failure;
 pub use result::Fault;
 pub use result::Output;
 
-/// The NUMA chapter of 内存性能. It has no settings.
+/// The NUMA chapter of memory performance. It has no settings.
 #[derive(Debug, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Numa {}

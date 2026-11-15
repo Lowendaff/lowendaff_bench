@@ -1,6 +1,6 @@
 [package]
 name = "plugin-memory"
-description = "Memory test items for lowendaff-bench: the chapters of 内存性能"
+description = "Memory test items for lowendaff-bench: the chapters of memory performance"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true

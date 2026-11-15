@@ -1,4 +1,5 @@
-//! 硬盘健康: the SMART health of every physical disk of a dedicated server, read with smartctl.
+//! Disk health: the SMART health of every physical disk of a dedicated server, read with
+//! smartctl.
 
 pub mod device;
 pub mod location;
@@ -23,7 +24,7 @@ pub use result::Failure;
 pub use result::Fault;
 pub use result::Output;
 
-/// 硬盘健康. It has no settings.
+/// Disk health. It has no settings.
 #[derive(Debug, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Smartctl {}

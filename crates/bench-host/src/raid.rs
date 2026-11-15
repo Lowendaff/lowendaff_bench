@@ -1,5 +1,5 @@
 //! RAID cards: the PCI devices of class 0x0104, named by the
-//! host's `pci.ids`, and how the disks of the 硬盘 table attach to them.
+//! host's `pci.ids`, and how the disks of the system information's disk table attach to them.
 
 use std::fs::File;
 use std::io::BufRead;

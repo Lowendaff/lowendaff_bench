@@ -19,7 +19,7 @@ pub const MAX_SWAP_GIB: u64 = 8;
 /// What the host offers Geekbench.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Host {
-    /// Threads Geekbench runs, counted as for CPU 性能.
+    /// Threads Geekbench runs, counted as for CPU performance.
     pub threads: usize,
     /// Bytes of memory and swap Geekbench can use now, or `None` when unknown.
     pub available: Option<u64>,

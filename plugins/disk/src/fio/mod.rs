@@ -1,4 +1,5 @@
-//! 硬盘性能: fio runs YABS's disk test on the filesystem of the test directory, on every platform.
+//! Disk performance: fio runs YABS's disk test on the filesystem of the test directory, on every
+//! platform.
 
 pub mod measure;
 pub mod parse;
@@ -23,7 +24,7 @@ pub use result::Failure;
 pub use result::Fault;
 pub use result::Output;
 
-/// 硬盘性能. It has no settings: every parameter is YABS's.
+/// Disk performance. It has no settings: every parameter is YABS's.
 #[derive(Debug, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Fio {}

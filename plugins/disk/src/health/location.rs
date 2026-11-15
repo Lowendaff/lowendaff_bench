@@ -9,7 +9,7 @@ use super::device::Device;
 /// order is the table's: named disks first, by name, then RAID-card disks by card and number.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 pub enum Location {
-    /// A kernel name such as `sda` or `nvme0n1`, as 系统信息 shows it.
+    /// A kernel name such as `sda` or `nvme0n1`, as the system information shows it.
     Named(String),
     /// A disk on a RAID card.
     Card {

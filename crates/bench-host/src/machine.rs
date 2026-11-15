@@ -26,7 +26,7 @@ pub enum Firmware {
     RaspberryPi(u64),
 }
 
-/// 整机, 主板 and the firmware.
+/// The machine, its board and its firmware.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Machine {
     /// The machine: vendor and product.

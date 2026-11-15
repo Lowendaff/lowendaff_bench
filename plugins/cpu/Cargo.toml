@@ -1,6 +1,6 @@
 [package]
 name = "plugin-cpu"
-description = "CPU test items for lowendaff-bench: CPU 性能 and Geekbench 7"
+description = "CPU test items for lowendaff-bench: CPU performance and Geekbench 7"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true

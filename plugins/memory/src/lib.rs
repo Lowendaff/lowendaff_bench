@@ -1,4 +1,4 @@
-//! The memory test items, the chapters of 内存性能: sysbench's read and write bandwidth
+//! The memory test items, the chapters of memory performance: sysbench's read and write bandwidth
 //! (`memory.sysbench`), STREAM (`memory.stream`), the latency of each cache level and of memory
 //! (`memory.latency`), and on machines with several NUMA nodes the bandwidth and latency between
 //! them (`memory.numa`). They share the working-set plan, the way a run is tried again, and
