@@ -16,6 +16,7 @@ use bench_api::Net;
 use bench_api::Plugin;
 use bench_api::Progress;
 use bench_api::Requirements;
+use bench_api::Step;
 use bench_api::Stop;
 use bench_api::ToolRun;
 use bench_host::glibc::GlibcVersion;
@@ -152,8 +153,8 @@ impl<R> Planned<R> {
 pub trait Observer<R>: Send {
     /// A plugin starts.
     fn on_start(&mut self, _id: &'static str) {}
-    /// A plugin reports progress.
-    fn on_progress(&mut self, _id: &'static str, _line: &str) {}
+    /// A plugin starts a step.
+    fn on_progress(&mut self, _id: &'static str, _step: Step) {}
     /// A plugin ran a tool.
     fn on_tool(&mut self, _id: &'static str, _run: &ToolRun) {}
     /// A plugin's run is over, or it never started.
@@ -486,7 +487,7 @@ impl<P: Plugin, R: Send + 'static> Runner<R> for PluginRunner<P, R> {
 /// Hands a plugin's progress to the observer.
 fn tell<R>(observer: &mut dyn Observer<R>, id: &'static str, progress: Progress) {
     match progress {
-        Progress::Line(line) => observer.on_progress(id, &line),
+        Progress::Step(step) => observer.on_progress(id, step),
         Progress::Tool(run) => observer.on_tool(id, &run),
     }
 }

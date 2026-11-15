@@ -8,6 +8,7 @@ use std::path::Path;
 use std::path::PathBuf;
 
 use bench_api::CancellationToken;
+use bench_api::Step;
 use bench_api::Stop;
 use bench_tool::job;
 use bench_tool::job::Job;
@@ -24,7 +25,7 @@ const MULTICHASE: &str = "/t/multichase/multichase";
 struct Measured {
     result: Result<Output, Stop<Failure>>,
     published: Option<Output>,
-    progress: Vec<String>,
+    progress: Vec<Step>,
     jobs: Vec<Job>,
 }
 
@@ -123,13 +124,19 @@ async fn each_cell_runs_on_its_rows_cpus_with_memory_bound_to_its_column() {
     );
     assert!(!output.cache_unknown);
     assert_eq!(measured.published.as_ref(), Some(output));
-    assert_eq!(measured.progress.len(), 8);
+    let cells = [(0, 0), (0, 1), (1, 0), (1, 1)];
+    let steps: Vec<Step> = cells
+        .into_iter()
+        .flat_map(|(cpus, memory)| {
+            [
+                Step::NodeBandwidth { cpus, memory },
+                Step::NodeLatency { cpus, memory },
+            ]
+        })
+        .collect();
     assert_eq!(
-        measured.progress[..2],
-        [
-            "线程在节点 0、内存在节点 0 的带宽测试",
-            "线程在节点 0、内存在节点 0 的延迟测试"
-        ]
+        measured.progress, steps,
+        "row by row, bandwidth before latency"
     );
 
     let placed: Vec<(bool, &[usize], Vec<String>)> = measured

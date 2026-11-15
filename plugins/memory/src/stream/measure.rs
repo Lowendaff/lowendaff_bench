@@ -7,6 +7,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use bench_api::Context;
+use bench_api::Step;
 use bench_api::Stop;
 use bench_tool::job;
 use bench_tool::job::Job;
@@ -68,11 +69,7 @@ where
     };
     let columns = plan.columns();
     for &threads in &columns {
-        if threads > 1 {
-            ctx.progress(format!("多线程测试（{threads} 线程）"));
-        } else {
-            ctx.progress("单线程测试");
-        }
+        ctx.progress(Step::Test { threads });
         match crate::tried(ctx, &run, &job(smallest, millions, threads), parse::reading).await {
             Tried::Done(reading, retries) => {
                 if output.version.is_none() {

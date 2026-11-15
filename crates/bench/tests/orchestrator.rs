@@ -1,5 +1,5 @@
 //! Every outcome the orchestrator must produce: what a plugin returns, what it last published
-//! when it stops short (also during the grace period after a timeout), its progress lines, the
+//! when it stops short (also during the grace period after a timeout), its steps, the
 //! requirements checked before it runs, its work directory, and the plan built from the registry
 //! and the config.
 
@@ -31,6 +31,7 @@ use bench_api::Measurement;
 use bench_api::Net;
 use bench_api::Plugin;
 use bench_api::Requirements;
+use bench_api::Step;
 use bench_api::Stop;
 use bench_api::ToolAsset;
 use bench_api::ToolEnd;
@@ -90,14 +91,14 @@ impl Plugin for Counts {
     const DESCRIPTOR: Descriptor = descriptor("test.counts", 10_000);
 
     async fn run(&self, ctx: &Context<Count>) -> Result<Count, Stop<Why>> {
-        for count in 1..=2 {
-            ctx.progress(format!("attempt {count}"));
+        for level in 1..=2_u8 {
+            ctx.progress(Step::Cache { level });
             ctx.ran(ToolRun {
-                command: vec!["count".to_owned(), count.to_string()],
+                command: vec!["count".to_owned(), level.to_string()],
                 end: ToolEnd::Exit(0),
                 tail: Vec::new(),
             });
-            ctx.publish(&Count(count));
+            ctx.publish(&Count(level.into()));
         }
         Ok(Count(3))
     }
@@ -144,7 +145,7 @@ impl Plugin for Slow {
         ctx.publish(&Count(1));
         ctx.cancel_token().cancelled().await;
         ctx.publish(&Count(2));
-        ctx.progress("stop received");
+        ctx.progress(Step::TestFile);
         Err(Stop::Failed(Why::Broken))
     }
 }
@@ -276,7 +277,7 @@ impl Plugin for Interrupts {
     }
 }
 
-/// Says one line, and ends only once the line has been shown.
+/// Starts one step, and ends only once the step has been shown.
 #[derive(Default, Deserialize)]
 struct WaitsToBeSeen {
     #[serde(skip)]
@@ -289,7 +290,7 @@ impl Plugin for WaitsToBeSeen {
     const DESCRIPTOR: Descriptor = descriptor("test.waits", 10_000);
 
     async fn run(&self, ctx: &Context<Count>) -> Result<Count, Stop<Why>> {
-        ctx.progress("waiting to show");
+        ctx.progress(Step::MainMemory);
         self.shown.cancelled().await;
         Ok(Count(1))
     }
@@ -408,8 +409,8 @@ impl Observer<Left> for Recorder {
         self.0.push(format!("start {id}"));
     }
 
-    fn on_progress(&mut self, id: &'static str, line: &str) {
-        self.0.push(format!("{id} {line}"));
+    fn on_progress(&mut self, id: &'static str, step: Step) {
+        self.0.push(format!("{id} {step:?}"));
     }
 
     fn on_tool(&mut self, id: &'static str, run: &ToolRun) {
@@ -421,11 +422,11 @@ impl Observer<Left> for Recorder {
     }
 }
 
-/// Shows a progress line by cancelling its token.
+/// Shows a step by cancelling its token.
 struct Shows(CancellationToken);
 
 impl Observer<Left> for Shows {
-    fn on_progress(&mut self, _id: &'static str, _line: &str) {
+    fn on_progress(&mut self, _id: &'static str, _step: Step) {
         self.0.cancel();
     }
 }
@@ -507,13 +508,13 @@ async fn a_returned_result_replaces_what_was_published() {
         recorder.0,
         [
             "start test.counts",
-            "test.counts attempt 1",
+            "test.counts Cache { level: 1 }",
             "test.counts ran count 1",
-            "test.counts attempt 2",
+            "test.counts Cache { level: 2 }",
             "test.counts ran count 2",
             "finish test.counts Completed"
         ],
-        "progress lines and tool runs in the order the plugin sent them"
+        "steps and tool runs in the order the plugin sent them"
     );
 }
 
@@ -552,7 +553,7 @@ async fn a_timeout_keeps_what_was_published_during_the_grace_period() {
         "the second publish came after the deadline, before the grace period ended"
     );
     assert!(
-        recorder.0.contains(&"test.slow stop received".to_owned()),
+        recorder.0.contains(&"test.slow TestFile".to_owned()),
         "progress from the grace period is drained: {:?}",
         recorder.0
     );
@@ -719,7 +720,7 @@ async fn a_plugin_that_has_ended_when_the_interrupt_comes_is_taken_at_its_word()
 }
 
 #[tokio::test(start_paused = true)]
-async fn progress_lines_are_shown_while_the_plugin_runs() {
+async fn steps_are_shown_while_the_plugin_runs() {
     let shown = CancellationToken::new();
     let plugin = WaitsToBeSeen {
         shown: shown.clone(),
@@ -735,7 +736,7 @@ async fn progress_lines_are_shown_while_the_plugin_runs() {
     assert_eq!(
         runs[0].status,
         Status::Completed,
-        "the plugin waited for its line to be shown"
+        "the plugin waited for its step to be shown"
     );
 }
 

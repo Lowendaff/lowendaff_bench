@@ -8,6 +8,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use bench_api::CancellationToken;
+use bench_api::Step;
 use bench_api::Stop;
 use bench_tool::job;
 use bench_tool::job::Job;
@@ -26,7 +27,7 @@ const MULTICHASE: &str = "/t/multichase/multichase";
 struct Measured {
     result: Result<Output, Stop<Failure>>,
     published: Option<Output>,
-    progress: Vec<String>,
+    progress: Vec<Step>,
     jobs: Vec<Job>,
 }
 
@@ -93,7 +94,12 @@ async fn a_run_per_cache_level_and_one_in_memory() {
     assert_eq!(measured.published.as_ref(), Some(output));
     assert_eq!(
         measured.progress,
-        ["L1 测试", "L2 测试", "L3 测试", "内存测试"]
+        [
+            Step::Cache { level: 1 },
+            Step::Cache { level: 2 },
+            Step::Cache { level: 3 },
+            Step::MainMemory
+        ]
     );
     let args: Vec<Vec<String>> = measured.jobs.iter().map(common::args).collect();
     assert_eq!(

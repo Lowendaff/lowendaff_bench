@@ -7,6 +7,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use bench_api::CancellationToken;
+use bench_api::Step;
 use bench_api::Stop;
 use bench_tool::job;
 use bench_tool::job::Job;
@@ -24,7 +25,7 @@ const SYSBENCH: &str = "/t/sysbench";
 struct Measured {
     result: Result<Output, Stop<Failure>>,
     published: Option<Output>,
-    progress: Vec<String>,
+    progress: Vec<Step>,
     jobs: Vec<Job>,
 }
 
@@ -103,10 +104,10 @@ async fn reading_then_writing_with_one_thread_and_with_all() {
     assert_eq!(
         measured.progress,
         [
-            "单线程读取",
-            "多线程读取（4 线程）",
-            "单线程写入",
-            "多线程写入（4 线程）"
+            Step::Read { threads: 1 },
+            Step::Read { threads: 4 },
+            Step::Write { threads: 1 },
+            Step::Write { threads: 4 }
         ]
     );
     assert_eq!(measured.jobs.len(), 4);
@@ -161,7 +162,10 @@ async fn one_thread_runs_the_single_thread_column_only() {
             (Operation::Write, 1, "50.00")
         ]
     );
-    assert_eq!(measured.progress, ["单线程读取", "单线程写入"]);
+    assert_eq!(
+        measured.progress,
+        [Step::Read { threads: 1 }, Step::Write { threads: 1 }]
+    );
 }
 
 #[tokio::test]

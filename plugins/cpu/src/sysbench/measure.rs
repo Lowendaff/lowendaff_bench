@@ -7,6 +7,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use bench_api::Context;
+use bench_api::Step;
 use bench_api::Stop;
 use bench_tool::job;
 use bench_tool::job::Job;
@@ -64,7 +65,7 @@ where
     F: Fn(Job) -> Fut,
     Fut: Future<Output = Result<job::Output, RunError>>,
 {
-    ctx.progress("单线程测试");
+    ctx.progress(Step::Test { threads: 1 });
     let (reading, retries) = match tried(ctx, &run, program, 1).await {
         Tried::Done(reading, retries) => (reading, retries),
         Tried::Failed(faults) => return Err(Stop::Failed(Failure::Single(faults))),
@@ -83,7 +84,7 @@ where
         return Ok(output);
     }
     ctx.publish(&output);
-    ctx.progress(format!("多线程测试（{threads} 线程）"));
+    ctx.progress(Step::Test { threads });
     match tried(ctx, &run, program, threads).await {
         Tried::Done(reading, retries) => {
             output.multi = Some(Run {

@@ -1,9 +1,11 @@
 //! English: the progress log's lines.
 
+use bench_api::Step;
 use bench_api::ToolEnd;
 
 use super::English;
 use crate::locale::LogWords;
+use crate::locale::Probe;
 
 impl LogWords for English {
     fn host_line(&self, platform: &str, arch: &str) -> String {
@@ -38,8 +40,27 @@ impl LogWords for English {
         format!("{id} started")
     }
 
-    fn item_progress(&self, id: &str, line: &str) -> String {
-        format!("{id} {line}")
+    fn item_progress(&self, id: &str, step: Step) -> String {
+        use crate::locale::MemoryWords;
+
+        let step = match step {
+            Step::Test { threads: 1 } => "single-thread test".to_owned(),
+            Step::Test { threads } => format!("multi-thread test ({threads} threads)"),
+            Step::Read { threads: 1 } => "single-thread read".to_owned(),
+            Step::Read { threads } => format!("multi-thread read ({threads} threads)"),
+            Step::Write { threads: 1 } => "single-thread write".to_owned(),
+            Step::Write { threads } => format!("multi-thread write ({threads} threads)"),
+            Step::TestFile => "creating the test file".to_owned(),
+            Step::RandomReadWrite { block_size } => {
+                format!("{} random read and write test", block_size.to_uppercase())
+            }
+            Step::Cache { level } => format!("L{level} test"),
+            Step::MainMemory => "memory test".to_owned(),
+            Step::NodeBandwidth { cpus, memory } => self.numa_run(cpus, memory, Probe::Bandwidth),
+            Step::NodeLatency { cpus, memory } => self.numa_run(cpus, memory, Probe::Latency),
+            Step::RunAgain { run } => format!("the upload failed; run {run}"),
+        };
+        format!("{id} {step}")
     }
 
     fn item_ended(&self, id: &str, status: &str) -> String {

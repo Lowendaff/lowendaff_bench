@@ -11,6 +11,7 @@ use std::time::Duration;
 use bench_api::CancellationToken;
 use bench_api::Context;
 use bench_api::Progress;
+use bench_api::Step;
 use bench_api::Stop;
 use bench_host::profile::HostProfile;
 use bench_tool::job;
@@ -29,7 +30,7 @@ const SYSBENCH: &str = "/tools/sysbench";
 struct Outcome {
     result: Result<Output, Stop<Failure>>,
     published: Option<Output>,
-    progress: Vec<String>,
+    progress: Vec<Step>,
     jobs: Vec<Job>,
 }
 
@@ -71,8 +72,8 @@ async fn measure(threads: usize, script: Vec<Result<job::Output, RunError>>) -> 
     assert!(script.borrow().is_empty(), "every scripted attempt ran");
     let mut progress = Vec::new();
     while let Ok(item) = channels.progress.try_recv() {
-        if let Progress::Line(line) = item {
-            progress.push(line);
+        if let Progress::Step(step) = item {
+            progress.push(step);
         }
     }
     let published = channels.published.borrow().clone();
@@ -149,7 +150,10 @@ async fn both_runs_are_measured_and_the_first_is_published() {
     };
     assert_eq!(outcome.result, Ok(both));
     assert_eq!(outcome.published, Some(first));
-    assert_eq!(outcome.progress, ["单线程测试", "多线程测试（4 线程）"]);
+    assert_eq!(
+        outcome.progress,
+        [Step::Test { threads: 1 }, Step::Test { threads: 4 }]
+    );
     assert_eq!(outcome.threads(), [1, 4]);
 }
 
@@ -158,7 +162,7 @@ async fn one_thread_runs_once() {
     let outcome = measure(1, vec![ran("1234.56")]).await;
     assert_eq!(outcome.result, Ok(single("1234.56", Vec::new())));
     assert_eq!(outcome.published, None, "the result is returned at once");
-    assert_eq!(outcome.progress, ["单线程测试"]);
+    assert_eq!(outcome.progress, [Step::Test { threads: 1 }]);
     assert_eq!(outcome.threads(), [1]);
 }
 

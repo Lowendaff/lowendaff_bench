@@ -10,6 +10,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use bench_api::Context;
+use bench_api::Step;
 use bench_api::Stop;
 use bench_host::storage::FilesystemKind;
 use bench_tool::job;
@@ -197,7 +198,7 @@ where
     };
     ctx.publish(&output);
 
-    ctx.progress("生成测试文件");
+    ctx.progress(Step::TestFile);
     let setup = match run(setup(program, file, size)).await {
         Ok(setup) => setup,
         Err(RunError::Fault(fault)) => {
@@ -215,7 +216,7 @@ where
 
     let block_sizes = BLOCK_SIZES.into_iter().flatten();
     for block_size in block_sizes {
-        ctx.progress(format!("{} 随机读写测试", block_size.to_uppercase()));
+        ctx.progress(Step::RandomReadWrite { block_size });
         let outcome = match run(test(program, file, size, block_size)).await {
             Ok(finished) => parse::outcome(&finished, &job_name(block_size)),
             Err(RunError::Fault(fault)) => Outcome::Failed(Fault::Tool(fault)),

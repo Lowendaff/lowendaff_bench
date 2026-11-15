@@ -13,6 +13,7 @@ use std::time::Duration;
 use bench_api::CancellationToken;
 use bench_api::Context;
 use bench_api::Progress;
+use bench_api::Step;
 use bench_api::Stop;
 use bench_host::profile::HostProfile;
 use bench_host::storage::FilesystemKind;
@@ -40,7 +41,7 @@ const GIB: u64 = 1024 * MIB;
 struct Measured {
     result: Result<Output, Stop<Failure>>,
     published: Option<Output>,
-    progress: Vec<String>,
+    progress: Vec<Step>,
     jobs: Vec<Job>,
 }
 
@@ -106,8 +107,8 @@ async fn measure(host: &Host, arch: &str, script: Vec<Result<job::Output, RunErr
     );
     let mut progress = Vec::new();
     while let Ok(item) = channels.progress.try_recv() {
-        if let Progress::Line(line) = item {
-            progress.push(line);
+        if let Progress::Step(step) = item {
+            progress.push(step);
         }
     }
     let published = channels.published.borrow().clone();
@@ -191,11 +192,11 @@ async fn the_setup_then_four_tests_in_yabss_order_and_each_is_published() {
     assert_eq!(
         measured.progress,
         [
-            "生成测试文件",
-            "4K 随机读写测试",
-            "64K 随机读写测试",
-            "512K 随机读写测试",
-            "1M 随机读写测试"
+            Step::TestFile,
+            Step::RandomReadWrite { block_size: "4k" },
+            Step::RandomReadWrite { block_size: "64k" },
+            Step::RandomReadWrite { block_size: "512k" },
+            Step::RandomReadWrite { block_size: "1m" }
         ]
     );
 }

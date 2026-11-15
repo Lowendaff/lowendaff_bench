@@ -8,6 +8,7 @@ use std::future::Future;
 use std::path::Path;
 
 use bench_api::Context;
+use bench_api::Step;
 use bench_api::Stop;
 use bench_host::numa::Threads;
 use bench_tool::job;
@@ -123,13 +124,19 @@ where
         let columns = matrix.columns.iter().zip(cells).enumerate();
         for (c, (&column, &cell)) in columns {
             let node = row.node;
-            ctx.progress(format!("线程在节点 {node}、内存在节点 {column} 的带宽测试"));
+            ctx.progress(Step::NodeBandwidth {
+                cpus: node,
+                memory: column,
+            });
             let job = bandwidth(&multiload, row, column, cell);
             let place = (node, column, Kind::Bandwidth);
             output.cells[r][c].bandwidth =
                 Some(measured(ctx, &run, &job, parse::bandwidth, place).await?);
             ctx.publish(&output);
-            ctx.progress(format!("线程在节点 {node}、内存在节点 {column} 的延迟测试"));
+            ctx.progress(Step::NodeLatency {
+                cpus: node,
+                memory: column,
+            });
             let job = latency(multichase, row, column, cell);
             let place = (node, column, Kind::Latency);
             output.cells[r][c].latency =

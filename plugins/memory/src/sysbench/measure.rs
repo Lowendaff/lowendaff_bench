@@ -8,6 +8,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use bench_api::Context;
+use bench_api::Step;
 use bench_api::Stop;
 use bench_tool::job;
 use bench_tool::job::Job;
@@ -91,14 +92,10 @@ where
     let columns = plan.columns();
     for operation in [Operation::Read, Operation::Write] {
         for &threads in &columns {
-            match (operation, threads) {
-                (Operation::Read, 1) => ctx.progress("单线程读取"),
-                (Operation::Read, threads) => ctx.progress(format!("多线程读取（{threads} 线程）")),
-                (Operation::Write, 1) => ctx.progress("单线程写入"),
-                (Operation::Write, threads) => {
-                    ctx.progress(format!("多线程写入（{threads} 线程）"));
-                }
-            }
+            ctx.progress(match operation {
+                Operation::Read => Step::Read { threads },
+                Operation::Write => Step::Write { threads },
+            });
             let block = if threads > 1 {
                 plan.per_thread
             } else {

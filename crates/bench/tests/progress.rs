@@ -19,6 +19,7 @@ use bench::provision::Provisioned;
 use bench::results::Measured;
 use bench_api::CancellationToken;
 use bench_api::Net;
+use bench_api::Step;
 use bench_api::ToolAsset;
 use bench_api::ToolEnd;
 use bench_api::ToolForm;
@@ -104,7 +105,7 @@ fn plugins_are_logged_by_id_in_the_reports_words() {
     let lines = logged(false, || {
         let mut log = Log;
         log.on_start("memory.stream");
-        log.on_progress("memory.stream", "single thread");
+        log.on_progress("memory.stream", Step::Test { threads: 1 });
         log.on_finish(&finished("memory.stream", Status::Completed, Some(21.3)));
         log.on_finish(&finished(
             "cpu.geekbench",
@@ -116,11 +117,50 @@ fn plugins_are_logged_by_id_in_the_reports_words() {
         lines,
         [
             "memory.stream started",
-            "memory.stream single thread",
+            "memory.stream single-thread test",
             "memory.stream done in 21.3 s",
             "cpu.geekbench skipped: needs an IPv4 connection",
         ]
     );
+}
+
+#[test]
+fn each_step_has_its_words() {
+    let steps = [
+        (Step::Test { threads: 1 }, "single-thread test"),
+        (Step::Test { threads: 4 }, "multi-thread test (4 threads)"),
+        (Step::Read { threads: 1 }, "single-thread read"),
+        (Step::Read { threads: 4 }, "multi-thread read (4 threads)"),
+        (Step::Write { threads: 1 }, "single-thread write"),
+        (Step::Write { threads: 4 }, "multi-thread write (4 threads)"),
+        (Step::TestFile, "creating the test file"),
+        (
+            Step::RandomReadWrite { block_size: "512k" },
+            "512K random read and write test",
+        ),
+        (Step::Cache { level: 2 }, "L2 test"),
+        (Step::MainMemory, "memory test"),
+        (
+            Step::NodeBandwidth { cpus: 0, memory: 1 },
+            "bandwidth test of threads on node 0 and memory on node 1",
+        ),
+        (
+            Step::NodeLatency { cpus: 1, memory: 0 },
+            "latency test of threads on node 1 and memory on node 0",
+        ),
+        (Step::RunAgain { run: 2 }, "the upload failed; run 2"),
+    ];
+    let lines = logged(false, || {
+        let mut log = Log;
+        for (step, _) in steps {
+            log.on_progress("test.item", step);
+        }
+    });
+    let expected: Vec<String> = steps
+        .iter()
+        .map(|(_, words)| format!("test.item {words}"))
+        .collect();
+    assert_eq!(lines, expected);
 }
 
 #[test]

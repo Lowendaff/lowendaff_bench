@@ -1,5 +1,6 @@
 //! The progress log's lines, on stderr; the lines that only `-v` shows say so.
 
+use bench_api::Step;
 use bench_api::ToolEnd;
 
 /// The progress log's lines.
@@ -21,8 +22,8 @@ pub trait LogWords {
     fn tool_failed(&self, tool: &str, version: &str, reason: &str) -> String;
     /// A test item that starts.
     fn item_started(&self, id: &str) -> String;
-    /// A progress line of a test item.
-    fn item_progress(&self, id: &str, line: &str) -> String;
+    /// A step that a test item starts.
+    fn item_progress(&self, id: &str, step: Step) -> String;
     /// How a test item ended, in the report's words.
     fn item_ended(&self, id: &str, status: &str) -> String;
     /// `-v`: a tool that a test item ran, its command, and how it ended.

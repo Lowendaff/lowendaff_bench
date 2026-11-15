@@ -11,6 +11,7 @@ use bench_api::Channels;
 use bench_api::Context;
 use bench_api::Measurement;
 use bench_api::Progress;
+use bench_api::Step;
 use bench_api::ToolEnd;
 use bench_api::ToolRun;
 use bench_api::ToolVersion;
@@ -60,20 +61,20 @@ fn the_last_publish_wins_and_nothing_is_published_at_first() {
 }
 
 #[test]
-fn progress_lines_and_tool_runs_arrive_in_order() {
+fn steps_and_tool_runs_arrive_in_order() {
     let (ctx, mut channels, _) = context();
     let run = ToolRun {
         command: vec!["probe".to_owned(), "--fast".to_owned()],
         end: ToolEnd::Exit(1),
         tail: vec!["no disk".to_owned()],
     };
-    ctx.progress("单线程测试");
+    ctx.progress(Step::Test { threads: 1 });
     ctx.ran(run.clone());
-    ctx.progress(String::from("多线程测试"));
-    let line = |text: &str| Ok(Progress::Line(text.to_owned()));
-    assert_eq!(channels.progress.try_recv(), line("单线程测试"));
+    ctx.progress(Step::Test { threads: 4 });
+    let step = |threads| Ok(Progress::Step(Step::Test { threads }));
+    assert_eq!(channels.progress.try_recv(), step(1));
     assert_eq!(channels.progress.try_recv(), Ok(Progress::Tool(run)));
-    assert_eq!(channels.progress.try_recv(), line("多线程测试"));
+    assert_eq!(channels.progress.try_recv(), step(4));
     assert!(
         channels.progress.try_recv().is_err(),
         "nothing else was sent"
@@ -84,7 +85,7 @@ fn progress_lines_and_tool_runs_arrive_in_order() {
 fn a_plugin_keeps_running_when_nobody_listens() {
     let (ctx, channels, _) = context();
     drop(channels);
-    ctx.progress("after the orchestrator stopped listening");
+    ctx.progress(Step::TestFile);
     ctx.ran(ToolRun {
         command: vec!["probe".to_owned()],
         end: ToolEnd::Cancelled,

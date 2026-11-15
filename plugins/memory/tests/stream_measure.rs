@@ -9,6 +9,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use bench_api::CancellationToken;
+use bench_api::Step;
 use bench_api::Stop;
 use bench_host::cache::CacheKind;
 use bench_tool::job;
@@ -26,7 +27,7 @@ const SMALLEST: &str = "/t/stream/stream-2m";
 struct Measured {
     result: Result<Output, Stop<Failure>>,
     published: Option<Output>,
-    progress: Vec<String>,
+    progress: Vec<Step>,
     jobs: Vec<Job>,
 }
 
@@ -99,7 +100,10 @@ async fn the_builds_arrays_with_one_thread_and_with_all_spread_over_the_nodes() 
         .collect();
     assert_eq!(copies, ["10000.1", "40000.1"], "Copy first");
     assert_eq!(measured.published.as_ref(), Some(output));
-    assert_eq!(measured.progress, ["单线程测试", "多线程测试（4 线程）"]);
+    assert_eq!(
+        measured.progress,
+        [Step::Test { threads: 1 }, Step::Test { threads: 4 }]
+    );
 
     let build = PathBuf::from("/t/stream/stream-8m");
     assert!(measured.jobs.iter().all(|job| job.program == build));

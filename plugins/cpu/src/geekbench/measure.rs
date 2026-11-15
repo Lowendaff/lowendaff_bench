@@ -12,6 +12,7 @@ use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use bench_api::Context;
+use bench_api::Step;
 use bench_tool::job;
 use bench_tool::job::Adjustment;
 use bench_tool::job::Job;
@@ -86,7 +87,7 @@ where
     let once = || async {
         let number = runs.fetch_add(1, Ordering::Relaxed) + 1;
         if number > 1 {
-            ctx.progress(format!("上传失败，第 {number} 次运行"));
+            ctx.progress(Step::RunAgain { run: number });
         }
         let ran = run(attempt(program, ctx.work_dir())).await;
         if let Some(adjustment) = &ran.outcome.adjustment

@@ -7,6 +7,7 @@ use std::future::Future;
 use std::path::Path;
 
 use bench_api::Context;
+use bench_api::Step;
 use bench_api::Stop;
 use bench_tool::job;
 use bench_tool::job::Job;
@@ -72,12 +73,12 @@ where
     };
     let chases = plan.chases.iter().enumerate();
     for (index, chase) in chases {
-        match chase.level {
-            Level::L1 => ctx.progress("L1 测试"),
-            Level::L2 => ctx.progress("L2 测试"),
-            Level::L3 => ctx.progress("L3 测试"),
-            Level::Memory => ctx.progress("内存测试"),
-        }
+        ctx.progress(match chase.level {
+            Level::L1 => Step::Cache { level: 1 },
+            Level::L2 => Step::Cache { level: 2 },
+            Level::L3 => Step::Cache { level: 3 },
+            Level::Memory => Step::MainMemory,
+        });
         match crate::tried(ctx, &run, &job(program, chase.buffer), parse::latency).await {
             Tried::Done(latency, retries) => {
                 let row = &mut output.rows[index];

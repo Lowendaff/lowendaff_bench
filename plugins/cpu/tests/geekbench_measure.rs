@@ -11,6 +11,7 @@ use std::time::Duration;
 use bench_api::CancellationToken;
 use bench_api::Context;
 use bench_api::Progress;
+use bench_api::Step;
 use bench_host::profile::HostProfile;
 use bench_tool::job;
 use bench_tool::job::Adjustment;
@@ -32,7 +33,7 @@ struct Outcome {
     output: Output,
     result: Result<(), Failure>,
     published: Option<Output>,
-    progress: Vec<String>,
+    progress: Vec<Step>,
     jobs: Vec<Job>,
     work_dir: PathBuf,
 }
@@ -70,8 +71,8 @@ async fn measure(script: Vec<Ran>, cancel_after_first: bool) -> Outcome {
     );
     let mut progress = Vec::new();
     while let Ok(item) = channels.progress.try_recv() {
-        if let Progress::Line(line) = item {
-            progress.push(line);
+        if let Progress::Step(step) = item {
+            progress.push(step);
         }
     }
     let published = channels.published.borrow().clone();
@@ -181,7 +182,7 @@ async fn failed_uploads_are_run_again_30_seconds_later() {
     );
     assert_eq!(
         outcome.progress,
-        ["上传失败，第 2 次运行", "上传失败，第 3 次运行"]
+        [Step::RunAgain { run: 2 }, Step::RunAgain { run: 3 }]
     );
 }
 

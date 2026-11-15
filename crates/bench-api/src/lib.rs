@@ -159,10 +159,64 @@ pub struct ToolVersion {
 /// What a plugin reports while it runs, for the progress log on stderr.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Progress {
-    /// A line of the plugin's own, in Chinese.
-    Line(String),
+    /// The step it starts.
+    Step(Step),
     /// A tool it ran, which the log shows with `-v`.
     Tool(ToolRun),
+}
+
+/// A step of a plugin's run, for the progress log. It holds no words: the program writes them,
+/// in its user's language.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Step {
+    /// A test with this many threads; with one, the single-thread test.
+    Test {
+        /// The threads that run it.
+        threads: usize,
+    },
+    /// Reading memory with this many threads.
+    Read {
+        /// The threads that read.
+        threads: usize,
+    },
+    /// Writing memory with this many threads.
+    Write {
+        /// The threads that write.
+        threads: usize,
+    },
+    /// Creating the file that the disk test reads and writes.
+    TestFile,
+    /// The random read and write test at one block size.
+    RandomReadWrite {
+        /// The block size as fio takes it, such as `4k`.
+        block_size: &'static str,
+    },
+    /// The latency of a cache level.
+    Cache {
+        /// 1 for L1, 2 for L2, 3 for L3.
+        level: u8,
+    },
+    /// The latency of main memory.
+    MainMemory,
+    /// The bandwidth from the CPUs of one NUMA node to the memory of another, or of the same.
+    NodeBandwidth {
+        /// The node whose CPUs run the threads.
+        cpus: usize,
+        /// The node that holds the memory.
+        memory: usize,
+    },
+    /// The latency from the CPUs of one NUMA node to the memory of another, or of the same.
+    NodeLatency {
+        /// The node whose CPUs run the threads.
+        cpus: usize,
+        /// The node that holds the memory.
+        memory: usize,
+    },
+    /// A run again after the upload of the last one failed.
+    RunAgain {
+        /// The run's number, from 2.
+        run: usize,
+    },
 }
 
 /// A tool that a plugin ran: its command, how it ended, and what it printed last when it did
@@ -295,14 +349,14 @@ impl<O: Measurement> Context<O> {
         self.deadline
     }
 
-    /// One line of progress, in Chinese, for the log on stderr. A line that arrives after the
+    /// The step that the plugin starts, for the log on stderr. A step that arrives after the
     /// orchestrator stopped listening is dropped.
-    pub fn progress(&self, text: impl Into<String>) {
-        let _ = self.progress.send(Progress::Line(text.into()));
+    pub fn progress(&self, step: Step) {
+        let _ = self.progress.send(Progress::Step(step));
     }
 
-    /// A tool that the plugin ran, for the log with `-v`; dropped like a progress line when
-    /// nobody listens.
+    /// A tool that the plugin ran, for the log with `-v`; dropped like a step when nobody
+    /// listens.
     pub fn ran(&self, run: ToolRun) {
         let _ = self.progress.send(Progress::Tool(run));
     }

@@ -5,6 +5,7 @@ use std::fmt;
 use std::io;
 use std::time::Instant;
 
+use bench_api::Step;
 use bench_api::ToolRun;
 use bench_api::ToolSpec;
 use bench_host::network::Network;
@@ -112,8 +113,8 @@ pub fn tools(tools: &[ToolSpec], provisioned: &Provisioned) {
     }
 }
 
-/// Logs each plugin's start, its progress lines, its tools' runs with `-v`, and how it ended, in
-/// the report's words.
+/// Logs each plugin's start, its steps, its tools' runs with `-v`, and how it ended, in the
+/// report's words.
 pub struct Log;
 
 impl Observer<Measured> for Log {
@@ -121,8 +122,8 @@ impl Observer<Measured> for Log {
         tracing::info!("{}", locale::words().item_started(id));
     }
 
-    fn on_progress(&mut self, id: &'static str, line: &str) {
-        tracing::info!("{}", locale::words().item_progress(id, line));
+    fn on_progress(&mut self, id: &'static str, step: Step) {
+        tracing::info!("{}", locale::words().item_progress(id, step));
     }
 
     fn on_tool(&mut self, id: &'static str, run: &ToolRun) {

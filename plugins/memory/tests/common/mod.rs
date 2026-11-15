@@ -18,6 +18,7 @@ use bench_api::Channels;
 use bench_api::Context;
 use bench_api::Measurement;
 use bench_api::Progress;
+use bench_api::Step;
 use bench_host::cache::Cache;
 use bench_host::cache::CacheKind;
 use bench_host::numa::Layout;
@@ -117,15 +118,15 @@ pub fn context<O: Measurement>(cancel: &CancellationToken) -> (Context<O>, Chann
     )
 }
 
-/// The last result published through `channels`, and the progress lines.
-pub fn drained<O: Measurement>(channels: &mut Channels<O>) -> (Option<O>, Vec<String>) {
-    let mut lines = Vec::new();
+/// The last result published through `channels`, and the steps.
+pub fn drained<O: Measurement>(channels: &mut Channels<O>) -> (Option<O>, Vec<Step>) {
+    let mut steps = Vec::new();
     while let Ok(item) = channels.progress.try_recv() {
-        if let Progress::Line(line) = item {
-            lines.push(line);
+        if let Progress::Step(step) = item {
+            steps.push(step);
         }
     }
-    (channels.published.borrow().clone(), lines)
+    (channels.published.borrow().clone(), steps)
 }
 
 /// A cache instance.
