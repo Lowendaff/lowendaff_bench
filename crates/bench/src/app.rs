@@ -220,10 +220,14 @@ where
     W: Write,
 {
     let started = Instant::now();
+    // Absolute and without `.` components: tempfile joins a relative directory to the current
+    // one as it is, which left `/./` in every path under it, such as fio's test file.
+    let work_dir = std::path::absolute(work_dir)
+        .map_err(|err| locale::words().run_dir_failed(work_dir, &err))?;
     let run_dir = tempfile::Builder::new()
         .prefix("lowendaff-bench-")
-        .tempdir_in(work_dir)
-        .map_err(|err| locale::words().run_dir_failed(work_dir, &err))?;
+        .tempdir_in(&work_dir)
+        .map_err(|err| locale::words().run_dir_failed(&work_dir, &err))?;
     let (planned, not_applicable) = orchestrator::for_host(planned, &host);
 
     // Only the tools of items this host can run, so that nothing is downloaded in vain, such

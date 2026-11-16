@@ -78,5 +78,5 @@ output=$(smoke) || fail "smoke.sh rejected the unchanged binary: $output"
 mutant "non-root run" crates/bench/src/main.rs \
     's/if !rustix::process::geteuid\(\)\.is_root\(\) \{/if false {/'
 mutant "run directory left behind" crates/bench/src/app.rs \
-    's/\.tempdir_in\(work_dir\)/.disable_cleanup(true).tempdir_in(work_dir)/'
+    's/\.tempdir_in\(&work_dir\)/.disable_cleanup(true).tempdir_in(&work_dir)/'
 echo "smoke-mutants: ok"

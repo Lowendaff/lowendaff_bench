@@ -247,6 +247,68 @@ async fn run(
     (code, report, log.lines())
 }
 
+/// Notes the work directory that its context hands it.
+#[derive(Default, Deserialize)]
+struct ShowsWorkDir {
+    #[serde(skip)]
+    seen: Arc<Mutex<Option<PathBuf>>>,
+}
+
+impl Plugin for ShowsWorkDir {
+    type Output = Output;
+    type Failure = Failure;
+    const DESCRIPTOR: Descriptor = descriptor("test.work-dir");
+
+    async fn run(&self, ctx: &Context<Output>) -> Result<Output, Stop<Failure>> {
+        let dir = ctx.work_dir().to_path_buf();
+        *self.seen.lock().expect("nothing panics while holding it") = Some(dir);
+        Ok(Output::default())
+    }
+}
+
+#[tokio::test]
+async fn a_work_directory_given_with_dots_leaves_none_in_the_paths_under_it() {
+    let work = tempfile::tempdir().expect("a work directory for the run");
+    let seen = Arc::default();
+    let plugin = ShowsWorkDir {
+        seen: Arc::clone(&seen),
+    };
+    let downloads = Downloads::default();
+    let mut out = Vec::new();
+    let report = ReportOptions {
+        out: &mut out,
+        width: None,
+        show_ip: false,
+    };
+    // Captured, so that no test logs while another listens (see `common`).
+    let (_log, capturing) = Captured::start(false);
+    let code = app::execute(
+        vec![Planned::new(plugin, Measured::CpuGeekbench)],
+        HostProfile::default(),
+        &work.path().join(".").join("."),
+        &CancellationToken::new(),
+        |url, range| downloads.open(url, range),
+        1,
+        report,
+    )
+    .await
+    .expect("the run starts");
+    drop(capturing);
+
+    assert_eq!(code, 0);
+    let seen = seen
+        .lock()
+        .expect("nothing panics while holding it")
+        .clone()
+        .expect("the plugin ran");
+    let shown = seen.to_string_lossy();
+    assert!(!shown.contains("/./"), "{shown}");
+    let run_dir = seen
+        .parent()
+        .expect("the plugin's directory is in the run directory");
+    assert_eq!(run_dir.parent(), Some(work.path()), "{shown}");
+}
+
 /// [`run`] without downloads, with the report as in a file and the addresses masked.
 async fn execute(
     planned: Vec<Planned<Measured>>,
