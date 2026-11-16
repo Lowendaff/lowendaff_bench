@@ -21,6 +21,7 @@ use bench::provision;
 use bench::provision::DownloadError;
 use bench::provision::MIN_RANGE;
 use bench::provision::Part;
+use bench::provision::Provisioned;
 use bench::registry;
 use bench::results::Measured;
 use bench::results::Report;
@@ -39,6 +40,7 @@ use plugin_disk::fio;
 use serde::Deserialize;
 use sha2::Digest;
 use sha2::Sha256;
+use tokio::io::AsyncRead;
 use tokio::io::ReadBuf;
 use tokio::time::Instant;
 
@@ -170,6 +172,27 @@ const SYSBENCH: ToolSpec = ToolSpec {
     }],
 };
 
+/// Provisions as the program does, over up to 32 connections, while holding a capture of the log
+/// that nobody reads: tests that log take turns, so that none logs while another listens (see
+/// `common`).
+async fn provision_in_turn<F, Fut, R>(
+    tools: &[ToolSpec],
+    arch: &str,
+    dir: &Path,
+    cancel: &CancellationToken,
+    fetch: F,
+) -> Provisioned
+where
+    F: Fn(&'static str, Option<Range<u64>>) -> Fut,
+    Fut: Future<Output = Result<Part<R>, DownloadError>>,
+    R: AsyncRead + Unpin,
+{
+    let (_log, capturing) = Captured::start(false);
+    let provisioned = provision::provision_all(tools, arch, dir, 32, cancel, fetch).await;
+    drop(capturing);
+    provisioned
+}
+
 #[tokio::test]
 async fn provision_all_reports_every_failure_with_its_reason() {
     let dir = tempfile::tempdir().unwrap();
@@ -180,11 +203,10 @@ async fn provision_all_reports_every_failure_with_its_reason() {
             Err(DownloadError::Final("HTTP 404".to_owned()))
         }
     };
-    let provisioned = provision::provision_all(
+    let provisioned = provision_in_turn(
         &[FIO, IPERF3_ARM_ONLY, SYSBENCH],
         "x86_64",
         dir.path(),
-        32,
         &CancellationToken::new(),
         fetch,
     )
@@ -267,11 +289,10 @@ async fn a_plugin_runs_the_tool_it_was_provisioned_with() {
     let registry = [registry::entry::<RunsFio>(Measured::DiskFio)];
     let planned = orchestrator::plan(&registry, &["disk.fio"], &BTreeMap::new()).unwrap();
     let tools = provision::required_tools(planned.iter().map(|planned| *planned.requires()));
-    let provisioned = provision::provision_all(
+    let provisioned = provision_in_turn(
         &tools,
         std::env::consts::ARCH,
         run_dir.path(),
-        32,
         &CancellationToken::new(),
         |_, _| async { Ok::<_, DownloadError>(Part::Whole(SCRIPT)) },
     )
@@ -927,11 +948,10 @@ async fn ctrl_c_during_a_wait_ends_the_download_at_once() {
     };
     let started = Instant::now();
 
-    let provisioned = provision::provision_all(
+    let provisioned = provision_in_turn(
         &[pinned_to(body)],
         "x86_64",
         dir.path(),
-        32,
         &cancel,
         |_, range| served.open(range),
     )
@@ -969,8 +989,7 @@ async fn ctrl_c_stops_the_download_under_way_and_the_tools_after_it() {
         }
     };
 
-    let provisioned =
-        provision::provision_all(&[big, FIO], "x86_64", dir.path(), 32, &cancel, fetch).await;
+    let provisioned = provision_in_turn(&[big, FIO], "x86_64", dir.path(), &cancel, fetch).await;
 
     assert_eq!(provisioned.ready, BTreeMap::new());
     assert_eq!(
@@ -1005,8 +1024,7 @@ async fn nothing_is_downloaded_after_ctrl_c() {
         Err::<Part<&[u8]>, DownloadError>(DownloadError::Final(format!("asked for {url}")))
     };
 
-    let provisioned =
-        provision::provision_all(&[FIO], "x86_64", dir.path(), 32, &cancel, fetch).await;
+    let provisioned = provision_in_turn(&[FIO], "x86_64", dir.path(), &cancel, fetch).await;
 
     assert!(
         provisioned.ready.is_empty() && provisioned.failed.is_empty(),

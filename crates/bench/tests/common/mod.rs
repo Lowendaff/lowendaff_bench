@@ -11,7 +11,9 @@ use tracing::subscriber::DefaultGuard;
 
 /// One capture at a time in a test process. tracing records, for the whole process, which events
 /// anyone listens to; a capture that starts on one thread while an event is first seen on
-/// another can leave that event unheard when tests share a process, as under `cargo test`.
+/// another can leave that event unheard when tests share a process, as under `cargo test`. A test
+/// that logs without a capture is such another thread, so in a test binary that captures, every
+/// test that logs captures too, even when it reads nothing.
 static ONE_AT_A_TIME: Mutex<()> = Mutex::new(());
 
 /// What the program logged on this thread.
