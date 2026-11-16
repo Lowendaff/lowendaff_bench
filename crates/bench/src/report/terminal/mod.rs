@@ -145,6 +145,18 @@ impl Out {
     /// A table without borders: columns two spaces apart, those holding only numbers aligned to
     /// the right, wrapped to the terminal's width when there is one.
     fn table(&mut self, indent: &str, headers: &[String], rows: &[Vec<String>]) {
+        self.draw(indent, headers, rows, true);
+    }
+
+    /// A table as [`Out::table`] draws it, with every column aligned to the left: for a table
+    /// whose columns hold plain numbers on some hosts and units or words on others, so that its
+    /// layout does not change with the host, nor a lone count stand far from its row.
+    fn table_left(&mut self, indent: &str, headers: &[String], rows: &[Vec<String>]) {
+        self.draw(indent, headers, rows, false);
+    }
+
+    /// Draws a table; with `numbers`, a column that holds only numbers is aligned to the right.
+    fn draw(&mut self, indent: &str, headers: &[String], rows: &[Vec<String>], numbers: bool) {
         let mut table = Table::new();
         table.load_style(presets::NOTHING);
         table.set_header(headers);
@@ -154,7 +166,8 @@ impl Out {
         let last = headers.len().saturating_sub(1);
         for (index, column) in table.column_iter_mut().enumerate() {
             column.set_padding((0, if index == last { 0 } else { 2 }));
-            let numeric = !rows.is_empty()
+            let numeric = numbers
+                && !rows.is_empty()
                 && rows
                     .iter()
                     .all(|row| row.get(index).is_some_and(|cell| is_number(cell)));

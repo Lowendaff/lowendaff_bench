@@ -50,7 +50,7 @@ pub(super) fn health(
             .iter()
             .map(|disk| cells(disk, with_host))
             .collect();
-        out.table(indent, &headers, &rows);
+        out.table_left(indent, &headers, &rows);
         for disk in &output.disks {
             let name = location(&disk.location, with_host);
             if let Some(note) = note(&name, &disk.health) {

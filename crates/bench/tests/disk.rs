@@ -114,10 +114,10 @@ fn the_owners_server_shows_four_disks_with_their_values() {
     for line in [
         "  smartctl 7.5",
         "  Device  Health  Power-on  Temp.  Worn  Written   Bad blocks  Link errors",
-        "  sda     passed  46167 h   25 °C  23%   48.2 TB   0 / —                 3",
-        "  sdb     passed  38112 h   28 °C  49%   169.0 TB  380 / —               0",
-        "  sdc     passed  53544 h   27 °C  79%   277.2 TB  0 / —                 0",
-        "  sdd     passed  35124 h   27 °C  30%   155.6 TB  13 / —                0",
+        "  sda     passed  46167 h   25 °C  23%   48.2 TB   0 / —       3",
+        "  sdb     passed  38112 h   28 °C  49%   169.0 TB  380 / —     0",
+        "  sdc     passed  53544 h   27 °C  79%   277.2 TB  0 / —       0",
+        "  sdd     passed  35124 h   27 °C  30%   155.6 TB  13 / —      0",
         "  done in 0.4 s",
     ] {
         assert!(shows(&text, line), "{line:?} in {text}");
