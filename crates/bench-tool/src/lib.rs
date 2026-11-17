@@ -64,6 +64,34 @@ pub const GEEKBENCH: ToolSpec = ToolSpec {
     ],
 };
 
+/// iperf3 3.22 from the release `iperf3-3.22-1`, which the tools workflow built and published:
+/// static, without OpenSSL and so without iperf3's authentication code, and without SCTP.
+pub const IPERF3: ToolSpec = ToolSpec {
+    name: "iperf3",
+    version: "3.22",
+    form: ToolForm::Executable,
+    assets: &[
+        ToolAsset {
+            arch: "x86_64",
+            url: concat!(
+                "https://github.com/Lowendaff/lowendaff_bench/releases/download/iperf3-3.22-1/",
+                "iperf3-x86_64"
+            ),
+            sha256: "d3ae394c3b8d2a16c18b86d223339887062881cd89fcd27f3650144c804c9355",
+            size: 253_848,
+        },
+        ToolAsset {
+            arch: "aarch64",
+            url: concat!(
+                "https://github.com/Lowendaff/lowendaff_bench/releases/download/iperf3-3.22-1/",
+                "iperf3-aarch64"
+            ),
+            sha256: "2d82185e2706cce73a01f90f43bbf4e231032af06bba1b5fc8255cb5039865b4",
+            size: 265_992,
+        },
+    ],
+};
+
 /// multichase and multiload from the release `multichase-2026.10.01-1`.
 pub const MULTICHASE: ToolSpec = ToolSpec {
     name: "multichase",
