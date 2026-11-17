@@ -149,6 +149,22 @@ fn each_step_has_its_words() {
             "latency test of threads on node 1 and memory on node 0",
         ),
         (Step::RunAgain { run: 2 }, "the upload failed; run 2"),
+        (
+            Step::Upload {
+                location: "Tokyo",
+                country: "JP",
+                ipv6: false,
+            },
+            "upload to Tokyo, JP over IPv4",
+        ),
+        (
+            Step::Download {
+                location: "Frankfurt",
+                country: "DE",
+                ipv6: true,
+            },
+            "download from Frankfurt, DE over IPv6",
+        ),
     ];
     let lines = logged(false, || {
         let mut log = Log;

@@ -59,6 +59,16 @@ impl LogWords for English {
             Step::NodeBandwidth { cpus, memory } => self.numa_run(cpus, memory, Probe::Bandwidth),
             Step::NodeLatency { cpus, memory } => self.numa_run(cpus, memory, Probe::Latency),
             Step::RunAgain { run } => format!("the upload failed; run {run}"),
+            Step::Upload {
+                location,
+                country,
+                ipv6,
+            } => format!("upload to {location}, {country} over {}", family(ipv6)),
+            Step::Download {
+                location,
+                country,
+                ipv6,
+            } => format!("download from {location}, {country} over {}", family(ipv6)),
         };
         format!("{id} {step}")
     }
@@ -89,4 +99,9 @@ impl LogWords for English {
         "Interrupt received: stopping the current test; press Ctrl-C again to exit at once"
             .to_owned()
     }
+}
+
+/// The name of a network family: IPv6's, or else IPv4's.
+fn family(ipv6: bool) -> &'static str {
+    if ipv6 { "IPv6" } else { "IPv4" }
 }

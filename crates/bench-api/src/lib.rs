@@ -237,6 +237,24 @@ pub enum Step {
         /// The run's number, from 2.
         run: usize,
     },
+    /// The upload to a server of the network test.
+    Upload {
+        /// The server's place, as its list names it.
+        location: &'static str,
+        /// The country of the server's place, as its list names it.
+        country: &'static str,
+        /// Whether the test runs over IPv6, else over IPv4.
+        ipv6: bool,
+    },
+    /// The download from a server of the network test.
+    Download {
+        /// The server's place, as its list names it.
+        location: &'static str,
+        /// The country of the server's place, as its list names it.
+        country: &'static str,
+        /// Whether the test runs over IPv6, else over IPv4.
+        ipv6: bool,
+    },
 }
 
 /// A tool that a plugin ran: its command, how it ended, and what it printed last when it did
