@@ -11,8 +11,8 @@ A comprehensive test tool for Linux servers, virtual or dedicated, written in Ru
 The program prints in English. Every word it prints comes from one message catalog in
 `crates/bench/src/locale/`, so another language needs only a catalog of its own.
 
-**Status:** eight test items, each a plugin with a result of its own type: disk health, CPU
-performance, four items of memory performance, disk performance and Geekbench 7.
+**Status:** nine test items, each a plugin with a result of its own type: disk health, CPU
+performance, four items of memory performance, disk performance, network speed and Geekbench 7.
 [`CONTRIBUTING.md`](CONTRIBUTING.md) holds the layout of the code, the steps to add a test item
 and the conventions for code, commits and pull requests.
 
@@ -34,6 +34,7 @@ the items by group, and where each applies.
 | Memory latency (`memory.latency`) | multichase's latency in each cache level and in memory |
 | Memory NUMA (`memory.numa`) | Machines with two usable NUMA nodes or more: the bandwidth (multiload's stream-triad) and the latency from each node's CPUs to each node's memory |
 | Disk performance (`disk.fio`) | Speed and IOPS of the test directory's filesystem, measured with fio exactly as YABS does: mixed random reads and writes (50/50) at 4K, 64K, 512K and 1M. Skipped on a RAM disk or without enough free space |
+| Network speed (`network.iperf3`) | iperf3's TCP throughput each way, and the latency, between the host and public iperf3 servers, as YABS measures them: over IPv4, then over IPv6 when the host has it, an upload and a download of 10 seconds over 8 streams to each server, by default those of Los Angeles, New York, Virginia, Tokyo and Frankfurt. About 5 GB of traffic per server at 1 Gbit/s ("Network speed" below); `--skip network` leaves it out |
 | Geekbench 7 (`cpu.geekbench`) | Geekbench 7's single- and multi-core scores and the public result link. The free version uploads every result to the Geekbench Browser; `--skip cpu.geekbench` leaves it out. Needs IPv4 and glibc 2.35 or later, and adds temporary swap when memory is short |
 
 The four memory items make up the report's memory section. Each reads the available memory when
@@ -49,15 +50,17 @@ sudo lowendaff-bench --config bench.toml       # per-item settings: [plugins."<i
 sudo lowendaff-bench -v                        # log more detail: each download and each tool run
 sudo lowendaff-bench --show-ip                 # show the public addresses in full
 sudo lowendaff-bench --download-connections 8  # at most 8 connections per download (default 32)
+sudo lowendaff-bench --countries JP,DE         # the network test's servers in these countries
 ```
 
 - **Output.** The progress log on stderr has one line per event, after the time since the start:
   the host and its network, the tools' downloads, and each item's start, steps and end; `-v` adds
   each download's address, its number of byte ranges and its retries, and each tool's command and
   exit code, with its last lines when it fails, except for Geekbench and smartctl, whose output
-  holds a result's claim link or the disks' serial numbers. The report follows on stdout once
-  every item is done: the system information, a section for each group (CPU, memory, disks) and a
-  summary of how each item ended. On a terminal, its tables wrap to the terminal's width. After
+  holds a result's claim link or the disks' serial numbers, and iperf3, whose output names the
+  host's own address. The report follows on stdout once every item is done: the system
+  information, a section for each group (CPU, memory, disks, network) and a summary of how each
+  item ended. On a terminal, its tables wrap to the terminal's width. After
   Ctrl-C the report holds what finished, and the rest is marked interrupted.
 - **Public addresses.** Each address family that reaches the Internet asks Cloudflare, ipify and
   icanhazip in turn, without a proxy, for the address they see; the first valid answer counts.
@@ -70,7 +73,8 @@ sudo lowendaff-bench --download-connections 8  # at most 8 connections per downl
   - `0`: the run finished;
   - `2`: usage or config error, or not root;
   - `130`: interrupted.
-- **Downloads.** Before the first item runs, the program downloads the tools that the items need.
+- **Downloads.** Before the first item runs, the program downloads the tools that the items need,
+  and the files that they ask for, such as the network test's server list.
   A file of 2 MiB or more comes in byte ranges over up to 32 connections at once
   (`--download-connections` sets the number, from 1 to 256), when its server serves ranges: a slow
   route often limits each connection rather than the host. Each range must come back exactly as
@@ -88,6 +92,45 @@ sudo lowendaff-bench --download-connections 8  # at most 8 connections per downl
   `sudo`, which drops most of the caller's environment. A proxy cannot change a tool, since each
   is pinned by SHA-256 and size. A download that fails on the network names the proxy variable
   that is set, or suggests setting one. The network checks at start connect directly.
+
+## Network speed
+
+The network test (`network.iperf3`) runs iperf3 as YABS does. Over IPv4, then over IPv6 when the
+host reaches the Internet over it, each server gets an upload of 10 seconds over 8 streams, a
+second's pause, then a download: `iperf3 -4|-6 -c <server> -p <port> -P 8 -t 10 -J`, with `-R`
+for the download. A run that fails, such as on a server that is busy with another client, is
+tried again 2 seconds later on another port of the server, up to three times; a server that no
+port answers gets no download. The upload shows the speed that the server received, the download
+the speed that the host received, and the latency is the smallest round-trip time that the
+host's kernel saw during the upload. iperf3 runs as the unprivileged user 65534 (`nobody`), since
+the servers are third parties.
+
+- **Traffic.** Each server moves about 5 GB at 1 Gbit/s, over both families and directions: about
+  25 GB for the five default servers, ten times as much on a 10 Gbit/s host. On a host that pays
+  for its traffic, choose fewer servers, or leave the test out with `--skip network`.
+- **The servers.** They are listed in `servers/iperf3.json` in this repository, which the program
+  downloads at each run from
+  `https://raw.githubusercontent.com/Lowendaff/lowendaff_bench/main/servers/iperf3.json`, so that a
+  server that disappears is replaced without a new release. The list holds, for each location, the
+  first of its reviewed candidates in `servers/iperf3-candidates.json` that
+  [iperf3serverlist.net](https://iperf3serverlist.net), which checks its servers every 15 minutes,
+  still lists; `scripts/iperf3-servers.sh update` writes it, and no one edits it by hand. A
+  location without such a candidate is left out. The program checks the list's rules before it
+  uses it (`scripts/iperf3-servers.sh` names them), and CI checks them in every pull request.
+- **Choosing servers.** By default, the servers that the list marks as defaults. `--countries`
+  takes ISO 3166 codes in any case, separated by commas, or `all`: every server of those
+  countries, instead of the defaults. A code without a server in the list gets a note.
+- **Settings.** The table `[plugins."network.iperf3"]` of the config file may set:
+
+  ```toml
+  [plugins."network.iperf3"]
+  countries = ["US", "JP"]   # as --countries, which wins over it
+  servers = ["tokyo"]        # by the list's ids; wins over the countries
+  list = "my-servers.json"   # another list in the same format: a path, or an https address
+  seconds = 10               # each way
+  streams = 8
+  rate = 100                 # Mbit/s that a stream sends at most; no limit when left out
+  ```
 
 ## Build
 
@@ -119,11 +162,13 @@ commands. Run them locally before pushing.
 | Commit messages | `scripts/check-commits.sh origin/main HEAD`; CI adds the title | any host |
 | Rule tests | `ast-grep test` (cases in `ast-grep/tests/`) | any host |
 | Rules | `ast-grep scan` (rules in `ast-grep/rules/`, config in `sgconfig.yml`), then `scripts/check-docs-cases.sh` and `scripts/check-docs.sh`: no tracked file holds CJK characters, except the catalog of another language in `crates/bench/src/locale/<language>/`, and no tracked file outside the fixture data points into the design documents | any host |
+| Server list | `scripts/iperf3-servers-cases.sh`, then `scripts/iperf3-servers.sh check`: the network test's server list and its candidates follow their rules, the list holds candidates only, and nothing builds from it; the cases include the fixtures that the program's reader reads too | any host with jq |
 | Static build | `cargo build --release --locked --target <arch>-unknown-linux-musl --bin lowendaff-bench` | Linux |
 | Swap round trip | `cargo build --release --locked --target <arch>-unknown-linux-musl -p swap-file --example roundtrip`, then `sudo target/<arch>-unknown-linux-musl/release/examples/roundtrip <dir>`: turns a 64 MiB swap file in `<dir>` on and off | Linux, with sudo, on a filesystem that holds swap files, such as ext4 |
-| Smoke | `scripts/smoke.sh target/<arch>-unknown-linux-musl/release/lowendaff-bench --skip cpu.geekbench`: a full run without Geekbench 7, which would publish a result, in which no test item is skipped, fails or times out, with the report on stdout and the progress log on stderr, then a short run that must find the public IPv4 address without the proxy that the environment names | Linux, as root or with sudo, with network access (it downloads sysbench, STREAM, multichase and fio) |
-| Smoke mutants | `scripts/smoke-mutants.sh <arch>-unknown-linux-musl`: smoke must reject deliberately broken builds; these runs skip the groups cpu, memory and disk (`--skip cpu,memory,disk`) | Linux, as root or with sudo |
+| Smoke | `scripts/smoke-iperf3.sh <dir>`, which starts an iperf3 server of the pinned build on 127.0.0.1 and writes a server list naming it and a config file, then `scripts/smoke.sh target/<arch>-unknown-linux-musl/release/lowendaff-bench --skip cpu.geekbench --config <dir>/config.toml`: a full run without Geekbench 7, which would publish a result, in which no test item is skipped, fails or times out, with the network test against that server only, the report on stdout and the progress log on stderr, then a short run that must find the public IPv4 address without the proxy that the environment names | Linux, as root or with sudo, with network access (it downloads sysbench, STREAM, multichase, fio and iperf3) |
+| Smoke mutants | `scripts/smoke-mutants.sh <arch>-unknown-linux-musl`: smoke must reject deliberately broken builds; these runs skip the groups cpu, memory, disk and network (`--skip cpu,memory,disk,network`) | Linux, as root or with sudo |
 | Distributions | `scripts/distros.sh target/<arch>-unknown-linux-musl/release/lowendaff-bench ghcr.io/lowendaff/mirror`: the system information of a run with every test item skipped, in the images of `scripts/distros.txt`, 12 distributions (13 on x86_64), pulled from their copies on GHCR, with the uptime and load marked as the host's, and Geekbench 7 there without a network, which must skip for the image's glibc; without the last argument, from the original registries | Linux or macOS with Docker; the copies need `docker login ghcr.io` |
+| Network speed, not required | `scripts/network-check.sh <build> servers/iperf3.json`: the network test against one or two servers of the list, chosen at random, 3 seconds over 2 streams of at most 100 Mbit/s each (300 MB at most); it fails only when the program misbehaves, and a server that is busy or cannot be reached shows in the job's summary. CI runs it in the job `network speed against public servers` with the x86_64 build of the test job, which no merge waits for | Linux, as root or with sudo, with network access |
 
 `<arch>` is `x86_64` or `aarch64`.
 
@@ -183,6 +228,7 @@ repository builds the tools and publishes them as immutable GitHub releases, exc
 | Tool | Version | License | Used by | Release |
 |------|---------|---------|---------|---------|
 | fio, with libaio 0.3.113 linked statically | 3.43 | GPL-2.0; libaio LGPL-2.1 | Disk performance (`disk.fio`) | `fio-3.43-2` |
+| iperf3, without OpenSSL, so without its authentication code, and without SCTP | 3.22 | BSD-3-Clause, with the notices of the code it bundles | Network speed (`network.iperf3`) | `iperf3-3.22-1` |
 | smartctl, from smartmontools | 7.5 | GPL-2.0-or-later | Disk health (`disk.health`) | `smartctl-7.5-1` |
 | sysbench, with its bundled LuaJIT and Concurrency Kit | 1.0.20 | GPL-2.0-or-later; LuaJIT MIT; Concurrency Kit BSD-2-Clause | CPU performance (`cpu.sysbench`), memory sysbench (`memory.sysbench`) | `sysbench-1.0.20-1` |
 | STREAM, built for six array sizes | 5.10 | STREAM's own: free to use and change, but published results must follow its run rules or say that they do not | Memory STREAM (`memory.stream`) | `stream-5.10-1` |

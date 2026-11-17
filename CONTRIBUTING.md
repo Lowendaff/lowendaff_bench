@@ -24,17 +24,21 @@ recorded in design documents outside the repository.
 ```text
 crates/
   bench-host/  the host's facts, read from files, and the host profile that holds them
-  bench-api/   the plugin contract: Plugin, Descriptor, Requirements, Context, Measurement
+  bench-api/   the plugin contract: Plugin, Descriptor, Requirements, Context, Measurement, and
+               the files that a plugin asks for
   bench-tool/  the pins of the external tools, and the code that runs a tool with a time limit,
-               cancellation, retries, process groups and CPU placement
+               cancellation, retries, process groups, CPU placement and an unprivileged user
   bench/       the program: the command line, the registry, the orchestrator, the result enum,
-               the report, the progress log, the network checks, the tool downloads and the
-               message catalog
+               the report, the progress log, the network checks, the downloads of tools and
+               files, and the message catalog
   swap-file/   a temporary swap file, with the only unsafe code
 plugins/
   cpu/         cpu.sysbench, cpu.geekbench
   memory/      memory.sysbench, memory.stream, memory.latency, memory.numa
   disk/        disk.health, disk.fio
+  network/     network.iperf3
+servers/       the network test's server list, which the program downloads at run time, and its
+               candidates
 ```
 
 Each test item is a plugin, whose id is `<group>.<name>`, in the crate of its group,
@@ -81,6 +85,23 @@ A new test item starts with a design document (below). Then:
 6. A new group's crate depends on `bench-api` and `bench-tool` along the direction below: it
    joins their `wrappers` lists in `deny.toml` and gets an entry of its own, used by `bench`
    alone. The rule against printing covers `plugins/*/src` already.
+
+## The network test's server list
+
+`servers/iperf3-candidates.json` holds the reviewed candidates of each location, in order of
+preference: a location's id, country and whether it is a default, then for each candidate its place,
+provider, host, ports, families and link. `servers/iperf3.json`, which the program downloads, is
+written from it by `scripts/iperf3-servers.sh update <export>`, with the export of
+iperf3serverlist.net (`https://export.iperf3serverlist.net/listed_iperf3_servers.json`): for each
+location, the first candidate that the export lists with the same host and ports and with downloads.
+To add, remove or reorder servers, change the candidates in a pull request, run `update` with a
+fresh export, and `scripts/iperf3-servers.sh check`. The list is never edited by hand: `check`
+refuses a server that is no candidate. Nothing builds from the list, so that a change of it alone
+needs no build: `check` refuses a file that names it, other than Markdown, the script and its cases,
+ci-scope and its cases, and the workflows that test and update it, and Rust code that names it other
+than by the address that the program downloads it from. A rule of the list changes in the program's
+reader (`plugins/network/src/iperf3/servers.rs`) and in the script together, with a fixture in
+`plugins/network/tests/fixtures/server-lists/` that both read.
 
 ## Code
 
