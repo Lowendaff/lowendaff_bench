@@ -137,12 +137,14 @@ SERVERS_OF_LOCATIONS='
 
 # check_names: nothing builds from the list, so that a change of the list alone needs no build,
 # and CI may skip the build for it: besides Markdown, only this script and its cases, ci-scope
-# and its cases, and the workflows that test and update the list name it, and Rust code only by
-# the address above. It searches every file that git tracks or would track.
+# and its cases, check-commits and its cases, which let a bot's pull request change the list
+# alone, and the workflows that test and update the list name it, and Rust code only by the
+# address above. It searches every file that git tracks or would track.
 check_names() {
     if found=$(git grep -n -I --untracked -F servers/iperf3 -- . ':(exclude)*.md' \
         ':(exclude)scripts/iperf3-servers.sh' ':(exclude)scripts/iperf3-servers-cases.sh' \
         ':(exclude)scripts/ci-scope.sh' ':(exclude)scripts/ci-scope-cases.sh' \
+        ':(exclude)scripts/check-commits.sh' ':(exclude)scripts/check-commits-cases.sh' \
         ':(exclude).github/workflows/ci.yml' ':(exclude).github/workflows/data.yml'); then
         :
     else

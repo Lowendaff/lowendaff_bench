@@ -2,7 +2,9 @@
 # Checks commit messages against CONTRIBUTING.md "Commits": every
 # commit of <base>..<head> and, when PR_TITLE is set, the pull request's title, which becomes the
 # header of its squash commit on main. PR_NUMBER, when set, counts in the title's width, since
-# GitHub appends " (#N)" to it.
+# GitHub appends " (#N)" to it. PR_AUTHOR_TYPE, when it is Bot, allows the pull request to change
+# the generated server list servers/iperf3.json and nothing else: such pull requests come from the
+# data workflow, which a bot runs, and auto-merge merges them unread (README "Network speed").
 #
 # Usage: scripts/check-commits.sh <base> <head>
 set -eu
@@ -88,6 +90,21 @@ done
 if [ -n "${PR_TITLE:-}" ]; then
     check_header "the title" "$PR_TITLE"
     check_text "the title" "$PR_TITLE${PR_NUMBER:+ (#$PR_NUMBER)}" 100
+fi
+
+# A bot's pull request changes the server list only, so that no fault of the workflow that opens
+# it passes anything else as an update of the list. It goes by the author's kind, not by name, so
+# that a renamed App stays covered; Dependabot's pull requests skip this check altogether.
+if [ "${PR_AUTHOR_TYPE:-}" = Bot ]; then
+    if ! changed=$(git diff --no-renames --name-only "$base...$head"); then
+        problem "the files that the pull request changes cannot be listed"
+    else
+        others=$(printf '%s\n' "$changed" | grep -v -x -F -e servers/iperf3.json -e '' |
+            tr '\n' ' ' || true)
+        if [ -n "$others" ]; then
+            problem "a bot's pull request may change servers/iperf3.json only, not: ${others% }"
+        fi
+    fi
 fi
 
 if [ "$problems" -gt 0 ]; then

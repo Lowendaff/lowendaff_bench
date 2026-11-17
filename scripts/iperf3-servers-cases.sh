@@ -211,6 +211,7 @@ cp before.json servers/iperf3.json
 mkdir -p src scripts .github/workflows
 printf 'The list, servers/iperf3.json.\n' > README.md
 printf 'jq . servers/iperf3.json\n' > scripts/ci-scope.sh
+printf 'grep -x servers/iperf3.json\n' > scripts/check-commits.sh
 printf 'run: scripts/network-check.sh bench servers/iperf3.json\n' > .github/workflows/ci.yml
 printf 'pub const URL: &str =\n    "%s";\n' "$url" > src/lib.rs
 verdict accept "the list named where it may be" '' sh "$script" check

@@ -159,7 +159,7 @@ commands. Run them locally before pushing.
 | Workflow lint | `actionlint`, which runs shellcheck over the `run:` scripts too | any host |
 | Shell scripts | `git ls-files -z '*.sh' \| xargs -0 shellcheck` | any host |
 | Checker cases | `scripts/check-commits-cases.sh` | any host |
-| Commit messages | `scripts/check-commits.sh origin/main HEAD`; CI adds the title | any host |
+| Commit messages | `scripts/check-commits.sh origin/main HEAD`; CI adds the title, and the author's kind: a bot's pull request may change `servers/iperf3.json` only | any host |
 | Rule tests | `ast-grep test` (cases in `ast-grep/tests/`) | any host |
 | Rules | `ast-grep scan` (rules in `ast-grep/rules/`, config in `sgconfig.yml`), then `scripts/check-docs-cases.sh` and `scripts/check-docs.sh`: no tracked file holds CJK characters, except the catalog of another language in `crates/bench/src/locale/<language>/`, and no tracked file outside the fixture data points into the design documents | any host |
 | Server list | `scripts/iperf3-servers-cases.sh`, then `scripts/iperf3-servers.sh check`: the network test's server list and its candidates follow their rules, the list holds candidates only, and nothing builds from it; the cases include the fixtures that the program's reader reads too | any host with jq |
