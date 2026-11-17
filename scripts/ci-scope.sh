@@ -9,11 +9,12 @@
 #      of their steps succeeded, none skipped;
 #   3. V is an ancestor of the commit under test, a pull request's base is the one V was tested
 #      on, and this leg runs on the runner image that V's leg ran on;
-#   4. every file changed since V is Markdown or LICENSE, listed without rename detection, so
-#      that a renamed file shows under both of its names.
+#   4. every file changed since V is Markdown, LICENSE or a server list (servers/*.json), listed
+#      without rename detection, so that a renamed file shows under both of its names.
 # Otherwise the leg looks at the whole change: a pull request's diff against its base, or a
-# push's diff against the commit before it; only Markdown or LICENSE lets it skip. Any doubt or
-# error runs the full suite: a redundant run is acceptable, a wrongly skipped test is not.
+# push's diff against the commit before it; only Markdown, LICENSE or server lists let it skip.
+# Any doubt or error runs the full suite: a redundant run is acceptable, a wrongly skipped test is
+# not.
 #
 # Usage: scripts/ci-scope.sh decide   writes run=true|false to $GITHUB_OUTPUT and the decision
 #                                     with its evidence to $GITHUB_STEP_SUMMARY
@@ -99,12 +100,15 @@ verify_leg() {
                 | all($required[]; . as $step | any($names[]; . == $step)))' > /dev/null
 }
 
-# docs_only: true when every path on standard input is Markdown or LICENSE.
+# docs_only: true when every path on standard input is Markdown, LICENSE or a server list. No step
+# of the legs reads a server list: the program downloads it at run time, and
+# `scripts/iperf3-servers.sh check`, in the job of the ast-grep rules, refuses any other file that
+# names it.
 docs_only() {
     while IFS= read -r path; do
         case $path in
             '') ;;
-            *.md | LICENSE) ;;
+            *.md | LICENSE | servers/*.json) ;;
             *) return 1 ;;
         esac
     done
@@ -183,7 +187,7 @@ try_reuse() {
         return 1
     fi
     if ! printf '%s\n' "$changed" | docs_only; then
-        why="files other than Markdown or LICENSE changed since $validated"
+        why="files other than Markdown, LICENSE or server lists changed since $validated"
         return 1
     fi
     evidence="validated head $validated, by runs $mine_run ($ARCH) and $their_run ($other),"
@@ -192,7 +196,8 @@ try_reuse() {
     evidence="$evidence $(printf '%s' "$changed" | tr '\n' ' ')"
 }
 
-# whole_change: true when the whole change is Markdown or LICENSE only; sets why or evidence.
+# whole_change: true when the whole change is Markdown, LICENSE or server lists only; sets why or
+# evidence.
 whole_change() {
     case $EVENT in
         pull_request)
@@ -225,10 +230,11 @@ whole_change() {
         return 1
     fi
     if ! printf '%s\n' "$changed" | docs_only; then
-        why="$range changes files other than Markdown or LICENSE"
+        why="$range changes files other than Markdown, LICENSE or server lists"
         return 1
     fi
-    evidence="$range changes only Markdown or LICENSE: $(printf '%s' "$changed" | tr '\n' ' ')"
+    evidence="$range changes only Markdown, LICENSE or server lists:"
+    evidence="$evidence $(printf '%s' "$changed" | tr '\n' ' ')"
 }
 
 # report <run> <title> <lines...>: the decision, to the step's outputs and summary.
@@ -261,7 +267,7 @@ decide() {
     fi
     reuse_why=$why
     if whole_change; then
-        report false "skipped: only Markdown or LICENSE changed" \
+        report false "skipped: only Markdown, LICENSE or server lists changed" \
             "no reuse: $reuse_why" "$evidence"
     else
         report true "running in full" "no reuse: $reuse_why" "whole change: $why"

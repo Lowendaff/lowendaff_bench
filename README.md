@@ -176,9 +176,13 @@ The two `test, static build and smoke` jobs first run `scripts/ci-scope.sh`, whi
 the rest of the job runs. A job skips its other steps, and still passes, in two cases:
 
 - an earlier run validated an ancestor of the commit in full, on the same base and runner image,
-  and only Markdown or `LICENSE` changed since;
+  and only Markdown, `LICENSE` or the server lists in `servers/` changed since;
 - the whole change (a pull request against its base, or a push against the commit before it)
-  touches only Markdown or `LICENSE`.
+  touches only Markdown, `LICENSE` or the server lists.
+
+No step of these jobs reads a server list: the program downloads it at run time, and
+`scripts/iperf3-servers.sh check` refuses any other file that names it. So a change of the list
+alone builds nothing, and users get it on their next run.
 
 Anything else, or any doubt, runs every step. A job that ran every step successfully uploads a
 validation record (`validation-pr<N>-<arch>` or `validation-main-<arch>`, kept 90 days), and the
