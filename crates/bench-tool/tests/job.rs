@@ -1,6 +1,6 @@
 //! Running a tool once: what it printed and how it ended, its limit, cancellation, its directory
-//! and environment, its report for the log, and on Linux its process group, its `oom_score_adj`
-//! and its CPUs.
+//! and environment, its report for the log, and on Linux its process group, its `oom_score_adj`,
+//! its CPUs and its user.
 
 use std::collections::BTreeMap;
 #[cfg(target_os = "linux")]
@@ -21,6 +21,7 @@ use bench_tool::job::Fault;
 use bench_tool::job::Job;
 use bench_tool::job::Output;
 use bench_tool::job::RunError;
+use bench_tool::job::User;
 use serde::Serialize;
 use tokio::time::Instant;
 
@@ -496,5 +497,85 @@ async fn elsewhere_the_scheduler_places_a_tool() {
             code: Some(0),
             text: "ran\n".to_owned(),
         })
+    );
+}
+
+/// Only root may run a tool as another user: without root, the tool cannot start, for the
+/// system's reason, and the log names the program by its file name.
+#[tokio::test]
+async fn without_root_a_tool_cannot_run_as_another_user() {
+    if rustix::process::geteuid().is_root() {
+        // Root may: the next test.
+        return;
+    }
+    let (ctx, mut channels) = context(CancellationToken::new());
+    let mut job = shell("echo ran", Duration::from_secs(30));
+    job.user = Some(User::NOBODY);
+    let ended = job.run(&ctx).await.ended;
+    let Err(RunError::Fault(Fault::Spawn(reason))) = &ended else {
+        panic!("the tool cannot start: {ended:?}");
+    };
+    assert!(reason.contains("not permitted"), "{reason}");
+    assert_eq!(
+        reported(&mut channels)[0].command,
+        words(&["sh", "-c", "echo ran"])
+    );
+}
+
+/// As root, a tool runs as its user and group, without root's other groups, also from a
+/// directory that the user may not enter, as a run directory in /root is. Root only, as in the
+/// Linux check: the tests run as an ordinary user elsewhere.
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn a_tool_runs_as_its_user_from_a_directory_closed_to_that_user() {
+    use std::os::unix::fs::PermissionsExt;
+
+    if !rustix::process::geteuid().is_root() {
+        return;
+    }
+    let (ctx, mut channels) = context(CancellationToken::new());
+    let dir = tempfile::tempdir().expect("a temporary directory");
+    std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700))
+        .expect("the directory is closed to others");
+    // A copy of the shell, under the shell's own name: busybox picks its program by that name.
+    let tool = dir.path().join("sh");
+    std::fs::copy("/bin/sh", &tool).expect("a copy of the shell");
+    // The shell's own arguments, then its user, group and other groups.
+    let script = "tr '\\0' ' ' < /proc/$$/cmdline; echo; \
+                  grep -E '^(Uid|Gid|Groups):' /proc/self/status";
+    let mut job = Job::new(&tool, ["-c", script], Duration::from_secs(30));
+    job.user = Some(User::NOBODY);
+    job.dir = Some("/".into());
+    let ended = job.run(&ctx).await.ended;
+    let Ok(output) = &ended else {
+        panic!("the tool runs: {ended:?}");
+    };
+    let fields: Vec<Vec<&str>> = output
+        .text
+        .lines()
+        .map(|line| line.split_whitespace().collect())
+        .collect();
+    assert_eq!(
+        fields.get(1..),
+        Some(
+            [
+                vec!["Uid:", "65534", "65534", "65534", "65534"],
+                vec!["Gid:", "65534", "65534", "65534", "65534"],
+                vec!["Groups:"],
+            ]
+            .as_slice()
+        ),
+        "{}",
+        output.text
+    );
+    assert_eq!(
+        fields[0].first(),
+        Some(&"sh"),
+        "the tool starts with its own name, not its descriptor: {}",
+        output.text
+    );
+    assert_eq!(
+        reported(&mut channels)[0].command,
+        words(&["sh", "-c", script])
     );
 }

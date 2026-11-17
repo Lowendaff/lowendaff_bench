@@ -148,6 +148,7 @@ fn geekbench_runs_its_cpu_benchmark_with_an_upload() {
             first_to_go: true,
             quotable: false,
             cpus: None,
+            user: None,
         }
     );
 }

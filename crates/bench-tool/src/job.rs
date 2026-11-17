@@ -2,10 +2,11 @@
 //! prints read in full, within a time limit, and stopped when the plugin is cancelled. A tool that
 //! starts workers of its own runs in a process group of its own, which is killed as a whole; a
 //! tool that may exhaust memory starts as the kernel's first choice to kill; a tool that measures
-//! one part of the machine runs on that part's CPUs. Each run is reported to the plugin's
-//! context, for the progress log with `-v`.
+//! one part of the machine runs on that part's CPUs; a tool that talks to third parties runs as an
+//! unprivileged user. Each run is reported to the plugin's context, for the progress log with `-v`.
 
 use std::ffi::OsString;
+use std::fs::File;
 use std::io;
 use std::path::PathBuf;
 use std::process::Stdio;
@@ -52,6 +53,28 @@ pub struct Job {
     /// The CPUs it runs on, which the workers it starts inherit; `None` leaves it to the
     /// scheduler. The tools run on Linux only; elsewhere, as in tests, the scheduler places them.
     pub cpus: Option<Vec<usize>>,
+    /// The user it runs as, without the program's supplementary groups; `None` keeps the
+    /// program's own. A tool that talks to third parties runs as [`User::NOBODY`], so that a flaw
+    /// that a server could use does not run as root. It needs root, and Linux.
+    pub user: Option<User>,
+}
+
+/// A user and a group to run a tool as.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct User {
+    /// The user's id.
+    pub uid: u32,
+    /// The group's id.
+    pub gid: u32,
+}
+
+impl User {
+    /// The unprivileged user that owns no files: 65534, which Linux reserves as the overflow user
+    /// and group, and which most distributions call `nobody`.
+    pub const NOBODY: Self = Self {
+        uid: 65_534,
+        gid: 65_534,
+    };
 }
 
 impl Job {
@@ -72,6 +95,7 @@ impl Job {
             first_to_go: false,
             quotable: true,
             cpus: None,
+            user: None,
         }
     }
 
@@ -86,7 +110,17 @@ impl Job {
                 adjustment: None,
             };
         }
-        let mut command = Command::new(&self.program);
+        let (mut command, opened) = match self.command() {
+            Ok(command) => command,
+            Err(err) => {
+                let ended = Err(RunError::Fault(Fault::Spawn(err.to_string())));
+                ctx.ran(self.report(&ended));
+                return Outcome {
+                    ended,
+                    adjustment: None,
+                };
+            }
+        };
         command
             .args(&self.args)
             .envs(self.envs.iter().map(|(key, value)| (key, value)))
@@ -108,12 +142,34 @@ impl Job {
         } else {
             (spawn(command, cpus).await, None)
         };
+        // Once the tool has started, or failed to, its file need not stay open.
+        drop(opened);
         let ended = match spawned {
             Ok(child) => self.wait(child, &cancel).await,
             Err(err) => Err(RunError::Fault(Fault::Spawn(err.to_string()))),
         };
         ctx.ran(self.report(&ended));
         Outcome { ended, adjustment }
+    }
+
+    /// The command that starts the program, with the program's open file for a job with a
+    /// [`Job::user`]: it must stay open until the tool has started.
+    fn command(&self) -> io::Result<(Command, Option<File>)> {
+        use std::os::fd::AsRawFd;
+
+        let Some(user) = self.user else {
+            return Ok((Command::new(&self.program), None));
+        };
+        // The user may not be allowed into the tool's directory: the run directory can sit in a
+        // directory of root's own, such as /root. So the tool starts from its open file, which the
+        // new process reaches through its own descriptors; only the file's permissions apply.
+        let file = File::open(&self.program)?;
+        let mut command = Command::new(format!("/proc/self/fd/{}", file.as_raw_fd()));
+        command
+            .arg0(self.program.file_name().unwrap_or(self.program.as_os_str()))
+            .uid(user.uid)
+            .gid(user.gid);
+        Ok((command, Some(file)))
     }
 
     /// What the log shows of a run with `-v`: the program's file name and its arguments, how it
