@@ -8,9 +8,10 @@
 # documents it.
 #
 # Usage: scripts/smoke.sh <path to lowendaff-bench> [<argument>...]
-# Arguments after the path go to the full run, for example --skip disk.fio. Linux only, with
-# network access for the tools. Run it as root, or as a user with sudo. As root, the non-root
-# check runs as nobody, so nobody must be able to reach the binary.
+# Arguments after the path go to the full run, for example --skip disk.fio. CI adds the config
+# file of scripts/smoke-iperf3.sh, which points the network test at an iperf3 server on the
+# runner. Linux only, with network access for the tools. Run it as root, or as a user with sudo.
+# As root, the non-root check runs as nobody, so nobody must be able to reach the binary.
 set -eu
 
 fail() {
@@ -80,7 +81,7 @@ fi
 # The public address never comes through a proxy, which would report its own: with proxy
 # variables that point nowhere, the IPv4 line still shows one.
 proxied=$($as_root env HTTPS_PROXY=http://127.0.0.1:9 ALL_PROXY=http://127.0.0.1:9 \
-    "$bin" --work-dir "$work" --skip cpu,memory,disk 2>/dev/null) ||
+    "$bin" --work-dir "$work" --skip cpu,memory,disk,network 2>/dev/null) ||
     fail "the run with a proxy set failed"
 printf '%s\n' "$proxied" |
     grep -Eq "^  IPv4 +available; public address $masked \(from ($sources)\)\$" ||
