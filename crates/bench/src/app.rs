@@ -13,7 +13,9 @@ use std::time::Duration;
 use std::time::Instant;
 
 use bench_api::CancellationToken;
+use bench_api::Plugin;
 use bench_host::profile::HostProfile;
+use plugin_network::iperf3::Iperf3;
 use tokio::io::AsyncRead;
 
 use crate::locale;
@@ -81,6 +83,10 @@ pub struct Cli {
         help = locale::words().help_download_connections()
     )]
     pub download_connections: u16,
+
+    // The countries whose servers the network speed test uses, instead of the list's defaults.
+    #[arg(long, value_delimiter = ',', help = locale::words().help_countries())]
+    pub countries: Vec<String>,
 }
 
 impl Cli {
@@ -129,7 +135,10 @@ fn item(entry: &Entry, out: &mut impl Write) {
 
 /// Builds every selected plugin; all problems are reported together and nothing runs.
 pub fn prepare(cli: &Cli, registry: &[Entry]) -> Result<Vec<Planned<Measured>>, Vec<String>> {
-    let config = load_config(cli.config.as_deref()).map_err(|err| vec![err])?;
+    let mut config = load_config(cli.config.as_deref()).map_err(|err| vec![err])?;
+    if !cli.countries.is_empty() {
+        countries(&mut config, &cli.countries);
+    }
     let ids = select(registry, &cli.only, &cli.skip)?;
     orchestrator::plan(registry, &ids, &config)
 }
@@ -159,6 +168,21 @@ pub fn select(
         .filter(|id| only.is_empty() || only.iter().any(|wanted| names(wanted, id)))
         .filter(|id| !skip.iter().any(|skipped| names(skipped, id)))
         .collect())
+}
+
+/// Sets `--countries` in the network speed test's table, over what the config file says there.
+/// A table that is not a table is left as it is, for the plan to refuse.
+pub fn countries(config: &mut BTreeMap<String, serde_json::Value>, countries: &[String]) {
+    let table = config
+        .entry(Iperf3::DESCRIPTOR.id.to_owned())
+        .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
+    if let Some(table) = table.as_object_mut() {
+        let countries = countries
+            .iter()
+            .map(|country| serde_json::Value::String(country.clone()))
+            .collect();
+        table.insert("countries".to_owned(), serde_json::Value::Array(countries));
+    }
 }
 
 /// Reads `[plugins."<id>"]` tables; any other top-level key is an error.

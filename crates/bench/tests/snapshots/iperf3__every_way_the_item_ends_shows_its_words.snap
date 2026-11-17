@@ -1,0 +1,63 @@
+---
+source: crates/bench/tests/iperf3.rs
+expression: text
+---
+[Network]
+  Network speed
+    failed: cannot read the server list: No such file or directory (os error 2)
+  Network speed
+    failed: the server list is larger than 65536 bytes
+  Network speed
+    failed: the server list is not in its format: expected value at line 1 column 1
+  Network speed
+    skipped: the server list needs a newer lowendaff-bench (format 2)
+  Network speed
+    failed: the server list names a format that does not exist: 0
+  Network speed
+    failed: the server list has 101 servers, more than 100
+  Network speed
+    failed: server 3 of the server list breaks a rule: its id must be 1 to 40 characters of a to z, digits and -
+  Network speed
+    failed: server 1 of the server list breaks a rule: its country must be two capital letters
+  Network speed
+    failed: server 2 of the server list breaks a rule: its host must be a DNS name or an IP address
+  Network speed
+    failed: server 4 of the server list breaks a rule: its ports must be one or a range from 1024 to 65535, at most 64
+  Network speed
+    failed: server 5 of the server list breaks a rule: its families must be ipv4, ipv6 or both
+  Network speed
+    failed: server 6 of the server list breaks a rule: its location, provider and link must be 1 to 40 characters that print
+  Network speed
+    failed: two servers of the server list have the id tokyo
+  Network speed
+    skipped: no server of the list is chosen
+  Network speed
+    skipped: no server in the list for BR, xx
+  Network speed
+    skipped: no chosen server answers over a network family of this host
+  Network speed
+    failed: no server gave a speed
+  Network speed
+    failed: interrupted
+
+[Summary]
+  Network speed       failed: cannot read the server list: No such file or directory (os error 2)
+  Network speed       failed: the server list is larger than 65536 bytes
+  Network speed       failed: the server list is not in its format: expected value at line 1 column 1
+  Network speed       skipped: the server list needs a newer lowendaff-bench (format 2)
+  Network speed       failed: the server list names a format that does not exist: 0
+  Network speed       failed: the server list has 101 servers, more than 100
+  Network speed       failed: server 3 of the server list breaks a rule: its id must be 1 to 40 characters of a to z, digits and -
+  Network speed       failed: server 1 of the server list breaks a rule: its country must be two capital letters
+  Network speed       failed: server 2 of the server list breaks a rule: its host must be a DNS name or an IP address
+  Network speed       failed: server 4 of the server list breaks a rule: its ports must be one or a range from 1024 to 65535, at most 64
+  Network speed       failed: server 5 of the server list breaks a rule: its families must be ipv4, ipv6 or both
+  Network speed       failed: server 6 of the server list breaks a rule: its location, provider and link must be 1 to 40 characters that print
+  Network speed       failed: two servers of the server list have the id tokyo
+  Network speed       skipped: no server of the list is chosen
+  Network speed       skipped: no server in the list for BR, xx
+  Network speed       skipped: no chosen server answers over a network family of this host
+  Network speed       failed: no server gave a speed
+  Network speed       failed: interrupted
+
+18 items: 0 done, 4 skipped, 14 failed, 0 timed out, 0 interrupted. Total time 302.0 s

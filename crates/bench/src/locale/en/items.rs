@@ -7,10 +7,13 @@ use super::count;
 use crate::locale::CpuWords;
 use crate::locale::DiskWords;
 use crate::locale::FioRow;
+use crate::locale::ListRule;
 use crate::locale::MemoryWords;
+use crate::locale::NetworkWords;
 use crate::locale::NoSwapWhy;
 use crate::locale::Probe;
 use crate::locale::Verdict;
+use crate::locale::WayCell;
 
 /// A tool's version followed by the colon that leads its parameters; nothing without a version.
 fn version(version: Option<&str>) -> String {
@@ -495,5 +498,120 @@ impl DiskWords for English {
 
     fn fio_field(&self, field: usize) -> String {
         format!("cannot parse field {field} of fio's output")
+    }
+}
+
+impl NetworkWords for English {
+    fn iperf3_method(
+        &self,
+        version: Option<&str>,
+        streams: u8,
+        seconds: u16,
+        rate: Option<u32>,
+    ) -> String {
+        let version = version.map_or_else(String::new, |version| format!(" {version}"));
+        let streams = count(usize::from(streams), "stream", "streams");
+        let rate = rate.map_or_else(String::new, |rate| {
+            format!(", at most {rate} Mbit/s a stream")
+        });
+        format!("iperf3{version}: {streams}, {seconds} s each way, TCP{rate}")
+    }
+
+    fn family_title(&self, ipv6: bool) -> &'static str {
+        if ipv6 { "IPv6" } else { "IPv4" }
+    }
+
+    fn network_headers(&self) -> [&'static str; 5] {
+        ["Location", "Provider", "Upload", "Download", "Latency"]
+    }
+
+    fn place(&self, location: &str, country: &str) -> String {
+        format!("{location}, {country}")
+    }
+
+    fn way_cell(&self, cell: WayCell) -> &'static str {
+        match cell {
+            WayCell::Busy => "busy",
+            WayCell::Unreachable => "unreachable",
+            WayCell::TimedOut => "timed out",
+            WayCell::Error => "error",
+            WayCell::NotTried => "not tried",
+        }
+    }
+
+    fn tries(&self, place: &str, download: bool, tries: u32) -> String {
+        let direction = if download { "download" } else { "upload" };
+        format!("{place}: the {direction} took {tries} tries")
+    }
+
+    fn way_failed(&self, place: &str, download: bool, reason: &str) -> String {
+        let direction = if download { "download" } else { "upload" };
+        format!("{place}: the {direction} failed: {reason}")
+    }
+
+    fn nothing_measured(&self) -> String {
+        "iperf3 measured nothing".to_owned()
+    }
+
+    fn unknown_servers(&self, names: &[String]) -> String {
+        format!("no server in the list for {}", names.join(", "))
+    }
+
+    fn list_unreadable(&self, reason: &str) -> String {
+        format!("cannot read the server list: {reason}")
+    }
+
+    fn list_too_large(&self, limit: usize) -> String {
+        format!("the server list is larger than {limit} bytes")
+    }
+
+    fn list_format(&self, reason: &str) -> String {
+        format!("the server list is not in its format: {reason}")
+    }
+
+    fn list_newer(&self, version: u64) -> String {
+        format!("the server list needs a newer lowendaff-bench (format {version})")
+    }
+
+    fn list_version(&self, version: u64) -> String {
+        format!("the server list names a format that does not exist: {version}")
+    }
+
+    fn list_too_many(&self, count: usize, most: usize) -> String {
+        format!("the server list has {count} servers, more than {most}")
+    }
+
+    fn list_rule(&self, position: usize, rule: ListRule) -> String {
+        let rule = match rule {
+            ListRule::Id => "its id must be 1 to 40 characters of a to z, digits and -",
+            ListRule::Country => "its country must be two capital letters",
+            ListRule::Host => "its host must be a DNS name or an IP address",
+            ListRule::Ports => "its ports must be one or a range from 1024 to 65535, at most 64",
+            ListRule::Families => "its families must be ipv4, ipv6 or both",
+            ListRule::Text => {
+                "its location, provider and link must be 1 to 40 characters that print"
+            }
+        };
+        format!("server {position} of the server list breaks a rule: {rule}")
+    }
+
+    fn list_duplicate(&self, id: &str) -> String {
+        format!("two servers of the server list have the id {id}")
+    }
+
+    fn no_server(&self, unknown: &[String]) -> String {
+        if unknown.is_empty() {
+            "no server of the list is chosen".to_owned()
+        } else {
+            format!("no server in the list for {}", unknown.join(", "))
+        }
+    }
+
+    fn no_family(&self) -> String {
+        "no chosen server answers over a network family of this host".to_owned()
+    }
+
+    fn no_speed(&self) -> String {
+        "no server gave a speed".to_owned()
     }
 }

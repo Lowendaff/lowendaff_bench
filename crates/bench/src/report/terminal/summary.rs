@@ -7,6 +7,7 @@ use super::Page;
 use super::cpu;
 use super::disk;
 use super::memory;
+use super::network;
 use crate::locale;
 use crate::locale::Totals;
 use crate::orchestrator::Fault;
@@ -80,6 +81,10 @@ fn reason(run: &Run<Measured>) -> Option<String> {
             .stop
             .as_ref()
             .map(|stop| disk::fio_failure(failure(stop))),
+        Some(Measured::NetworkIperf3(report)) => report
+            .stop
+            .as_ref()
+            .map(|stop| network::iperf3_failure(failure(stop))),
         None => None,
     }
 }

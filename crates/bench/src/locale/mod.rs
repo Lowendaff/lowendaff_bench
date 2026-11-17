@@ -25,10 +25,13 @@ pub use host::NoModules;
 pub use items::CpuWords;
 pub use items::DiskWords;
 pub use items::FioRow;
+pub use items::ListRule;
 pub use items::MemoryWords;
+pub use items::NetworkWords;
 pub use items::NoSwapWhy;
 pub use items::Probe;
 pub use items::Verdict;
+pub use items::WayCell;
 pub use log::LogWords;
 pub use program::ProgramWords;
 pub use report::ReportWords;
@@ -45,6 +48,7 @@ pub trait Words:
     + CpuWords
     + MemoryWords
     + DiskWords
+    + NetworkWords
     + Sync
 {
 }
@@ -58,6 +62,7 @@ impl<T> Words for T where
         + CpuWords
         + MemoryWords
         + DiskWords
+        + NetworkWords
         + Sync
 {
 }

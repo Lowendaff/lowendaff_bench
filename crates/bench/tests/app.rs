@@ -1252,7 +1252,8 @@ fn the_list_keeps_each_group_together_in_the_reports_order() {
         [
             "[CPU performance] (group: cpu)",
             "[Memory performance] (group: memory)",
-            "[Disks] (group: disk)"
+            "[Disks] (group: disk)",
+            "[Network] (group: network)"
         ]
     );
     let ids: Vec<&str> = text
@@ -1270,7 +1271,8 @@ fn the_list_keeps_each_group_together_in_the_reports_order() {
             "memory.latency",
             "memory.numa",
             "disk.health",
-            "disk.fio"
+            "disk.fio",
+            "network.iperf3"
         ]
     );
     let cpu: Vec<&str> = text
@@ -1309,6 +1311,14 @@ fn the_list_keeps_each_group_together_in_the_reports_order() {
             "  disk.health  Disk health (applies to: dedicated server) (tools: smartctl 7.5)",
             "  disk.fio  Disk performance (tools: fio 3.43)"
         ]
+    );
+    let network: Vec<&str> = text
+        .lines()
+        .filter(|line| line.starts_with("  network."))
+        .collect();
+    assert_eq!(
+        network,
+        ["  network.iperf3  Network speed (tools: iperf3 3.22)"]
     );
 }
 
@@ -1366,5 +1376,5 @@ fn the_items_that_do_not_apply_here_are_named_as_the_report_names_them() {
     let (applicable, names) = orchestrator::for_host(planned, &vm);
 
     assert_eq!(names, ["Disk health", "Memory NUMA"]);
-    assert_eq!(applicable.len(), 6, "the others run");
+    assert_eq!(applicable.len(), 7, "the others run");
 }

@@ -24,6 +24,8 @@ pub trait ProgramWords {
     fn help_show_ip(&self) -> String;
     /// The help of `--download-connections`.
     fn help_download_connections(&self) -> String;
+    /// The help of `--countries`.
+    fn help_countries(&self) -> String;
     /// Items written as one list, as in "sysbench 1.0.20, fio 3.43".
     fn list(&self, items: &[String]) -> String;
     /// The first line of `--list`: how many test items there are.

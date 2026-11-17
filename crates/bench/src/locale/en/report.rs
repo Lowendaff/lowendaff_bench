@@ -32,6 +32,7 @@ impl ReportWords for English {
             "cpu" => Some("CPU performance"),
             "memory" => Some("Memory performance"),
             "disk" => Some("Disks"),
+            "network" => Some("Network"),
             _ => None,
         }
     }
@@ -46,6 +47,7 @@ impl ReportWords for English {
             "memory.numa" => Some("Memory NUMA"),
             "disk.health" => Some("Disk health"),
             "disk.fio" => Some("Disk performance"),
+            "network.iperf3" => Some("Network speed"),
             _ => None,
         }
     }

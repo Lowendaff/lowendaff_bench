@@ -36,6 +36,9 @@ pub fn all() -> Vec<Entry> {
         entry::<plugin_memory::numa::Numa>(Measured::MemoryNuma),
         // Disk performance: fio with YABS's method, on every platform.
         entry::<plugin_disk::fio::Fio>(Measured::DiskFio),
+        // Network speed: iperf3 with YABS's method, after fio and before Geekbench, as YABS
+        // orders them.
+        entry::<plugin_network::iperf3::Iperf3>(Measured::NetworkIperf3),
         // Geekbench 7: last, being the longest, with a download, an upload and perhaps swap that
         // must not disturb the disk test.
         entry::<plugin_cpu::geekbench::Geekbench>(Measured::CpuGeekbench),
@@ -217,7 +220,7 @@ mod tests {
     #[test]
     fn the_items_run_in_the_owners_order() {
         // SMART is read while the disks are idle and before fio's writes; sysbench runs before
-        // fio too.
+        // fio too. The network test follows fio, and Geekbench comes last, as in YABS.
         let ids: Vec<&str> = super::all().iter().map(|entry| entry.id).collect();
         assert_eq!(
             ids,
@@ -229,6 +232,7 @@ mod tests {
                 "memory.latency",
                 "memory.numa",
                 "disk.fio",
+                "network.iperf3",
                 "cpu.geekbench",
             ]
         );

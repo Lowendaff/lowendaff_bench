@@ -1,4 +1,4 @@
-//! The words of the test items' chapters: CPU, memory and disks.
+//! The words of the test items' chapters: CPU, memory, disks and network.
 
 use std::path::Path;
 
@@ -246,4 +246,87 @@ pub enum FioRow {
     Write,
     /// Both.
     Total,
+}
+
+/// The network chapter's words: network speed (iperf3).
+pub trait NetworkWords {
+    /// iperf3's method: its version when it reported one, the streams, the seconds each way, and
+    /// the most Mbit/s of a stream when there is a limit.
+    fn iperf3_method(
+        &self,
+        version: Option<&str>,
+        streams: u8,
+        seconds: u16,
+        rate: Option<u32>,
+    ) -> String;
+    /// The title of a family's table: IPv6's, or else IPv4's.
+    fn family_title(&self, ipv6: bool) -> &'static str;
+    /// The table's headers: the place, the provider, the upload, the download and the latency.
+    fn network_headers(&self) -> [&'static str; 5];
+    /// A server's place: its location, then its country.
+    fn place(&self, location: &str, country: &str) -> String;
+    /// A cell of a direction without a speed.
+    fn way_cell(&self, cell: WayCell) -> &'static str;
+    /// The note on a direction that needed more than one try: the download, or else the upload.
+    fn tries(&self, place: &str, download: bool, tries: u32) -> String;
+    /// The note on a direction whose last try failed, with the reason.
+    fn way_failed(&self, place: &str, download: bool, reason: &str) -> String;
+    /// iperf3, which measured nothing.
+    fn nothing_measured(&self) -> String;
+    /// The note on the countries or server ids asked for that no server of the list has.
+    fn unknown_servers(&self, names: &[String]) -> String;
+    /// The server list, which could not be read, for the system's reason.
+    fn list_unreadable(&self, reason: &str) -> String;
+    /// The server list, larger than `limit` bytes.
+    fn list_too_large(&self, limit: usize) -> String;
+    /// The server list, which is not in its format, with the parser's reason.
+    fn list_format(&self, reason: &str) -> String;
+    /// The server list, of a newer version of the format.
+    fn list_newer(&self, version: u64) -> String;
+    /// The server list, of a version of the format that never was.
+    fn list_version(&self, version: u64) -> String;
+    /// The server list, with more than `most` servers.
+    fn list_too_many(&self, count: usize, most: usize) -> String;
+    /// A server of the list, by its position from 1, which breaks a rule.
+    fn list_rule(&self, position: usize, rule: ListRule) -> String;
+    /// Two servers of the list with the same id.
+    fn list_duplicate(&self, id: &str) -> String;
+    /// No server chosen: by default, or for the countries or ids asked for.
+    fn no_server(&self, unknown: &[String]) -> String;
+    /// No chosen server answers over a family that the host has.
+    fn no_family(&self) -> String;
+    /// No server gave a speed.
+    fn no_speed(&self) -> String;
+}
+
+/// A cell of the network table without a speed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WayCell {
+    /// The server was busy on every try.
+    Busy,
+    /// The server could not be reached.
+    Unreachable,
+    /// The last try ran out of time.
+    TimedOut,
+    /// The last try failed otherwise.
+    Error,
+    /// Not tried.
+    NotTried,
+}
+
+/// A rule of a server of the network test's list.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ListRule {
+    /// The id.
+    Id,
+    /// The country.
+    Country,
+    /// The host.
+    Host,
+    /// The ports.
+    Ports,
+    /// The families.
+    Families,
+    /// The place, the provider or the link.
+    Text,
 }

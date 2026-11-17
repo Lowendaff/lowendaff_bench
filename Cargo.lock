@@ -85,6 +85,7 @@ dependencies = [
  "plugin-cpu",
  "plugin-disk",
  "plugin-memory",
+ "plugin-network",
  "reqwest",
  "rustix",
  "rustls",

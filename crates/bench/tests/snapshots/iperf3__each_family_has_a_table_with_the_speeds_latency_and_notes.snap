@@ -1,0 +1,27 @@
+---
+source: crates/bench/tests/iperf3.rs
+expression: text
+---
+[Network]
+  iperf3 3.22: 8 streams, 10 s each way, TCP
+  Note                no server in the list for BR
+  IPv4
+  Location         Provider   Upload       Download     Latency
+  Los Angeles, US  Clouvider  1.24 Gbit/s  2.03 Gbit/s  12.4 ms
+  New York, US     Leaseweb   912 Mbit/s   94.5 Mbit/s  67.0 ms
+  Ashburn, US      Clouvider  busy         8.73 Mbit/s  —
+  Tokyo, JP        Leaseweb   error        timed out    —
+  Frankfurt, DE    Leaseweb   unreachable  not tried    —
+  Note                New York, US: the upload took 2 tries
+  Note                Ashburn, US: the download took 3 tries
+  Note                Tokyo, JP: the upload failed: control socket has closed unexpectedly
+  IPv6
+  Location   Provider  Upload      Download  Latency
+  Tokyo, JP  Leaseweb  410 Mbit/s  error     104 ms
+  Note                Tokyo, JP: the download failed: iperf3 measured nothing
+  done in 301.0 s
+
+[Summary]
+  Network speed       done in 301.0 s
+
+1 item: 1 done, 0 skipped, 0 failed, 0 timed out, 0 interrupted. Total time 302.0 s

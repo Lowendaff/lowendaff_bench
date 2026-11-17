@@ -47,6 +47,12 @@ impl ProgramWords for English {
         "The most connections that the download of one file uses at once (1 to 256)".to_owned()
     }
 
+    fn help_countries(&self) -> String {
+        "The countries whose servers the network speed test uses, by ISO 3166 code, or all; \
+         the list's default servers otherwise"
+            .to_owned()
+    }
+
     fn list(&self, items: &[String]) -> String {
         items.join(", ")
     }

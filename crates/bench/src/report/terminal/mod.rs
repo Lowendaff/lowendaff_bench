@@ -7,6 +7,7 @@ mod cpu;
 mod disk;
 mod host;
 mod memory;
+mod network;
 mod summary;
 mod tool;
 
@@ -29,12 +30,14 @@ pub use host::family_text;
 pub use host::kind_text;
 pub use host::platform_text;
 pub use host::why_text;
+pub use network::bits;
+pub use network::latency;
 pub use summary::fault_text;
 pub use summary::run_status;
 pub use summary::unmet_text;
 
 /// The sections of the plugins, in the report's order, after the host's: the groups' ids.
-const SECTIONS: [&str; 3] = ["cpu", "memory", "disk"];
+const SECTIONS: [&str; 4] = ["cpu", "memory", "disk", "network"];
 
 /// The reporter's name for a plugin, by its id.
 #[must_use]
@@ -120,6 +123,7 @@ fn plugin(out: &mut Out, run: &Run<Measured>, indent: &str) {
         Some(Measured::MemoryNuma(report)) => memory::numa(out, report, indent),
         Some(Measured::DiskHealth(report)) => disk::health(out, report, indent),
         Some(Measured::DiskFio(report)) => disk::fio(out, report, indent),
+        Some(Measured::NetworkIperf3(report)) => network::iperf3(out, report, indent),
         None => {}
     }
     out.line(&format!("{indent}{}", run_status(run)));
