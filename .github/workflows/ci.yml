@@ -128,6 +128,12 @@ jobs:
         run: scripts/check-docs-cases.sh
       - name: Documentation rules
         run: scripts/check-docs.sh
+      # The network test's server list, which the program downloads at run time: the cases of its
+      # script, which reads the program's fixtures too, then the repository's two files.
+      - name: Server list cases
+        run: scripts/iperf3-servers-cases.sh
+      - name: Server list
+        run: scripts/iperf3-servers.sh check
 
   linux:
     name: test, static build and smoke (${{ matrix.arch }})

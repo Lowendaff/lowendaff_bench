@@ -1,0 +1,145 @@
+{
+  "version": 1,
+  "servers": [
+    {
+      "id": "los-angeles",
+      "country": "US",
+      "location": "Los Angeles",
+      "provider": "Clouvider",
+      "host": "la.speedtest.clouvider.net",
+      "ports": "5200-5209",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": true
+    },
+    {
+      "id": "new-york",
+      "country": "US",
+      "location": "New York",
+      "provider": "Leaseweb",
+      "host": "speedtest.nyc1.us.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": true
+    },
+    {
+      "id": "virginia",
+      "country": "US",
+      "location": "Ashburn",
+      "provider": "Clouvider",
+      "host": "ash.speedtest.clouvider.net",
+      "ports": "5200-5209",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": true
+    },
+    {
+      "id": "tokyo",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": true
+    },
+    {
+      "id": "frankfurt",
+      "country": "DE",
+      "location": "Frankfurt",
+      "provider": "Leaseweb",
+      "host": "speedtest.fra1.de.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": true
+    },
+    {
+      "id": "london",
+      "country": "GB",
+      "location": "London",
+      "provider": "Clouvider",
+      "host": "lon.speedtest.clouvider.net",
+      "ports": "5200-5209",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "amsterdam",
+      "country": "NL",
+      "location": "Amsterdam",
+      "provider": "Eranium",
+      "host": "iperf-ams-nl.eranium.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "100G",
+      "default": false
+    },
+    {
+      "id": "singapore",
+      "country": "SG",
+      "location": "Singapore",
+      "provider": "Leaseweb",
+      "host": "speedtest.sin1.sg.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "hong-kong",
+      "country": "HK",
+      "location": "Hong Kong",
+      "provider": "Leaseweb",
+      "host": "speedtest.hkg12.hk.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "tashkent",
+      "country": "UZ",
+      "location": "Tashkent",
+      "provider": "Uztelecom",
+      "host": "speedtest.uztelecom.uz",
+      "ports": "5200-5209",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    }
+  ]
+}

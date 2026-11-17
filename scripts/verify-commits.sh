@@ -18,7 +18,7 @@ if [ -z "${GH_TOKEN:-}" ]; then
     exit 2
 fi
 missing=
-for tool in cargo cargo-nextest cargo-deny ast-grep actionlint shellcheck; do
+for tool in cargo cargo-nextest cargo-deny ast-grep actionlint shellcheck jq; do
     command -v "$tool" > /dev/null 2>&1 || missing="$missing $tool"
 done
 if ! command -v zizmor > /dev/null 2>&1 && ! command -v uvx > /dev/null 2>&1; then
@@ -64,13 +64,17 @@ for commit in $(git rev-list --reverse "$base..$head"); do
         ast-grep scan
         actionlint
         git ls-files -z '*.sh' | xargs -0 shellcheck
-        # The cases of the CI scripts, and the documentation rules, in the commits that have them.
+        # The cases of the CI scripts, and the rules of the documents and of the network test's
+        # server list, in the commits that have them.
         for script in scripts/ci-scope-cases.sh scripts/check-commits-cases.sh \
-            scripts/check-docs-cases.sh scripts/check-docs.sh; do
+            scripts/check-docs-cases.sh scripts/check-docs.sh scripts/iperf3-servers-cases.sh; do
             if [ -x "$script" ]; then
                 "$script" > /dev/null
             fi
         done
+        if [ -x scripts/iperf3-servers.sh ]; then
+            scripts/iperf3-servers.sh check > /dev/null
+        fi
         run_zizmor --persona pedantic .
     )
 done
