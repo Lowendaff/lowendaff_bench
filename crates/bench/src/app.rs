@@ -202,8 +202,9 @@ pub struct ReportOptions<W> {
 
 /// Runs a prepared plan on the host that `host` describes, inside a fresh run directory under
 /// `work_dir`, which is removed afterwards, with the tools that `fetch` downloads from their
-/// pinned addresses, over up to `connections` connections a file, and writes the report as
-/// `report` says. Returns the process exit code.
+/// pinned addresses, over up to `connections` connections a file, and the files that the plugins
+/// ask for, which it downloads too, and writes the report as `report` says. Returns the process
+/// exit code.
 pub async fn execute<F, Fut, R, W>(
     planned: Vec<Planned<Measured>>,
     host: HostProfile,
@@ -232,21 +233,29 @@ where
 
     // Only the tools of items this host can run, so that nothing is downloaded in vain, such
     // as Geekbench on a host without glibc or IPv4.
-    let runnable = planned
-        .iter()
-        .map(|planned| *planned.requires())
-        .filter(|requires| orchestrator::check_host(requires, &host).is_ok());
-    let tools = provision::required_tools(runnable);
+    let runnable = || {
+        planned
+            .iter()
+            .filter(|planned| orchestrator::check_host(planned.requires(), &host).is_ok())
+    };
+    let tools = provision::required_tools(runnable().map(|planned| *planned.requires()));
     let mut ready = BTreeMap::new();
     let mut failed_tools = BTreeMap::new();
     if !tools.is_empty() {
         let tools_dir = run_dir.path().join("tools");
         fs::create_dir(&tools_dir).map_err(|err| locale::words().tools_dir_failed(&err))?;
         let provisioned =
-            provision::provision_all(&tools, &host.arch, &tools_dir, connections, cancel, fetch)
+            provision::provision_all(&tools, &host.arch, &tools_dir, connections, cancel, &fetch)
                 .await;
         ready = provisioned.ready;
         failed_tools = provisioned.failed;
+    }
+    // Each plugin's files go into a directory of its own: two plugins may name theirs alike.
+    let mut files = BTreeMap::new();
+    for planned in runnable().filter(|planned| !planned.files().is_empty()) {
+        let dir = run_dir.path().join("files").join(planned.id());
+        let fetched = provision::fetch_files(planned.files(), &dir, cancel, &fetch).await;
+        files.insert(planned.id(), fetched);
     }
 
     let host = Arc::new(host);
@@ -256,6 +265,7 @@ where
         origin: tokio::time::Instant::from_std(started),
         tools: Arc::new(ready),
         failed_tools,
+        files,
         host: Arc::clone(&host),
     };
     let runs = orchestrator::run_plan(planned, cancel, &settings, &mut Log).await;

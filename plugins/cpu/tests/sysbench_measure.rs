@@ -54,6 +54,7 @@ async fn measure(threads: usize, script: Vec<Result<job::Output, RunError>>) -> 
     let (ctx, mut channels) = Context::<Output>::new(
         Arc::new(HostProfile::default()),
         Arc::new(BTreeMap::new()),
+        Arc::new(BTreeMap::new()),
         deadline,
         ".".into(),
         CancellationToken::new(),

@@ -85,6 +85,7 @@ async fn measure(host: &Host, arch: &str, script: Vec<Result<job::Output, RunErr
     let (ctx, mut channels) = Context::<Output>::new(
         Arc::new(profile),
         Arc::new(BTreeMap::new()),
+        Arc::new(BTreeMap::new()),
         Instant::now() + Duration::from_secs(600),
         "/run/work".into(),
         CancellationToken::new(),
@@ -417,6 +418,7 @@ async fn the_test_file_is_removed_however_the_item_ends() {
         let file = dir.path().join("test.fio");
         let (ctx, _channels) = Context::<Output>::new(
             Arc::new(HostProfile::default()),
+            Arc::new(BTreeMap::new()),
             Arc::new(BTreeMap::new()),
             Instant::now() + Duration::from_secs(600),
             dir.path().to_path_buf(),

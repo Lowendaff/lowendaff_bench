@@ -39,6 +39,7 @@ fn context(cancel: CancellationToken) -> (Context<Nothing>, Channels<Nothing>) {
     Context::new(
         Arc::new(HostProfile::default()),
         Arc::new(BTreeMap::new()),
+        Arc::new(BTreeMap::new()),
         deadline,
         ".".into(),
         cancel,

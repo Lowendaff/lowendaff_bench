@@ -20,6 +20,7 @@ use bench::orchestrator::Run;
 use bench::orchestrator::Settings;
 use bench::orchestrator::Status;
 use bench::orchestrator::Unmet;
+use bench::provision::Provisioned;
 use bench::registry;
 use bench::registry::Entry;
 use bench::results::Measured;
@@ -27,6 +28,8 @@ use bench::results::Report;
 use bench_api::CancellationToken;
 use bench_api::Context;
 use bench_api::Descriptor;
+use bench_api::FileSource;
+use bench_api::FileSpec;
 use bench_api::Measurement;
 use bench_api::Net;
 use bench_api::Plugin;
@@ -448,6 +451,7 @@ async fn run_on<R: Send + 'static>(
         origin: tokio::time::Instant::now(),
         tools: Arc::new(tools),
         failed_tools: BTreeMap::new(),
+        files: BTreeMap::new(),
         host: Arc::new(host),
     };
     orchestrator::run_plan(plan, cancel, &settings, observer).await
@@ -749,6 +753,7 @@ async fn the_work_directory_lives_under_the_run_root_and_is_removed() {
         origin: tokio::time::Instant::now(),
         tools: Arc::default(),
         failed_tools: BTreeMap::new(),
+        files: BTreeMap::new(),
         host: Arc::default(),
     };
     let runs = orchestrator::run_plan(
@@ -845,6 +850,44 @@ async fn unmet_requirements_skip_without_running_glibc_first_then_network_then_t
         }
     );
     assert!(!DEMANDING_RAN.load(Ordering::SeqCst));
+}
+
+#[test]
+fn a_plugin_is_ready_with_every_file_it_asked_for() {
+    let servers = |source: &str| FileSpec {
+        name: "servers",
+        source: FileSource::Url(source.to_owned()),
+    };
+    let files = [servers("https://lists.example/servers.json")];
+    let fetched = Provisioned {
+        ready: BTreeMap::from([("servers".to_owned(), PathBuf::from("/run/files/servers"))]),
+        failed: BTreeMap::new(),
+    };
+    assert_eq!(
+        orchestrator::files_ready(&[], None),
+        Ok(()),
+        "it asked for none"
+    );
+    assert_eq!(orchestrator::files_ready(&files, Some(&fetched)), Ok(()));
+    let failed = Provisioned {
+        ready: BTreeMap::new(),
+        failed: BTreeMap::from([("servers".to_owned(), "download failed: HTTP 404".to_owned())]),
+    };
+    assert_eq!(
+        orchestrator::files_ready(&files, Some(&failed)),
+        Err(Unmet::File {
+            name: "servers",
+            why: "download failed: HTTP 404".to_owned(),
+        })
+    );
+    assert_eq!(
+        orchestrator::files_ready(&files, None),
+        Err(Unmet::File {
+            name: "servers",
+            why: String::new(),
+        }),
+        "nobody tried to get it, as after Ctrl-C"
+    );
 }
 
 #[test]

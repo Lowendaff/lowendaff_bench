@@ -1,12 +1,14 @@
 //! Tool provisioning: verification before execution, cleanup on failure, per-tool
 //! failure reasons, downloads in byte ranges over several connections, tries again after a
-//! failure that may pass, and a plugin running the tool it was given.
+//! failure that may pass, and a plugin running the tool it was given; and the files that the
+//! plugins ask for.
 
 use std::collections::BTreeMap;
 use std::fmt::Write;
 use std::io;
 use std::ops::Range;
 use std::path::Path;
+use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -28,6 +30,8 @@ use bench::results::Report;
 use bench_api::CancellationToken;
 use bench_api::Context;
 use bench_api::Descriptor;
+use bench_api::FileSource;
+use bench_api::FileSpec;
 use bench_api::Net;
 use bench_api::Plugin;
 use bench_api::Requirements;
@@ -303,6 +307,7 @@ async fn a_plugin_runs_the_tool_it_was_provisioned_with() {
         origin: tokio::time::Instant::now(),
         tools: Arc::new(provisioned.ready),
         failed_tools: BTreeMap::new(),
+        files: BTreeMap::new(),
         host: Arc::default(),
     };
 
@@ -1030,4 +1035,192 @@ async fn nothing_is_downloaded_after_ctrl_c() {
         provisioned.ready.is_empty() && provisioned.failed.is_empty(),
         "{provisioned:?}"
     );
+}
+
+const LIST_URL: &str = "https://lists.example/servers.json";
+
+fn list(url: &str) -> FileSpec {
+    FileSpec {
+        name: "servers",
+        source: FileSource::Url(url.to_owned()),
+    }
+}
+
+/// What came of fetching files: the result, the log, the files left in their directory with
+/// their bytes, and the time it took, in the paused clock of a test that pauses it.
+struct Fetched {
+    provisioned: Provisioned,
+    log: Vec<String>,
+    left: BTreeMap<String, Vec<u8>>,
+    took: Duration,
+}
+
+/// Fetches `files` from `served` into a fresh directory, logging as `-v` does.
+async fn fetch_from(files: &[FileSpec], served: &Served) -> Fetched {
+    let dir = tempfile::tempdir().expect("a directory for the files");
+    let (log, capturing) = Captured::start(true);
+    let started = Instant::now();
+    let fetch = |_, range| served.open(range);
+    let provisioned =
+        provision::fetch_files(files, dir.path(), &CancellationToken::new(), &fetch).await;
+    let took = started.elapsed();
+    drop(capturing);
+    let left = entries(dir.path())
+        .into_iter()
+        .map(|name| {
+            let bytes = std::fs::read(dir.path().join(&name)).expect("the file reads");
+            (name, bytes)
+        })
+        .collect();
+    Fetched {
+        provisioned,
+        log: log.lines(),
+        left,
+        took,
+    }
+}
+
+#[tokio::test]
+async fn a_file_at_an_https_address_is_downloaded_and_one_on_the_host_handed_on() {
+    let served = Served::new(b"{\"version\": 1}\n");
+    let own = FileSpec {
+        name: "own",
+        source: FileSource::Path(PathBuf::from("/etc/own-servers.json")),
+    };
+
+    let fetched = fetch_from(&[list(LIST_URL), own], &served).await;
+
+    assert_eq!(fetched.provisioned.failed, BTreeMap::new());
+    let ready = &fetched.provisioned.ready;
+    assert_eq!(ready["own"], PathBuf::from("/etc/own-servers.json"));
+    assert_eq!(ready["servers"].file_name(), Some("servers".as_ref()));
+    assert_eq!(
+        fetched.left,
+        BTreeMap::from([("servers".to_owned(), b"{\"version\": 1}\n".to_vec())])
+    );
+    assert_eq!(served.asked(), [None], "one request for the whole file");
+    assert_eq!(fetched.log, [format!("Downloading {LIST_URL}")]);
+}
+
+#[tokio::test]
+async fn a_file_at_an_address_other_than_https_is_not_downloaded() {
+    let served = Served::new(b"{}");
+    let url = "http://lists.example/servers.json";
+
+    let fetched = fetch_from(&[list(url)], &served).await;
+
+    assert_eq!(
+        fetched.provisioned.failed,
+        BTreeMap::from([("servers".to_owned(), format!("not an HTTPS address: {url}"))])
+    );
+    assert!(served.asked().is_empty(), "nothing is asked for");
+    assert_eq!(fetched.left, BTreeMap::new());
+}
+
+#[tokio::test]
+async fn a_file_of_64_kib_comes_and_a_larger_one_fails_at_once_and_leaves_nothing() {
+    assert_eq!(provision::FILE_LIMIT, 65_536);
+    let fits = Served::new(contents(provision::FILE_LIMIT));
+    let fetched = fetch_from(&[list(LIST_URL)], &fits).await;
+    assert!(
+        fetched.provisioned.ready.contains_key("servers"),
+        "{:?}",
+        fetched.provisioned
+    );
+    assert_eq!(fetched.left["servers"], contents(provision::FILE_LIMIT));
+
+    let large = Served::new(contents(provision::FILE_LIMIT + 1));
+    let fetched = fetch_from(&[list(LIST_URL)], &large).await;
+    assert_eq!(
+        fetched.provisioned.failed,
+        BTreeMap::from([("servers".to_owned(), "larger than 65536 bytes".to_owned())])
+    );
+    assert_eq!(fetched.left, BTreeMap::new(), "the partial file is removed");
+    assert_eq!(large.asked(), [None], "a file too large is not tried again");
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_file_is_tried_again_after_failures_that_may_pass() {
+    let served = Served {
+        busy: 2,
+        ..Served::new(b"{}")
+    };
+
+    let fetched = fetch_from(&[list(LIST_URL)], &served).await;
+
+    assert!(fetched.provisioned.ready.contains_key("servers"));
+    assert_eq!(
+        fetched.log,
+        [
+            format!("Downloading {LIST_URL}"),
+            "file servers: attempt 1 failed; trying again in 1 s: download failed: HTTP 503"
+                .to_owned(),
+            "file servers: attempt 2 failed; trying again in 2 s: download failed: HTTP 503"
+                .to_owned(),
+        ]
+    );
+    assert_eq!(fetched.took, Duration::from_secs(3));
+
+    let breaking = Served::breaking(b"{\"version\": 1}", 14, &[5]);
+    let fetched = fetch_from(&[list(LIST_URL)], &breaking).await;
+    assert_eq!(
+        fetched.left["servers"], b"{\"version\": 1}",
+        "the second try came whole"
+    );
+    assert_eq!(breaking.asked(), [None, None]);
+    assert_eq!(
+        fetched.log[1],
+        "file servers: attempt 1 failed; trying again in 1 s: download broke off: the connection \
+         broke off"
+    );
+
+    let gone = Served {
+        gone: true,
+        ..Served::new(b"{}")
+    };
+    let fetched = fetch_from(&[list(LIST_URL)], &gone).await;
+    assert_eq!(
+        fetched.provisioned.failed["servers"],
+        "download failed: HTTP 404"
+    );
+    assert_eq!(gone.asked(), [None], "a 404 is not tried again");
+}
+
+#[tokio::test]
+async fn ctrl_c_stops_a_file_download_and_the_files_after_it() {
+    let dir = tempfile::tempdir().expect("a directory for the files");
+    let cancel = CancellationToken::new();
+    let asked = Mutex::new(Vec::new());
+    // The first file never comes, and Ctrl-C comes meanwhile.
+    let fetch = |url: &'static str, _range| {
+        asked
+            .lock()
+            .expect("no test panics while holding it")
+            .push(url);
+        let cancel = &cancel;
+        async move {
+            cancel.cancel();
+            std::future::pending::<Result<Part<&'static [u8]>, DownloadError>>().await
+        }
+    };
+    let other = FileSpec {
+        name: "other",
+        source: FileSource::Url("https://lists.example/other.json".to_owned()),
+    };
+    let files = [list(LIST_URL), other];
+
+    let (_log, capturing) = Captured::start(false);
+    let provisioned = provision::fetch_files(&files, dir.path(), &cancel, &fetch).await;
+    drop(capturing);
+
+    assert_eq!(provisioned.ready, BTreeMap::new());
+    assert_eq!(
+        provisioned.failed,
+        BTreeMap::from([("servers".to_owned(), "download interrupted".to_owned())])
+    );
+    let asked = asked
+        .into_inner()
+        .expect("no test panicked while holding it");
+    assert_eq!(asked, [LIST_URL], "the second file is not asked for");
+    assert_eq!(entries(dir.path()), Vec::<String>::new());
 }

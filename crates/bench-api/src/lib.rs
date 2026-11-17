@@ -127,6 +127,26 @@ pub struct ToolAsset {
     pub size: u64,
 }
 
+/// A file that a plugin needs besides its tools, such as a list of the servers that it measures
+/// against, which changes more often than the program does. The orchestrator gets it before the
+/// first test, and a plugin whose file it could not get does not run.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileSpec {
+    /// The name the plugin asks for it by, such as `servers`.
+    pub name: &'static str,
+    /// Where it comes from.
+    pub source: FileSource,
+}
+
+/// Where a [`FileSpec`] comes from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FileSource {
+    /// An HTTPS address, which the orchestrator downloads into the run directory.
+    Url(String),
+    /// A file on the host, which the plugin reads where it is.
+    Path(PathBuf),
+}
+
 /// Static facts about a plugin type.
 #[derive(Debug, Clone, Copy)]
 pub struct Descriptor {
@@ -263,6 +283,11 @@ pub trait Plugin: DeserializeOwned + Default + Send + Sync + 'static {
     type Failure: Serialize + Send + 'static;
     /// Static facts about the plugin.
     const DESCRIPTOR: Descriptor;
+    /// The files it needs besides its tools, which may depend on its configuration; none by
+    /// default. The orchestrator gets them before the first test.
+    fn files(&self) -> Vec<FileSpec> {
+        Vec::new()
+    }
     /// Runs the measurement: the complete result, or why there is none.
     fn run(
         &self,
@@ -274,6 +299,7 @@ pub trait Plugin: DeserializeOwned + Default + Send + Sync + 'static {
 pub struct Context<O> {
     host: Arc<HostProfile>,
     tools: Arc<BTreeMap<String, PathBuf>>,
+    files: Arc<BTreeMap<String, PathBuf>>,
     cancel: CancellationToken,
     deadline: Instant,
     work_dir: PathBuf,
@@ -290,12 +316,13 @@ pub struct Channels<O> {
 }
 
 impl<O: Measurement> Context<O> {
-    /// A context for one run, with the tools that were provisioned, and the orchestrator's end of
-    /// its channels.
+    /// A context for one run, with the tools that were provisioned and the files that the plugin
+    /// asked for, and the orchestrator's end of its channels.
     #[must_use]
     pub fn new(
         host: Arc<HostProfile>,
         tools: Arc<BTreeMap<String, PathBuf>>,
+        files: Arc<BTreeMap<String, PathBuf>>,
         deadline: Instant,
         work_dir: PathBuf,
         cancel: CancellationToken,
@@ -305,6 +332,7 @@ impl<O: Measurement> Context<O> {
         let ctx = Self {
             host,
             tools,
+            files,
             cancel,
             deadline,
             work_dir,
@@ -329,6 +357,14 @@ impl<O: Measurement> Context<O> {
     #[must_use]
     pub fn tool(&self, name: &str) -> Option<&Path> {
         self.tools.get(name).map(PathBuf::as_path)
+    }
+
+    /// The path of a file that the plugin asked for, by its name; `None` for a file it did not
+    /// ask for, since the orchestrator runs a plugin only when it has every file the plugin asked
+    /// for.
+    #[must_use]
+    pub fn file(&self, name: &str) -> Option<&Path> {
+        self.files.get(name).map(PathBuf::as_path)
     }
 
     /// A directory of the plugin's own, removed after the run.

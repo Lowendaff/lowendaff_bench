@@ -1,14 +1,30 @@
-//! The reasons of a tool's download that failed, and the lines that `-v` shows of a download.
+//! The reasons of a download that failed, of a tool or of a file that a plugin asked for, and the
+//! lines that `-v` shows of a download.
 
 use std::fmt::Display;
 use std::path::Path;
 
+/// What a download gets, as the `-v` log names it.
+#[derive(Debug, Clone, Copy)]
+pub enum Download<'a> {
+    /// A tool's build.
+    Tool {
+        /// The tool's name.
+        name: &'a str,
+        /// The tool's version.
+        version: &'a str,
+    },
+    /// A file that a plugin asked for.
+    File {
+        /// The file's name.
+        name: &'a str,
+    },
+}
+
 /// A failed attempt at a download, which is tried again: for the `-v` log.
 pub struct Retry<'a> {
-    /// The tool's name.
-    pub tool: &'a str,
-    /// The tool's version.
-    pub version: &'a str,
+    /// What the download gets.
+    pub download: Download<'a>,
     /// For a byte range, its number, from 1, and the byte that the next attempt goes on from;
     /// `None` for a whole file, which starts over.
     pub range: Option<(usize, u64)>,
@@ -45,6 +61,10 @@ pub trait DownloadWords {
     fn broke_off(&self, error: &dyn Display) -> String;
     /// A whole file larger than its pinned size.
     fn too_large(&self, size: u64) -> String;
+    /// A file that a plugin asked for, larger than the files that a plugin may ask for.
+    fn file_too_large(&self, limit: u64) -> String;
+    /// A file that a plugin asked for, at an address that is not HTTPS.
+    fn not_https(&self, url: &str) -> String;
     /// A whole file of another size than its pinned one.
     fn wrong_size(&self, size: u64, actual: u64) -> String;
     /// A byte range larger than its length.

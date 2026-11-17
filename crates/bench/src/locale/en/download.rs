@@ -4,6 +4,7 @@ use std::fmt::Display;
 use std::path::Path;
 
 use super::English;
+use crate::locale::Download;
 use crate::locale::DownloadWords;
 use crate::locale::Retry;
 
@@ -26,21 +27,24 @@ impl DownloadWords for English {
 
     fn retry(&self, retry: &Retry<'_>) -> String {
         let Retry {
-            tool,
-            version,
+            download,
             range,
             attempt,
             wait,
             reason,
         } = retry;
+        let download = match download {
+            Download::Tool { name, version } => format!("{name} {version}"),
+            Download::File { name } => format!("file {name}"),
+        };
         match range {
             Some((range, from)) => format!(
-                "{tool} {version}: byte range {range}, attempt {attempt} failed; going on from \
-                 byte {from} in {wait} s: {reason}"
+                "{download}: byte range {range}, attempt {attempt} failed; going on from byte \
+                 {from} in {wait} s: {reason}"
             ),
-            None => format!(
-                "{tool} {version}: attempt {attempt} failed; trying again in {wait} s: {reason}"
-            ),
+            None => {
+                format!("{download}: attempt {attempt} failed; trying again in {wait} s: {reason}")
+            }
         }
     }
 
@@ -66,6 +70,14 @@ impl DownloadWords for English {
 
     fn too_large(&self, size: u64) -> String {
         format!("larger than the pinned {size} bytes")
+    }
+
+    fn file_too_large(&self, limit: u64) -> String {
+        format!("larger than {limit} bytes")
+    }
+
+    fn not_https(&self, url: &str) -> String {
+        format!("not an HTTPS address: {url}")
     }
 
     fn wrong_size(&self, size: u64, actual: u64) -> String {

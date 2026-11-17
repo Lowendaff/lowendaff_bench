@@ -13,6 +13,7 @@ mod report;
 
 use std::sync::OnceLock;
 
+pub use download::Download;
 pub use download::DownloadWords;
 pub use download::Retry;
 pub use host::Cores;

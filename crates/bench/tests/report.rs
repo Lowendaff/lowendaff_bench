@@ -392,6 +392,20 @@ fn requirements_and_faults_have_their_words() {
             },
             "tool fio unavailable",
         ),
+        (
+            Unmet::File {
+                name: "servers",
+                why: "download failed: HTTP 404".to_owned(),
+            },
+            "file servers unavailable: download failed: HTTP 404",
+        ),
+        (
+            Unmet::File {
+                name: "servers",
+                why: String::new(),
+            },
+            "file servers unavailable",
+        ),
     ];
     for (unmet, text) in texts {
         assert_eq!(report::terminal::unmet_text(&unmet), text);

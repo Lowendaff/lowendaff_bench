@@ -1,5 +1,6 @@
 //! Tool provisioning: download every pinned tool the plan needs before the
-//! first test, verify size and SHA-256, and only then make it executable or unpack it. A large
+//! first test, verify size and SHA-256, and only then make it executable or unpack it; and the
+//! files that the plugins ask for, which are not pinned, only limited in size. A large
 //! file comes in byte ranges over several connections at once, when its server serves ranges:
 //! a slow route often limits each connection rather than the host. A download that fails in a
 //! way that may pass is tried again after a wait: a byte range from its first missing byte, a
@@ -17,6 +18,8 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use bench_api::CancellationToken;
+use bench_api::FileSource;
+use bench_api::FileSpec;
 use bench_api::Requirements;
 use bench_api::ToolAsset;
 use bench_api::ToolForm;
@@ -27,6 +30,7 @@ use tokio::fs::File;
 use tokio::io::AsyncRead;
 
 use crate::locale;
+use crate::locale::Download;
 use crate::locale::Retry;
 use crate::progress;
 
@@ -47,6 +51,9 @@ pub const MIN_RANGE: u64 = 1 << 20;
 
 /// The attempts that one download, or one byte range of it, gets.
 const ATTEMPTS: u32 = 4;
+
+/// The largest file that a plugin may ask for: such a file is a list, not a tool.
+pub const FILE_LIMIT: u64 = 64 * 1024;
 
 /// The wait before the first retry; it doubles before each further one.
 const FIRST_WAIT: Duration = Duration::from_secs(1);
@@ -83,14 +90,14 @@ struct Attempts {
 }
 
 impl Attempts {
-    /// After a failed attempt at `tool`'s download: logs the retry and waits, 1, 2 and then 4
-    /// seconds, or gives the reason when the failure would end the same way again or the
-    /// attempts are used up. `range` is the byte range's number, from 1, and the byte that the
-    /// next attempt goes on from; `None` for a whole file.
+    /// After a failed attempt at `download`: logs the retry and waits, 1, 2 and then 4 seconds,
+    /// or gives the reason when the failure would end the same way again or the attempts are
+    /// used up. `range` is the byte range's number, from 1, and the byte that the next attempt
+    /// goes on from; `None` for a whole file.
     async fn again(
         &mut self,
         error: DownloadError,
-        tool: &ToolSpec,
+        download: Download<'_>,
         range: Option<(usize, u64)>,
     ) -> Result<(), String> {
         let reason = match error {
@@ -103,8 +110,7 @@ impl Attempts {
         }
         let wait = FIRST_WAIT * 2_u32.pow(self.failed - 1);
         let retry = Retry {
-            tool: tool.name,
-            version: tool.version,
+            download,
             range,
             attempt: self.failed,
             wait: wait.as_secs(),
@@ -113,6 +119,14 @@ impl Attempts {
         tracing::debug!("{}", locale::words().retry(&retry));
         tokio::time::sleep(wait).await;
         Ok(())
+    }
+}
+
+/// A tool's download, as the log names it.
+fn of(tool: &ToolSpec) -> Download<'_> {
+    Download::Tool {
+        name: tool.name,
+        version: tool.version,
     }
 }
 
@@ -172,6 +186,121 @@ where
     result
 }
 
+/// Gets the files that a plugin asked for: a file on the host is handed on as it is, and one at
+/// an HTTPS address is downloaded into `dir`, whole, at most [`FILE_LIMIT`] bytes, and tried again
+/// after a failure that may pass, as a tool is. When `cancel` fires, the download under way stops
+/// at once and fails, and the files after it are not downloaded.
+pub async fn fetch_files<F, Fut, R>(
+    files: &[FileSpec],
+    dir: &Path,
+    cancel: &CancellationToken,
+    fetch: &F,
+) -> Provisioned
+where
+    F: Fn(&'static str, Option<Range<u64>>) -> Fut,
+    Fut: Future<Output = Result<Part<R>, DownloadError>>,
+    R: AsyncRead + Unpin,
+{
+    let mut result = Provisioned::default();
+    for file in files {
+        if cancel.is_cancelled() {
+            break;
+        }
+        let had = match &file.source {
+            FileSource::Path(path) => Ok(path.clone()),
+            FileSource::Url(url) if !url.starts_with("https://") => {
+                Err(locale::words().not_https(url))
+            }
+            FileSource::Url(url) => {
+                tracing::debug!("{}", locale::words().download(url));
+                // The fetch takes an address that lasts as long as the program, as a tool's
+                // pinned one does; a file's comes from the configuration, so it is kept to the end.
+                let url: &'static str = Box::leak(url.clone().into_boxed_str());
+                let path = dir.join(file.name);
+                let fetched = tokio::select! {
+                    fetched = fetch_file(fetch, file.name, url, &path, dir) => fetched,
+                    () = cancel.cancelled() => Err(locale::words().download_interrupted()),
+                };
+                if fetched.is_err() {
+                    let _ = fs::remove_file(&path).await;
+                }
+                fetched.map(|()| path)
+            }
+        };
+        match had {
+            Ok(path) => {
+                result.ready.insert(file.name.to_owned(), path);
+            }
+            Err(reason) => {
+                result.failed.insert(file.name.to_owned(), reason);
+            }
+        }
+    }
+    result
+}
+
+/// Downloads the file `name` from `url` into `path`, in the directory `dir`, which it makes first,
+/// and starts over after a failure that may pass.
+async fn fetch_file<F, Fut, R>(
+    fetch: &F,
+    name: &str,
+    url: &'static str,
+    path: &Path,
+    dir: &Path,
+) -> Result<(), String>
+where
+    F: Fn(&'static str, Option<Range<u64>>) -> Fut,
+    Fut: Future<Output = Result<Part<R>, DownloadError>>,
+    R: AsyncRead + Unpin,
+{
+    fs::create_dir_all(dir)
+        .await
+        .map_err(|err| locale::words().write_failed(&err))?;
+    let mut attempts = Attempts::default();
+    loop {
+        let written = match fetch(url, None).await {
+            Ok(Part::Whole(body) | Part::Range(body)) => write_limited(body, path).await,
+            Err(error) => Err(error),
+        };
+        let Err(error) = written else {
+            return Ok(());
+        };
+        attempts.again(error, Download::File { name }, None).await?;
+    }
+}
+
+/// Streams `body`, a file that a plugin asked for, into `path`, at most [`FILE_LIMIT`] bytes. A
+/// body that breaks off may come whole on another try; one that grows past the limit would not.
+async fn write_limited<R: AsyncRead + Unpin>(
+    mut body: R,
+    path: &Path,
+) -> Result<(), DownloadError> {
+    use tokio::io::AsyncReadExt;
+    use tokio::io::AsyncWriteExt;
+
+    let write_error = |err: io::Error| DownloadError::Final(locale::words().write_failed(&err));
+    let mut file = File::create(path).await.map_err(write_error)?;
+    let mut total: u64 = 0;
+    let mut buffer = vec![0_u8; 16 * 1024];
+    loop {
+        let read = body
+            .read(&mut buffer)
+            .await
+            .map_err(|err| DownloadError::Transient(locale::words().broke_off(&err)))?;
+        if read == 0 {
+            break;
+        }
+        total += read as u64;
+        if total > FILE_LIMIT {
+            return Err(DownloadError::Final(
+                locale::words().file_too_large(FILE_LIMIT),
+            ));
+        }
+        file.write_all(&buffer[..read]).await.map_err(write_error)?;
+    }
+    file.flush().await.map_err(write_error)
+}
+
 /// Downloads `asset` and installs it, unless `cancel` fires first: then every connection of
 /// the download closes at once, and the partial file is removed. Unpacking is not stopped: it
 /// is short, and it runs on a thread that would go on regardless.
@@ -221,7 +350,7 @@ where
     let first = loop {
         match fetch(asset.url, Some(ranges[0].clone())).await {
             Ok(part) => break part,
-            Err(error) => attempts.again(error, tool, None).await?,
+            Err(error) => attempts.again(error, of(tool), None).await?,
         }
     };
     match first {
@@ -271,7 +400,7 @@ where
         let Err(error) = written else {
             return Ok(());
         };
-        attempts.again(error, tool, None).await?;
+        attempts.again(error, of(tool), None).await?;
     }
 }
 
@@ -453,7 +582,7 @@ where
         }
         let resume = range.start + written;
         attempts
-            .again(error, tool, Some((index + 1, resume)))
+            .again(error, of(tool), Some((index + 1, resume)))
             .await?;
     }
 }

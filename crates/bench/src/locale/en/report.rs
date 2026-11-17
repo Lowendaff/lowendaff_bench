@@ -109,6 +109,8 @@ impl ReportWords for English {
             Unmet::Network(Net::Any | Net::None) => "needs a network connection".to_owned(),
             Unmet::Tool { name, why } if why.is_empty() => format!("tool {name} unavailable"),
             Unmet::Tool { name, why } => format!("tool {name} unavailable: {why}"),
+            Unmet::File { name, why } if why.is_empty() => format!("file {name} unavailable"),
+            Unmet::File { name, why } => format!("file {name} unavailable: {why}"),
         }
     }
 

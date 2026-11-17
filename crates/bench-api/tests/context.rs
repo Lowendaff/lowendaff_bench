@@ -35,6 +35,7 @@ impl Measurement for Output {
 
 fn context() -> (Context<Output>, Channels<Output>, CancellationToken) {
     let tools = BTreeMap::from([("probe".to_owned(), PathBuf::from("/run/tools/probe"))]);
+    let files = BTreeMap::from([("list".to_owned(), PathBuf::from("/run/files/probe/list"))]);
     let host = HostProfile {
         arch: "riscv64".to_owned(),
         ..HostProfile::default()
@@ -44,6 +45,7 @@ fn context() -> (Context<Output>, Channels<Output>, CancellationToken) {
     let (ctx, channels) = Context::new(
         Arc::new(host),
         Arc::new(tools),
+        Arc::new(files),
         deadline,
         PathBuf::from("/run/work"),
         cancel.clone(),
@@ -95,7 +97,7 @@ fn a_plugin_keeps_running_when_nobody_listens() {
 }
 
 #[test]
-fn the_context_hands_out_host_tools_directory_deadline_and_token() {
+fn the_context_hands_out_host_tools_files_directory_deadline_and_token() {
     let (ctx, _channels, cancel) = context();
     assert_eq!(ctx.host().arch, "riscv64");
     assert_eq!(
@@ -103,6 +105,11 @@ fn the_context_hands_out_host_tools_directory_deadline_and_token() {
         Some(PathBuf::from("/run/tools/probe").as_path())
     );
     assert_eq!(ctx.tool("undeclared"), None);
+    assert_eq!(
+        ctx.file("list"),
+        Some(PathBuf::from("/run/files/probe/list").as_path())
+    );
+    assert_eq!(ctx.file("probe"), None, "a tool is no file");
     assert_eq!(ctx.work_dir(), PathBuf::from("/run/work").as_path());
     assert!(ctx.deadline() > Instant::now());
     assert!(!ctx.cancel_token().is_cancelled());

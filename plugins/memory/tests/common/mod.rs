@@ -112,6 +112,7 @@ pub fn context<O: Measurement>(cancel: &CancellationToken) -> (Context<O>, Chann
     Context::new(
         Arc::new(HostProfile::default()),
         Arc::new(BTreeMap::new()),
+        Arc::new(BTreeMap::new()),
         Instant::now() + Duration::from_secs(3600),
         "/run/work".into(),
         cancel.clone(),

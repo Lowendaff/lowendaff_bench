@@ -12,6 +12,7 @@ use std::time::Duration;
 
 use bench_api::CancellationToken;
 use bench_api::Context;
+use bench_api::FileSpec;
 use bench_api::Net;
 use bench_api::Plugin;
 use bench_api::Progress;
@@ -27,6 +28,7 @@ use tokio::task::JoinHandle;
 use tokio::time::Instant;
 
 use crate::locale;
+use crate::provision::Provisioned;
 use crate::registry::Entry;
 use crate::results::Measured;
 use crate::results::Report;
@@ -63,6 +65,14 @@ pub enum Unmet {
         /// The tool's name.
         name: &'static str,
         /// The provisioning's reason.
+        why: String,
+    },
+    /// A file that the plugin asked for and that could not be had, and why; empty when nobody
+    /// tried to get it.
+    File {
+        /// The file's name.
+        name: &'static str,
+        /// The download's reason.
         why: String,
     },
 }
@@ -108,6 +118,7 @@ pub struct Planned<R> {
     id: &'static str,
     pub(crate) title: Option<&'static str>,
     requires: Requirements,
+    files: Vec<FileSpec>,
     timeout: Duration,
     runner: Arc<dyn Runner<R>>,
 }
@@ -120,6 +131,7 @@ impl<R: Send + 'static> Planned<R> {
             id: P::DESCRIPTOR.id,
             title: None,
             requires: P::DESCRIPTOR.requires,
+            files: plugin.files(),
             timeout: P::DESCRIPTOR.timeout,
             runner: Arc::new(PluginRunner {
                 plugin: Arc::new(plugin),
@@ -146,6 +158,12 @@ impl<R> Planned<R> {
     #[must_use]
     pub fn requires(&self) -> &Requirements {
         &self.requires
+    }
+
+    /// The files that the plugin asked for, as its configuration says.
+    #[must_use]
+    pub fn files(&self) -> &[FileSpec] {
+        &self.files
     }
 }
 
@@ -178,6 +196,9 @@ pub struct Settings {
     pub tools: Arc<BTreeMap<String, PathBuf>>,
     /// Why each tool that could not be provisioned failed.
     pub failed_tools: BTreeMap<String, String>,
+    /// The files that each plugin asked for, by the plugin's id: those that were had, and why
+    /// the others failed.
+    pub files: BTreeMap<&'static str, Provisioned>,
     /// The host, as the run read it, for the plugins.
     pub host: Arc<HostProfile>,
 }
@@ -286,6 +307,22 @@ pub fn preflight(
     }
 }
 
+/// Whether the plugin has every file in `files`, among those that `fetched` holds for it; `None`
+/// when none was fetched for it.
+pub fn files_ready(files: &[FileSpec], fetched: Option<&Provisioned>) -> Result<(), Unmet> {
+    let had =
+        |file: &&FileSpec| fetched.is_some_and(|fetched| fetched.ready.contains_key(file.name));
+    match files.iter().find(|file| !had(file)) {
+        Some(file) => Err(Unmet::File {
+            name: file.name,
+            why: fetched
+                .and_then(|fetched| fetched.failed.get(file.name).cloned())
+                .unwrap_or_default(),
+        }),
+        None => Ok(()),
+    }
+}
+
 /// Runs the plan in order and returns every plugin's run.
 pub async fn run_plan<R: Send + 'static>(
     plan: Vec<Planned<R>>,
@@ -305,18 +342,24 @@ pub async fn run_plan<R: Send + 'static>(
             result: None,
         };
         if !cancel.is_cancelled() {
+            let fetched = settings.files.get(planned.id);
             let ready = preflight(
                 &planned.requires,
                 &settings.host,
                 &settings.tools,
                 &settings.failed_tools,
-            );
+            )
+            .and_then(|()| files_ready(&planned.files, fetched));
             match ready {
                 Err(unmet) => run.status = Status::Skipped(Some(unmet)),
                 Ok(()) => {
                     observer.on_start(planned.id);
                     let begun = Instant::now();
-                    let (status, result) = run_one(&planned, cancel, settings, observer).await;
+                    let files = fetched
+                        .map(|fetched| fetched.ready.clone())
+                        .unwrap_or_default();
+                    let (status, result) =
+                        run_one(&planned, files, cancel, settings, observer).await;
                     run.started = Some(begun.duration_since(settings.origin));
                     run.elapsed = Some(begun.elapsed());
                     run.status = status;
@@ -332,6 +375,7 @@ pub async fn run_plan<R: Send + 'static>(
 
 async fn run_one<R: Send + 'static>(
     planned: &Planned<R>,
+    files: BTreeMap<String, PathBuf>,
     global: &CancellationToken,
     settings: &Settings,
     observer: &mut dyn Observer<R>,
@@ -347,6 +391,7 @@ async fn run_one<R: Send + 'static>(
         id: planned.id,
         host: Arc::clone(&settings.host),
         tools: Arc::clone(&settings.tools),
+        files: Arc::new(files),
         deadline: Instant::now() + planned.timeout,
         work_dir: work.path().to_path_buf(),
         token: global.child_token(),
@@ -364,6 +409,7 @@ struct Launch<'a, R> {
     id: &'static str,
     host: Arc<HostProfile>,
     tools: Arc<BTreeMap<String, PathBuf>>,
+    files: Arc<BTreeMap<String, PathBuf>>,
     deadline: Instant,
     work_dir: PathBuf,
     /// The plugin's own token, a child of `global`.
@@ -398,6 +444,7 @@ impl<P: Plugin, R: Send + 'static> Runner<R> for PluginRunner<P, R> {
             let (ctx, mut channels) = Context::<P::Output>::new(
                 launch.host,
                 launch.tools,
+                launch.files,
                 launch.deadline,
                 launch.work_dir,
                 launch.token.clone(),

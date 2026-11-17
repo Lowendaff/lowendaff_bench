@@ -46,6 +46,7 @@ async fn measure(script: Vec<Ran>, cancel_after_first: bool) -> Outcome {
     let (ctx, mut channels) = Context::<Output>::new(
         Arc::new(HostProfile::default()),
         Arc::new(BTreeMap::new()),
+        Arc::new(BTreeMap::new()),
         Instant::now() + Duration::from_secs(4 * 3600),
         work.path().into(),
         cancel.clone(),

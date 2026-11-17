@@ -25,6 +25,8 @@ use bench::results::Measured;
 use bench_api::CancellationToken;
 use bench_api::Context;
 use bench_api::Descriptor;
+use bench_api::FileSource;
+use bench_api::FileSpec;
 use bench_api::Net;
 use bench_api::Plugin;
 use bench_api::Requirements;
@@ -307,6 +309,168 @@ async fn a_work_directory_given_with_dots_leaves_none_in_the_paths_under_it() {
         .parent()
         .expect("the plugin's directory is in the run directory");
     assert_eq!(run_dir.parent(), Some(work.path()), "{shown}");
+}
+
+/// A file that [`ReadsFiles`] read: its name, where its context put it, and what it held.
+type FileRead = (&'static str, PathBuf, String);
+
+/// Asks for the files that it was built with, and notes what each holds and where its context
+/// put it.
+#[derive(Default, Deserialize)]
+struct ReadsFiles {
+    #[serde(skip)]
+    files: Vec<FileSpec>,
+    #[serde(skip)]
+    seen: Arc<Mutex<Vec<FileRead>>>,
+}
+
+impl Plugin for ReadsFiles {
+    type Output = Output;
+    type Failure = Failure;
+    const DESCRIPTOR: Descriptor = descriptor("test.files");
+
+    fn files(&self) -> Vec<FileSpec> {
+        self.files.clone()
+    }
+
+    async fn run(&self, ctx: &Context<Output>) -> Result<Output, Stop<Failure>> {
+        let mut seen = Vec::new();
+        for file in &self.files {
+            let path = ctx.file(file.name).expect("it runs with its files");
+            let text = std::fs::read_to_string(path).expect("the file reads");
+            seen.push((file.name, path.to_path_buf(), text));
+        }
+        *self.seen.lock().expect("nothing panics while holding it") = seen;
+        Ok(Output::default())
+    }
+}
+
+#[tokio::test]
+async fn a_plugin_gets_its_files_downloaded_into_the_run_directory_or_where_they_are() {
+    let dir = tempfile::tempdir().expect("a directory for the plugin's own file");
+    let own = dir.path().join("own.json");
+    std::fs::write(&own, "on the host\n").expect("the file is written");
+    let seen = Arc::default();
+    let plugin = ReadsFiles {
+        files: vec![
+            FileSpec {
+                name: "servers",
+                source: FileSource::Url("https://lists.example/servers.json".to_owned()),
+            },
+            FileSpec {
+                name: "own",
+                source: FileSource::Path(own.clone()),
+            },
+        ],
+        seen: Arc::clone(&seen),
+    };
+    let downloads = Downloads {
+        body: Some(b"downloaded\n"),
+        ..Downloads::default()
+    };
+
+    let (code, text, _log) = run(
+        vec![Planned::new(plugin, Measured::CpuGeekbench)],
+        HostProfile::default(),
+        &CancellationToken::new(),
+        &downloads,
+        None,
+        false,
+    )
+    .await;
+
+    assert_eq!(code, 0, "{text}");
+    assert_eq!(downloads.asked(), ["https://lists.example/servers.json"]);
+    let seen = seen
+        .lock()
+        .expect("nothing panics while holding it")
+        .clone();
+    let [(servers, path, downloaded), mine] = seen.as_slice() else {
+        panic!("the plugin read both files: {seen:?}");
+    };
+    assert_eq!((*servers, downloaded.as_str()), ("servers", "downloaded\n"));
+    assert!(
+        path.ends_with("files/test.files/servers"),
+        "in a directory of the plugin's own in the run directory: {}",
+        path.display()
+    );
+    assert_eq!(mine, &("own", own, "on the host\n".to_owned()));
+}
+
+#[tokio::test]
+async fn a_plugin_whose_file_cannot_be_had_is_skipped_with_the_reason() {
+    let url = "https://lists.example/servers.json";
+    let plugin = ReadsFiles {
+        files: vec![FileSpec {
+            name: "servers",
+            source: FileSource::Url(url.to_owned()),
+        }],
+        seen: Arc::default(),
+    };
+
+    let (code, text, log) = execute(
+        vec![Planned::new(plugin, Measured::CpuGeekbench)],
+        HostProfile::default(),
+        &CancellationToken::new(),
+    )
+    .await;
+
+    assert_eq!(code, 0);
+    let reason = format!("file servers unavailable: no download in this test: {url}");
+    assert!(text.contains(&format!("\n  skipped: {reason}\n")), "{text}");
+    assert_eq!(log.last(), Some(&format!("test.files skipped: {reason}")));
+}
+
+/// Asks for a file, and needs IPv4.
+#[derive(Default, Deserialize)]
+struct ReadsFilesOverIpv4 {}
+
+impl Plugin for ReadsFilesOverIpv4 {
+    type Output = Output;
+    type Failure = Failure;
+    const DESCRIPTOR: Descriptor = Descriptor {
+        requires: Requirements {
+            net: Net::Ipv4,
+            ..Requirements::NONE
+        },
+        ..descriptor("test.files-ipv4")
+    };
+
+    fn files(&self) -> Vec<FileSpec> {
+        vec![FileSpec {
+            name: "servers",
+            source: FileSource::Url("https://lists.example/servers.json".to_owned()),
+        }]
+    }
+
+    async fn run(&self, _ctx: &Context<Output>) -> Result<Output, Stop<Failure>> {
+        Ok(Output::default())
+    }
+}
+
+#[tokio::test]
+async fn the_files_of_a_plugin_that_cannot_run_here_are_not_downloaded() {
+    let downloads = Downloads {
+        body: Some(b"{}"),
+        ..Downloads::default()
+    };
+
+    let (code, text, _log) = run(
+        vec![Planned::new(ReadsFilesOverIpv4 {}, Measured::CpuGeekbench)],
+        HostProfile::default(),
+        &CancellationToken::new(),
+        &downloads,
+        None,
+        false,
+    )
+    .await;
+
+    assert_eq!(code, 0);
+    assert!(
+        text.contains("\n  skipped: needs an IPv4 connection\n"),
+        "{text}"
+    );
+    assert!(downloads.asked().is_empty(), "{:?}", downloads.asked());
 }
 
 /// [`run`] without downloads, with the report as in a file and the addresses masked.
