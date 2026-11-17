@@ -16,7 +16,7 @@ on:
       tool:
         description: Tool to build and publish
         type: choice
-        options: [fio, multichase, smartctl, stream, sysbench]
+        options: [fio, iperf3, multichase, smartctl, stream, sysbench]
 
 permissions: {}
 
@@ -28,7 +28,7 @@ jobs:
         # Every tool for a pull request, the chosen one for a manual run.
         tool: >-
           ${{ fromJSON(inputs.tool && format('["{0}"]', inputs.tool)
-          || '["fio", "multichase", "smartctl", "stream", "sysbench"]') }}
+          || '["fio", "iperf3", "multichase", "smartctl", "stream", "sysbench"]') }}
         arch: [x86_64, aarch64]
         include:
           - arch: x86_64
