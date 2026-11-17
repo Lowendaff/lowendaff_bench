@@ -115,7 +115,10 @@ the servers are third parties.
   first of its reviewed candidates in `servers/iperf3-candidates.json` that
   [iperf3serverlist.net](https://iperf3serverlist.net), which checks its servers every 15 minutes,
   still lists; `scripts/iperf3-servers.sh update` writes it, and no one edits it by hand. A
-  location without such a candidate is left out. The program checks the list's rules before it
+  location without such a candidate is left out. The `data` workflow runs `update` every day, and
+  when the list changes, opens a pull request that merges itself once the required checks pass.
+  It writes as the GitHub App `lowendaff-bench-data`, whose key only `main` can use, and its pull
+  requests may change the list only. The program checks the list's rules before it
   uses it (`scripts/iperf3-servers.sh` names them), and CI checks them in every pull request.
 - **Choosing servers.** By default, the servers that the list marks as defaults. `--countries`
   takes ISO 3166 codes in any case, separated by commas, or `all`: every server of those

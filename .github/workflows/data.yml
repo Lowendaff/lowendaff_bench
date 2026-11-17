@@ -1,0 +1,153 @@
+# Keeps the network test's server list current (README "Network speed"). Every day, and when the
+# candidates, their script or this workflow change on main, it writes servers/iperf3.json anew
+# from the reviewed candidates and the export of iperf3serverlist.net. When the list changes, it
+# opens a pull request, or rebuilds the open one on main's head, that merges itself once the
+# required checks pass; when the list is current again, it closes the open one. It tests no
+# server itself. It writes only with a token of the GitHub App lowendaff-bench-data, whose key
+# only main can use (the environment data-update), and only when there is something to write.
+name: data
+
+on:
+  schedule:
+    # Daily; GitHub delays scheduled runs most at the full hour.
+    - cron: "41 3 * * *"
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - servers/iperf3-candidates.json
+      - scripts/iperf3-servers.sh
+      - .github/workflows/data.yml
+
+permissions: {}
+
+jobs:
+  iperf3:
+    name: iperf3 server list
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    # Holds the App's private key and client id; only main may use it.
+    environment: data-update
+    permissions:
+      # Reads the repository; every write goes through the App's token.
+      contents: read
+    env:
+      BRANCH: data/iperf3-servers
+      TITLE: "build: update the iperf3 server list"
+    defaults:
+      run:
+        # With pipefail, so that no failure in a pipe goes unnoticed.
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # At most 2 MiB, over HTTPS only; update refuses an export that is not an array of at least
+      # 50 servers, and a list that would lose its defaults or a third of its servers at once.
+      - name: Export
+        run: |
+          curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
+            --max-time 120 --retry 3 --max-filesize 2097152 \
+            --output "$RUNNER_TEMP/export.json" \
+            https://export.iperf3serverlist.net/listed_iperf3_servers.json
+      - name: List
+        id: list
+        run: |
+          scripts/iperf3-servers.sh update "$RUNNER_TEMP/export.json" > "$RUNNER_TEMP/changes.txt"
+          cat "$RUNNER_TEMP/changes.txt"
+          scripts/iperf3-servers.sh check
+          if git diff --quiet -- servers/iperf3.json; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+          # An update branch left from an earlier run, whose pull request this run rebuilds or
+          # closes.
+          status=0
+          git ls-remote --exit-code --heads origin "$BRANCH" > /dev/null || status=$?
+          case $status in
+            0) echo "branch=true" >> "$GITHUB_OUTPUT" ;;
+            2) echo "branch=false" >> "$GITHUB_OUTPUT" ;;
+            *) exit "$status" ;;
+          esac
+          {
+            echo "### iperf3 server list"
+            echo
+            sed 's/^/- /' "$RUNNER_TEMP/changes.txt"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Token
+        id: token
+        if: steps.list.outputs.changed == 'true' || steps.list.outputs.branch == 'true'
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.DATA_APP_CLIENT_ID }}
+          private-key: ${{ secrets.DATA_APP_PRIVATE_KEY }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-pull-requests: write
+      # The list alone, committed on main's head by the App's bot and pushed over the branch as
+      # this run found it, so that a run that overlaps another fails instead of overwriting it.
+      - name: Pull request
+        if: steps.list.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          APP_SLUG: ${{ steps.token.outputs.app-slug }}
+        run: |
+          bot="${APP_SLUG}[bot]"
+          id=$(gh api "users/${APP_SLUG}%5Bbot%5D" --jq .id)
+          git config user.name "$bot"
+          git config user.email "$id+$bot@users.noreply.github.com"
+          # The commit messages gate takes printable ASCII lines of at most 98 columns.
+          changes=$(iconv -f UTF-8 -t ASCII//TRANSLIT "$RUNNER_TEMP/changes.txt" | fold -s -w 96)
+          {
+            printf '%s\n\n' "$TITLE"
+            echo "The data workflow wrote servers/iperf3.json anew from the candidates and the"
+            echo "export of iperf3serverlist.net. The locations that changed:"
+            printf '%s\n' "$changes"
+          } > "$RUNNER_TEMP/message.txt"
+          {
+            echo "The data workflow (\`.github/workflows/data.yml\`) wrote \`servers/iperf3.json\`"
+            echo "anew from \`servers/iperf3-candidates.json\` and the export of"
+            echo "[iperf3serverlist.net](https://iperf3serverlist.net). The locations that changed:"
+            echo
+            sed 's/^/- /' "$RUNNER_TEMP/changes.txt"
+            echo
+            echo "It merges itself once the required checks pass. A bot's pull request may change"
+            echo "the server list only (\`scripts/check-commits.sh\`)."
+          } > "$RUNNER_TEMP/body.md"
+          git switch --quiet --create "$BRANCH"
+          git commit --quiet --file "$RUNNER_TEMP/message.txt" -- servers/iperf3.json
+          expected=$(git ls-remote origin "refs/heads/$BRANCH" | cut -f1)
+          basic=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w 0)
+          echo "::add-mask::$basic"
+          GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader \
+            GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $basic" \
+            git push --quiet --force-with-lease="refs/heads/$BRANCH:$expected" origin \
+            "HEAD:refs/heads/$BRANCH"
+          number=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$BRANCH" --state open \
+            --json number --jq '.[0].number // empty')
+          if [ -z "$number" ]; then
+            gh pr create --repo "$GITHUB_REPOSITORY" --base main --head "$BRANCH" \
+              --title "$TITLE" --body-file "$RUNNER_TEMP/body.md"
+            number=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$BRANCH" --state open \
+              --json number --jq '.[0].number')
+          else
+            gh pr edit "$number" --repo "$GITHUB_REPOSITORY" --body-file "$RUNNER_TEMP/body.md"
+          fi
+          gh pr merge "$number" --repo "$GITHUB_REPOSITORY" --auto --squash
+          echo "- pull request #$number, merging itself once the required checks pass" \
+            >> "$GITHUB_STEP_SUMMARY"
+      - name: Close
+        if: steps.list.outputs.changed == 'false' && steps.list.outputs.branch == 'true'
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+        run: |
+          number=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$BRANCH" --state open \
+            --json number --jq '.[0].number // empty')
+          if [ -n "$number" ]; then
+            gh pr close "$number" --repo "$GITHUB_REPOSITORY" \
+              --comment "The list on main is current again; nothing to update."
+            echo "- closed pull request #$number: the list on main is current" \
+              >> "$GITHUB_STEP_SUMMARY"
+          fi
+          gh api --method DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/$BRANCH"
