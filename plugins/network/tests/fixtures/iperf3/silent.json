@@ -1,0 +1,11 @@
+{
+	"start":	{
+		"connected":	[],
+		"version":	"iperf 3.22",
+		"system_info":	"Linux capture 7.0.14-linuxkit #1 SMP PREEMPT Fri Oct 30 13:45:20 UTC 2026 aarch64"
+	},
+	"intervals":	[],
+	"end":	{
+	},
+	"error":	"unable to connect to server - server may have stopped running or use a different port, firewall issue, etc.: Operation timed out"
+}

@@ -1,0 +1,1419 @@
+{
+  "version": 1,
+  "servers": [
+    {
+      "id": "server-0",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-1",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-2",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-3",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-4",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-5",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-6",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-7",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-8",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-9",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-10",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-11",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-12",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-13",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-14",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-15",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-16",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-17",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-18",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-19",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-20",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-21",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-22",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-23",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-24",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-25",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-26",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-27",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-28",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-29",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-30",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-31",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-32",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-33",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-34",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-35",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-36",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-37",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-38",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-39",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-40",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-41",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-42",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-43",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-44",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-45",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-46",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-47",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-48",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-49",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-50",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-51",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-52",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-53",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-54",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-55",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-56",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-57",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-58",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-59",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-60",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-61",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-62",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-63",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-64",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-65",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-66",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-67",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-68",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-69",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-70",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-71",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-72",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-73",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-74",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-75",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-76",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-77",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-78",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-79",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-80",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-81",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-82",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-83",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-84",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-85",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-86",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-87",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-88",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-89",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-90",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-91",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-92",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-93",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-94",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-95",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-96",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-97",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-98",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-99",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "server-100",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    }
+  ]
+}

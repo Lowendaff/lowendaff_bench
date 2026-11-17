@@ -1,0 +1,72 @@
+{
+  "version": 1,
+  "servers": [
+    {
+      "id": "tokyo",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": true
+    },
+    {
+      "id": "osaka",
+      "country": "JP",
+      "location": "Osaka",
+      "provider": "Leaseweb",
+      "host": "203.0.113.7",
+      "ports": "5201",
+      "families": [
+        "ipv4"
+      ],
+      "link": "10G"
+    },
+    {
+      "id": "v6-only",
+      "country": "DE",
+      "location": "São Paulo",
+      "provider": "Leaseweb",
+      "host": "2001:db8::1",
+      "ports": "5201-5210",
+      "families": [
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": false
+    },
+    {
+      "id": "mapped",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "::ffff:192.0.2.1",
+      "ports": "1024-1087",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "1G",
+      "default": true
+    },
+    {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "country": "JP",
+      "location": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "provider": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "host": "localhost",
+      "ports": "65535",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "cccccccccccccccccccccccccccccccccccccccc",
+      "default": true
+    }
+  ]
+}
