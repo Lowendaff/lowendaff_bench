@@ -134,6 +134,16 @@ jobs:
         run: scripts/iperf3-servers-cases.sh
       - name: Server list
         run: scripts/iperf3-servers.sh check
+      # Route tracing's two lists, which the program downloads at run time too: the cases of each
+      # list's script, which reads the program's fixtures as well, then the repository's list.
+      - name: Target list cases
+        run: scripts/traceroute-targets-cases.sh
+      - name: Target list
+        run: scripts/traceroute-targets.sh check
+      - name: Exchange list cases
+        run: scripts/netflix-ix-cases.sh
+      - name: Exchange list
+        run: scripts/netflix-ix.sh check
 
   linux:
     name: test, static build and smoke (${{ matrix.arch }})

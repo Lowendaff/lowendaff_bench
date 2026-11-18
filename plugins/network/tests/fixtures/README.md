@@ -51,4 +51,6 @@ examples or neutral, so that no answer tells where a host is.
 ## `target-lists/` and `exchange-lists/`
 
 Lists in the item's two formats, written for the tests: a list named `good-*` follows every rule,
-and one named `bad-*` breaks one (`trace_lists.rs`).
+and one named `bad-*` breaks one. The program's readers (`trace_lists.rs`) and the lists' checking
+scripts (`scripts/traceroute-targets-cases.sh`, `scripts/netflix-ix-cases.sh`) both read them, so
+that they agree on each.

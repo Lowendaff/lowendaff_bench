@@ -1,0 +1,621 @@
+{
+  "version": 1,
+  "targets": [
+    {
+      "id": "pek-4134",
+      "group": "china",
+      "name": "Beijing Telecom 163",
+      "asn": 4134,
+      "ipv4": "ipv4.pek-4134.endpoint.nxtrace.org",
+      "ipv6": "ipv6.pek-4134.endpoint.nxtrace.org",
+      "default": true
+    },
+    {
+      "id": "pek-4809",
+      "group": "china",
+      "name": "Beijing Telecom CN2",
+      "asn": 4809,
+      "ipv4": "ipv4.pek-4809.endpoint.nxtrace.org",
+      "default": true
+    },
+    {
+      "id": "pek-4837",
+      "group": "china",
+      "name": "Beijing Unicom 169",
+      "asn": 4837,
+      "ipv4": "ipv4.pek-4837.endpoint.nxtrace.org",
+      "ipv6": "ipv6.pek-4837.endpoint.nxtrace.org",
+      "default": true
+    },
+    {
+      "id": "pek-9929",
+      "group": "china",
+      "name": "Beijing Unicom 9929",
+      "asn": 9929,
+      "ipv4": "ipv4.pek-9929.endpoint.nxtrace.org",
+      "default": true
+    },
+    {
+      "id": "pek-9808",
+      "group": "china",
+      "name": "Beijing Mobile CMNET",
+      "asn": 9808,
+      "ipv4": "ipv4.pek-9808.endpoint.nxtrace.org",
+      "ipv6": "ipv6.pek-9808.endpoint.nxtrace.org",
+      "default": true
+    },
+    {
+      "id": "pek-58807",
+      "group": "china",
+      "name": "Beijing Mobile CMIN2",
+      "asn": 58807,
+      "ipv4": "ipv4.pek-58807.endpoint.nxtrace.org",
+      "default": true
+    },
+    {
+      "id": "sha-4134",
+      "group": "china",
+      "name": "Shanghai Telecom 163",
+      "asn": 4134,
+      "ipv4": "ipv4.sha-4134.endpoint.nxtrace.org",
+      "ipv6": "ipv6.sha-4134.endpoint.nxtrace.org",
+      "default": true
+    },
+    {
+      "id": "sha-4809",
+      "group": "china",
+      "name": "Shanghai Telecom CN2",
+      "asn": 4809,
+      "ipv4": "ipv4.sha-4809.endpoint.nxtrace.org",
+      "default": true
+    },
+    {
+      "id": "sha-4837",
+      "group": "china",
+      "name": "Shanghai Unicom 169",
+      "asn": 4837,
+      "ipv4": "ipv4.sha-4837.endpoint.nxtrace.org",
+      "ipv6": "ipv6.sha-4837.endpoint.nxtrace.org",
+      "default": true
+    },
+    {
+      "id": "sha-9929",
+      "group": "china",
+      "name": "Shanghai Unicom 9929",
+      "asn": 9929,
+      "ipv4": "ipv4.sha-9929.endpoint.nxtrace.org",
+      "ipv6": "ipv6.sha-9929.endpoint.nxtrace.org",
+      "default": true
+    },
+    {
+      "id": "sha-9808",
+      "group": "china",
+      "name": "Shanghai Mobile CMNET",
+      "asn": 9808,
+      "ipv4": "ipv4.sha-9808.endpoint.nxtrace.org",
+      "ipv6": "ipv6.sha-9808.endpoint.nxtrace.org",
+      "default": true
+    },
+    {
+      "id": "sha-58807",
+      "group": "china",
+      "name": "Shanghai Mobile CMIN2",
+      "asn": 58807,
+      "ipv4": "ipv4.sha-58807.endpoint.nxtrace.org",
+      "default": true
+    },
+    {
+      "id": "can-4134",
+      "group": "china",
+      "name": "Guangzhou Telecom 163",
+      "asn": 4134,
+      "ipv4": "ipv4.can-4134.endpoint.nxtrace.org",
+      "ipv6": "ipv6.can-4134.endpoint.nxtrace.org",
+      "default": true
+    },
+    {
+      "id": "can-4809",
+      "group": "china",
+      "name": "Guangzhou Telecom CN2",
+      "asn": 4809,
+      "ipv4": "ipv4.can-4809.endpoint.nxtrace.org",
+      "default": true
+    },
+    {
+      "id": "can-4837",
+      "group": "china",
+      "name": "Guangzhou Unicom 169",
+      "asn": 4837,
+      "ipv4": "ipv4.can-4837.endpoint.nxtrace.org",
+      "ipv6": "ipv6.can-4837.endpoint.nxtrace.org",
+      "default": true
+    },
+    {
+      "id": "can-9929",
+      "group": "china",
+      "name": "Guangzhou Unicom 9929",
+      "asn": 9929,
+      "ipv4": "ipv4.can-9929.endpoint.nxtrace.org",
+      "default": true
+    },
+    {
+      "id": "can-9808",
+      "group": "china",
+      "name": "Guangzhou Mobile CMNET",
+      "asn": 9808,
+      "ipv4": "ipv4.can-9808.endpoint.nxtrace.org",
+      "ipv6": "ipv6.can-9808.endpoint.nxtrace.org",
+      "default": true
+    },
+    {
+      "id": "can-58807",
+      "group": "china",
+      "name": "Guangzhou Mobile CMIN2",
+      "asn": 58807,
+      "ipv4": "ipv4.can-58807.endpoint.nxtrace.org",
+      "default": true
+    },
+    {
+      "id": "telegram-dc5",
+      "group": "international",
+      "name": "Telegram DC5 - Singapore, SG",
+      "asn": 62014,
+      "ipv4": "telegram-dc5.jam114514.me",
+      "default": true
+    },
+    {
+      "id": "telegram-dc4",
+      "group": "international",
+      "name": "Telegram DC4 - Amsterdam, NL",
+      "asn": 62041,
+      "ipv4": "telegram-dc4.jam114514.me",
+      "default": true
+    },
+    {
+      "id": "telegram-dc3",
+      "group": "international",
+      "name": "Telegram DC3 - Miami FL, USA",
+      "asn": 59930,
+      "ipv4": "telegram-dc3.jam114514.me",
+      "default": true
+    },
+    {
+      "id": "telegram-dc2",
+      "group": "international",
+      "name": "Telegram DC2 - Amsterdam, NL",
+      "asn": 62041,
+      "ipv4": "telegram-dc2.jam114514.me",
+      "default": true
+    },
+    {
+      "id": "telegram-dc1",
+      "group": "international",
+      "name": "Telegram DC1 - Miami FL, USA",
+      "asn": 59930,
+      "ipv4": "telegram-dc1.jam114514.me",
+      "default": true
+    },
+    {
+      "id": "aws-lax",
+      "group": "international",
+      "name": "AWS - Los Angeles, US",
+      "asn": 16509,
+      "ipv4": "aws.us.lax.jam114514.me",
+      "ipv6": "aws.us.lax.ipv6.jam114514.me",
+      "default": true
+    },
+    {
+      "id": "aws-iad",
+      "group": "international",
+      "name": "AWS - Ashburn, US",
+      "asn": 14618,
+      "ipv4": "aws.us.iad.jam114514.me",
+      "ipv6": "aws.us.iad.ipv6.jam114514.me",
+      "default": true
+    },
+    {
+      "id": "aws-fra",
+      "group": "international",
+      "name": "AWS - Frankfurt, DE",
+      "asn": 16509,
+      "ipv4": "aws.de.fra.jam114514.me",
+      "ipv6": "aws.de.fra.ipv6.jam114514.me",
+      "default": true
+    },
+    {
+      "id": "aws-sin",
+      "group": "international",
+      "name": "AWS - Singapore, SG",
+      "asn": 16509,
+      "ipv4": "aws.sg.sgp.jam114514.me",
+      "ipv6": "aws.sg.sgp.ipv6.jam114514.me",
+      "default": true
+    },
+    {
+      "id": "gcp-lax",
+      "group": "international",
+      "name": "GCP - Los Angeles, US",
+      "asn": 396982,
+      "ipv4": "35.235.110.103",
+      "default": true
+    },
+    {
+      "id": "gcp-iad",
+      "group": "international",
+      "name": "GCP - Ashburn, US",
+      "asn": 396982,
+      "ipv4": "35.221.4.19",
+      "default": true
+    },
+    {
+      "id": "gcp-fra",
+      "group": "international",
+      "name": "GCP - Frankfurt, DE",
+      "asn": 396982,
+      "ipv4": "34.40.56.112",
+      "default": true
+    },
+    {
+      "id": "gcp-sin",
+      "group": "international",
+      "name": "GCP - Singapore, SG",
+      "asn": 396982,
+      "ipv4": "35.187.238.97",
+      "default": true
+    },
+    {
+      "id": "cogent-fra",
+      "group": "international",
+      "name": "Cogent Communications - Frankfurt, DE",
+      "asn": 174,
+      "ipv4": "t1.174.de.fra.jam114514.me",
+      "ipv6": "t1.174.de.fra.ipv6.jam114514.me",
+      "default": true
+    },
+    {
+      "id": "cogent-sin",
+      "group": "international",
+      "name": "Cogent Communications - Singapore, SG",
+      "asn": 174,
+      "ipv4": "t1.174.sg.sin.jam114514.me",
+      "ipv6": "t1.174.sg.sin.ipv6.jam114514.me",
+      "default": true
+    },
+    {
+      "id": "cogent-lax",
+      "group": "international",
+      "name": "Cogent Communications - Los Angeles, US",
+      "asn": 174,
+      "ipv4": "t1.174.us.lax.jam114514.me",
+      "ipv6": "t1.174.us.lax.ipv6.jam114514.me",
+      "default": true
+    },
+    {
+      "id": "cogent-nyc",
+      "group": "international",
+      "name": "Cogent Communications - New York, US",
+      "asn": 174,
+      "ipv4": "t1.174.us.nyc.jam114514.me",
+      "ipv6": "t1.174.us.nyc.ipv6.jam114514.me",
+      "default": true
+    },
+    {
+      "id": "telia-fra",
+      "group": "international",
+      "name": "Telia Carrier - Frankfurt, DE",
+      "asn": 1299,
+      "ipv4": "t1.1299.de.fra.jam114514.me",
+      "ipv6": "t1.1299.de.fra.ipv6.jam114514.me",
+      "default": true
+    },
+    {
+      "id": "telia-sin",
+      "group": "international",
+      "name": "Telia Carrier - Singapore, SG",
+      "asn": 1299,
+      "ipv4": "t1.1299.sg.sin.jam114514.me",
+      "ipv6": "t1.1299.sg.sin.ipv6.jam114514.me",
+      "default": true
+    },
+    {
+      "id": "telia-lax",
+      "group": "international",
+      "name": "Telia Carrier - Los Angeles, US",
+      "asn": 1299,
+      "ipv4": "t1.1299.us.lax.jam114514.me",
+      "ipv6": "t1.1299.us.lax.ipv6.jam114514.me",
+      "default": true
+    },
+    {
+      "id": "telia-nyc",
+      "group": "international",
+      "name": "Telia Carrier - New York, US",
+      "asn": 1299,
+      "ipv4": "t1.1299.us.nyc.jam114514.me",
+      "ipv6": "t1.1299.us.nyc.ipv6.jam114514.me",
+      "default": true
+    },
+    {
+      "id": "ntt-fra",
+      "group": "international",
+      "name": "NTT Communications - Frankfurt, DE",
+      "asn": 2914,
+      "ipv4": "t1.2914.de.fra.jam114514.me",
+      "ipv6": "t1.2914.de.fra.ipv6.jam114514.me",
+      "default": true
+    },
+    {
+      "id": "ntt-sin",
+      "group": "international",
+      "name": "NTT Communications - Singapore, SG",
+      "asn": 2914,
+      "ipv4": "t1.2914.sg.sin.jam114514.me",
+      "ipv6": "t1.2914.sg.sin.ipv6.jam114514.me",
+      "default": true
+    },
+    {
+      "id": "ntt-lax",
+      "group": "international",
+      "name": "NTT Communications - Los Angeles, US",
+      "asn": 2914,
+      "ipv4": "t1.2914.us.lax.jam114514.me",
+      "ipv6": "t1.2914.us.lax.ipv6.jam114514.me",
+      "default": true
+    },
+    {
+      "id": "ntt-nyc",
+      "group": "international",
+      "name": "NTT Communications - New York, US",
+      "asn": 2914,
+      "ipv4": "t1.2914.us.nyc.jam114514.me",
+      "ipv6": "t1.2914.us.nyc.ipv6.jam114514.me",
+      "default": true
+    },
+    {
+      "id": "gtt-fra",
+      "group": "international",
+      "name": "GTT Communications - Frankfurt, DE",
+      "asn": 3257,
+      "ipv4": "t1.3257.de.fra.jam114514.me",
+      "ipv6": "t1.3257.de.fra.ipv6.jam114514.me",
+      "default": true
+    },
+    {
+      "id": "gtt-sin",
+      "group": "international",
+      "name": "GTT Communications - Singapore, SG",
+      "asn": 3257,
+      "ipv4": "t1.3257.sg.sin.jam114514.me",
+      "ipv6": "t1.3257.sg.sin.ipv6.jam114514.me",
+      "default": true
+    },
+    {
+      "id": "gtt-lax",
+      "group": "international",
+      "name": "GTT Communications - Los Angeles, US",
+      "asn": 3257,
+      "ipv4": "t1.3257.us.lax.jam114514.me",
+      "ipv6": "t1.3257.us.lax.ipv6.jam114514.me",
+      "default": true
+    },
+    {
+      "id": "gtt-nyc",
+      "group": "international",
+      "name": "GTT Communications - New York, US",
+      "asn": 3257,
+      "ipv4": "t1.3257.us.nyc.jam114514.me",
+      "ipv6": "t1.3257.us.nyc.ipv6.jam114514.me",
+      "default": true
+    },
+    {
+      "id": "lumen-fra",
+      "group": "international",
+      "name": "Level 3 / Lumen - Frankfurt, DE",
+      "asn": 3356,
+      "ipv4": "t1.3356.de.fra.jam114514.me",
+      "default": true
+    },
+    {
+      "id": "lumen-sin",
+      "group": "international",
+      "name": "Level 3 / Lumen - Singapore, SG",
+      "asn": 3356,
+      "ipv4": "t1.3356.sg.sin.jam114514.me",
+      "default": true
+    },
+    {
+      "id": "lumen-lax",
+      "group": "international",
+      "name": "Level 3 / Lumen - Los Angeles, US",
+      "asn": 3356,
+      "ipv4": "t1.3356.us.lax.jam114514.me",
+      "default": true
+    },
+    {
+      "id": "lumen-nyc",
+      "group": "international",
+      "name": "Level 3 / Lumen - New York, US",
+      "asn": 3356,
+      "ipv4": "t1.3356.us.nyc.jam114514.me",
+      "default": true
+    },
+    {
+      "id": "pccw-fra",
+      "group": "international",
+      "name": "PCCW Global - Frankfurt, DE",
+      "asn": 3491,
+      "ipv4": "t1.3491.de.fra.jam114514.me",
+      "ipv6": "t1.3491.de.fra.ipv6.jam114514.me",
+      "default": true
+    },
+    {
+      "id": "pccw-sin",
+      "group": "international",
+      "name": "PCCW Global - Singapore, SG",
+      "asn": 3491,
+      "ipv4": "t1.3491.sg.sin.jam114514.me",
+      "ipv6": "t1.3491.sg.sin.ipv6.jam114514.me",
+      "default": true
+    },
+    {
+      "id": "pccw-nyc",
+      "group": "international",
+      "name": "PCCW Global - New York, US",
+      "asn": 3491,
+      "ipv4": "t1.3491.us.nyc.jam114514.me",
+      "ipv6": "t1.3491.us.nyc.ipv6.jam114514.me",
+      "default": true
+    },
+    {
+      "id": "pccw-lax",
+      "group": "international",
+      "name": "PCCW Global - Los Angeles, US",
+      "asn": 3491,
+      "ipv4": "t1.3491.us.lax.jam114514.me",
+      "default": true
+    },
+    {
+      "id": "orange-fra",
+      "group": "international",
+      "name": "Orange - Frankfurt, DE",
+      "asn": 5511,
+      "ipv4": "t1.5511.de.fra.jam114514.me",
+      "ipv6": "t1.5511.de.fra.ipv6.jam114514.me",
+      "default": true
+    },
+    {
+      "id": "orange-sin",
+      "group": "international",
+      "name": "Orange - Singapore, SG",
+      "asn": 5511,
+      "ipv4": "t1.5511.sg.sin.jam114514.me",
+      "ipv6": "t1.5511.sg.sin.ipv6.jam114514.me",
+      "default": true
+    },
+    {
+      "id": "orange-lax",
+      "group": "international",
+      "name": "Orange - Los Angeles, US",
+      "asn": 5511,
+      "ipv4": "t1.5511.us.lax.jam114514.me",
+      "ipv6": "t1.5511.us.lax.ipv6.jam114514.me",
+      "default": true
+    },
+    {
+      "id": "orange-nyc",
+      "group": "international",
+      "name": "Orange - New York, US",
+      "asn": 5511,
+      "ipv4": "t1.5511.us.nyc.jam114514.me",
+      "ipv6": "t1.5511.us.nyc.ipv6.jam114514.me",
+      "default": true
+    },
+    {
+      "id": "tata-fra",
+      "group": "international",
+      "name": "TATA Communications - Frankfurt, DE",
+      "asn": 6453,
+      "ipv4": "t1.6453.de.fra.jam114514.me",
+      "ipv6": "t1.6453.de.fra.ipv6.jam114514.me",
+      "default": true
+    },
+    {
+      "id": "tata-sin",
+      "group": "international",
+      "name": "TATA Communications - Singapore, SG",
+      "asn": 6453,
+      "ipv4": "t1.6453.sg.sin.jam114514.me",
+      "ipv6": "t1.6453.sg.sin.ipv6.jam114514.me",
+      "default": true
+    },
+    {
+      "id": "tata-lax",
+      "group": "international",
+      "name": "TATA Communications - Los Angeles, US",
+      "asn": 6453,
+      "ipv4": "t1.6453.us.lax.jam114514.me",
+      "ipv6": "t1.6453.us.lax.ipv6.jam114514.me",
+      "default": true
+    },
+    {
+      "id": "tata-nyc",
+      "group": "international",
+      "name": "TATA Communications - New York, US",
+      "asn": 6453,
+      "ipv4": "t1.6453.us.nyc.jam114514.me",
+      "ipv6": "t1.6453.us.nyc.ipv6.jam114514.me",
+      "default": true
+    },
+    {
+      "id": "zayo-fra",
+      "group": "international",
+      "name": "Zayo - Frankfurt, DE",
+      "asn": 6461,
+      "ipv4": "t1.6461.de.fra.jam114514.me",
+      "default": true
+    },
+    {
+      "id": "zayo-sin",
+      "group": "international",
+      "name": "Zayo - Singapore, SG",
+      "asn": 6461,
+      "ipv4": "t1.6461.sg.sin.jam114514.me",
+      "ipv6": "t1.6461.sg.sin.ipv6.jam114514.me",
+      "default": true
+    },
+    {
+      "id": "zayo-lax",
+      "group": "international",
+      "name": "Zayo - Los Angeles, US",
+      "asn": 6461,
+      "ipv4": "t1.6461.us.lax.jam114514.me",
+      "ipv6": "t1.6461.us.lax.ipv6.jam114514.me",
+      "default": true
+    },
+    {
+      "id": "zayo-nyc",
+      "group": "international",
+      "name": "Zayo - New York, US",
+      "asn": 6461,
+      "ipv4": "t1.6461.us.nyc.jam114514.me",
+      "ipv6": "t1.6461.us.nyc.ipv6.jam114514.me",
+      "default": true
+    },
+    {
+      "id": "sparkle-fra",
+      "group": "international",
+      "name": "Telecom Italia Sparkle - Frankfurt, DE",
+      "asn": 6762,
+      "ipv4": "t1.6762.de.fra.jam114514.me",
+      "ipv6": "t1.6762.de.fra.ipv6.jam114514.me",
+      "default": true
+    },
+    {
+      "id": "sparkle-sin",
+      "group": "international",
+      "name": "Telecom Italia Sparkle - Singapore, SG",
+      "asn": 6762,
+      "ipv4": "t1.6762.sg.sin.jam114514.me",
+      "ipv6": "t1.6762.sg.sin.ipv6.jam114514.me",
+      "default": true
+    },
+    {
+      "id": "sparkle-lax",
+      "group": "international",
+      "name": "Telecom Italia Sparkle - Los Angeles, US",
+      "asn": 6762,
+      "ipv4": "t1.6762.us.lax.jam114514.me",
+      "ipv6": "t1.6762.us.lax.ipv6.jam114514.me",
+      "default": true
+    },
+    {
+      "id": "sparkle-nyc",
+      "group": "international",
+      "name": "Telecom Italia Sparkle - New York, US",
+      "asn": 6762,
+      "ipv4": "t1.6762.us.nyc.jam114514.me",
+      "ipv6": "t1.6762.us.nyc.ipv6.jam114514.me",
+      "default": true
+    }
+  ]
+}
