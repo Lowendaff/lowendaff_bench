@@ -9,15 +9,17 @@
 # the pinned version, offer the libaio engine and complete a short run with YABS's parameters.
 set -eu
 
-RELEASE=fio-3.43-2
+RELEASE=fio-3.43-3
 # The image the tools workflow runs this script in: Alpine 3.22 of scripts/distros.txt.
 # shellcheck disable=SC2034 # tools.yml reads this line and the next
 IMAGE=ghcr.io/lowendaff/mirror/docker/library/alpine:3.22
 # shellcheck disable=SC2034
 IMAGE_DIGEST=sha256:bfe7ceb9f09ec0566c48fb93356e45a47a00be5a1dd14fa5b909e7709c66b034
 FIO_VERSION=3.43
-FIO_URL=https://brick.kernel.dk/snaps/fio-$FIO_VERSION.tar.gz
-FIO_SHA256=6f57893c7a73d9ed72e9e2b6e15f136a99c137bd6a7645fdeeb4a40b3e9da78d
+# GitHub's archive of fio's release tag: the same files as fio's own tarball on kernel.dk, which
+# GitHub's x86_64 runners at times cannot reach.
+FIO_URL=https://github.com/axboe/fio/archive/refs/tags/fio-$FIO_VERSION.tar.gz
+FIO_SHA256=efa49b3f36eda9adf29294f27a87d7e457747d676cd0f73996d6365357832cfe
 LIBAIO_VERSION=0.3.113
 LIBAIO_URL=https://deb.debian.org/debian/pool/main/liba/libaio/libaio_$LIBAIO_VERSION.orig.tar.gz
 LIBAIO_SHA256=2c44d1c5fd0d43752287c9ae1eb9c023f04ef848ea8d4aafa46e9aedb678200b
@@ -60,6 +62,8 @@ fetch "$FIO_URL" "$FIO_SHA256" "fio-$FIO_VERSION.tar.gz"
 fetch "$MUSL_URL" "$MUSL_SHA256" "musl-$MUSL_VERSION.tar.gz"
 tar -xzf "libaio_$LIBAIO_VERSION.orig.tar.gz"
 tar -xzf "fio-$FIO_VERSION.tar.gz"
+# GitHub names the directory after the repository and the tag; the build keeps fio's own name.
+mv "fio-fio-$FIO_VERSION" "fio-$FIO_VERSION"
 tar -xzf "musl-$MUSL_VERSION.tar.gz" "musl-$MUSL_VERSION/COPYRIGHT"
 
 # Only the static library, so that fio cannot link libaio dynamically.
