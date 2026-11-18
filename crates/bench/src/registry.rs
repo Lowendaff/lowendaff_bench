@@ -39,6 +39,9 @@ pub fn all() -> Vec<Entry> {
         // Network speed: iperf3 with YABS's method, after fio and before Geekbench, as YABS
         // orders them.
         entry::<plugin_network::iperf3::Iperf3>(Measured::NetworkIperf3),
+        // Route tracing: after network speed, so that its probes do not share the link with
+        // iperf3's streams, and before Geekbench.
+        entry::<plugin_network::trace::Trace>(Measured::NetworkTrace),
         // Geekbench 7: last, being the longest, with a download, an upload and perhaps swap that
         // must not disturb the disk test.
         entry::<plugin_cpu::geekbench::Geekbench>(Measured::CpuGeekbench),
@@ -233,6 +236,7 @@ mod tests {
                 "memory.numa",
                 "disk.fio",
                 "network.iperf3",
+                "network.trace",
                 "cpu.geekbench",
             ]
         );

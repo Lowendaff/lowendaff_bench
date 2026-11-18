@@ -1,4 +1,4 @@
-//! The words of the test items' chapters: CPU, memory, disks and network.
+//! The words of the test items' chapters: CPU, memory, disks and network, route tracing among it.
 
 use std::path::Path;
 
@@ -312,6 +312,129 @@ pub enum WayCell {
     Error,
     /// Not tried.
     NotTried,
+}
+
+/// Route tracing's words: its method, each target's trace and table, and its reasons.
+pub trait TraceWords {
+    /// NextTrace's method: its version, ICMP with 3 probes a hop and 30 hops at most, and what the
+    /// configuration chose other than the default.
+    fn trace_method(&self, version: &str, choice: &TraceChoice) -> String;
+    /// A target's line: its name, the name traced when there is one, and what came of it.
+    fn trace_heading(&self, name: &str, host: Option<&str>, outcome: &str) -> String;
+    /// YouTube's nearest cache server.
+    fn youtube(&self) -> &'static str;
+    /// Netflix's nearest cache server, with its city and country when its lookup named them.
+    fn netflix(&self, place: Option<(&str, &str)>) -> String;
+    /// A trace that reached its target after `hops` hops.
+    fn reached(&self, hops: usize) -> String;
+    /// A trace that did not reach its target after `hops` hops.
+    fn not_reached(&self, hops: usize) -> String;
+    /// The table's headers: the hop, the address, the network, the place and the latency.
+    fn trace_headers(&self) -> [&'static str; 5];
+    /// An address's network, when the service names one, with the internet exchange where
+    /// Netflix's network takes the address.
+    fn at_exchange(&self, network: Option<&str>, exchange: &str) -> String;
+    /// A cache server that could not be looked up, with the reason.
+    fn unavailable_lookup(&self, reason: &str) -> String;
+    /// An answer that names no cache server that the item can trace.
+    fn lookup_problem(&self, problem: LookupProblem) -> String;
+    /// An answer that could not be read, for the system's reason.
+    fn answer_unreadable(&self, reason: &str) -> String;
+    /// NextTrace, which exited without a trace.
+    fn traced_nothing(&self) -> String;
+    /// The note on the ids asked for that no target has.
+    fn unknown_targets(&self, ids: &[String]) -> String;
+    /// The note on a run without exchange names, with the reason.
+    fn no_exchanges(&self, reason: &str) -> String;
+    /// A list of the item's that cannot be used.
+    fn trace_list_problem(&self, list: TraceList, problem: TraceListProblem<'_>) -> String;
+    /// No target chosen: by default, or for the ids asked for.
+    fn no_target(&self, unknown: &[String]) -> String;
+    /// No chosen target has a name of a family that the host reaches.
+    fn no_target_family(&self) -> String;
+    /// No target got a route.
+    fn no_target_route(&self) -> String;
+}
+
+/// What route tracing's configuration chose other than the default.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct TraceChoice {
+    /// The groups chosen, by their names in the configuration, such as `china`.
+    pub groups: Vec<String>,
+    /// The ids chosen.
+    pub targets: Vec<String>,
+    /// Whether the targets came from another list than this repository's.
+    pub list: bool,
+    /// Whether NextTrace looked up each hop's network and place.
+    pub geo: bool,
+}
+
+/// One of route tracing's lists.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TraceList {
+    /// The target list.
+    Targets,
+    /// The list of Netflix's exchange ports.
+    Exchanges,
+}
+
+/// What makes one of route tracing's lists unusable.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TraceListProblem<'a> {
+    /// It could not be read, for the system's reason.
+    Unreadable(&'a str),
+    /// It is larger than this many bytes.
+    TooLarge(usize),
+    /// It is not in its format, for the parser's reason.
+    Format(&'a str),
+    /// It is of a newer version of the format.
+    Newer(u64),
+    /// It is of a version of the format that never was.
+    Version(u64),
+    /// It holds this many entries, more than the most.
+    TooMany(usize, usize),
+    /// An entry, by its position from 1, breaks a rule.
+    Rule(usize, TraceRule),
+    /// Two entries have this id or address.
+    Duplicate(&'a str),
+}
+
+/// A rule of an entry of route tracing's lists.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TraceRule {
+    /// A target's id.
+    Id,
+    /// A target's group.
+    Group,
+    /// A target's name.
+    Name,
+    /// A target's AS number.
+    Asn,
+    /// A target's IPv4 name.
+    Ipv4,
+    /// A target's IPv6 name.
+    Ipv6,
+    /// A port's address.
+    Address,
+    /// A port's exchange.
+    Exchange,
+}
+
+/// Why an answer names no cache server that route tracing can trace.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LookupProblem {
+    /// Google's answer names no server.
+    NoServer,
+    /// Google's answer names a server whose id the code cannot write.
+    Id,
+    /// fast.com's answer is not its API's JSON.
+    Format,
+    /// fast.com's answer names no target.
+    NoTarget,
+    /// fast.com's first target is not at an HTTPS address of a name or an IP address.
+    Url,
+    /// fast.com's first target has a city or country that cannot be shown.
+    Place,
 }
 
 /// A rule of a server of the network test's list.

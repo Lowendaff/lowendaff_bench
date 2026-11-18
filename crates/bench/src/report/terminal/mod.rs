@@ -12,8 +12,10 @@ mod summary;
 mod tool;
 
 use std::fmt::Write;
+use std::net::IpAddr;
 use std::time::Duration;
 
+use bench_host::network::Address;
 use bench_host::profile::HostProfile;
 use comfy_table::CellAlignment;
 use comfy_table::ContentArrangement;
@@ -85,7 +87,7 @@ pub fn render(page: &Page, width: Option<u16>) -> String {
             } else {
                 "  "
             };
-            plugin(&mut out, run, indent);
+            plugin(&mut out, run, indent, page);
         }
     }
     summary::section(&mut out, page);
@@ -113,7 +115,7 @@ pub fn sections<'a>(groups: &[&'a str]) -> Vec<(&'a str, &'a str)> {
 }
 
 /// One plugin's block: what it left, then how it ended.
-fn plugin(out: &mut Out, run: &Run<Measured>, indent: &str) {
+fn plugin(out: &mut Out, run: &Run<Measured>, indent: &str, page: &Page) {
     match &run.result {
         Some(Measured::CpuSysbench(report)) => cpu::sysbench(out, report, indent),
         Some(Measured::CpuGeekbench(report)) => cpu::geekbench(out, report, indent),
@@ -124,9 +126,24 @@ fn plugin(out: &mut Out, run: &Run<Measured>, indent: &str) {
         Some(Measured::DiskHealth(report)) => disk::health(out, report, indent),
         Some(Measured::DiskFio(report)) => disk::fio(out, report, indent),
         Some(Measured::NetworkIperf3(report)) => network::iperf3(out, report, indent),
+        Some(Measured::NetworkTrace(report)) => {
+            let own = own_addresses(page.host);
+            network::trace(out, report, indent, &own, page.show_ip);
+        }
         None => {}
     }
     out.line(&format!("{indent}{}", run_status(run)));
+}
+
+/// The host's own public addresses, which the report masks unless asked to show them.
+fn own_addresses(host: &HostProfile) -> Vec<IpAddr> {
+    [&host.network.ipv4, &host.network.ipv6]
+        .into_iter()
+        .filter_map(|family| match family.address {
+            Address::Found { address, .. } => Some(address),
+            _ => None,
+        })
+        .collect()
 }
 
 /// The report being written.

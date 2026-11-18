@@ -85,6 +85,10 @@ fn reason(run: &Run<Measured>) -> Option<String> {
             .stop
             .as_ref()
             .map(|stop| network::iperf3_failure(failure(stop))),
+        Some(Measured::NetworkTrace(report)) => report
+            .stop
+            .as_ref()
+            .map(|stop| network::trace_failure(failure(stop))),
         None => None,
     }
 }

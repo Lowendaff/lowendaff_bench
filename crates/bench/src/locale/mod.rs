@@ -26,10 +26,16 @@ pub use items::CpuWords;
 pub use items::DiskWords;
 pub use items::FioRow;
 pub use items::ListRule;
+pub use items::LookupProblem;
 pub use items::MemoryWords;
 pub use items::NetworkWords;
 pub use items::NoSwapWhy;
 pub use items::Probe;
+pub use items::TraceChoice;
+pub use items::TraceList;
+pub use items::TraceListProblem;
+pub use items::TraceRule;
+pub use items::TraceWords;
 pub use items::Verdict;
 pub use items::WayCell;
 pub use log::LogWords;
@@ -49,6 +55,7 @@ pub trait Words:
     + MemoryWords
     + DiskWords
     + NetworkWords
+    + TraceWords
     + Sync
 {
 }
@@ -63,6 +70,7 @@ impl<T> Words for T where
         + MemoryWords
         + DiskWords
         + NetworkWords
+        + TraceWords
         + Sync
 {
 }

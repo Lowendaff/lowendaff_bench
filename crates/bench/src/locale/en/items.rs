@@ -8,10 +8,16 @@ use crate::locale::CpuWords;
 use crate::locale::DiskWords;
 use crate::locale::FioRow;
 use crate::locale::ListRule;
+use crate::locale::LookupProblem;
 use crate::locale::MemoryWords;
 use crate::locale::NetworkWords;
 use crate::locale::NoSwapWhy;
 use crate::locale::Probe;
+use crate::locale::TraceChoice;
+use crate::locale::TraceList;
+use crate::locale::TraceListProblem;
+use crate::locale::TraceRule;
+use crate::locale::TraceWords;
 use crate::locale::Verdict;
 use crate::locale::WayCell;
 
@@ -613,5 +619,157 @@ impl NetworkWords for English {
 
     fn no_speed(&self) -> String {
         "no server gave a speed".to_owned()
+    }
+}
+
+impl TraceWords for English {
+    fn trace_method(&self, version: &str, choice: &TraceChoice) -> String {
+        let mut method = format!("NextTrace {version}: ICMP, 3 probes a hop, at most 30 hops");
+        if !choice.groups.is_empty() {
+            method.push_str(&format!("; groups {}", choice.groups.join(", ")));
+        }
+        if !choice.targets.is_empty() {
+            method.push_str(&format!("; targets {}", choice.targets.join(", ")));
+        }
+        if choice.list {
+            method.push_str("; another target list");
+        }
+        if !choice.geo {
+            method.push_str("; without networks and places");
+        }
+        method
+    }
+
+    fn trace_heading(&self, name: &str, host: Option<&str>, outcome: &str) -> String {
+        match host {
+            Some(host) => format!("{name} ({host}): {outcome}"),
+            None => format!("{name}: {outcome}"),
+        }
+    }
+
+    fn youtube(&self) -> &'static str {
+        "YouTube"
+    }
+
+    fn netflix(&self, place: Option<(&str, &str)>) -> String {
+        match place {
+            Some((city, country)) => format!("Netflix, {city}, {country}"),
+            None => "Netflix".to_owned(),
+        }
+    }
+
+    fn reached(&self, hops: usize) -> String {
+        format!("reached in {}", count(hops, "hop", "hops"))
+    }
+
+    fn not_reached(&self, hops: usize) -> String {
+        format!("not reached after {}", count(hops, "hop", "hops"))
+    }
+
+    fn trace_headers(&self) -> [&'static str; 5] {
+        ["Hop", "Address", "Network", "Place", "Latency"]
+    }
+
+    fn at_exchange(&self, network: Option<&str>, exchange: &str) -> String {
+        match network {
+            Some(network) => format!("{network} [{exchange}]"),
+            None => format!("[{exchange}]"),
+        }
+    }
+
+    fn unavailable_lookup(&self, reason: &str) -> String {
+        format!("unavailable: {reason}")
+    }
+
+    fn lookup_problem(&self, problem: LookupProblem) -> String {
+        match problem {
+            LookupProblem::NoServer => "Google's answer names no server",
+            LookupProblem::Id => {
+                "Google's answer names a server whose id cannot be written as a host name"
+            }
+            LookupProblem::Format => "fast.com's answer is not its API's",
+            LookupProblem::NoTarget => "fast.com's answer names no server",
+            LookupProblem::Url => {
+                "fast.com's answer names a server at an address that cannot be traced"
+            }
+            LookupProblem::Place => "fast.com's answer names a server's place that cannot be shown",
+        }
+        .to_owned()
+    }
+
+    fn answer_unreadable(&self, reason: &str) -> String {
+        format!("cannot read the answer: {reason}")
+    }
+
+    fn traced_nothing(&self) -> String {
+        "NextTrace traced nothing".to_owned()
+    }
+
+    fn unknown_targets(&self, ids: &[String]) -> String {
+        format!("no target in the list for {}", ids.join(", "))
+    }
+
+    fn no_exchanges(&self, reason: &str) -> String {
+        format!("no exchange names: {reason}")
+    }
+
+    fn trace_list_problem(&self, list: TraceList, problem: TraceListProblem<'_>) -> String {
+        let (name, entry, entries) = match list {
+            TraceList::Targets => ("the target list", "target", "targets"),
+            TraceList::Exchanges => ("the list of exchange ports", "port", "ports"),
+        };
+        match problem {
+            TraceListProblem::Unreadable(reason) => format!("cannot read {name}: {reason}"),
+            TraceListProblem::TooLarge(limit) => format!("{name} is larger than {limit} bytes"),
+            TraceListProblem::Format(reason) => format!("{name} is not in its format: {reason}"),
+            TraceListProblem::Newer(version) => {
+                format!("{name} needs a newer lowendaff-bench (format {version})")
+            }
+            TraceListProblem::Version(version) => {
+                format!("{name} names a format that does not exist: {version}")
+            }
+            TraceListProblem::TooMany(count, most) => {
+                format!("{name} has {count} {entries}, more than {most}")
+            }
+            TraceListProblem::Rule(position, rule) => {
+                let rule = match rule {
+                    TraceRule::Id => {
+                        "its id must be 1 to 40 characters of a to z, digits and -, other than \
+                         youtube and netflix"
+                    }
+                    TraceRule::Group => "its group must be china or international",
+                    TraceRule::Name => "its name must be 1 to 40 characters that print",
+                    TraceRule::Asn => "its AS number must be from 1 to 4294967295",
+                    TraceRule::Ipv4 => "its ipv4 must be a DNS name or an IPv4 address",
+                    TraceRule::Ipv6 => "its ipv6 must be a DNS name or an IPv6 address",
+                    TraceRule::Address => {
+                        "its address must be an IP address as it prints, an IPv6 address \
+                         without an IPv4 part"
+                    }
+                    TraceRule::Exchange => "its exchange must be 1 to 60 characters that print",
+                };
+                format!("{entry} {position} of {name} breaks a rule: {rule}")
+            }
+            TraceListProblem::Duplicate(key) => match list {
+                TraceList::Targets => format!("two targets of {name} have the id {key}"),
+                TraceList::Exchanges => format!("two ports of {name} have the address {key}"),
+            },
+        }
+    }
+
+    fn no_target(&self, unknown: &[String]) -> String {
+        if unknown.is_empty() {
+            "no target of the list is chosen".to_owned()
+        } else {
+            format!("no target in the list for {}", unknown.join(", "))
+        }
+    }
+
+    fn no_target_family(&self) -> String {
+        "no chosen target has a name of a network family of this host".to_owned()
+    }
+
+    fn no_target_route(&self) -> String {
+        "no target got a route".to_owned()
     }
 }
