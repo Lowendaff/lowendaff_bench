@@ -198,6 +198,9 @@ verdict reject "a location without candidates" 'location 1: candidates' sh "$scr
 candidates "[$(location tokyo JP true "$(place Tokyo Leaseweb -R 5201)")]"
 verdict reject "a candidate whose host is an option" 'a candidate of location 1: host' \
     sh "$script" check
+candidates "[$(location tokyo JP true "$(place Tokyo Leaseweb '' 5201)")]"
+verdict reject "a candidate whose host is empty" 'a candidate of location 1: host' \
+    sh "$script" check
 candidates "$four"
 jq '.servers[0].ports = "5201-5202"' servers/iperf3.json > list.json
 cp list.json servers/iperf3.json

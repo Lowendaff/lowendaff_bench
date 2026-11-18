@@ -55,7 +55,7 @@ def ipv6:
             or (.key == $count - 1 and (.value | ipv4)))
         and (if $parts == 2 then $width <= 7 else $width == 8 end));
 def dns_name:
-    length <= 253
+    length >= 1 and length <= 253
     and all(split(".")[]; test("^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$"));
 def text_rule: type == "string" and length >= 1 and length <= 40 and (test("\\p{Cc}") | not);
 def ports_rule:
