@@ -8,17 +8,17 @@
       "candidates": [
         {
           "location": "Los Angeles",
-          "provider": "Clouvider",
-          "host": "la.speedtest.clouvider.net",
-          "ports": "5200-5209",
+          "provider": "Leaseweb",
+          "host": "speedtest.lax12.us.leaseweb.net",
+          "ports": "5201-5210",
           "families": ["ipv4", "ipv6"],
           "link": "10G"
         },
         {
           "location": "Los Angeles",
-          "provider": "Leaseweb",
-          "host": "speedtest.lax12.us.leaseweb.net",
-          "ports": "5201-5210",
+          "provider": "Clouvider",
+          "host": "la.speedtest.clouvider.net",
+          "ports": "5200-5209",
           "families": ["ipv4", "ipv6"],
           "link": "10G"
         }
