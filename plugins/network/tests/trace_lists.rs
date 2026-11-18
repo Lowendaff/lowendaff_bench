@@ -60,7 +60,7 @@ fn verdicts<T: std::fmt::Debug, E: std::fmt::Debug>(
 
 #[test]
 fn each_target_list_gets_the_verdict_that_its_name_gives() {
-    verdicts("target-lists", targets::parse, 51);
+    verdicts("target-lists", targets::parse, 52);
 }
 
 #[test]

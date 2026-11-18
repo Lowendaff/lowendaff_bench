@@ -10,8 +10,9 @@
 def whole($pattern): test("^(?:" + $pattern + ")\\z");
 def ipv4_octet: "(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])";
 def ipv4: whole("(" + ipv4_octet + "\\.){3}" + ipv4_octet);
-# Eight groups, or fewer with one :: that stands for at least one more; the last of them may be
-# an IPv4 address, which stands for two.
+# Eight groups, or fewer with one :: that stands for at least one more. An IPv4 address may stand
+# for the last two groups, as in ::ffff:192.0.2.1, and only at the very end: the program's readers
+# refuse one before the ::, as in 2001:db8:192.0.2.1::.
 def ipv6:
     (split("::") as $halves
     | ($halves | length) as $parts
@@ -23,6 +24,7 @@ def ipv6:
         and all($groups | to_entries[];
             (.value | whole("[0-9A-Fa-f]{1,4}"))
             or (.key == $count - 1 and (.value | ipv4)))
+        and ((contains(".") | not) or (split(":") | .[-1] | ipv4))
         and (if $parts == 2 then $width <= 7 else $width == 8 end));
 # Labels of 1 to 63 letters, digits and -, none at either end of a label, joined by dots: 1 to
 # 253 characters in all.
