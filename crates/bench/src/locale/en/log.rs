@@ -69,6 +69,7 @@ impl LogWords for English {
                 country,
                 ipv6,
             } => format!("download from {location}, {country} over {}", family(ipv6)),
+            Step::Trace { target, ipv6 } => format!("trace to {target} over {}", family(ipv6)),
         };
         format!("{id} {step}")
     }

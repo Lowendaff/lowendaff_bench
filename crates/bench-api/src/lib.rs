@@ -288,6 +288,13 @@ pub enum Step {
         /// Whether the test runs over IPv6, else over IPv4.
         ipv6: bool,
     },
+    /// The trace of a target of route tracing.
+    Trace {
+        /// The target's name, as its list names it, or the cache server's service.
+        target: &'static str,
+        /// Whether the trace runs over IPv6, else over IPv4.
+        ipv6: bool,
+    },
 }
 
 /// A tool that a plugin ran: its command, how it ended, and what it printed last when it did
