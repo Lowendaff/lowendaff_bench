@@ -154,6 +154,10 @@ used), with these rules of this repository:
 
 - Parsers are tested against recorded tool output in `tests/fixtures/`, and host facts against
   captures of real hosts (`crates/bench-host/tests/fixtures/README.md`).
+- The scripts that check the lists in `servers/` take the rules that the lists share, of an IPv4
+  address, an IPv6 address, a DNS name and a text, from `scripts/list-rules.jq`. The lists'
+  fixtures, which the scripts and the program's readers both read, hold every edge of those
+  rules, so that a script and its reader agree on each.
 - Whole reports are compared with insta snapshots in `crates/bench/tests/snapshots/`. A change to
   the report shows in its snapshots, which the pull request holds for review:
   `INSTA_UPDATE=always` rewrites them locally, and CI writes none, so a difference fails there.

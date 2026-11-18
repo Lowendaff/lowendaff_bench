@@ -25,43 +25,26 @@ fail() {
     exit 1
 }
 
-# The checks of one target, as jq definitions: `target_problems` gives the broken rules of the
-# target it gets, each as a word. An address is of its field's family; a name that is no address,
-# such as 01.2.3.4, a DNS name.
+# The checks of one target, as jq definitions after the rules that the lists share
+# (scripts/list-rules.jq): `target_problems` gives the broken rules of the target it gets, each as
+# a word. An address is of its field's family; a name that is no address, such as 01.2.3.4, a DNS
+# name.
 # shellcheck disable=SC2016 # jq's variables and interpolations, not the shell's
-RULES='
-def ipv4_octet: "(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])";
-def ipv4: test("^(" + ipv4_octet + "\\.){3}" + ipv4_octet + "$");
-def ipv6:
-    (split("::") as $halves
-    | ($halves | length) as $parts
-    | [$halves[] | if . == "" then [] else split(":") end] as $sides
-    | ($sides | add // []) as $groups
-    | ($groups | length) as $count
-    | ($groups | if length > 0 and (.[-1] | ipv4) then $count + 1 else $count end) as $width
-    | test("^[0-9A-Fa-f:.]+$") and contains(":") and $parts <= 2
-        and all($groups | to_entries[];
-            (.value | test("^[0-9A-Fa-f]{1,4}$"))
-            or (.key == $count - 1 and (.value | ipv4)))
-        and (if $parts == 2 then $width <= 7 else $width == 8 end));
-def dns_name:
-    length >= 1 and length <= 253
-    and all(split(".")[]; test("^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$"));
+RULES=$(cat "$(dirname "$0")/list-rules.jq")'
 def name_of(family):
     type == "string"
     and (if family == "ipv4" then ipv4 or (ipv6 | not) and dns_name
          else ipv6 or (ipv4 | not) and dns_name end);
 def id_rule:
-    type == "string" and test("^[a-z0-9-]{1,40}$") and . != "youtube" and . != "netflix";
+    type == "string" and whole("[a-z0-9-]{1,40}") and . != "youtube" and . != "netflix";
 def group_rule: . == "china" or . == "international";
-def name_rule: type == "string" and length >= 1 and length <= 40 and (test("\\p{Cc}") | not);
 def asn_rule:
-    type == "number" and (tojson | test("^[0-9]+$")) and . >= 1 and . <= 4294967295;
+    type == "number" and (tojson | whole("[0-9]+")) and . >= 1 and . <= 4294967295;
 def default_rule: . == null or type == "boolean";
 def target_problems:
     [ (if .id | id_rule then empty else "id" end),
       (if .group | group_rule then empty else "group" end),
-      (if .name | name_rule then empty else "name" end),
+      (if .name | printable(40) then empty else "name" end),
       (if .asn | asn_rule then empty else "asn" end),
       (if .ipv4 | name_of("ipv4") then empty else "ipv4" end),
       (if .ipv6 == null or (.ipv6 | name_of("ipv6")) then empty else "ipv6" end),

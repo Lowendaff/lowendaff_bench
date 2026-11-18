@@ -36,30 +36,13 @@ fail() {
     exit 1
 }
 
-# The checks of one server, as jq definitions: `server_problems` gives the broken rules of the
-# server it gets, each as a word.
+# The checks of one server, as jq definitions after the rules that the lists share
+# (scripts/list-rules.jq): `server_problems` gives the broken rules of the server it gets, each as
+# a word.
 # shellcheck disable=SC2016 # jq's variables and interpolations, not the shell's
-RULES='
-def ipv4_octet: "(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])";
-def ipv4: test("^(" + ipv4_octet + "\\.){3}" + ipv4_octet + "$");
-def ipv6:
-    (split("::") as $halves
-    | ($halves | length) as $parts
-    | [$halves[] | if . == "" then [] else split(":") end] as $sides
-    | ($sides | add // []) as $groups
-    | ($groups | length) as $count
-    | ($groups | if length > 0 and (.[-1] | ipv4) then $count + 1 else $count end) as $width
-    | test("^[0-9A-Fa-f:.]+$") and contains(":") and $parts <= 2
-        and all($groups | to_entries[];
-            (.value | test("^[0-9A-Fa-f]{1,4}$"))
-            or (.key == $count - 1 and (.value | ipv4)))
-        and (if $parts == 2 then $width <= 7 else $width == 8 end));
-def dns_name:
-    length >= 1 and length <= 253
-    and all(split(".")[]; test("^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$"));
-def text_rule: type == "string" and length >= 1 and length <= 40 and (test("\\p{Cc}") | not);
+RULES=$(cat "$(dirname "$0")/list-rules.jq")'
 def ports_rule:
-    type == "string" and test("^[0-9]+(-[0-9]+)?$")
+    type == "string" and whole("[0-9]+(-[0-9]+)?")
     and (split("-") as $ends
         | ($ends[0] | tonumber) as $first
         | ($ends[-1] | tonumber) as $last
@@ -71,9 +54,9 @@ def place_problems:
     [ (if .host | type == "string" and (ipv4 or ipv6 or dns_name) then empty else "host" end),
       (if .ports | ports_rule then empty else "ports" end),
       (if .families | families_rule then empty else "families" end),
-      (if [.location, .provider, .link] | all(.[]; text_rule) then empty else "text" end) ];
-def id_rule: type == "string" and test("^[a-z0-9-]{1,40}$");
-def country_rule: type == "string" and test("^[A-Z]{2}$");
+      (if [.location, .provider, .link] | all(.[]; printable(40)) then empty else "text" end) ];
+def id_rule: type == "string" and whole("[a-z0-9-]{1,40}");
+def country_rule: type == "string" and whole("[A-Z]{2}");
 def default_rule: . == null or type == "boolean";
 def server_problems:
     [ (if .id | id_rule then empty else "id" end),

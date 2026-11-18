@@ -17,6 +17,7 @@ on:
     paths:
       - servers/iperf3-candidates.json
       - scripts/iperf3-servers.sh
+      - scripts/list-rules.jq
       - .github/workflows/data.yml
 
 permissions: {}

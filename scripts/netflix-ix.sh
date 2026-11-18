@@ -33,12 +33,11 @@ fail() {
     exit 1
 }
 
-# The checks of one port, as jq definitions: `port_problems` gives the broken rules of the port
-# it gets, each as a word.
+# The checks of one port, as jq definitions after the rules that the lists share
+# (scripts/list-rules.jq): `port_problems` gives the broken rules of the port it gets, each as a
+# word.
 # shellcheck disable=SC2016 # jq's variables and interpolations, not the shell's
-RULES='
-def ipv4_octet: "(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])";
-def ipv4: test("^(" + ipv4_octet + "\\.){3}" + ipv4_octet + "$");
+RULES=$(cat "$(dirname "$0")/list-rules.jq")'
 def ipv6_groups:
     if contains("::") then
         (split("::") as [$left, $right]
@@ -46,14 +45,6 @@ def ipv6_groups:
          | ($right | if . == "" then [] else split(":") end) as $after
          | $before + [range(8 - ($before | length) - ($after | length)) | "0"] + $after)
     else split(":") end;
-# An address of eight groups, or one cut short with ::. A :: that stands for no group, as in
-# 1:2:3:4::5:6:7:8, gives more than eight groups, which the canonical form, compared below, never
-# writes: so address_rule refuses it.
-def ipv6:
-    test("^[0-9A-Fa-f:]+$") and contains(":")
-    and (split("::") | length) <= 2
-    and (contains("::") or (split(":") | length) == 8)
-    and all(ipv6_groups[]; test("^[0-9A-Fa-f]{1,4}$"));
 def groups: [ipv6_groups[] | ascii_downcase | sub("^0+(?<rest>.)"; "\(.rest)")];
 def mapped: groups | .[:6] == ["0", "0", "0", "0", "0", "ffff"];
 def canonical:
@@ -67,12 +58,14 @@ def canonical:
     | if $run == null then $groups | join(":")
       else ($groups[:$run.start] | join(":")) + "::"
           + ($groups[$run.start + $run.length:] | join(":")) end;
-def address_rule: type == "string" and (ipv4 or ipv6 and (mapped | not) and canonical == .);
-def exchange_rule:
-    type == "string" and length >= 1 and length <= 60 and (test("\\p{Cc}") | not);
+# An IPv4 address, or an IPv6 address without an IPv4 part, which the program refuses, written as
+# the address prints.
+def address_rule:
+    type == "string"
+    and (ipv4 or ipv6 and (contains(".") | not) and (mapped | not) and canonical == .);
 def port_problems:
     [ (if .address | address_rule then empty else "address" end),
-      (if .exchange | exchange_rule then empty else "exchange" end) ];
+      (if .exchange | printable(60) then empty else "exchange" end) ];
 def list_problems:
     if type != "object" then ["not an object"]
     elif .version != 1 then ["version \(.version) is not 1"]
