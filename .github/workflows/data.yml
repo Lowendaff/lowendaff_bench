@@ -1,5 +1,5 @@
-# Keeps the network test's server list current (README "Network speed"). Every day, and when the
-# candidates, their script or this workflow change on main, it writes servers/iperf3.json anew
+# Keeps the network test's server list current (README "Network speed"). Twice a day, and when the
+# candidates, their scripts or this workflow change on main, it writes servers/iperf3.json anew
 # from the reviewed candidates and the export of iperf3serverlist.net. When the list changes, it
 # opens a pull request, or rebuilds the open one on main's head, that merges itself once the
 # required checks pass; when the list is current again, it closes the open one. It tests no
@@ -9,8 +9,8 @@ name: data
 
 on:
   schedule:
-    # Daily; GitHub delays scheduled runs most at the full hour.
-    - cron: "41 3 * * *"
+    # Every 12 hours, at 03:41 and 15:41 UTC; GitHub delays scheduled runs most at the full hour.
+    - cron: "41 3,15 * * *"
   workflow_dispatch:
   push:
     branches: [main]

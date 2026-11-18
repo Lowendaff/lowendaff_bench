@@ -97,7 +97,7 @@ location, the first candidate that the export lists with the same host and ports
 To add, remove or reorder servers, change the candidates in a pull request, run `update` with a
 fresh export, and `scripts/iperf3-servers.sh check`. The list is never edited by hand: `check`
 refuses a server that is no candidate. From then on, the `data` workflow keeps the list current by
-itself: every day, it runs `update` with a fresh export and, when the list changes, opens a pull
+itself: twice a day, it runs `update` with a fresh export and, when the list changes, opens a pull
 request as the GitHub App `lowendaff-bench-data`, which merges itself once the required checks pass;
 `scripts/check-commits.sh` lets a bot's pull request change the list and nothing else. Nothing
 builds from the list, so that a change of it alone needs no build: `check` refuses a file that names
