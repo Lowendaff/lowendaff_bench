@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "ports": [
+    {
+      "address": "206.223.116.133",
+      "exchange": "Equinix San Jose"
+    },
+    {
+      "address": "2001:504:0:1::2906:1",
+      "exchange": "Equinix Ashburn"
+    },
+    {
+      "address": "2001:db8::1:0:0:1",
+      "exchange": "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+    },
+    {
+      "address": "2001:db8:0:1:1:1:1:1",
+      "exchange": "One group of zeros, not cut short"
+    },
+    {
+      "address": "192.0.2.1",
+      "exchange": "Documentation"
+    },
+    {
+      "address": "::c000:201",
+      "exchange": "IPv4-compatible, written in hex"
+    },
+    {
+      "address": "1::",
+      "exchange": "Zeros to the end"
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "ports": [
+    {
+      "address": "2001:0db8::1",
+      "exchange": "Equinix San Jose"
+    }
+  ]
+}

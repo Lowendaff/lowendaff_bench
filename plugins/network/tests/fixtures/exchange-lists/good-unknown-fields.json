@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "ports": [
+    {
+      "address": "206.223.116.133",
+      "exchange": "Equinix San Jose",
+      "name": "ignored"
+    }
+  ],
+  "note": "a field that this program does not know"
+}

@@ -1,6 +1,6 @@
 [package]
 name = "plugin-network"
-description = "Network test items for lowendaff-bench: network speed with iperf3"
+description = "Network test items for lowendaff-bench: speed with iperf3, routes with NextTrace"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true

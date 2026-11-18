@@ -1,0 +1,4 @@
+※ You are running NextTrace as an ordinary user, but NextTrace has not been given the privileges that route tracing needs, to listen for ICMP packets on network sockets and to change IP headers (TTL)
+※ Please run `sudo setcap cap_net_raw,cap_net_admin+eip ${your_nexttrace_path}/nexttrace-tiny` as an administrator to give them, then run it again~
+※ What? Why does ping not need root for an ordinary user? Because those tools were given the necessary privileges when the administrator installed them; see `getcap /usr/bin/ping`
+2026/11/18 09:49:38 DNS lookup failed: lookup does-not-exist.invalid on 192.0.2.53:53: no such host

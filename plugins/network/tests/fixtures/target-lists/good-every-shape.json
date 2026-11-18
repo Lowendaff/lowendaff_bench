@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "targets": [
+    {
+      "id": "pek-4809",
+      "group": "china",
+      "name": "Beijing Telecom CN2",
+      "asn": 4809,
+      "ipv4": "ipv4.pek-4809.endpoint.nxtrace.org",
+      "default": true,
+      "ipv6": "ipv6.pek-4809.endpoint.nxtrace.org"
+    },
+    {
+      "id": "gcp-sin",
+      "group": "international",
+      "name": "GCP - Singapore, SG",
+      "asn": 396982,
+      "ipv4": "35.187.238.97"
+    },
+    {
+      "id": "v6-literal",
+      "group": "international",
+      "name": "Example - Six",
+      "asn": 4294967295,
+      "ipv4": "192.0.2.1",
+      "default": false,
+      "ipv6": "2001:db8::1"
+    },
+    {
+      "id": "a",
+      "group": "china",
+      "name": "NNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNN",
+      "asn": 1,
+      "ipv4": "a.example",
+      "default": true
+    }
+  ]
+}

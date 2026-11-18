@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "ports": [
+    {
+      "address": "san-jose",
+      "exchange": "Equinix San Jose"
+    }
+  ]
+}
