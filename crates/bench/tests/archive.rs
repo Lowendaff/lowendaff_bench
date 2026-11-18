@@ -16,6 +16,7 @@ use tar::Header;
 const GEEKBENCH: ToolSpec = ToolSpec {
     name: "geekbench",
     version: "7.1.0",
+    raw_sockets: false,
     form: ToolForm::TarGz {
         executable: "geekbench7",
     },

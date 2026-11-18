@@ -100,6 +100,10 @@ pub struct ToolSpec {
     pub assets: &'static [ToolAsset],
     /// What each asset is.
     pub form: ToolForm,
+    /// Whether the tool sends and receives raw packets, as a tracer does. The program then gives
+    /// its copy CAP_NET_RAW as a file capability, the one privilege that it needs, so that it can
+    /// run as an unprivileged user; a host where that cannot work has no such tool.
+    pub raw_sockets: bool,
 }
 
 impl ToolSpec {

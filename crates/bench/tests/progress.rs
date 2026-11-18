@@ -49,6 +49,7 @@ const fn tool(name: &'static str, version: &'static str) -> ToolSpec {
         name,
         version,
         form: ToolForm::Executable,
+        raw_sockets: false,
         assets: &[ToolAsset {
             arch: "x86_64",
             url: "https://tools.example/download",

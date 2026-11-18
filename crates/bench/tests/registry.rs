@@ -27,6 +27,7 @@ const SHA: &str = "4f2d1c0b9a8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a392817060
 const FIO: ToolSpec = ToolSpec {
     name: "fio",
     version: "3.39",
+    raw_sockets: false,
     form: ToolForm::Executable,
     assets: &[
         ToolAsset {
@@ -154,6 +155,7 @@ impl Plugin for Strict {
 const BROKEN_TOOL: ToolSpec = ToolSpec {
     name: "iperf3",
     version: "3.19",
+    raw_sockets: false,
     form: ToolForm::Executable,
     assets: &[ToolAsset {
         arch: "x86_64",
@@ -167,6 +169,7 @@ plugin!(BrokenTool, "net.iperf", &[BROKEN_TOOL]);
 const NESTED_ARCHIVE: ToolSpec = ToolSpec {
     name: "geekbench",
     version: "7.1.0",
+    raw_sockets: false,
     form: ToolForm::TarGz {
         executable: "bin/geekbench7",
     },
@@ -177,6 +180,7 @@ plugin!(NestedArchive, "cpu.nested", &[NESTED_ARCHIVE]);
 const ARCHIVE: ToolSpec = ToolSpec {
     name: "geekbench7",
     version: "7.1.0",
+    raw_sockets: false,
     form: ToolForm::TarGz {
         executable: "geekbench7",
     },
@@ -186,6 +190,7 @@ plugin!(Archive, "cpu.archive", &[ARCHIVE]);
 
 const OTHER_FIO: ToolSpec = ToolSpec {
     version: "3.40",
+    raw_sockets: false,
     ..FIO
 };
 plugin!(ConflictingFio, "disk.fio-old", &[OTHER_FIO]);

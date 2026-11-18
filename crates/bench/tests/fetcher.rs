@@ -399,6 +399,7 @@ fn tool(name: &'static str, url: String, body: &[u8]) -> ToolSpec {
     ToolSpec {
         name,
         version: "1.0",
+        raw_sockets: false,
         form: ToolForm::Executable,
         assets,
     }

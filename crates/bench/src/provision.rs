@@ -1,6 +1,7 @@
 //! Tool provisioning: download every pinned tool the plan needs before the
-//! first test, verify size and SHA-256, and only then make it executable or unpack it; and the
-//! files that the plugins ask for, which are not pinned, only limited in size. A large
+//! first test, verify size and SHA-256, and only then make it executable or unpack it, and give
+//! a tool that sends raw packets CAP_NET_RAW; and the files that the plugins ask for, which are
+//! not pinned, only limited in size. A large
 //! file comes in byte ranges over several connections at once, when its server serves ranges:
 //! a slow route often limits each connection rather than the host. A download that fails in a
 //! way that may pass is tried again after a wait: a byte range from its first missing byte, a
@@ -167,9 +168,16 @@ where
         if cancel.is_cancelled() {
             break;
         }
-        let installed = match tool.asset_for(arch) {
-            None => Err(locale::words().no_build(arch)),
-            Some(asset) => {
+        // A tool that needs raw sockets is not downloaded where it could not have them.
+        let possible = if tool.raw_sockets {
+            raw_sockets_possible(dir)
+        } else {
+            Ok(())
+        };
+        let installed = match (tool.asset_for(arch), possible) {
+            (None, _) => Err(locale::words().no_build(arch)),
+            (Some(_), Err(reason)) => Err(reason),
+            (Some(asset), Ok(())) => {
                 tracing::debug!("{}", locale::words().download(asset.url));
                 download(&fetch, tool, asset, dir, connections, cancel).await
             }
@@ -472,7 +480,71 @@ async fn finish(
     };
     // Left only after a failure, or as the archive that is unpacked now.
     let _ = fs::remove_file(partial).await;
-    outcome
+    match outcome {
+        Ok(path) if tool.raw_sockets => grant_raw_sockets(&path).map(|()| path),
+        outcome => outcome,
+    }
+}
+
+/// The file capability that gives a tool raw sockets, `cap_net_raw+ep`, as `setcap` writes it in
+/// the attribute `security.capability`: a `vfs_cap_data` of revision 2 (`0x02000000`) with the
+/// effective flag (`0x1`), and CAP_NET_RAW (bit 13) the one permitted capability, in
+/// little-endian words: magic, then the permitted and inheritable sets of capabilities 0 to 31,
+/// then of 32 to 63.
+pub const RAW_SOCKETS: [u8; 20] = [
+    0x01, 0x00, 0x00, 0x02, // the revision and the effective flag
+    0x00, 0x20, 0x00, 0x00, // permitted: CAP_NET_RAW
+    0x00, 0x00, 0x00, 0x00, // inheritable: none
+    0x00, 0x00, 0x00, 0x00, // permitted, 32 to 63: none
+    0x00, 0x00, 0x00, 0x00, // inheritable, 32 to 63: none
+];
+
+/// Whether a tool in `dir` can have raw sockets from a file capability: the system ignores file
+/// capabilities in a process with `no_new_privs`, and on a filesystem mounted `nosuid`; and it
+/// refuses to start a program whose capability it cannot give, as when CAP_NET_RAW is not in the
+/// bounding set, which a container may drop it from. A state that cannot be read is no reason:
+/// the capability's own failure then says what went wrong.
+#[cfg(target_os = "linux")]
+fn raw_sockets_possible(dir: &Path) -> Result<(), String> {
+    use rustix::fs::StatVfsMountFlags;
+    use rustix::thread::CapabilitySet;
+
+    if rustix::thread::no_new_privs().unwrap_or(false) {
+        return Err(locale::words().raw_sockets_no_new_privs());
+    }
+    if !rustix::thread::capability_is_in_bounding_set(CapabilitySet::NET_RAW).unwrap_or(true) {
+        return Err(locale::words().raw_sockets_bounded());
+    }
+    match rustix::fs::statvfs(dir) {
+        Ok(stat) if stat.f_flag.contains(StatVfsMountFlags::NOSUID) => {
+            Err(locale::words().raw_sockets_nosuid())
+        }
+        _ => Ok(()),
+    }
+}
+
+/// File capabilities are Linux's.
+#[cfg(not(target_os = "linux"))]
+fn raw_sockets_possible(_dir: &Path) -> Result<(), String> {
+    Err(locale::words().raw_sockets_linux_only())
+}
+
+/// Gives the tool at `path` raw sockets ([`RAW_SOCKETS`]); it needs root, or CAP_SETFCAP.
+#[cfg(target_os = "linux")]
+fn grant_raw_sockets(path: &Path) -> Result<(), String> {
+    rustix::fs::setxattr(
+        path,
+        "security.capability",
+        &RAW_SOCKETS,
+        rustix::fs::XattrFlags::empty(),
+    )
+    .map_err(|err| locale::words().raw_sockets_failed(&io::Error::from(err)))
+}
+
+/// File capabilities are Linux's.
+#[cfg(not(target_os = "linux"))]
+fn grant_raw_sockets(_path: &Path) -> Result<(), String> {
+    Err(locale::words().raw_sockets_linux_only())
 }
 
 /// Streams `body`, the whole file, into `path`, and checks its size and SHA-256. A body that

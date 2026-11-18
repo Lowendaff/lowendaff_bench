@@ -325,6 +325,7 @@ impl Plugin for UsesWorkDir {
 const FIO: ToolSpec = ToolSpec {
     name: "fio",
     version: "3.39",
+    raw_sockets: false,
     form: ToolForm::Executable,
     assets: &[ToolAsset {
         arch: "x86_64",

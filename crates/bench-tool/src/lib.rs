@@ -17,6 +17,7 @@ use bench_api::ToolSpec;
 pub const FIO: ToolSpec = ToolSpec {
     name: "fio",
     version: "3.43",
+    raw_sockets: false,
     form: ToolForm::Executable,
     assets: &[
         ToolAsset {
@@ -45,6 +46,7 @@ pub const FIO: ToolSpec = ToolSpec {
 pub const GEEKBENCH: ToolSpec = ToolSpec {
     name: "geekbench",
     version: "7.1.0",
+    raw_sockets: false,
     form: ToolForm::TarGz {
         executable: "geekbench7",
     },
@@ -69,6 +71,7 @@ pub const GEEKBENCH: ToolSpec = ToolSpec {
 pub const IPERF3: ToolSpec = ToolSpec {
     name: "iperf3",
     version: "3.22",
+    raw_sockets: false,
     form: ToolForm::Executable,
     assets: &[
         ToolAsset {
@@ -96,6 +99,7 @@ pub const IPERF3: ToolSpec = ToolSpec {
 pub const MULTICHASE: ToolSpec = ToolSpec {
     name: "multichase",
     version: "2026.10.01",
+    raw_sockets: false,
     form: ToolForm::TarGz {
         executable: "multichase",
     },
@@ -126,6 +130,7 @@ pub const MULTICHASE: ToolSpec = ToolSpec {
 pub const SMARTCTL: ToolSpec = ToolSpec {
     name: "smartctl",
     version: "7.5",
+    raw_sockets: false,
     form: ToolForm::Executable,
     assets: &[
         ToolAsset {
@@ -154,6 +159,7 @@ pub const SMARTCTL: ToolSpec = ToolSpec {
 pub const STREAM: ToolSpec = ToolSpec {
     name: "stream",
     version: "5.10",
+    raw_sockets: false,
     form: ToolForm::TarGz {
         executable: "stream-2m",
     },
@@ -184,6 +190,7 @@ pub const STREAM: ToolSpec = ToolSpec {
 pub const SYSBENCH: ToolSpec = ToolSpec {
     name: "sysbench",
     version: "1.0.20",
+    raw_sockets: false,
     form: ToolForm::Executable,
     assets: &[
         ToolAsset {

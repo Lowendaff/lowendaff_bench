@@ -805,6 +805,7 @@ stand_in!(
 const SMARTCTL: ToolSpec = ToolSpec {
     name: "smartctl",
     version: "7.4",
+    raw_sockets: false,
     form: ToolForm::Executable,
     assets: &[
         ToolAsset {
@@ -991,6 +992,7 @@ async fn a_tool_that_cannot_be_provisioned_skips_its_plugins_with_the_reason() {
 const GEEKBENCH: ToolSpec = ToolSpec {
     name: "geekbench",
     version: "7.1.0",
+    raw_sockets: false,
     form: ToolForm::TarGz {
         executable: "geekbench7",
     },
@@ -1089,6 +1091,7 @@ fn script() -> &'static [u8] {
 const SCRIPT_TOOL: ToolSpec = ToolSpec {
     name: "script",
     version: "1.0",
+    raw_sockets: false,
     form: ToolForm::Executable,
     assets: &[
         ToolAsset {
