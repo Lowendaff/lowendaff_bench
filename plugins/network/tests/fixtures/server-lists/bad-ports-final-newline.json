@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "servers": [
+    {
+      "id": "tokyo",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "speedtest.tyo11.jp.leaseweb.net",
+      "ports": "5201-5210\n",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": true
+    }
+  ]
+}

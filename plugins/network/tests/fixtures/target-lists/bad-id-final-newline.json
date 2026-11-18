@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "targets": [
+    {
+      "id": "pek-4809\n",
+      "group": "china",
+      "name": "Beijing Telecom CN2",
+      "asn": 4809,
+      "ipv4": "ipv4.pek-4809.endpoint.nxtrace.org",
+      "default": true
+    }
+  ]
+}

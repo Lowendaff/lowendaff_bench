@@ -5,8 +5,9 @@
 # their twins in plugins/network/src/iperf3/servers.rs. The lists' fixtures, which the scripts and
 # the program both read, hold every edge of them.
 
-# whole(pattern): the whole text matches the pattern.
-def whole($pattern): test("^(?:" + $pattern + ")$");
+# whole(pattern): the whole text matches the pattern. The end is \z, the very end of the text:
+# jq's $ also matches before a final newline, which the program's readers refuse.
+def whole($pattern): test("^(?:" + $pattern + ")\\z");
 def ipv4_octet: "(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])";
 def ipv4: whole("(" + ipv4_octet + "\\.){3}" + ipv4_octet);
 # Eight groups, or fewer with one :: that stands for at least one more; the last of them may be
