@@ -106,7 +106,9 @@ Markdown, the lists' scripts and their cases, ci-scope and its cases, check-comm
 and the workflows that test and update the lists, and Rust code that names one other than by the
 address that the program downloads it from. A rule of the list changes in the program's reader
 (`plugins/network/src/iperf3/servers.rs`) and in the script together, with a fixture in
-`plugins/network/tests/fixtures/server-lists/` that both read.
+`plugins/network/tests/fixtures/server-lists/` that both read. The same workflow keeps route
+tracing's list of Netflix's exchange ports, `servers/netflix-ix.json`, current from PeeringDB with
+`scripts/netflix-ix.sh update`.
 
 ## Code
 

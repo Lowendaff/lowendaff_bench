@@ -180,7 +180,8 @@ own public addresses are masked unless `--show-ip` is given; the routers' are sh
   exchange is named with the exchange, from `servers/netflix-ix.json`, which
   `scripts/netflix-ix.sh update` writes from PeeringDB's list of Netflix's ports
   (`https://www.peeringdb.com/api/netixlan?net_id=457`); a run without the list shows no
-  exchange names.
+  exchange names. The `data` workflow runs `update` twice a day too and, when the list changes,
+  opens a pull request of the App that merges itself once the required checks pass.
 - **Settings.** The table `[plugins."network.trace"]` of the config file may set:
 
   ```toml

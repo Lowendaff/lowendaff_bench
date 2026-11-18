@@ -1,10 +1,13 @@
-# Keeps the network test's server list current (README "Network speed"). Twice a day, and when the
-# candidates, their scripts or this workflow change on main, it writes servers/iperf3.json anew
-# from the reviewed candidates and the export of iperf3serverlist.net. When the list changes, it
-# opens a pull request, or rebuilds the open one on main's head, that merges itself once the
-# required checks pass; when the list is current again, it closes the open one. It tests no
-# server itself. It writes only with a token of the GitHub App lowendaff-bench-data, whose key
-# only main can use (the environment data-update), and only when there is something to write.
+# Keeps the generated lists in servers/ current: the network test's servers (README "Network
+# speed") and Netflix's exchange ports for route tracing (README "Route tracing"). Twice a day,
+# and when their inputs, their scripts or this workflow change on main, a job for each list
+# writes it anew from its source: servers/iperf3.json from the reviewed candidates and the export
+# of iperf3serverlist.net, servers/netflix-ix.json from PeeringDB's list of Netflix's ports. When
+# a list changes, its job opens a pull request, or rebuilds the open one on main's head, that
+# merges itself once the required checks pass; when the list is current again, it closes the open
+# one. It tests no server itself. It writes only with a token of the GitHub App
+# lowendaff-bench-data, whose key only main can use (the environment data-update), and only when
+# there is something to write.
 name: data
 
 on:
@@ -17,14 +20,15 @@ on:
     paths:
       - servers/iperf3-candidates.json
       - scripts/iperf3-servers.sh
+      - scripts/netflix-ix.sh
       - scripts/list-rules.jq
       - .github/workflows/data.yml
 
 permissions: {}
 
 jobs:
-  iperf3:
-    name: iperf3 server list
+  list:
+    name: ${{ matrix.name }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     # Holds the App's private key and client id; only main may use it.
@@ -32,9 +36,44 @@ jobs:
     permissions:
       # Reads the repository; every write goes through the App's token.
       contents: read
+    strategy:
+      # Each list on its own: a source that is down stops its own job only.
+      fail-fast: false
+      matrix:
+        include:
+          - name: iperf3 server list
+            file: servers/iperf3.json
+            script: scripts/iperf3-servers.sh
+            # update refuses an export that is not an array of at least 50 servers, and a list
+            # that would lose its defaults or a third of its servers at once.
+            source: https://export.iperf3serverlist.net/listed_iperf3_servers.json
+            limit: 2097152
+            branch: data/iperf3-servers
+            title: "build: update the iperf3 server list"
+            from: the candidates and the export of iperf3serverlist.net
+            from-markdown: >-
+              `servers/iperf3-candidates.json` and the export of
+              [iperf3serverlist.net](https://iperf3serverlist.net)
+            entries: locations
+          - name: Netflix's exchange ports
+            file: servers/netflix-ix.json
+            script: scripts/netflix-ix.sh
+            # update refuses an answer that is not PeeringDB's list of Netflix's ports, one of
+            # fewer than 50 ports, and a list that would lose a third of its ports at once.
+            source: https://www.peeringdb.com/api/netixlan?net_id=457
+            limit: 1048576
+            branch: data/netflix-ix
+            title: "build: update Netflix's exchange ports"
+            from: PeeringDB's list of Netflix's ports
+            from-markdown: >-
+              PeeringDB's list of Netflix's ports
+              ([net 457](https://www.peeringdb.com/net/457))
+            entries: ports
     env:
-      BRANCH: data/iperf3-servers
-      TITLE: "build: update the iperf3 server list"
+      FILE: ${{ matrix.file }}
+      SCRIPT: ${{ matrix.script }}
+      BRANCH: ${{ matrix.branch }}
+      TITLE: ${{ matrix.title }}
     defaults:
       run:
         # With pipefail, so that no failure in a pipe goes unnoticed.
@@ -43,21 +82,24 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      # At most 2 MiB, over HTTPS only; update refuses an export that is not an array of at least
-      # 50 servers, and a list that would lose its defaults or a third of its servers at once.
-      - name: Export
+      # Over HTTPS only, and at most the list's limit: 2 MiB for the export, 1 MiB for PeeringDB.
+      - name: Source
+        env:
+          SOURCE: ${{ matrix.source }}
+          LIMIT: ${{ matrix.limit }}
         run: |
           curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
-            --max-time 120 --retry 3 --max-filesize 2097152 \
-            --output "$RUNNER_TEMP/export.json" \
-            https://export.iperf3serverlist.net/listed_iperf3_servers.json
+            --max-time 120 --retry 3 --max-filesize "$LIMIT" \
+            --output "$RUNNER_TEMP/source.json" "$SOURCE"
       - name: List
         id: list
+        env:
+          NAME: ${{ matrix.name }}
         run: |
-          scripts/iperf3-servers.sh update "$RUNNER_TEMP/export.json" > "$RUNNER_TEMP/changes.txt"
+          "$SCRIPT" update "$RUNNER_TEMP/source.json" > "$RUNNER_TEMP/changes.txt"
           cat "$RUNNER_TEMP/changes.txt"
-          scripts/iperf3-servers.sh check
-          if git diff --quiet -- servers/iperf3.json; then
+          "$SCRIPT" check
+          if git diff --quiet -- "$FILE"; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
           else
             echo "changed=true" >> "$GITHUB_OUTPUT"
@@ -72,7 +114,7 @@ jobs:
             *) exit "$status" ;;
           esac
           {
-            echo "### iperf3 server list"
+            echo "### $NAME"
             echo
             sed 's/^/- /' "$RUNNER_TEMP/changes.txt"
           } >> "$GITHUB_STEP_SUMMARY"
@@ -93,31 +135,34 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.token.outputs.token }}
           APP_SLUG: ${{ steps.token.outputs.app-slug }}
+          FROM: ${{ matrix.from }}
+          FROM_MARKDOWN: ${{ matrix.from-markdown }}
+          ENTRIES: ${{ matrix.entries }}
         run: |
           bot="${APP_SLUG}[bot]"
           id=$(gh api "users/${APP_SLUG}%5Bbot%5D" --jq .id)
           git config user.name "$bot"
           git config user.email "$id+$bot@users.noreply.github.com"
-          # The commit messages gate takes printable ASCII lines of at most 98 columns.
-          changes=$(iconv -f UTF-8 -t ASCII//TRANSLIT "$RUNNER_TEMP/changes.txt" | fold -s -w 96)
+          # The commit messages gate takes printable ASCII lines of at most 98 columns. In
+          # C.UTF-8, iconv drops an accent, as in Sao Paulo; the POSIX locale writes ? instead.
           {
             printf '%s\n\n' "$TITLE"
-            echo "The data workflow wrote servers/iperf3.json anew from the candidates and the"
-            echo "export of iperf3serverlist.net. The locations that changed:"
-            printf '%s\n' "$changes"
+            printf 'The data workflow wrote %s anew from %s. The %s that changed:\n' \
+              "$FILE" "$FROM" "$ENTRIES" | fold -s -w 96
+            LC_ALL=C.UTF-8 iconv -f UTF-8 -t ASCII//TRANSLIT "$RUNNER_TEMP/changes.txt" |
+              fold -s -w 96
           } > "$RUNNER_TEMP/message.txt"
           {
-            echo "The data workflow (\`.github/workflows/data.yml\`) wrote \`servers/iperf3.json\`"
-            echo "anew from \`servers/iperf3-candidates.json\` and the export of"
-            echo "[iperf3serverlist.net](https://iperf3serverlist.net). The locations that changed:"
+            echo "The data workflow (\`.github/workflows/data.yml\`) wrote \`$FILE\` anew from"
+            echo "$FROM_MARKDOWN. The $ENTRIES that changed:"
             echo
             sed 's/^/- /' "$RUNNER_TEMP/changes.txt"
             echo
             echo "It merges itself once the required checks pass. A bot's pull request may change"
-            echo "the server list only (\`scripts/check-commits.sh\`)."
+            echo "the generated lists only (\`scripts/check-commits.sh\`)."
           } > "$RUNNER_TEMP/body.md"
           git switch --quiet --create "$BRANCH"
-          git commit --quiet --file "$RUNNER_TEMP/message.txt" -- servers/iperf3.json
+          git commit --quiet --file "$RUNNER_TEMP/message.txt" -- "$FILE"
           expected=$(git ls-remote origin "refs/heads/$BRANCH" | cut -f1)
           basic=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w 0)
           echo "::add-mask::$basic"
