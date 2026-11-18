@@ -125,6 +125,36 @@ pub const MULTICHASE: ToolSpec = ToolSpec {
     ],
 };
 
+/// NextTrace 1.7.6 from the release `nexttrace-1.7.6-1`, which the tools workflow built and
+/// published: static, its tiny flavor, with Go's fallback roots for a host without root
+/// certificates of its own. It traces routes with raw ICMP packets, so the program gives its copy
+/// CAP_NET_RAW, and the item runs it as an unprivileged user.
+pub const NEXTTRACE: ToolSpec = ToolSpec {
+    name: "nexttrace",
+    version: "1.7.6",
+    raw_sockets: true,
+    form: ToolForm::Executable,
+    assets: &[
+        ToolAsset {
+            arch: "x86_64",
+            url: concat!(
+                "https://github.com/Lowendaff/lowendaff_bench/releases/download/nexttrace-1.7.6-1/",
+                "nexttrace-x86_64"
+            ),
+            sha256: "834364c4bf51a8537c9313a36dd9dfacdb00bc3490c5ba83f2e6d8fa01477a4d",
+            size: 15_036_540,
+        },
+        ToolAsset {
+            arch: "aarch64",
+            url: concat!(
+                "https://github.com/Lowendaff/lowendaff_bench/releases/download/nexttrace-1.7.6-1/",
+                "nexttrace-aarch64"
+            ),
+            sha256: "78b7054a8255b29dfa46201942600e4a6383ad2f6663e4fa8808269c3c75a100",
+            size: 13_959_292,
+        },
+    ],
+};
 /// smartctl 7.5 from the release `smartctl-7.5-1`, which the smartctl workflow built and
 /// published.
 pub const SMARTCTL: ToolSpec = ToolSpec {

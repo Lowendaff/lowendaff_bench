@@ -8,6 +8,7 @@ use bench_tool::FIO;
 use bench_tool::GEEKBENCH;
 use bench_tool::IPERF3;
 use bench_tool::MULTICHASE;
+use bench_tool::NEXTTRACE;
 use bench_tool::SMARTCTL;
 use bench_tool::STREAM;
 use bench_tool::SYSBENCH;
@@ -18,7 +19,7 @@ fn main() -> Result<(), String> {
         return Err("usage: pin <tool> <arch>".to_owned());
     };
     let tool = [
-        FIO, GEEKBENCH, IPERF3, MULTICHASE, SMARTCTL, STREAM, SYSBENCH,
+        FIO, GEEKBENCH, IPERF3, MULTICHASE, NEXTTRACE, SMARTCTL, STREAM, SYSBENCH,
     ]
     .into_iter()
     .find(|tool| tool.name == name)
