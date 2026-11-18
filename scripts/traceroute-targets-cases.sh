@@ -48,7 +48,7 @@ for fixture in "$fixtures"/*.json; do
     verdict "$expected" "fixture $name" '' sh "$script" check-list "$fixture"
     seen=$((seen + 1))
 done
-[ "$seen" -ge 40 ] || { echo "FAIL: only $seen fixtures" >&2; failures=$((failures + 1)); }
+[ "$seen" -ge 47 ] || { echo "FAIL: only $seen fixtures" >&2; failures=$((failures + 1)); }
 
 cd "$scratch"
 mkdir servers

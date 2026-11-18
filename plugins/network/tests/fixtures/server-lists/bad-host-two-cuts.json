@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "servers": [
+    {
+      "id": "tokyo",
+      "country": "JP",
+      "location": "Tokyo",
+      "provider": "Leaseweb",
+      "host": "2001:db8:1::2:3::4:5:6",
+      "ports": "5201-5210",
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "link": "10G",
+      "default": true
+    }
+  ]
+}

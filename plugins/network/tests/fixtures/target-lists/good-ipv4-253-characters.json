@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "targets": [
+    {
+      "id": "pek-4809",
+      "group": "china",
+      "name": "Beijing Telecom CN2",
+      "asn": 4809,
+      "ipv4": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "default": true
+    }
+  ]
+}
