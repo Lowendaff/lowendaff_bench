@@ -5,6 +5,8 @@
 use std::collections::BTreeMap;
 #[cfg(target_os = "linux")]
 use std::path::Path;
+#[cfg(target_os = "linux")]
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -23,6 +25,8 @@ use bench_tool::job::Output;
 use bench_tool::job::RunError;
 use bench_tool::job::User;
 use serde::Serialize;
+#[cfg(target_os = "linux")]
+use tempfile::TempDir;
 use tokio::time::Instant;
 
 #[derive(Debug, Clone, Serialize)]
@@ -523,26 +527,19 @@ async fn without_root_a_tool_cannot_run_as_another_user() {
     );
 }
 
-/// As root, a tool runs as its user and group, without root's other groups, also from a
-/// directory that the user may not enter, as a run directory in /root is. Root only, as in the
-/// Linux check: the tests run as an ordinary user elsewhere.
+/// As root, a tool runs as its user and group, without root's other groups, under its own name,
+/// also where a directory above it is closed to the user, as /root is above a run directory.
+/// Root only, as in the Linux check: the tests run as an ordinary user elsewhere.
 #[cfg(target_os = "linux")]
 #[tokio::test]
-async fn a_tool_runs_as_its_user_from_a_directory_closed_to_that_user() {
-    use std::os::unix::fs::PermissionsExt;
-
+async fn a_tool_runs_as_its_user_under_its_name_below_a_directory_closed_to_that_user() {
     if !rustix::process::geteuid().is_root() {
         return;
     }
     let (ctx, mut channels) = context(CancellationToken::new());
-    let dir = tempfile::tempdir().expect("a temporary directory");
-    std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700))
-        .expect("the directory is closed to others");
-    // A copy of the shell, under the shell's own name: busybox picks its program by that name.
-    let tool = dir.path().join("sh");
-    std::fs::copy("/bin/sh", &tool).expect("a copy of the shell");
-    // The shell's own arguments, then its user, group and other groups.
-    let script = "tr '\\0' ' ' < /proc/$$/cmdline; echo; \
+    let (_closed, tool) = tool_below_a_closed_directory(0o711);
+    // The shell's process name and arguments, then its user, group and other groups.
+    let script = "cat /proc/$$/comm; tr '\\0' ' ' < /proc/$$/cmdline; echo; \
                   grep -E '^(Uid|Gid|Groups):' /proc/self/status";
     let mut job = Job::new(&tool, ["-c", script], Duration::from_secs(30));
     job.user = Some(User::NOBODY);
@@ -557,7 +554,7 @@ async fn a_tool_runs_as_its_user_from_a_directory_closed_to_that_user() {
         .map(|line| line.split_whitespace().collect())
         .collect();
     assert_eq!(
-        fields.get(1..),
+        fields.get(2..),
         Some(
             [
                 vec!["Uid:", "65534", "65534", "65534", "65534"],
@@ -570,13 +567,57 @@ async fn a_tool_runs_as_its_user_from_a_directory_closed_to_that_user() {
         output.text
     );
     assert_eq!(
-        fields[0].first(),
+        fields[0],
+        ["sh"],
+        "the process takes the tool's name, not its descriptor's number: {}",
+        output.text
+    );
+    assert_eq!(
+        fields[1].first(),
         Some(&"sh"),
-        "the tool starts with its own name, not its descriptor: {}",
+        "the tool starts with its own name as its first argument: {}",
         output.text
     );
     assert_eq!(
         reported(&mut channels)[0].command,
         words(&["sh", "-c", script])
     );
+}
+
+/// As root, a tool whose own directory the user may not search does not start, with the
+/// system's reason.
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn a_tool_in_a_directory_closed_to_its_user_does_not_start() {
+    if !rustix::process::geteuid().is_root() {
+        return;
+    }
+    let (ctx, _channels) = context(CancellationToken::new());
+    let (_closed, tool) = tool_below_a_closed_directory(0o700);
+    let mut job = Job::new(&tool, ["-c", "true"], Duration::from_secs(30));
+    job.user = Some(User::NOBODY);
+    job.dir = Some("/".into());
+    let ended = job.run(&ctx).await.ended;
+    let Err(RunError::Fault(Fault::Spawn(reason))) = &ended else {
+        panic!("the tool does not start: {ended:?}");
+    };
+    assert!(reason.contains("Permission denied"), "{reason}");
+}
+
+/// A copy of the shell as `<closed>/tools/sh`, where `<closed>` is closed to others and `tools`
+/// has `mode`. The copy keeps the shell's own name: busybox picks its program by that name.
+#[cfg(target_os = "linux")]
+fn tool_below_a_closed_directory(mode: u32) -> (TempDir, PathBuf) {
+    use std::os::unix::fs::PermissionsExt;
+
+    let closed = tempfile::tempdir().expect("a temporary directory");
+    std::fs::set_permissions(closed.path(), std::fs::Permissions::from_mode(0o700))
+        .expect("the directory is closed to others");
+    let tools = closed.path().join("tools");
+    std::fs::create_dir(&tools).expect("a directory for the tool");
+    std::fs::set_permissions(&tools, std::fs::Permissions::from_mode(mode))
+        .expect("the tools directory's mode");
+    let tool = tools.join("sh");
+    std::fs::copy("/bin/sh", &tool).expect("a copy of the shell");
+    (closed, tool)
 }

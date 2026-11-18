@@ -3,6 +3,7 @@
 
 use std::collections::BTreeMap;
 use std::fs;
+use std::fs::Permissions;
 use std::future::Future;
 use std::io::Write;
 use std::ops::Range;
@@ -244,6 +245,8 @@ where
     R: AsyncRead + Unpin,
     W: Write,
 {
+    use std::os::unix::fs::PermissionsExt;
+
     let started = Instant::now();
     // Absolute and without `.` components: tempfile joins a relative directory to the current
     // one as it is, which left `/./` in every path under it, such as fio's test file.
@@ -268,6 +271,11 @@ where
     if !tools.is_empty() {
         let tools_dir = run_dir.path().join("tools");
         fs::create_dir(&tools_dir).map_err(|err| locale::words().tools_dir_failed(&err))?;
+        // A tool that runs as another user starts through this directory, which that user must
+        // be allowed to search, whatever the umask; it may not list it, and the run directory
+        // above stays closed to others.
+        fs::set_permissions(&tools_dir, Permissions::from_mode(0o711))
+            .map_err(|err| locale::words().tools_dir_failed(&err))?;
         let provisioned =
             provision::provision_all(&tools, &host.arch, &tools_dir, connections, cancel, &fetch)
                 .await;

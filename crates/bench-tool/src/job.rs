@@ -8,6 +8,7 @@
 use std::ffi::OsString;
 use std::fs::File;
 use std::io;
+use std::path::Path;
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::time::Duration;
@@ -55,7 +56,8 @@ pub struct Job {
     pub cpus: Option<Vec<usize>>,
     /// The user it runs as, without the program's supplementary groups; `None` keeps the
     /// program's own. A tool that talks to third parties runs as [`User::NOBODY`], so that a flaw
-    /// that a server could use does not run as root. It needs root, and Linux.
+    /// that a server could use does not run as root. It needs root, and Linux, and a program
+    /// whose own directory the user may search; the directories above it may be closed to them.
     pub user: Option<User>,
 }
 
@@ -152,7 +154,7 @@ impl Job {
         Outcome { ended, adjustment }
     }
 
-    /// The command that starts the program, with the program's open file for a job with a
+    /// The command that starts the program, with the program's open directory for a job with a
     /// [`Job::user`]: it must stay open until the tool has started.
     fn command(&self) -> io::Result<(Command, Option<File>)> {
         use std::os::fd::AsRawFd;
@@ -160,16 +162,21 @@ impl Job {
         let Some(user) = self.user else {
             return Ok((Command::new(&self.program), None));
         };
-        // The user may not be allowed into the tool's directory: the run directory can sit in a
-        // directory of root's own, such as /root. So the tool starts from its open file, which the
-        // new process reaches through its own descriptors; only the file's permissions apply.
-        let file = File::open(&self.program)?;
-        let mut command = Command::new(format!("/proc/self/fd/{}", file.as_raw_fd()));
-        command
-            .arg0(self.program.file_name().unwrap_or(self.program.as_os_str()))
-            .uid(user.uid)
-            .gid(user.gid);
-        Ok((command, Some(file)))
+        // The user may not be allowed into the directories above the tool's: the run directory can
+        // sit in a directory of root's own, such as /root. So the tool starts from its directory's
+        // open descriptor, which the new process reaches through its own descriptors without
+        // passing the directories above; it takes the tool's file name as its process name, as a
+        // path to the file itself would not (the descriptor's number instead).
+        let name = self.program.file_name().unwrap_or(self.program.as_os_str());
+        let dir = match self.program.parent() {
+            Some(dir) if !dir.as_os_str().is_empty() => dir,
+            _ => Path::new("."),
+        };
+        let dir = File::open(dir)?;
+        let mut command =
+            Command::new(Path::new(&format!("/proc/self/fd/{}", dir.as_raw_fd())).join(name));
+        command.arg0(name).uid(user.uid).gid(user.gid);
+        Ok((command, Some(dir)))
     }
 
     /// What the log shows of a run with `-v`: the program's file name and its arguments, how it

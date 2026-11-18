@@ -982,7 +982,8 @@ const SCRIPT_TOOL: ToolSpec = ToolSpec {
     ],
 };
 
-/// Runs the tool that it was handed, and fails unless the tool says ok.
+/// Runs the tool that it was handed, and fails unless the tool says ok and its directory is one
+/// that other users may search but not list: a tool that runs as another user starts through it.
 #[derive(Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 struct RunsScript {}
@@ -999,16 +1000,22 @@ impl Plugin for RunsScript {
     };
 
     async fn run(&self, ctx: &Context<Output>) -> Result<Output, Stop<Failure>> {
+        use std::os::unix::fs::PermissionsExt;
+
         let program = ctx
             .tool(SCRIPT_TOOL.name)
             .expect("the orchestrator runs a plugin only when its tools are ready");
+        let dir_mode = program
+            .parent()
+            .and_then(|dir| std::fs::metadata(dir).ok())
+            .map(|metadata| metadata.permissions().mode() & 0o777);
         let said = tokio::process::Command::new(program)
             .kill_on_drop(true)
             .output()
             .await
             .map(|output| output.stdout);
         match said {
-            Ok(said) if said == b"ok\n" => Ok(Output::default()),
+            Ok(said) if said == b"ok\n" && dir_mode == Some(0o711) => Ok(Output::default()),
             _ => Err(Stop::Failed(Failure::Cancelled)),
         }
     }
