@@ -243,6 +243,12 @@ jobs:
       - name: Local iperf3 server
         if: steps.scope.outputs.run != 'false'
         run: scripts/smoke-iperf3.sh "$RUNNER_TEMP/iperf3"
+      # Route tracing traces the loopback from lists and answers of its own, without NextTrace's
+      # lookups, so that it asks no third party; the runners receive no ICMP from outside anyway.
+      # NextTrace runs with the file capability that the program gives it, as on any host.
+      - name: Local trace targets
+        if: steps.scope.outputs.run != 'false'
+        run: scripts/smoke-trace.sh "$RUNNER_TEMP/trace" "$RUNNER_TEMP/iperf3/config.toml"
       # Geekbench would publish a result from every run and take minutes.
       - name: Smoke
         if: steps.scope.outputs.run != 'false'

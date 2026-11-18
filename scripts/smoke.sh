@@ -10,7 +10,8 @@
 # Usage: scripts/smoke.sh <path to lowendaff-bench> [<argument>...]
 # Arguments after the path go to the full run, for example --skip disk.fio. CI adds the config
 # file of scripts/smoke-iperf3.sh, which points the network test at an iperf3 server on the
-# runner. Linux only, with network access for the tools. Run it as root, or as a user with sudo.
+# runner, with the table of scripts/smoke-trace.sh, which points route tracing at the loopback.
+# Linux only, with network access for the tools. Run it as root, or as a user with sudo.
 # As root, the non-root check runs as nobody, so nobody must be able to reach the binary.
 set -eu
 
