@@ -127,7 +127,8 @@ check reject "a title of 101 columns with its number" "$base" "$base" \
     "ci: $(printf '%091d' 0)" 16
 check reject "a title that is not a header" "$base" "$base" "Check the commit messages" 16
 
-# A bot's pull request changes the server list, servers/iperf3.json, and nothing else.
+# A bot's pull request changes the generated lists, servers/iperf3.json and
+# servers/netflix-ix.json, and nothing else.
 # files <message> [<path> <content>]...: a commit with these files on top of the base.
 files() {
     git checkout -q --detach "$base"
@@ -159,6 +160,23 @@ candidates=$(files "$title
 
 tokyo: Leaseweb, added to the candidates" servers/iperf3-candidates.json '{"version": 1}')
 check reject "a bot's pull request of the candidates" "$base" "$candidates" "$title" 16 Bot
+ports="build: update Netflix's exchange ports"
+exchanges=$(files "$ports
+
+206.223.116.133: Equinix San Jose, added" servers/netflix-ix.json '{"version": 1}')
+check accept "a bot's pull request of the exchange ports" "$base" "$exchanges" "$ports" 16 Bot
+generated=$(files "$ports
+
+Both generated lists in one pull request." servers/iperf3.json '{}' \
+    servers/netflix-ix.json '{}')
+check accept "a bot's pull request of both generated lists" "$base" "$generated" "$ports" 16 Bot
+targets=$(files "build: change route tracing's targets
+
+pek-4809: another name" servers/traceroute.json '{"version": 1}')
+check reject "a bot's pull request of the target list" "$base" "$targets" \
+    "build: change route tracing's targets" 16 Bot
+check accept "a person's pull request of the target list" "$base" "$targets" \
+    "build: change route tracing's targets" 16 User
 git checkout -q --detach "$list"
 git mv servers/iperf3.json servers/iperf3-old.json
 git commit -q -m "$title

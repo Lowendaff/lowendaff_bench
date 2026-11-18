@@ -120,7 +120,7 @@ the servers are third parties.
   location without such a candidate is left out. The `data` workflow runs `update` twice a day, and
   when the list changes, opens a pull request that merges itself once the required checks pass.
   It writes as the GitHub App `lowendaff-bench-data`, whose key only `main` can use, and its pull
-  requests may change the list only. The program checks the list's rules before it
+  requests may change the generated lists only. The program checks the list's rules before it
   uses it (`scripts/iperf3-servers.sh` names them), and CI checks them in every pull request.
 - **Choosing servers.** By default, the servers that the list marks as defaults. `--countries`
   takes ISO 3166 codes in any case, separated by commas, or `all`: every server of those
@@ -224,7 +224,7 @@ commands. Run them locally before pushing.
 | Workflow lint | `actionlint`, which runs shellcheck over the `run:` scripts too | any host |
 | Shell scripts | `git ls-files -z '*.sh' \| xargs -0 shellcheck` | any host |
 | Checker cases | `scripts/check-commits-cases.sh` | any host |
-| Commit messages | `scripts/check-commits.sh origin/main HEAD`; CI adds the title, and the author's kind: a bot's pull request may change `servers/iperf3.json` only | any host |
+| Commit messages | `scripts/check-commits.sh origin/main HEAD`; CI adds the title, and the author's kind: a bot's pull request may change the generated lists, `servers/iperf3.json` and `servers/netflix-ix.json`, only | any host |
 | Rule tests | `ast-grep test` (cases in `ast-grep/tests/`) | any host |
 | Rules | `ast-grep scan` (rules in `ast-grep/rules/`, config in `sgconfig.yml`), then `scripts/check-docs-cases.sh` and `scripts/check-docs.sh`: no tracked file holds CJK characters, except the catalog of another language in `crates/bench/src/locale/<language>/`, and no tracked file outside the fixture data points into the design documents | any host |
 | Server list | `scripts/iperf3-servers-cases.sh`, then `scripts/iperf3-servers.sh check`: the network test's server list and its candidates follow their rules, the list holds candidates only, and nothing builds from a list in `servers/`; the cases include the fixtures that the program's reader reads too | any host with jq |
