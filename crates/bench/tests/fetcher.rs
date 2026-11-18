@@ -214,6 +214,10 @@ async fn fetcher_streams_bodies_and_turns_failures_into_reasons() {
         panic!("a closed port should fail, in a way that may pass")
     };
     assert!(refused.starts_with("download failed: "), "{refused}");
+    assert!(
+        refused.contains("tcp connect error: Connection refused"),
+        "the reason names its cause: {refused}"
+    );
     let hint = fetcher::proxy_hint(|name| std::env::var(name).ok());
     assert!(refused.ends_with(&hint), "{refused}");
 
@@ -224,6 +228,57 @@ async fn fetcher_streams_bodies_and_turns_failures_into_reasons() {
         panic!("a body that breaks off should fail")
     };
     assert!(broken.to_string().ends_with(&hint), "{broken}");
+    assert!(
+        broken
+            .to_string()
+            .contains(": end of file before message length reached"),
+        "the reason names its cause: {broken}"
+    );
+}
+
+#[test]
+fn an_error_names_each_of_its_causes_once() {
+    /// An error with a text and a cause.
+    #[derive(Debug)]
+    struct Layer(&'static str, Option<Box<Layer>>);
+    impl std::fmt::Display for Layer {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str(self.0)
+        }
+    }
+    impl std::error::Error for Layer {
+        fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+            self.1
+                .as_deref()
+                .map(|cause| cause as &(dyn std::error::Error + 'static))
+        }
+    }
+    let layer = |text, cause: Option<Layer>| Layer(text, cause.map(Box::new));
+
+    let refused = layer(
+        "error sending request",
+        Some(layer(
+            "tcp connect error",
+            Some(layer("Connection refused", None)),
+        )),
+    );
+    assert_eq!(
+        fetcher::causes(&refused),
+        "error sending request: tcp connect error: Connection refused"
+    );
+    // A cause that the message quotes already, then one more below it.
+    let reset = layer(
+        "connection error: Connection reset by peer",
+        Some(layer(
+            "Connection reset by peer",
+            Some(layer("os error 104", None)),
+        )),
+    );
+    assert_eq!(
+        fetcher::causes(&reset),
+        "connection error: Connection reset by peer: os error 104"
+    );
+    assert_eq!(fetcher::causes(&layer("alone", None)), "alone");
 }
 
 #[tokio::test]

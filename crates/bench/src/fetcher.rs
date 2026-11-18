@@ -74,7 +74,7 @@ impl Fetcher {
             request = request.header(header::RANGE, bytes);
         }
         let response = request.send().await.map_err(|err| {
-            DownloadError::Transient(locale::words().request_failed(&err, &hint()))
+            DownloadError::Transient(locale::words().request_failed(&causes(&err), &hint()))
         })?;
         let status = response.status();
         if !status.is_success() {
@@ -100,7 +100,7 @@ impl Fetcher {
         let read_hint = hint();
         let body = response
             .bytes_stream()
-            .map_err(move |err| io::Error::other(format!("{err}{read_hint}")));
+            .map_err(move |err| io::Error::other(format!("{}{read_hint}", causes(&err))));
         let reader = StreamReader::new(Box::pin(body));
         Ok(if partial {
             Part::Range(reader)
@@ -147,6 +147,25 @@ pub fn builder() -> Result<ClientBuilder, String> {
     Ok(Client::builder()
         .tls_backend_preconfigured(tls)
         .user_agent(concat!("lowendaff-bench/", env!("CARGO_PKG_VERSION"))))
+}
+
+/// An error with its causes, each after a colon, as in "error sending request for url (...):
+/// client error (Connect): tcp connect error: Connection refused (os error 111)": reqwest's own
+/// message names none of them, such as a timeout, a refused connection or a failed name lookup.
+/// A cause whose text the message holds already is left out.
+#[must_use]
+pub fn causes(error: &dyn std::error::Error) -> String {
+    let mut text = error.to_string();
+    let mut cause = error.source();
+    while let Some(next) = cause {
+        let said = next.to_string();
+        if !text.contains(&said) {
+            text.push_str(": ");
+            text.push_str(&said);
+        }
+        cause = next.source();
+    }
+    text
 }
 
 /// The end of a network error's reason: which proxy variable is set, or
