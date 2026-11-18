@@ -36,7 +36,10 @@ async fn run(table: serde_json::Value, list: &Path) -> Result<Output, Stop<Failu
             "iperf3".to_owned(),
             PathBuf::from("/nonexistent/iperf3"),
         )])),
-        Arc::new(BTreeMap::from([("servers".to_owned(), list.to_path_buf())])),
+        Arc::new(BTreeMap::from([(
+            "servers".to_owned(),
+            Ok(list.to_path_buf()),
+        )])),
         Instant::now() + Duration::from_secs(60),
         "/run/work".into(),
         CancellationToken::new(),

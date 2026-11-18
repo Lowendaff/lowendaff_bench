@@ -854,10 +854,7 @@ async fn unmet_requirements_skip_without_running_glibc_first_then_network_then_t
 
 #[test]
 fn a_plugin_is_ready_with_every_file_it_asked_for() {
-    let servers = |source: &str| FileSpec {
-        name: "servers",
-        source: FileSource::Url(source.to_owned()),
-    };
+    let servers = |source: &str| FileSpec::new("servers", FileSource::Url(source.to_owned()));
     let files = [servers("https://lists.example/servers.json")];
     let fetched = Provisioned {
         ready: BTreeMap::from([("servers".to_owned(), PathBuf::from("/run/files/servers"))]),
@@ -888,6 +885,16 @@ fn a_plugin_is_ready_with_every_file_it_asked_for() {
         }),
         "nobody tried to get it, as after Ctrl-C"
     );
+    let optional = [FileSpec {
+        optional: true,
+        ..servers("https://lists.example/servers.json")
+    }];
+    assert_eq!(
+        orchestrator::files_ready(&optional, Some(&failed)),
+        Ok(()),
+        "an optional file that did not come"
+    );
+    assert_eq!(orchestrator::files_ready(&optional, None), Ok(()));
 }
 
 #[test]

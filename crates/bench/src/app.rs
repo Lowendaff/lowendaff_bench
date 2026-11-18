@@ -14,6 +14,7 @@ use std::time::Duration;
 use std::time::Instant;
 
 use bench_api::CancellationToken;
+use bench_api::IpFamily;
 use bench_api::Plugin;
 use bench_host::profile::HostProfile;
 use plugin_network::iperf3::Iperf3;
@@ -228,8 +229,8 @@ pub struct ReportOptions<W> {
 /// Runs a prepared plan on the host that `host` describes, inside a fresh run directory under
 /// `work_dir`, which is removed afterwards, with the tools that `fetch` downloads from their
 /// pinned addresses, over up to `connections` connections a file, and the files that the plugins
-/// ask for, which it downloads too, and writes the report as `report` says. Returns the process
-/// exit code.
+/// ask for, which it downloads too, each over the family it names (`fetch`'s first argument;
+/// `None` for either), and writes the report as `report` says. Returns the process exit code.
 pub async fn execute<F, Fut, R, W>(
     planned: Vec<Planned<Measured>>,
     host: HostProfile,
@@ -240,7 +241,7 @@ pub async fn execute<F, Fut, R, W>(
     report: ReportOptions<W>,
 ) -> Result<u8, String>
 where
-    F: Fn(&'static str, Option<Range<u64>>) -> Fut,
+    F: Fn(Option<IpFamily>, &'static str, Option<Range<u64>>) -> Fut,
     Fut: Future<Output = Result<Part<R>, DownloadError>>,
     R: AsyncRead + Unpin,
     W: Write,
@@ -276,17 +277,27 @@ where
         // above stays closed to others.
         fs::set_permissions(&tools_dir, Permissions::from_mode(0o711))
             .map_err(|err| locale::words().tools_dir_failed(&err))?;
+        // A tool comes over either family.
+        let any = |url, range| fetch(None, url, range);
         let provisioned =
-            provision::provision_all(&tools, &host.arch, &tools_dir, connections, cancel, &fetch)
+            provision::provision_all(&tools, &host.arch, &tools_dir, connections, cancel, &any)
                 .await;
         ready = provisioned.ready;
         failed_tools = provisioned.failed;
     }
     // Each plugin's files go into a directory of its own: two plugins may name theirs alike.
+    let families: Vec<IpFamily> = [
+        (IpFamily::Ipv4, host.network.ipv4.reachable()),
+        (IpFamily::Ipv6, host.network.ipv6.reachable()),
+    ]
+    .into_iter()
+    .filter_map(|(family, reachable)| reachable.then_some(family))
+    .collect();
     let mut files = BTreeMap::new();
     for planned in runnable().filter(|planned| !planned.files().is_empty()) {
         let dir = run_dir.path().join("files").join(planned.id());
-        let fetched = provision::fetch_files(planned.files(), &dir, cancel, &fetch).await;
+        let fetched =
+            provision::fetch_files(planned.files(), &dir, &families, cancel, &fetch).await;
         files.insert(planned.id(), fetched);
     }
 

@@ -4,10 +4,14 @@
 //! standard environment variables name, SOCKS5 included.
 
 use std::io;
+use std::net::IpAddr;
+use std::net::Ipv4Addr;
+use std::net::Ipv6Addr;
 use std::ops::Range;
 use std::sync::Arc;
 use std::time::Duration;
 
+use bench_api::IpFamily;
 use reqwest::Client;
 use reqwest::ClientBuilder;
 use reqwest::Proxy;
@@ -40,11 +44,34 @@ impl Fetcher {
         Self::build(None)
     }
 
+    /// A client that connects over `family` only, also to an address written in a URL, and
+    /// without a proxy, which would connect over its own family and answer with its own address.
+    /// For files whose answer depends on the host's address of that family.
+    pub fn try_new_for(family: IpFamily) -> Result<Self, String> {
+        Self::build_for(family, None)
+    }
+
+    /// `proxy`, which the client must not use, stands for the environment's; the tests use it.
+    fn build_for(family: IpFamily, proxy: Option<Proxy>) -> Result<Self, String> {
+        let local = match family {
+            IpFamily::Ipv4 => IpAddr::V4(Ipv4Addr::UNSPECIFIED),
+            IpFamily::Ipv6 => IpAddr::V6(Ipv6Addr::UNSPECIFIED),
+        };
+        let mut builder = timeouts(builder()?);
+        if let Some(proxy) = proxy {
+            builder = builder.proxy(proxy);
+        }
+        let client = builder
+            .no_proxy()
+            .local_address(local)
+            .build()
+            .map_err(|err| locale::words().http_client_failed(&err))?;
+        Ok(Self { client })
+    }
+
     /// `proxy` replaces the environment's; the tests use it.
     fn build(proxy: Option<Proxy>) -> Result<Self, String> {
-        let mut builder = builder()?
-            .connect_timeout(Duration::from_secs(10))
-            .read_timeout(Duration::from_secs(30));
+        let mut builder = timeouts(builder()?);
         if let Some(proxy) = proxy {
             builder = builder.proxy(proxy);
         }
@@ -133,6 +160,48 @@ fn holds(content_range: Option<&HeaderValue>, range: Option<&Range<u64>>) -> boo
         && last.parse::<u64>().ok().map(|last| last + 1) == Some(range.end)
 }
 
+/// The downloads' clients: one over either family, through the proxy that the environment names,
+/// and one for each family alone ([`Fetcher::try_new_for`]).
+pub struct Fetchers {
+    any: Fetcher,
+    ipv4: Fetcher,
+    ipv6: Fetcher,
+}
+
+impl Fetchers {
+    /// Builds the three clients; fails only if the TLS configuration is rejected.
+    pub fn try_new() -> Result<Self, String> {
+        Ok(Self {
+            any: Fetcher::try_new()?,
+            ipv4: Fetcher::try_new_for(IpFamily::Ipv4)?,
+            ipv6: Fetcher::try_new_for(IpFamily::Ipv6)?,
+        })
+    }
+
+    /// Opens a download as [`Fetcher::open`] does, over `family` only when it is given.
+    pub async fn open(
+        &self,
+        family: Option<IpFamily>,
+        url: &str,
+        range: Option<Range<u64>>,
+    ) -> Result<Part<impl AsyncRead + Unpin + use<>>, DownloadError> {
+        let fetcher = match family {
+            None => &self.any,
+            Some(IpFamily::Ipv4) => &self.ipv4,
+            Some(IpFamily::Ipv6) => &self.ipv6,
+        };
+        fetcher.open(url, range).await
+    }
+}
+
+/// The downloads' timeouts: a connection must open within 10 seconds, and a body must not stall
+/// for 30.
+fn timeouts(builder: ClientBuilder) -> ClientBuilder {
+    builder
+        .connect_timeout(Duration::from_secs(10))
+        .read_timeout(Duration::from_secs(30))
+}
+
 /// A client builder with the program's TLS configuration (rustls with ring, and the bundled
 /// Mozilla roots) and its user agent, for the downloads and the network module alike.
 pub fn builder() -> Result<ClientBuilder, String> {
@@ -194,7 +263,11 @@ mod tests {
     use tokio::net::TcpListener;
     use tokio::net::TcpStream;
 
+    use bench_api::IpFamily;
+
     use super::Fetcher;
+    use super::Fetchers;
+    use crate::provision::DownloadError;
     use crate::provision::Part;
 
     /// Answers every request on a local port with `body` over plain HTTP, or with the byte range
@@ -305,6 +378,72 @@ mod tests {
             *targets.lock().expect("targets"),
             [site.clone(), site],
             "the proxy relayed both downloads"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_client_of_one_family_connects_over_it_alone_and_through_no_proxy() {
+        let site = serve(b"list").await;
+        let url = format!("http://{site}/list");
+        let targets = Arc::new(Mutex::new(Vec::new()));
+        let proxy = socks5(Arc::clone(&targets)).await;
+        let socks = Proxy::all(format!("socks5h://{proxy}")).expect("a proxy address");
+        let four = Fetcher::build_for(IpFamily::Ipv4, Some(socks)).expect("client");
+
+        let Ok(Part::Whole(mut body)) = four.open(&url, None).await else {
+            panic!("the IPv4 client reaches the IPv4 address")
+        };
+        let mut bytes = Vec::new();
+        body.read_to_end(&mut bytes).await.expect("body");
+        assert_eq!(bytes, b"list");
+        assert!(
+            targets.lock().expect("targets").is_empty(),
+            "not through the proxy"
+        );
+
+        let six = Fetcher::try_new_for(IpFamily::Ipv6).expect("client");
+        assert!(
+            matches!(six.open(&url, None).await, Err(DownloadError::Transient(_))),
+            "the IPv6 client does not reach an IPv4 address"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_download_takes_the_client_of_its_family_or_the_general_one() {
+        let site = serve(b"list").await;
+        let url = format!("http://{site}/list");
+        let targets = Arc::new(Mutex::new(Vec::new()));
+        let proxy = socks5(Arc::clone(&targets)).await;
+        let socks = Proxy::all(format!("socks5h://{proxy}")).expect("a proxy address");
+        // The program's own clients of each family, and a general one through the proxy.
+        let fetchers = Fetchers {
+            any: Fetcher::build(Some(socks)).expect("client"),
+            ..Fetchers::try_new().expect("clients")
+        };
+
+        assert!(
+            fetchers
+                .open(Some(IpFamily::Ipv4), &url, None)
+                .await
+                .is_ok(),
+            "over IPv4"
+        );
+        assert!(
+            matches!(
+                fetchers.open(Some(IpFamily::Ipv6), &url, None).await,
+                Err(DownloadError::Transient(_))
+            ),
+            "not over IPv6, to an IPv4 address"
+        );
+        assert!(
+            targets.lock().expect("targets").is_empty(),
+            "neither through the proxy"
+        );
+        assert!(fetchers.open(None, &url, None).await.is_ok(), "over either");
+        assert_eq!(
+            *targets.lock().expect("targets"),
+            [site],
+            "the general client goes through the proxy"
         );
     }
 }

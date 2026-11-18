@@ -55,7 +55,10 @@ fn by_default_the_item_tests_yabss_way_the_repositorys_list_and_its_default_serv
         [FileSpec {
             name: "servers",
             source: FileSource::Url(SERVERS_URL.to_owned()),
-        }]
+            family: None,
+            optional: false,
+        }],
+        "the item needs its list, over either family"
     );
     assert_eq!(
         SERVERS_URL,

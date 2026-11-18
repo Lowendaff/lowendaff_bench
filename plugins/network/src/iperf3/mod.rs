@@ -110,10 +110,7 @@ impl Plugin for Iperf3 {
             Some(list) if list.contains("://") => FileSource::Url(list.clone()),
             Some(list) => FileSource::Path(PathBuf::from(list)),
         };
-        vec![FileSpec {
-            name: SERVERS,
-            source,
-        }]
+        vec![FileSpec::new(SERVERS, source)]
     }
 
     async fn run(&self, ctx: &Context<Output>) -> Result<Output, Stop<Failure>> {

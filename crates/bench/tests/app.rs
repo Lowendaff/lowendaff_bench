@@ -27,6 +27,7 @@ use bench_api::Context;
 use bench_api::Descriptor;
 use bench_api::FileSource;
 use bench_api::FileSpec;
+use bench_api::IpFamily;
 use bench_api::Net;
 use bench_api::Plugin;
 use bench_api::Requirements;
@@ -141,8 +142,9 @@ fn ids(list: &[&str]) -> Vec<String> {
     list.iter().map(|id| (*id).to_owned()).collect()
 }
 
-/// A download asked for: the address, and the byte range or `None` for the whole file.
-type Asked = (&'static str, Option<Range<u64>>);
+/// A download asked for: the family it must come over or `None` for either, the address, and the
+/// byte range or `None` for the whole file.
+type Asked = (Option<IpFamily>, &'static str, Option<Range<u64>>);
 
 /// The downloads of a test run: every address gets `body`, whole or the byte range asked for, or
 /// fails when there is none, and the addresses and ranges asked for are noted. A file comes over
@@ -159,13 +161,14 @@ struct Downloads {
 impl Downloads {
     async fn open(
         &self,
+        family: Option<IpFamily>,
         url: &'static str,
         range: Option<Range<u64>>,
     ) -> Result<Part<&'static [u8]>, DownloadError> {
         self.asked
             .lock()
             .expect("no test panics while holding the addresses")
-            .push((url, range.clone()));
+            .push((family, url, range.clone()));
         if let Some(cancel) = &self.interrupt {
             cancel.cancel();
             std::future::pending::<()>().await;
@@ -189,7 +192,16 @@ impl Downloads {
             .asked
             .lock()
             .expect("no test panics while holding the addresses");
-        asked.iter().map(|(url, _)| *url).collect()
+        asked.iter().map(|(_, url, _)| *url).collect()
+    }
+
+    /// The families that the addresses were asked over, in order.
+    fn families(&self) -> Vec<Option<IpFamily>> {
+        let asked = self
+            .asked
+            .lock()
+            .expect("no test panics while holding the addresses");
+        asked.iter().map(|(family, _, _)| *family).collect()
     }
 
     /// The byte ranges asked for, in order; `None` for a whole file.
@@ -198,7 +210,7 @@ impl Downloads {
             .asked
             .lock()
             .expect("no test panics while holding the addresses");
-        asked.iter().map(|(_, range)| range.clone()).collect()
+        asked.iter().map(|(_, _, range)| range.clone()).collect()
     }
 }
 
@@ -225,7 +237,7 @@ async fn run(
         width,
         show_ip,
     };
-    let fetch = |url, range| downloads.open(url, range);
+    let fetch = |family, url, range| downloads.open(family, url, range);
     let connections = downloads
         .connections
         .unwrap_or(usize::from(app::DOWNLOAD_CONNECTIONS));
@@ -289,7 +301,7 @@ async fn a_work_directory_given_with_dots_leaves_none_in_the_paths_under_it() {
         HostProfile::default(),
         &work.path().join(".").join("."),
         &CancellationToken::new(),
-        |url, range| downloads.open(url, range),
+        |family, url, range| downloads.open(family, url, range),
         1,
         report,
     )
@@ -353,14 +365,11 @@ async fn a_plugin_gets_its_files_downloaded_into_the_run_directory_or_where_they
     let seen = Arc::default();
     let plugin = ReadsFiles {
         files: vec![
-            FileSpec {
-                name: "servers",
-                source: FileSource::Url("https://lists.example/servers.json".to_owned()),
-            },
-            FileSpec {
-                name: "own",
-                source: FileSource::Path(own.clone()),
-            },
+            FileSpec::new(
+                "servers",
+                FileSource::Url("https://lists.example/servers.json".to_owned()),
+            ),
+            FileSpec::new("own", FileSource::Path(own.clone())),
         ],
         seen: Arc::clone(&seen),
     };
@@ -381,6 +390,7 @@ async fn a_plugin_gets_its_files_downloaded_into_the_run_directory_or_where_they
 
     assert_eq!(code, 0, "{text}");
     assert_eq!(downloads.asked(), ["https://lists.example/servers.json"]);
+    assert_eq!(downloads.families(), [None], "over either family");
     let seen = seen
         .lock()
         .expect("nothing panics while holding it")
@@ -401,10 +411,7 @@ async fn a_plugin_gets_its_files_downloaded_into_the_run_directory_or_where_they
 async fn a_plugin_whose_file_cannot_be_had_is_skipped_with_the_reason() {
     let url = "https://lists.example/servers.json";
     let plugin = ReadsFiles {
-        files: vec![FileSpec {
-            name: "servers",
-            source: FileSource::Url(url.to_owned()),
-        }],
+        files: vec![FileSpec::new("servers", FileSource::Url(url.to_owned()))],
         seen: Arc::default(),
     };
 
@@ -419,6 +426,123 @@ async fn a_plugin_whose_file_cannot_be_had_is_skipped_with_the_reason() {
     let reason = format!("file servers unavailable: no download in this test: {url}");
     assert!(text.contains(&format!("\n  skipped: {reason}\n")), "{text}");
     assert_eq!(log.last(), Some(&format!("test.files skipped: {reason}")));
+}
+
+/// What a plugin saw of one optional file: its name, and whether it had the file or why not.
+type OptionalSeen = (&'static str, Result<String, String>);
+
+/// Asks for optional files, and notes for each the text it had or why it is missing.
+#[derive(Default, Deserialize)]
+struct ReadsOptionalFiles {
+    #[serde(skip)]
+    files: Vec<FileSpec>,
+    #[serde(skip)]
+    seen: Arc<Mutex<Vec<OptionalSeen>>>,
+}
+
+impl Plugin for ReadsOptionalFiles {
+    type Output = Output;
+    type Failure = Failure;
+    const DESCRIPTOR: Descriptor = descriptor("test.optional-files");
+
+    fn files(&self) -> Vec<FileSpec> {
+        self.files.clone()
+    }
+
+    async fn run(&self, ctx: &Context<Output>) -> Result<Output, Stop<Failure>> {
+        let seen = self
+            .files
+            .iter()
+            .map(|file| {
+                let had = match ctx.file(file.name) {
+                    Some(path) => Ok(std::fs::read_to_string(path).expect("the file reads")),
+                    None => Err(ctx.missing(file.name).expect("it says why").to_owned()),
+                };
+                (file.name, had)
+            })
+            .collect();
+        *self.seen.lock().expect("nothing panics while holding it") = seen;
+        Ok(Output::default())
+    }
+}
+
+/// An optional file of `family`, at the address `url`.
+fn optional(name: &'static str, url: &str, family: IpFamily) -> FileSpec {
+    FileSpec {
+        family: Some(family),
+        optional: true,
+        ..FileSpec::new(name, FileSource::Url(url.to_owned()))
+    }
+}
+
+#[tokio::test]
+async fn optional_files_come_over_their_family_and_a_missing_one_leaves_the_plugin_to_run() {
+    let four = "https://lookup.example/four";
+    let six = "https://lookup.example/six";
+    let read = |body: Option<&'static [u8]>| async move {
+        let seen = Arc::default();
+        let plugin = ReadsOptionalFiles {
+            files: vec![
+                optional("four", four, IpFamily::Ipv4),
+                optional("six", six, IpFamily::Ipv6),
+            ],
+            seen: Arc::clone(&seen),
+        };
+        let host = HostProfile {
+            network: ipv4_only(),
+            ..HostProfile::default()
+        };
+        let downloads = Downloads {
+            body,
+            ..Downloads::default()
+        };
+        let planned = vec![Planned::new(plugin, Measured::CpuGeekbench)];
+        let (code, text, _) = run(
+            planned,
+            host,
+            &CancellationToken::new(),
+            &downloads,
+            None,
+            false,
+        )
+        .await;
+        assert_eq!(code, 0);
+        assert!(
+            summary_line(&text, "test.optional-files").is_some_and(|line| line.contains("done")),
+            "it runs: {text}"
+        );
+        let seen = seen
+            .lock()
+            .expect("no test panics while holding it")
+            .clone();
+        (seen, downloads.asked(), downloads.families())
+    };
+
+    let (seen, asked, families) = read(Some(b"cache-1\n")).await;
+    let unreachable = "not fetched: the host has no IPv6 connection".to_owned();
+    assert_eq!(
+        seen,
+        [
+            ("four", Ok("cache-1\n".to_owned())),
+            ("six", Err(unreachable.clone()))
+        ]
+    );
+    assert_eq!(
+        asked,
+        [four],
+        "the file of IPv6, which the host lacks, is not asked for"
+    );
+    assert_eq!(families, [Some(IpFamily::Ipv4)], "over IPv4 only");
+
+    let (seen, ..) = read(None).await;
+    assert_eq!(
+        seen,
+        [
+            ("four", Err(format!("no download in this test: {four}"))),
+            ("six", Err(unreachable)),
+        ],
+        "a failed download leaves its reason, and the plugin runs"
+    );
 }
 
 /// Asks for a file, and needs IPv4.
@@ -437,10 +561,10 @@ impl Plugin for ReadsFilesOverIpv4 {
     };
 
     fn files(&self) -> Vec<FileSpec> {
-        vec![FileSpec {
-            name: "servers",
-            source: FileSource::Url("https://lists.example/servers.json".to_owned()),
-        }]
+        vec![FileSpec::new(
+            "servers",
+            FileSource::Url("https://lists.example/servers.json".to_owned()),
+        )]
     }
 
     async fn run(&self, _ctx: &Context<Output>) -> Result<Output, Stop<Failure>> {
@@ -1045,6 +1169,11 @@ async fn the_program_hands_its_plugins_the_tools_it_downloaded() {
         assert_eq!(code, 0);
         assert_eq!(downloads.asked(), vec![url; ranges.len()]);
         assert_eq!(downloads.ranges(), ranges, "{connections:?} connections");
+        assert_eq!(
+            downloads.families(),
+            vec![None; ranges.len()],
+            "a tool comes over either family, through a proxy when one is set"
+        );
         assert!(
             log.contains(&"Tools: script 1.0 ready".to_owned()),
             "{log:?}"

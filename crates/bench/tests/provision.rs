@@ -32,6 +32,7 @@ use bench_api::Context;
 use bench_api::Descriptor;
 use bench_api::FileSource;
 use bench_api::FileSpec;
+use bench_api::IpFamily;
 use bench_api::Net;
 use bench_api::Plugin;
 use bench_api::Requirements;
@@ -1039,11 +1040,11 @@ async fn nothing_is_downloaded_after_ctrl_c() {
 
 const LIST_URL: &str = "https://lists.example/servers.json";
 
+/// The families of a host that reaches both.
+const BOTH: [IpFamily; 2] = [IpFamily::Ipv4, IpFamily::Ipv6];
+
 fn list(url: &str) -> FileSpec {
-    FileSpec {
-        name: "servers",
-        source: FileSource::Url(url.to_owned()),
-    }
+    FileSpec::new("servers", FileSource::Url(url.to_owned()))
 }
 
 /// What came of fetching files: the result, the log, the files left in their directory with
@@ -1060,9 +1061,9 @@ async fn fetch_from(files: &[FileSpec], served: &Served) -> Fetched {
     let dir = tempfile::tempdir().expect("a directory for the files");
     let (log, capturing) = Captured::start(true);
     let started = Instant::now();
-    let fetch = |_, range| served.open(range);
-    let provisioned =
-        provision::fetch_files(files, dir.path(), &CancellationToken::new(), &fetch).await;
+    let fetch = |_, _, range| served.open(range);
+    let cancel = CancellationToken::new();
+    let provisioned = provision::fetch_files(files, dir.path(), &BOTH, &cancel, &fetch).await;
     let took = started.elapsed();
     drop(capturing);
     let left = entries(dir.path())
@@ -1083,10 +1084,10 @@ async fn fetch_from(files: &[FileSpec], served: &Served) -> Fetched {
 #[tokio::test]
 async fn a_file_at_an_https_address_is_downloaded_and_one_on_the_host_handed_on() {
     let served = Served::new(b"{\"version\": 1}\n");
-    let own = FileSpec {
-        name: "own",
-        source: FileSource::Path(PathBuf::from("/etc/own-servers.json")),
-    };
+    let own = FileSpec::new(
+        "own",
+        FileSource::Path(PathBuf::from("/etc/own-servers.json")),
+    );
 
     let fetched = fetch_from(&[list(LIST_URL), own], &served).await;
 
@@ -1187,12 +1188,73 @@ async fn a_file_is_tried_again_after_failures_that_may_pass() {
 }
 
 #[tokio::test]
+async fn a_file_comes_over_its_family_and_one_of_a_family_the_host_lacks_is_not_fetched() {
+    let dir = tempfile::tempdir().expect("a directory for the files");
+    let asked = Mutex::new(Vec::new());
+    let fetch = |family: Option<IpFamily>, url: &'static str, _range| {
+        asked
+            .lock()
+            .expect("no test panics while holding it")
+            .push((family, url));
+        async { Ok(Part::Whole(&b"{}\n"[..])) }
+    };
+    let over = |name, url: &str, family| FileSpec {
+        family,
+        ..FileSpec::new(name, FileSource::Url(url.to_owned()))
+    };
+    let files = [
+        over("any", "https://lists.example/any.json", None),
+        over(
+            "four",
+            "https://lists.example/four.json",
+            Some(IpFamily::Ipv4),
+        ),
+        over(
+            "six",
+            "https://lists.example/six.json",
+            Some(IpFamily::Ipv6),
+        ),
+    ];
+
+    let (_log, capturing) = Captured::start(false);
+    let cancel = CancellationToken::new();
+    let provisioned =
+        provision::fetch_files(&files, dir.path(), &[IpFamily::Ipv4], &cancel, &fetch).await;
+    drop(capturing);
+
+    assert_eq!(
+        provisioned.ready,
+        BTreeMap::from([
+            ("any".to_owned(), dir.path().join("any")),
+            ("four".to_owned(), dir.path().join("four")),
+        ])
+    );
+    assert_eq!(
+        provisioned.failed,
+        BTreeMap::from([(
+            "six".to_owned(),
+            "not fetched: the host has no IPv6 connection".to_owned()
+        )])
+    );
+    assert_eq!(
+        asked
+            .into_inner()
+            .expect("no test panicked while holding it"),
+        [
+            (None, "https://lists.example/any.json"),
+            (Some(IpFamily::Ipv4), "https://lists.example/four.json"),
+        ],
+        "each over its family, and the IPv6 file not at all"
+    );
+}
+
+#[tokio::test]
 async fn ctrl_c_stops_a_file_download_and_the_files_after_it() {
     let dir = tempfile::tempdir().expect("a directory for the files");
     let cancel = CancellationToken::new();
     let asked = Mutex::new(Vec::new());
     // The first file never comes, and Ctrl-C comes meanwhile.
-    let fetch = |url: &'static str, _range| {
+    let fetch = |_family, url: &'static str, _range| {
         asked
             .lock()
             .expect("no test panics while holding it")
@@ -1203,14 +1265,14 @@ async fn ctrl_c_stops_a_file_download_and_the_files_after_it() {
             std::future::pending::<Result<Part<&'static [u8]>, DownloadError>>().await
         }
     };
-    let other = FileSpec {
-        name: "other",
-        source: FileSource::Url("https://lists.example/other.json".to_owned()),
-    };
+    let other = FileSpec::new(
+        "other",
+        FileSource::Url("https://lists.example/other.json".to_owned()),
+    );
     let files = [list(LIST_URL), other];
 
     let (_log, capturing) = Captured::start(false);
-    let provisioned = provision::fetch_files(&files, dir.path(), &cancel, &fetch).await;
+    let provisioned = provision::fetch_files(&files, dir.path(), &BOTH, &cancel, &fetch).await;
     drop(capturing);
 
     assert_eq!(provisioned.ready, BTreeMap::new());

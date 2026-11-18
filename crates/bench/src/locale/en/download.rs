@@ -3,6 +3,8 @@
 use std::fmt::Display;
 use std::path::Path;
 
+use bench_api::IpFamily;
+
 use super::English;
 use crate::locale::Download;
 use crate::locale::DownloadWords;
@@ -78,6 +80,14 @@ impl DownloadWords for English {
 
     fn not_https(&self, url: &str) -> String {
         format!("not an HTTPS address: {url}")
+    }
+
+    fn family_unreachable(&self, family: IpFamily) -> String {
+        let family = match family {
+            IpFamily::Ipv4 => "IPv4",
+            IpFamily::Ipv6 => "IPv6",
+        };
+        format!("not fetched: the host has no {family} connection")
     }
 
     fn wrong_size(&self, size: u64, actual: u64) -> String {

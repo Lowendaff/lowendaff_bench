@@ -13,6 +13,7 @@ use std::time::Duration;
 use bench_api::CancellationToken;
 use bench_api::Context;
 use bench_api::FileSpec;
+use bench_api::Files;
 use bench_api::Net;
 use bench_api::Plugin;
 use bench_api::Progress;
@@ -307,12 +308,12 @@ pub fn preflight(
     }
 }
 
-/// Whether the plugin has every file in `files`, among those that `fetched` holds for it; `None`
-/// when none was fetched for it.
+/// Whether the plugin has every file in `files` that is not optional, among those that `fetched`
+/// holds for it; `None` when none was fetched for it.
 pub fn files_ready(files: &[FileSpec], fetched: Option<&Provisioned>) -> Result<(), Unmet> {
     let had =
         |file: &&FileSpec| fetched.is_some_and(|fetched| fetched.ready.contains_key(file.name));
-    match files.iter().find(|file| !had(file)) {
+    match files.iter().find(|file| !file.optional && !had(file)) {
         Some(file) => Err(Unmet::File {
             name: file.name,
             why: fetched
@@ -355,9 +356,7 @@ pub async fn run_plan<R: Send + 'static>(
                 Ok(()) => {
                     observer.on_start(planned.id);
                     let begun = Instant::now();
-                    let files = fetched
-                        .map(|fetched| fetched.ready.clone())
-                        .unwrap_or_default();
+                    let files = fetched.map(plugin_files).unwrap_or_default();
                     let (status, result) =
                         run_one(&planned, files, cancel, settings, observer).await;
                     run.started = Some(begun.duration_since(settings.origin));
@@ -373,9 +372,22 @@ pub async fn run_plan<R: Send + 'static>(
     runs
 }
 
+/// The files that the plugin gets: the path of each that was fetched, and why each other was not.
+fn plugin_files(fetched: &Provisioned) -> Files {
+    let ready = fetched
+        .ready
+        .iter()
+        .map(|(name, path)| (name.clone(), Ok(path.clone())));
+    let failed = fetched
+        .failed
+        .iter()
+        .map(|(name, why)| (name.clone(), Err(why.clone())));
+    ready.chain(failed).collect()
+}
+
 async fn run_one<R: Send + 'static>(
     planned: &Planned<R>,
-    files: BTreeMap<String, PathBuf>,
+    files: Files,
     global: &CancellationToken,
     settings: &Settings,
     observer: &mut dyn Observer<R>,
@@ -409,7 +421,7 @@ struct Launch<'a, R> {
     id: &'static str,
     host: Arc<HostProfile>,
     tools: Arc<BTreeMap<String, PathBuf>>,
-    files: Arc<BTreeMap<String, PathBuf>>,
+    files: Arc<Files>,
     deadline: Instant,
     work_dir: PathBuf,
     /// The plugin's own token, a child of `global`.

@@ -35,7 +35,16 @@ impl Measurement for Output {
 
 fn context() -> (Context<Output>, Channels<Output>, CancellationToken) {
     let tools = BTreeMap::from([("probe".to_owned(), PathBuf::from("/run/tools/probe"))]);
-    let files = BTreeMap::from([("list".to_owned(), PathBuf::from("/run/files/probe/list"))]);
+    let files = BTreeMap::from([
+        (
+            "list".to_owned(),
+            Ok(PathBuf::from("/run/files/probe/list")),
+        ),
+        (
+            "cache".to_owned(),
+            Err("download failed: HTTP 404".to_owned()),
+        ),
+    ]);
     let host = HostProfile {
         arch: "riscv64".to_owned(),
         ..HostProfile::default()
@@ -97,7 +106,7 @@ fn a_plugin_keeps_running_when_nobody_listens() {
 }
 
 #[test]
-fn the_context_hands_out_host_tools_files_directory_deadline_and_token() {
+fn the_context_hands_out_host_tools_files_why_files_are_missing_directory_deadline_and_token() {
     let (ctx, _channels, cancel) = context();
     assert_eq!(ctx.host().arch, "riscv64");
     assert_eq!(
@@ -110,6 +119,14 @@ fn the_context_hands_out_host_tools_files_directory_deadline_and_token() {
         Some(PathBuf::from("/run/files/probe/list").as_path())
     );
     assert_eq!(ctx.file("probe"), None, "a tool is no file");
+    assert_eq!(ctx.missing("list"), None, "a file that came");
+    assert_eq!(
+        ctx.file("cache"),
+        None,
+        "an optional file that did not come"
+    );
+    assert_eq!(ctx.missing("cache"), Some("download failed: HTTP 404"));
+    assert_eq!(ctx.missing("undeclared"), None);
     assert_eq!(ctx.work_dir(), PathBuf::from("/run/work").as_path());
     assert!(ctx.deadline() > Instant::now());
     assert!(!ctx.cancel_token().is_cancelled());

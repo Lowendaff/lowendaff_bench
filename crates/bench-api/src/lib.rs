@@ -80,6 +80,15 @@ pub enum Net {
     Ipv6,
 }
 
+/// An IP version, which a file may have to be fetched over.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum IpFamily {
+    /// IPv4.
+    Ipv4,
+    /// IPv6.
+    Ipv6,
+}
+
 /// A pinned external tool. Plugins that share a tool must declare identical specs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ToolSpec {
@@ -129,13 +138,33 @@ pub struct ToolAsset {
 
 /// A file that a plugin needs besides its tools, such as a list of the servers that it measures
 /// against, which changes more often than the program does. The orchestrator gets it before the
-/// first test, and a plugin whose file it could not get does not run.
+/// first test, and a plugin whose file it could not get does not run, unless the file is optional.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FileSpec {
     /// The name the plugin asks for it by, such as `servers`.
     pub name: &'static str,
     /// Where it comes from.
     pub source: FileSource,
+    /// The IP version to fetch it over, for an answer that depends on the host's address of that
+    /// version; `None` takes whichever the connection does. A file of a version that the host
+    /// cannot reach is not fetched.
+    pub family: Option<IpFamily>,
+    /// Whether the plugin runs without it; it then learns why the file is missing
+    /// ([`Context::missing`]).
+    pub optional: bool,
+}
+
+impl FileSpec {
+    /// A file that the plugin needs, fetched over either IP version.
+    #[must_use]
+    pub fn new(name: &'static str, source: FileSource) -> Self {
+        Self {
+            name,
+            source,
+            family: None,
+            optional: false,
+        }
+    }
 }
 
 /// Where a [`FileSpec`] comes from.
@@ -317,13 +346,17 @@ pub trait Plugin: DeserializeOwned + Default + Send + Sync + 'static {
 pub struct Context<O> {
     host: Arc<HostProfile>,
     tools: Arc<BTreeMap<String, PathBuf>>,
-    files: Arc<BTreeMap<String, PathBuf>>,
+    files: Arc<Files>,
     cancel: CancellationToken,
     deadline: Instant,
     work_dir: PathBuf,
     progress: UnboundedSender<Progress>,
     published: watch::Sender<Option<O>>,
 }
+
+/// The files that a plugin asked for, by name: the path of each that the orchestrator got, or why
+/// it could not get it, which only an optional file can be when the plugin runs.
+pub type Files = BTreeMap<String, Result<PathBuf, String>>;
 
 /// The orchestrator's end of a [`Context`].
 pub struct Channels<O> {
@@ -340,7 +373,7 @@ impl<O: Measurement> Context<O> {
     pub fn new(
         host: Arc<HostProfile>,
         tools: Arc<BTreeMap<String, PathBuf>>,
-        files: Arc<BTreeMap<String, PathBuf>>,
+        files: Arc<Files>,
         deadline: Instant,
         work_dir: PathBuf,
         cancel: CancellationToken,
@@ -378,11 +411,24 @@ impl<O: Measurement> Context<O> {
     }
 
     /// The path of a file that the plugin asked for, by its name; `None` for a file it did not
-    /// ask for, since the orchestrator runs a plugin only when it has every file the plugin asked
-    /// for.
+    /// ask for, and for an optional file that the orchestrator could not get ([`Self::missing`]
+    /// says why). The orchestrator runs a plugin only when it has every file that is not optional.
     #[must_use]
     pub fn file(&self, name: &str) -> Option<&Path> {
-        self.files.get(name).map(PathBuf::as_path)
+        match self.files.get(name) {
+            Some(Ok(path)) => Some(path),
+            _ => None,
+        }
+    }
+
+    /// Why the orchestrator could not get an optional file that the plugin asked for, by its name;
+    /// `None` when it got the file, or the plugin did not ask for it.
+    #[must_use]
+    pub fn missing(&self, name: &str) -> Option<&str> {
+        match self.files.get(name) {
+            Some(Err(why)) => Some(why),
+            _ => None,
+        }
     }
 
     /// A directory of the plugin's own, removed after the run.

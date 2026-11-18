@@ -4,6 +4,8 @@
 use std::fmt::Display;
 use std::path::Path;
 
+use bench_api::IpFamily;
+
 /// What a download gets, as the `-v` log names it.
 #[derive(Debug, Clone, Copy)]
 pub enum Download<'a> {
@@ -65,6 +67,8 @@ pub trait DownloadWords {
     fn file_too_large(&self, limit: u64) -> String;
     /// A file that a plugin asked for, at an address that is not HTTPS.
     fn not_https(&self, url: &str) -> String;
+    /// A file to fetch over an IP version that the host cannot reach, which is not fetched.
+    fn family_unreachable(&self, family: IpFamily) -> String;
     /// A whole file of another size than its pinned one.
     fn wrong_size(&self, size: u64, actual: u64) -> String;
     /// A byte range larger than its length.

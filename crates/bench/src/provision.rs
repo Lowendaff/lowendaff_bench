@@ -20,6 +20,7 @@ use std::time::Duration;
 use bench_api::CancellationToken;
 use bench_api::FileSource;
 use bench_api::FileSpec;
+use bench_api::IpFamily;
 use bench_api::Requirements;
 use bench_api::ToolAsset;
 use bench_api::ToolForm;
@@ -188,16 +189,19 @@ where
 
 /// Gets the files that a plugin asked for: a file on the host is handed on as it is, and one at
 /// an HTTPS address is downloaded into `dir`, whole, at most [`FILE_LIMIT`] bytes, and tried again
-/// after a failure that may pass, as a tool is. When `cancel` fires, the download under way stops
-/// at once and fails, and the files after it are not downloaded.
+/// after a failure that may pass, as a tool is, over the file's family alone when it names one.
+/// A file of a family that is not among `families`, those that the host reaches, is not fetched.
+/// When `cancel` fires, the download under way stops at once and fails, and the files after it
+/// are not downloaded.
 pub async fn fetch_files<F, Fut, R>(
     files: &[FileSpec],
     dir: &Path,
+    families: &[IpFamily],
     cancel: &CancellationToken,
     fetch: &F,
 ) -> Provisioned
 where
-    F: Fn(&'static str, Option<Range<u64>>) -> Fut,
+    F: Fn(Option<IpFamily>, &'static str, Option<Range<u64>>) -> Fut,
     Fut: Future<Output = Result<Part<R>, DownloadError>>,
     R: AsyncRead + Unpin,
 {
@@ -206,19 +210,23 @@ where
         if cancel.is_cancelled() {
             break;
         }
-        let had = match &file.source {
-            FileSource::Path(path) => Ok(path.clone()),
-            FileSource::Url(url) if !url.starts_with("https://") => {
+        let had = match (&file.source, file.family) {
+            (FileSource::Path(path), _) => Ok(path.clone()),
+            (FileSource::Url(_), Some(family)) if !families.contains(&family) => {
+                Err(locale::words().family_unreachable(family))
+            }
+            (FileSource::Url(url), _) if !url.starts_with("https://") => {
                 Err(locale::words().not_https(url))
             }
-            FileSource::Url(url) => {
+            (FileSource::Url(url), _) => {
                 tracing::debug!("{}", locale::words().download(url));
                 // The fetch takes an address that lasts as long as the program, as a tool's
                 // pinned one does; a file's comes from the configuration, so it is kept to the end.
                 let url: &'static str = Box::leak(url.clone().into_boxed_str());
                 let path = dir.join(file.name);
+                let over = |url, range| fetch(file.family, url, range);
                 let fetched = tokio::select! {
-                    fetched = fetch_file(fetch, file.name, url, &path, dir) => fetched,
+                    fetched = fetch_file(&over, file.name, url, &path, dir) => fetched,
                     () = cancel.cancelled() => Err(locale::words().download_interrupted()),
                 };
                 if fetched.is_err() {

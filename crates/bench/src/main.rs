@@ -7,7 +7,7 @@ use std::thread;
 use bench::app;
 use bench::app::Cli;
 use bench::app::ReportOptions;
-use bench::fetcher::Fetcher;
+use bench::fetcher::Fetchers;
 use bench::locale;
 use bench::network;
 use bench::progress;
@@ -65,7 +65,7 @@ fn main() -> ExitCode {
             .await
             .map_err(|err| locale::words().network_failed(&err))?;
         progress::network(&host.network);
-        let fetcher = Fetcher::try_new()?;
+        let fetchers = Fetchers::try_new()?;
         let report = ReportOptions {
             out: io::stdout(),
             width: width(),
@@ -76,7 +76,7 @@ fn main() -> ExitCode {
             host,
             &cli.work_dir,
             &cancel,
-            |url, range| fetcher.open(url, range),
+            |family, url, range| fetchers.open(family, url, range),
             usize::from(cli.download_connections),
             report,
         )
