@@ -227,7 +227,7 @@ commands. Run them locally before pushing.
 | Commit messages | `scripts/check-commits.sh origin/main HEAD`; CI adds the title, and the author's kind: a bot's pull request may change `servers/iperf3.json` only | any host |
 | Rule tests | `ast-grep test` (cases in `ast-grep/tests/`) | any host |
 | Rules | `ast-grep scan` (rules in `ast-grep/rules/`, config in `sgconfig.yml`), then `scripts/check-docs-cases.sh` and `scripts/check-docs.sh`: no tracked file holds CJK characters, except the catalog of another language in `crates/bench/src/locale/<language>/`, and no tracked file outside the fixture data points into the design documents | any host |
-| Server list | `scripts/iperf3-servers-cases.sh`, then `scripts/iperf3-servers.sh check`: the network test's server list and its candidates follow their rules, the list holds candidates only, and nothing builds from it; the cases include the fixtures that the program's reader reads too | any host with jq |
+| Server list | `scripts/iperf3-servers-cases.sh`, then `scripts/iperf3-servers.sh check`: the network test's server list and its candidates follow their rules, the list holds candidates only, and nothing builds from a list in `servers/`; the cases include the fixtures that the program's reader reads too | any host with jq |
 | Target list | `scripts/traceroute-targets-cases.sh`, then `scripts/traceroute-targets.sh check`: route tracing's target list follows its rules; the cases include the fixtures that the program's reader reads too | any host with jq |
 | Exchange list | `scripts/netflix-ix-cases.sh`, then `scripts/netflix-ix.sh check`: the list of Netflix's exchange ports follows its rules; the cases include the fixtures that the program's reader reads too, and the safety stops of `update` | any host with jq |
 | Static build | `cargo build --release --locked --target <arch>-unknown-linux-musl --bin lowendaff-bench` | Linux |
@@ -248,7 +248,7 @@ the rest of the job runs. A job skips its other steps, and still passes, in two 
   touches only Markdown, `LICENSE` or the server lists.
 
 No step of these jobs reads a list in `servers/`: the program downloads the lists at run time,
-and `scripts/iperf3-servers.sh check` refuses any other file that names the network test's list.
+and `scripts/iperf3-servers.sh check` refuses any other file that names a list in `servers/`.
 So a change of a list alone builds nothing, and users get it on their next run.
 
 Anything else, or any doubt, runs every step. A job that ran every step successfully uploads a

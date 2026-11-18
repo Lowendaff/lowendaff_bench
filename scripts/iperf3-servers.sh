@@ -7,7 +7,7 @@
 # Usage: scripts/iperf3-servers.sh check
 #            checks both files: each follows its rules, and every server of the list is one of
 #            the candidates of its location, which has no other server in the list; and that
-#            nothing builds from the list (check_names)
+#            nothing builds from a list in servers/ (check_names)
 #        scripts/iperf3-servers.sh check-list <file>
 #            checks a list in the program's format against the rules that the program checks
 #        scripts/iperf3-servers.sh update <export>
@@ -28,8 +28,8 @@ set -eu
 LIST=servers/iperf3.json
 CANDIDATES=servers/iperf3-candidates.json
 LIMIT=65536
-# The address that the program downloads the list from.
-URL=https://raw.githubusercontent.com/Lowendaff/lowendaff_bench/main/servers/iperf3.json
+# Where the program downloads each list of servers/ from: this, then the file's name.
+BASE=https://raw.githubusercontent.com/Lowendaff/lowendaff_bench/main/servers/
 
 fail() {
     echo "iperf3-servers: $*" >&2
@@ -118,32 +118,37 @@ SERVERS_OF_LOCATIONS='
             location, provider, host, ports, families, link,
             default: $location.default } ] ]'
 
-# check_names: nothing builds from the list, so that a change of the list alone needs no build,
-# and CI may skip the build for it: besides Markdown, only this script and its cases, ci-scope
-# and its cases, check-commits and its cases, which let a bot's pull request change the list
-# alone, and the workflows that test and update the list name it, and Rust code only by the
-# address above. It searches every file that git tracks or would track.
+# check_names: nothing builds from a list in servers/, so that a change of the lists alone needs
+# no build, and CI may skip the build for it, as scripts/ci-scope.sh does for every file there:
+# besides Markdown, only the lists' scripts and their cases, ci-scope and its cases,
+# check-commits and its cases, which let a bot's pull request change a generated list alone, and
+# the workflows that test and update the lists name a file of servers/, and Rust code only by the
+# address that the program downloads it from (BASE). It searches every file that git tracks or
+# would track.
 check_names() {
-    if found=$(git grep -n -I --untracked -F servers/iperf3 -- . ':(exclude)*.md' \
+    if found=$(git grep -n -I --untracked -E 'servers/[A-Za-z0-9._-]' -- . ':(exclude)*.md' \
         ':(exclude)scripts/iperf3-servers.sh' ':(exclude)scripts/iperf3-servers-cases.sh' \
+        ':(exclude)scripts/traceroute-targets.sh' ':(exclude)scripts/traceroute-targets-cases.sh' \
+        ':(exclude)scripts/netflix-ix.sh' ':(exclude)scripts/netflix-ix-cases.sh' \
         ':(exclude)scripts/ci-scope.sh' ':(exclude)scripts/ci-scope-cases.sh' \
         ':(exclude)scripts/check-commits.sh' ':(exclude)scripts/check-commits-cases.sh' \
         ':(exclude).github/workflows/ci.yml' ':(exclude).github/workflows/data.yml'); then
         :
     else
-        [ $? -eq 1 ] || fail "cannot search the repository for the files that name the list"
+        [ $? -eq 1 ] || fail "cannot search the repository for the files that name a list"
         found=
     fi
-    named=$(printf '%s\n' "$found" | awk -v url="$URL" '
+    named=$(printf '%s\n' "$found" | awk -v base="$BASE" '
         {
             file = $0; sub(/:.*/, "", file)
             text = $0; sub(/^[^:]*:[^:]*:/, "", text)
             if (file ~ /\.rs$/)
-                while ((at = index(text, url)) > 0)
-                    text = substr(text, 1, at - 1) substr(text, at + length(url))
-            if (index(text, "servers/iperf3") > 0) print file
+                while ((at = index(text, base)) > 0)
+                    text = substr(text, 1, at - 1) substr(text, at + length(base))
+            if (text ~ /servers\/[A-Za-z0-9._-]/) print file
         }' | sort -u | tr '\n' ' ')
-    [ -z "$named" ] || fail "nothing may build from the list, but these name it: ${named% }"
+    [ -z "$named" ] ||
+        fail "nothing may build from a list in servers/, but these name one: ${named% }"
 }
 
 check() {

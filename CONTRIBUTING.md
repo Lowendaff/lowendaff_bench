@@ -100,12 +100,12 @@ refuses a server that is no candidate. From then on, the `data` workflow keeps t
 itself: twice a day, it runs `update` with a fresh export and, when the list changes, opens a pull
 request as the GitHub App `lowendaff-bench-data`, which merges itself once the required checks pass;
 `scripts/check-commits.sh` lets a bot's pull request change the list and nothing else. Nothing
-builds from the list, so that a change of it alone needs no build: `check` refuses a file that names
-it, other than Markdown, the script and its cases, ci-scope and its cases, check-commits and its
-cases, and the workflows that test and update it, and Rust code that names it other than by the
-address that the program downloads it from. A rule of the list changes in the program's reader
-(`plugins/network/src/iperf3/servers.rs`) and in the script together, with a fixture in
-`plugins/network/tests/fixtures/server-lists/` that both read.
+builds from a list in `servers/`, so that a change of the lists alone needs no build: `check`
+refuses a file that names one, other than Markdown, the lists' scripts and their cases, ci-scope
+and its cases, check-commits and its cases, and the workflows that test and update the lists, and
+Rust code that names one other than by the address that the program downloads it from. A rule of the
+list changes in the program's reader (`plugins/network/src/iperf3/servers.rs`) and in the script
+together, with a fixture in `plugins/network/tests/fixtures/server-lists/` that both read.
 
 ## Code
 

@@ -207,8 +207,8 @@ cp list.json servers/iperf3.json
 verdict reject "a server that is no candidate" 'server los-angeles is no candidate' \
     sh "$script" check
 
-# Nothing builds from the list: besides Markdown, only the files that test and update it name
-# it, and Rust code only by the address that the program downloads it from.
+# Nothing builds from a list in servers/: besides Markdown, only the files that test and update
+# the lists name them, and Rust code only by the address that the program downloads them from.
 url=https://raw.githubusercontent.com/Lowendaff/lowendaff_bench/main/servers/iperf3.json
 cp before.json servers/iperf3.json
 mkdir -p src scripts .github/workflows
@@ -218,17 +218,35 @@ printf 'grep -x servers/iperf3.json\n' > scripts/check-commits.sh
 printf 'run: scripts/network-check.sh bench servers/iperf3.json\n' > .github/workflows/ci.yml
 printf 'pub const URL: &str =\n    "%s";\n' "$url" > src/lib.rs
 verdict accept "the list named where it may be" '' sh "$script" check
+# The route tracing item's lists are lists of servers/ too: their scripts and cases may name them,
+# Rust code only by their addresses, and a mention of the folder alone names no list.
+printf 'jq . servers/traceroute.json\n' > scripts/traceroute-targets.sh
+printf 'cp x servers/traceroute.json\n' > scripts/traceroute-targets-cases.sh
+printf 'jq . servers/netflix-ix.json\n' > scripts/netflix-ix.sh
+printf 'cp x servers/netflix-ix.json\n' > scripts/netflix-ix-cases.sh
+printf 'pub const PORTS: &str =\n    "%snetflix-ix.json";\n' "${url%iperf3.json}" > src/trace.rs
+printf '# The rules that the lists in servers/ share.\n' > scripts/list-rules.jq
+verdict accept "the route tracing lists named where they may be" '' sh "$script" check
+printf 'const PORTS: &str = include_str!("../servers/netflix-ix.json");\n' > src/exchanges.rs
+verdict reject "Rust code that builds the exchange ports in" \
+    'these name one: src/exchanges.rs' sh "$script" check
+rm src/exchanges.rs
+printf 'cp servers/traceroute.json out/\n' > scripts/targets.sh
+printf 'run: jq . servers/traceroute.json\n' > .github/workflows/release.yml
+verdict reject "a script and a workflow that build from the target list" \
+    'these name one: .github/workflows/release.yml scripts/targets.sh' sh "$script" check
+rm scripts/targets.sh .github/workflows/release.yml
 printf 'const LIST: &str = include_str!("../servers/iperf3.json");\n' > src/list.rs
-verdict reject "Rust code that builds the list in" 'these name it: src/list.rs' \
+verdict reject "Rust code that builds the list in" 'these name one: src/list.rs' \
     sh "$script" check
 rm src/list.rs
 printf '// %s, servers/iperf3-candidates.json\n' "$url" > src/both.rs
-verdict reject "Rust code that names the list beside its address" 'these name it: src/both.rs' \
+verdict reject "Rust code that names the list beside its address" 'these name one: src/both.rs' \
     sh "$script" check
 rm src/both.rs
 printf 'cp servers/iperf3.json build/\n' > build.sh
 printf 'tar -cf list.tar servers/iperf3.json\n' > scripts/release.sh
-verdict reject "scripts that build from the list" 'these name it: build.sh scripts/release.sh' \
+verdict reject "scripts that build from the list" 'these name one: build.sh scripts/release.sh' \
     sh "$script" check
 rm build.sh scripts/release.sh
 verdict reject "a check outside a repository" 'cannot search the repository' \
