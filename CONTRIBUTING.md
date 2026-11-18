@@ -36,9 +36,9 @@ plugins/
   cpu/         cpu.sysbench, cpu.geekbench
   memory/      memory.sysbench, memory.stream, memory.latency, memory.numa
   disk/        disk.health, disk.fio
-  network/     network.iperf3
-servers/       the network test's server list, which the program downloads at run time, and its
-               candidates
+  network/     network.iperf3, network.trace
+servers/       the lists that the network items download at run time: network speed's servers,
+               with their candidates, route tracing's targets and Netflix's exchange ports
 ```
 
 Each test item is a plugin, whose id is `<group>.<name>`, in the crate of its group,

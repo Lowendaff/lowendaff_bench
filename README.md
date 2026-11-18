@@ -11,8 +11,9 @@ A comprehensive test tool for Linux servers, virtual or dedicated, written in Ru
 The program prints in English. Every word it prints comes from one message catalog in
 `crates/bench/src/locale/`, so another language needs only a catalog of its own.
 
-**Status:** nine test items, each a plugin with a result of its own type: disk health, CPU
-performance, four items of memory performance, disk performance, network speed and Geekbench 7.
+**Status:** ten test items, each a plugin with a result of its own type: disk health, CPU
+performance, four items of memory performance, disk performance, network speed, route tracing and
+Geekbench 7.
 [`CONTRIBUTING.md`](CONTRIBUTING.md) holds the layout of the code, the steps to add a test item
 and the conventions for code, commits and pull requests.
 
@@ -35,6 +36,7 @@ the items by group, and where each applies.
 | Memory NUMA (`memory.numa`) | Machines with two usable NUMA nodes or more: the bandwidth (multiload's stream-triad) and the latency from each node's CPUs to each node's memory |
 | Disk performance (`disk.fio`) | Speed and IOPS of the test directory's filesystem, measured with fio exactly as YABS does: mixed random reads and writes (50/50) at 4K, 64K, 512K and 1M. Skipped on a RAM disk or without enough free space |
 | Network speed (`network.iperf3`) | iperf3's TCP throughput each way, and the latency, between the host and public iperf3 servers, as YABS measures them: over IPv4, then over IPv6 when the host has it, an upload and a download of 10 seconds over 8 streams to each server, by default those of Los Angeles, New York, Virginia, Tokyo and Frankfurt. About 5 GB of traffic per server at 1 Gbit/s ("Network speed" below); `--skip network` leaves it out |
+| Route tracing (`network.trace`) | NextTrace's classic ICMP trace from the host to the original project's 71 targets, carriers in mainland China and abroad, and to the nearest YouTube and Netflix cache servers, over IPv4, then over IPv6 when the host has it: every hop, each address with its network, place and latency, and whether the target was reached. Adds 6 to 18 minutes to a run |
 | Geekbench 7 (`cpu.geekbench`) | Geekbench 7's single- and multi-core scores and the public result link. The free version uploads every result to the Geekbench Browser; `--skip cpu.geekbench` leaves it out. Needs IPv4 and glibc 2.35 or later, and adds temporary swap when memory is short |
 
 The four memory items make up the report's memory section. Each reads the available memory when
@@ -135,6 +137,66 @@ the servers are third parties.
   rate = 100                 # Mbit/s that a stream sends at most; no limit when left out
   ```
 
+## Route tracing
+
+Route tracing (`network.trace`) runs NextTrace's classic traceroute, as the original project
+traced: ICMP, 3 probes a hop, 30 hops at most and a second for each probe, one target after
+another, each stopped after 60 seconds (`nexttrace --traceroute -j -M -C -g en -q 3 -m 30
+--timeout 1000 -4|-6 <target>`). Over IPv4, then over IPv6 when the host reaches the Internet over
+it, it traces the nearest YouTube and Netflix cache servers, then the list's targets, in China and
+abroad; over IPv6, those that have an IPv6 name. The report shows every hop of every trace: each
+address that answered, with its network (AS number, and ISP or owner), place and smallest
+latency, a `*` for a hop that answered no probe, and whether the target was reached. The host's
+own public addresses are masked unless `--show-ip` is given; the routers' are shown as they are.
+
+- **Privileges.** NextTrace sends and receives raw ICMP packets. The program gives its copy of
+  NextTrace the file capability `cap_net_raw+ep` and runs it as the unprivileged user 65534
+  (`nobody`) from `/`, so that it may send raw packets and nothing else of root's. Where the
+  system would not give the capability, the item is skipped with the reason: under
+  `no_new_privs`, without CAP_NET_RAW in the bounding set (as in a container that drops it), or
+  with the work directory on a filesystem mounted `nosuid` (choose another with `--work-dir`).
+- **What third parties see.** NextTrace looks up each hop's network and place with its own
+  service, `api.nxtrace.org`, which sees every hop's address and the host's own; its upload of a
+  trace map is always off (`-M`). The service names many networks in Chinese, and the report
+  shows them as it names them. To find the cache servers, the program asks Google and fast.com
+  over each family, which see the host's address as any connection to them would; the item
+  neither shows nor keeps the address that their answers name.
+- **Time.** A trace takes about 5 to 15 seconds: the 73 traces over IPv4 add 6 to 18 minutes to
+  a run, and a host with IPv6 adds up to 50 more. The item stops after an hour and keeps the
+  traces done. `--skip network.trace` leaves it out.
+- **The targets.** They are listed in `servers/traceroute.json` in this repository, which the
+  program downloads at each run from
+  `https://raw.githubusercontent.com/Lowendaff/lowendaff_bench/main/servers/traceroute.json`: the
+  original project's 71 targets, the Chinese carriers' networks (163, CN2, 169, 9929, CMNET and
+  CMIN2) in Beijing, Shanghai and Guangzhou, and abroad Telegram's data centres, AWS, GCP and ten
+  carriers of the Internet's backbone. The list changes by pull request only;
+  `scripts/traceroute-targets.sh` checks the rules that the program checks.
+- **The cache servers.** YouTube's from the line of Google's
+  `https://redirector.googlevideo.com/report_mapping?di=no`, whose server id the item writes as
+  the host name `r1---sn-<code>.googlevideo.com`; Netflix's from fast.com's API, with the token
+  of fast.com's own page: the first server that it names. A lookup that fails marks only that
+  cache server unavailable, with the reason, and the item goes on.
+- **Netflix's exchange ports.** A hop at an address that Netflix's network takes at an internet
+  exchange is named with the exchange, from `servers/netflix-ix.json`, which
+  `scripts/netflix-ix.sh update` writes from PeeringDB's list of Netflix's ports
+  (`https://www.peeringdb.com/api/netixlan?net_id=457`); a run without the list shows no
+  exchange names.
+- **Settings.** The table `[plugins."network.trace"]` of the config file may set:
+
+  ```toml
+  [plugins."network.trace"]
+  groups = ["china"]              # services, china, international or all; by default both
+                                  # cache servers and the list's defaults
+  targets = ["pek-4809", "youtube"]  # by the list's ids, youtube and netflix among them;
+                                     # wins over the groups
+  list = "my-targets.json"        # another target list: a path, or an https address
+  exchanges = "my-ports.json"     # another list of exchange ports
+  youtube_api = "mapping.txt"     # another answer in place of Google's report_mapping
+  netflix_api = "https://api.example/netflix"  # in place of fast.com's API, should its token
+                                               # stop working
+  geo = false                     # no lookups of the hops' networks and places
+  ```
+
 ## Build
 
 The toolchain is pinned in [`rust-toolchain.toml`](rust-toolchain.toml). Release binaries are
@@ -166,9 +228,11 @@ commands. Run them locally before pushing.
 | Rule tests | `ast-grep test` (cases in `ast-grep/tests/`) | any host |
 | Rules | `ast-grep scan` (rules in `ast-grep/rules/`, config in `sgconfig.yml`), then `scripts/check-docs-cases.sh` and `scripts/check-docs.sh`: no tracked file holds CJK characters, except the catalog of another language in `crates/bench/src/locale/<language>/`, and no tracked file outside the fixture data points into the design documents | any host |
 | Server list | `scripts/iperf3-servers-cases.sh`, then `scripts/iperf3-servers.sh check`: the network test's server list and its candidates follow their rules, the list holds candidates only, and nothing builds from it; the cases include the fixtures that the program's reader reads too | any host with jq |
+| Target list | `scripts/traceroute-targets-cases.sh`, then `scripts/traceroute-targets.sh check`: route tracing's target list follows its rules; the cases include the fixtures that the program's reader reads too | any host with jq |
+| Exchange list | `scripts/netflix-ix-cases.sh`, then `scripts/netflix-ix.sh check`: the list of Netflix's exchange ports follows its rules; the cases include the fixtures that the program's reader reads too, and the safety stops of `update` | any host with jq |
 | Static build | `cargo build --release --locked --target <arch>-unknown-linux-musl --bin lowendaff-bench` | Linux |
 | Swap round trip | `cargo build --release --locked --target <arch>-unknown-linux-musl -p swap-file --example roundtrip`, then `sudo target/<arch>-unknown-linux-musl/release/examples/roundtrip <dir>`: turns a 64 MiB swap file in `<dir>` on and off | Linux, with sudo, on a filesystem that holds swap files, such as ext4 |
-| Smoke | `scripts/smoke-iperf3.sh <dir>`, which starts an iperf3 server of the pinned build on 127.0.0.1 and writes a server list naming it and a config file, then `scripts/smoke.sh target/<arch>-unknown-linux-musl/release/lowendaff-bench --skip cpu.geekbench --config <dir>/config.toml`: a full run without Geekbench 7, which would publish a result, in which no test item is skipped, fails or times out, with the network test against that server only, the report on stdout and the progress log on stderr, then a short run that must find the public IPv4 address without the proxy that the environment names | Linux, as root or with sudo, with network access (it downloads sysbench, STREAM, multichase, fio and iperf3) |
+| Smoke | `scripts/smoke-iperf3.sh <dir>`, which starts an iperf3 server of the pinned build on 127.0.0.1 and writes a server list naming it and a config file, and `scripts/smoke-trace.sh <dir2> <dir>/config.toml`, which points route tracing at 127.0.0.1 with lists and answers of its own and without NextTrace's lookups, then `scripts/smoke.sh target/<arch>-unknown-linux-musl/release/lowendaff-bench --skip cpu.geekbench --config <dir>/config.toml`: a full run without Geekbench 7, which would publish a result, in which no test item is skipped, fails or times out, with the network test against that server only, the report on stdout and the progress log on stderr, then a short run that must find the public IPv4 address without the proxy that the environment names | Linux, as root or with sudo, with network access (it downloads sysbench, STREAM, multichase, fio, iperf3 and NextTrace) |
 | Smoke mutants | `scripts/smoke-mutants.sh <arch>-unknown-linux-musl`: smoke must reject deliberately broken builds; these runs skip the groups cpu, memory, disk and network (`--skip cpu,memory,disk,network`) | Linux, as root or with sudo |
 | Distributions | `scripts/distros.sh target/<arch>-unknown-linux-musl/release/lowendaff-bench ghcr.io/lowendaff/mirror`: the system information of a run with every test item skipped, in the images of `scripts/distros.txt`, 12 distributions (13 on x86_64), pulled from their copies on GHCR, with the uptime and load marked as the host's, and Geekbench 7 there without a network, which must skip for the image's glibc; without the last argument, from the original registries | Linux or macOS with Docker; the copies need `docker login ghcr.io` |
 | Network speed, not required | `scripts/network-check.sh <build> servers/iperf3.json`: the network test against one or two servers of the list, chosen at random, 3 seconds over 2 streams of at most 100 Mbit/s each (300 MB at most); it fails only when the program misbehaves, and a server that is busy or cannot be reached shows in the job's summary. CI runs it in the job `network speed against public servers` with the x86_64 build of the test job, which no merge waits for | Linux, as root or with sudo, with network access |
@@ -183,9 +247,9 @@ the rest of the job runs. A job skips its other steps, and still passes, in two 
 - the whole change (a pull request against its base, or a push against the commit before it)
   touches only Markdown, `LICENSE` or the server lists.
 
-No step of these jobs reads a server list: the program downloads it at run time, and
-`scripts/iperf3-servers.sh check` refuses any other file that names it. So a change of the list
-alone builds nothing, and users get it on their next run.
+No step of these jobs reads a list in `servers/`: the program downloads the lists at run time,
+and `scripts/iperf3-servers.sh check` refuses any other file that names the network test's list.
+So a change of a list alone builds nothing, and users get it on their next run.
 
 Anything else, or any doubt, runs every step. A job that ran every step successfully uploads a
 validation record (`validation-pr<N>-<arch>` or `validation-main-<arch>`, kept 90 days), and the
@@ -239,6 +303,7 @@ repository builds the tools and publishes them as immutable GitHub releases, exc
 | smartctl, from smartmontools | 7.5 | GPL-2.0-or-later | Disk health (`disk.health`) | `smartctl-7.5-1` |
 | sysbench, with its bundled LuaJIT and Concurrency Kit | 1.0.20 | GPL-2.0-or-later; LuaJIT MIT; Concurrency Kit BSD-2-Clause | CPU performance (`cpu.sysbench`), memory sysbench (`memory.sysbench`) | `sysbench-1.0.20-1` |
 | STREAM, built for six array sizes | 5.10 | STREAM's own: free to use and change, but published results must follow its run rules or say that they do not | Memory STREAM (`memory.stream`) | `stream-5.10-1` |
+| NextTrace, its tiny flavor, with Go's fallback roots | 1.7.6 | GPL-3.0; Go's standard library BSD-3-Clause | Route tracing (`network.trace`) | `nexttrace-1.7.6-1` |
 | multichase and multiload, with glibc 2.41 linked statically | commit `8b68e918` of 2026-10-01 | Apache-2.0; glibc LGPL-2.1 | Memory latency (`memory.latency`), memory NUMA (`memory.numa`) | `multichase-2026.10.01-1` |
 
 Each release holds the binaries for x86_64 and aarch64, the exact sources they were built from,
