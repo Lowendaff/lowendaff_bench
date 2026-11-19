@@ -45,7 +45,7 @@ then
     fail "the lines above hold CJK characters; only a catalog of another language may"
 fi
 
-references='(*UTF)docs/design|\x{a7}|\b(D|P|S|DK|DH|CP|ME|R|H|NW|RT)-[0-9]{2}\b|\(design\b'
+references='(*UTF)docs/design|\x{a7}|\b(D|P|S|DK|DH|CP|ME|R|H|NW|RT|NC)-[0-9]{2}\b|\(design\b'
 if grep_found -n -I -P "$references" -- . ':(exclude,glob)**/tests/fixtures/**' \
     ':(exclude)scripts/check-docs.sh' ':(exclude)scripts/check-docs-cases.sh' >&2 \
     || grep_found -n -I -P "$references" -- ':(glob)**/tests/fixtures/**/README.md' \
