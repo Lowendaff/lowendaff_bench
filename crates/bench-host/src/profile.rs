@@ -13,6 +13,8 @@ use std::time::Duration;
 use std::time::Instant;
 
 use crate::Root;
+use crate::cards;
+use crate::cards::NetworkCard;
 use crate::cpu;
 use crate::cpu::Cpu;
 use crate::glibc;
@@ -60,6 +62,8 @@ pub struct HostProfile {
     pub system: Read<SystemFacts>,
     /// A dedicated server's hardware; `None` on other platforms.
     pub hardware: Option<Read<Hardware>>,
+    /// The network cards: the interfaces with a device behind them; none inside a container.
+    pub cards: Read<Vec<NetworkCard>>,
     /// Reachability and the public addresses, filled in by the program's network module.
     pub network: Network,
 }
@@ -176,6 +180,7 @@ enum Section {
     Storage,
     System,
     Hardware,
+    Cards,
 }
 
 /// One section, as its thread sends it.
@@ -186,6 +191,7 @@ enum Part {
     Storage(StorageFacts),
     System(SystemFacts),
     Hardware(Box<Hardware>),
+    Cards(Vec<NetworkCard>),
 }
 
 impl HostProfile {
@@ -271,6 +277,15 @@ impl HostProfile {
                 }),
             ));
         }
+        {
+            let root = root.clone();
+            threads.push((
+                Section::Cards,
+                spawn(&sender, "host-cards", move || {
+                    Part::Cards(cards::read(&root))
+                }),
+            ));
+        }
         if kind == PlatformKind::Dedicated {
             let arch = arch.clone();
             threads.push((
@@ -292,6 +307,7 @@ impl HostProfile {
             storage: Read::Failed,
             system: Read::Failed,
             hardware: (kind == PlatformKind::Dedicated).then_some(Read::Failed),
+            cards: Read::Failed,
             network: Network::default(),
         };
         let mut timed_out = false;
@@ -331,6 +347,7 @@ impl HostProfile {
             Part::Storage(storage) => self.storage = Read::Done(storage),
             Part::System(system) => self.system = Read::Done(system),
             Part::Hardware(hardware) => self.hardware = Some(Read::Done(*hardware)),
+            Part::Cards(cards) => self.cards = Read::Done(cards),
         }
     }
 
@@ -352,6 +369,7 @@ impl HostProfile {
                     out(hardware);
                 }
             }
+            Section::Cards => out(&mut self.cards),
         }
     }
 }

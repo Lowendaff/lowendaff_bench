@@ -121,6 +121,9 @@ HostProfile {
         },
     ),
     hardware: None,
+    cards: Done(
+        [],
+    ),
     network: Network {
         ipv4: Family {
             targets: [],

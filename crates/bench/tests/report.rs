@@ -15,6 +15,10 @@ use bench::results::Measured;
 use bench::results::Report;
 use bench_api::Net;
 use bench_api::Stop;
+use bench_host::cards::Bus;
+use bench_host::cards::Link;
+use bench_host::cards::NetworkCard;
+use bench_host::cards::Routes;
 use bench_host::cpu::Cpu;
 use bench_host::cpu::Model;
 use bench_host::cpu::Virtualization;
@@ -126,6 +130,27 @@ fn host() -> HostProfile {
         }),
         system: Read::Done(system),
         hardware: None,
+        cards: Read::Done(vec![NetworkCard {
+            interface: "eth0".to_owned(),
+            bus: Bus::Pci {
+                vendor: 0x1af4,
+                device: 0x1000,
+            },
+            model: Some("Red Hat Virtio network device".to_owned()),
+            driver: Some("virtio_net".to_owned()),
+            link: Link::Up {
+                speed: None,
+                duplex: None,
+            },
+            mtu: Some(1500),
+            pcie: None,
+            virtual_functions: 0,
+            master: None,
+            default_route: Routes {
+                ipv4: true,
+                ipv6: false,
+            },
+        }]),
         network: Network {
             ipv4: Family {
                 targets: vec![(target("1.1.1.1:443"), Reach::Connected)],

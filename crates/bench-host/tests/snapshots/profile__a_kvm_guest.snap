@@ -179,6 +179,37 @@ HostProfile {
         },
     ),
     hardware: None,
+    cards: Done(
+        [
+            NetworkCard {
+                interface: "eth0",
+                bus: Pci {
+                    vendor: 6900,
+                    device: 4096,
+                },
+                model: Some(
+                    "Red Hat Virtio network device",
+                ),
+                driver: Some(
+                    "virtio_net",
+                ),
+                link: Up {
+                    speed: None,
+                    duplex: None,
+                },
+                mtu: Some(
+                    1500,
+                ),
+                pcie: None,
+                virtual_functions: 0,
+                master: None,
+                default_route: Routes {
+                    ipv4: true,
+                    ipv6: false,
+                },
+            },
+        ],
+    ),
     network: Network {
         ipv4: Family {
             targets: [],

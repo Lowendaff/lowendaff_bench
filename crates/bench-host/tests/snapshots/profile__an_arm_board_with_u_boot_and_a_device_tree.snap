@@ -264,6 +264,40 @@ HostProfile {
             },
         ),
     ),
+    cards: Done(
+        [
+            NetworkCard {
+                interface: "end0",
+                bus: Platform(
+                    Some(
+                        "rockchip,rk3568-gmac",
+                    ),
+                ),
+                model: None,
+                driver: Some(
+                    "rk_gmac-dwmac",
+                ),
+                link: Up {
+                    speed: Some(
+                        1000,
+                    ),
+                    duplex: Some(
+                        Full,
+                    ),
+                },
+                mtu: Some(
+                    1500,
+                ),
+                pcie: None,
+                virtual_functions: 0,
+                master: None,
+                default_route: Routes {
+                    ipv4: true,
+                    ipv6: false,
+                },
+            },
+        ],
+    ),
     network: Network {
         ipv4: Family {
             targets: [],

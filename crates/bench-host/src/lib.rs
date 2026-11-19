@@ -13,6 +13,7 @@ use std::path::PathBuf;
 
 pub mod bmc;
 pub mod cache;
+pub mod cards;
 pub mod cpu;
 pub mod edac;
 pub mod glibc;

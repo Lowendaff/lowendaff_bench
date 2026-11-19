@@ -945,6 +945,162 @@ HostProfile {
             },
         ),
     ),
+    cards: Done(
+        [
+            NetworkCard {
+                interface: "ens33f0",
+                bus: Pci {
+                    vendor: 32902,
+                    device: 5416,
+                },
+                model: Some(
+                    "Intel Ethernet Controller 10-Gigabit X540-AT2",
+                ),
+                driver: Some(
+                    "ixgbe",
+                ),
+                link: Down,
+                mtu: Some(
+                    1500,
+                ),
+                pcie: Some(
+                    Pcie {
+                        current: PcieLink {
+                            generation: 2,
+                            lanes: 8,
+                        },
+                        best: PcieLink {
+                            generation: 2,
+                            lanes: 8,
+                        },
+                    },
+                ),
+                virtual_functions: 0,
+                master: None,
+                default_route: Routes {
+                    ipv4: false,
+                    ipv6: false,
+                },
+            },
+            NetworkCard {
+                interface: "ens33f1",
+                bus: Pci {
+                    vendor: 32902,
+                    device: 5416,
+                },
+                model: Some(
+                    "Intel Ethernet Controller 10-Gigabit X540-AT2",
+                ),
+                driver: Some(
+                    "ixgbe",
+                ),
+                link: Up {
+                    speed: Some(
+                        1000,
+                    ),
+                    duplex: Some(
+                        Full,
+                    ),
+                },
+                mtu: Some(
+                    1500,
+                ),
+                pcie: Some(
+                    Pcie {
+                        current: PcieLink {
+                            generation: 2,
+                            lanes: 8,
+                        },
+                        best: PcieLink {
+                            generation: 2,
+                            lanes: 8,
+                        },
+                    },
+                ),
+                virtual_functions: 0,
+                master: Some(
+                    Master {
+                        name: "vmbr0",
+                        kind: Bridge,
+                    },
+                ),
+                default_route: Routes {
+                    ipv4: true,
+                    ipv6: false,
+                },
+            },
+            NetworkCard {
+                interface: "ens51f0np0",
+                bus: Pci {
+                    vendor: 5555,
+                    device: 4117,
+                },
+                model: Some(
+                    "Mellanox MT27710 Family [ConnectX-4 Lx]",
+                ),
+                driver: Some(
+                    "mlx5_core",
+                ),
+                link: Down,
+                mtu: Some(
+                    1500,
+                ),
+                pcie: Some(
+                    Pcie {
+                        current: PcieLink {
+                            generation: 3,
+                            lanes: 8,
+                        },
+                        best: PcieLink {
+                            generation: 3,
+                            lanes: 8,
+                        },
+                    },
+                ),
+                virtual_functions: 0,
+                master: None,
+                default_route: Routes {
+                    ipv4: false,
+                    ipv6: false,
+                },
+            },
+            NetworkCard {
+                interface: "ens51f1np1",
+                bus: Pci {
+                    vendor: 5555,
+                    device: 4117,
+                },
+                model: Some(
+                    "Mellanox MT27710 Family [ConnectX-4 Lx]",
+                ),
+                driver: Some(
+                    "mlx5_core",
+                ),
+                link: Down,
+                mtu: Some(
+                    1500,
+                ),
+                pcie: Some(
+                    Pcie {
+                        current: PcieLink {
+                            generation: 3,
+                            lanes: 8,
+                        },
+                        best: PcieLink {
+                            generation: 3,
+                            lanes: 8,
+                        },
+                    },
+                ),
+                virtual_functions: 0,
+                master: None,
+                default_route: Routes {
+                    ipv4: false,
+                    ipv6: false,
+                },
+            },
+        ],
+    ),
     network: Network {
         ipv4: Family {
             targets: [],

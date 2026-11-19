@@ -261,6 +261,50 @@ fn a_numa_layout_that_does_not_answer_in_time_is_left_behind() {
 }
 
 #[test]
+fn network_cards_that_do_not_answer_in_time_are_left_behind() {
+    let dir = common::host((
+        &[(
+            "/sys/devices/pci0000:00/0000:01:00.0/net/eth0/carrier",
+            "1\n",
+        )],
+        &[],
+    ));
+    common::link(
+        &dir,
+        "/sys/class/net/eth0",
+        "../../devices/pci0000:00/0000:01:00.0/net/eth0",
+    );
+    common::link(
+        &dir,
+        "/sys/devices/pci0000:00/0000:01:00.0/net/eth0/device",
+        "../../../0000:01:00.0",
+    );
+    // Reading a link's speed asks its driver, which may wait on the card's firmware; opening a
+    // FIFO without a writer blocks as such a read can.
+    let made = std::process::Command::new("mkfifo")
+        .arg(
+            dir.path()
+                .join("sys/devices/pci0000:00/0000:01:00.0/net/eth0/speed"),
+        )
+        .status()
+        .expect("mkfifo runs");
+    assert!(made.success());
+    let sources = Sources {
+        root: Root::new(dir.path()),
+        arch: "x86_64".to_owned(),
+        platform: Platform::Vm(Hypervisor::Kvm),
+        libc: Libc::GlibcUnknown,
+        work_dir: None,
+        space: |_: &str| -> Option<Space> { None },
+        kernel: || None,
+    };
+    let profile = HostProfile::read(sources, Duration::from_millis(500));
+    assert_eq!(profile.cards, Read::TimedOut);
+    assert!(matches!(profile.cpu, Read::Done(_)), "{:?}", profile.cpu);
+    assert!(matches!(profile.storage, Read::Done(_)));
+}
+
+#[test]
 fn a_section_whose_thread_ends_without_an_answer_failed() {
     let sources = Sources {
         root: Root::new(fixture("kvm-debian13-x86_64").join("root")),
