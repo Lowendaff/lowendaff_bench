@@ -4,6 +4,10 @@ use std::net::IpAddr;
 use std::time::Duration;
 
 use bench_host::bmc::Bmc;
+use bench_host::cards::Bus;
+use bench_host::cards::Link;
+use bench_host::cards::NetworkCard;
+use bench_host::cards::Pcie;
 use bench_host::cpu::Model;
 use bench_host::cpu::Virtualization;
 use bench_host::network::Reach;
@@ -67,6 +71,8 @@ pub enum HostLabel {
     Disks,
     /// The filesystems.
     Filesystems,
+    /// The network cards.
+    Cards,
     /// The distribution.
     Os,
     /// The kernel.
@@ -112,6 +118,12 @@ pub enum HostHeader {
     Speed,
     /// A memory module's vendor.
     Vendor,
+    /// A network card's driver.
+    Driver,
+    /// A network card's link.
+    Link,
+    /// A network card's MTU.
+    Mtu,
 }
 
 /// The logical CPUs, as each kind of platform tells them.
@@ -211,6 +223,16 @@ pub trait HostWords {
     fn medium(&self, rotational: Option<bool>) -> &'static str;
     /// What a disk is used for.
     fn uses(&self, uses: &[Use]) -> String;
+    /// A network card's link as negotiated: its speed and duplex, down, or not reported.
+    fn card_link(&self, link: Link) -> String;
+    /// What a network card serves: its bridge or bond, the default routes, its virtual functions.
+    fn card_uses(&self, card: &NetworkCard) -> String;
+    /// A network card that udev's hardware database names no model of, by its bus.
+    fn unnamed_card(&self, bus: &Bus) -> String;
+    /// No network card, as inside a container, where every interface has no device.
+    fn no_cards(&self, container: bool) -> &'static str;
+    /// The note on a network card whose PCIe link runs slower or narrower than the card can.
+    fn slow_pcie(&self, interface: &str, pcie: Pcie) -> String;
     /// The mark of the filesystem that holds the test directory.
     fn test_directory(&self) -> &'static str;
     /// The mark of a value that is the host's, seen from a container.

@@ -14,6 +14,15 @@ use bench_host::Root;
 use bench_host::bmc::Bmc;
 use bench_host::bmc::Interface;
 use bench_host::bmc::InterfaceKind;
+use bench_host::cards::Bus;
+use bench_host::cards::Duplex;
+use bench_host::cards::Link;
+use bench_host::cards::Master;
+use bench_host::cards::MasterKind;
+use bench_host::cards::NetworkCard;
+use bench_host::cards::Pcie;
+use bench_host::cards::PcieLink;
+use bench_host::cards::Routes;
 use bench_host::cpu::Cpu;
 use bench_host::cpu::Model;
 use bench_host::edac::Edac;
@@ -570,6 +579,178 @@ fn the_uptime_counts_days_hours_and_minutes_in_the_singular_for_one() {
         (2 * 86_400, "2 days, 0 hours, 0 minutes"),
     ] {
         assert_eq!(uptime(seconds), [shown], "{seconds} s");
+    }
+}
+
+/// A network card on the PCI bus, down and in no bridge, whose fields the tests change.
+fn network_card(interface: &str) -> NetworkCard {
+    NetworkCard {
+        interface: interface.to_owned(),
+        bus: Bus::Pci {
+            vendor: 0x8086,
+            device: 0x1521,
+        },
+        model: Some("Intel I350 Gigabit Network Connection".to_owned()),
+        driver: Some("igb".to_owned()),
+        link: Link::Down,
+        mtu: Some(1500),
+        pcie: None,
+        virtual_functions: 0,
+        master: None,
+        default_route: Routes::default(),
+    }
+}
+
+/// The report of a host on this platform with these network cards, and nothing else known.
+fn with_cards(platform: Platform, cards: Read<Vec<NetworkCard>>) -> String {
+    render(
+        &HostProfile {
+            platform,
+            cards,
+            ..HostProfile::default()
+        },
+        false,
+    )
+}
+
+#[test]
+fn network_cards_show_their_names_links_and_uses() {
+    let up = |speed, duplex| Link::Up { speed, duplex };
+    let master = |name: &str, kind| {
+        Some(Master {
+            name: name.to_owned(),
+            kind,
+        })
+    };
+    let cards = vec![
+        NetworkCard {
+            // An Aquantia AQC107; ids keep their leading zeros.
+            bus: Bus::Pci {
+                vendor: 0x1d6a,
+                device: 0x07b1,
+            },
+            model: None,
+            driver: None,
+            mtu: None,
+            ..network_card("enp1s0")
+        },
+        NetworkCard {
+            bus: Bus::Usb,
+            model: None,
+            link: up(Some(100), Some(Duplex::Half)),
+            default_route: Routes {
+                ipv4: false,
+                ipv6: true,
+            },
+            ..network_card("enx1")
+        },
+        NetworkCard {
+            bus: Bus::Platform(None),
+            model: None,
+            link: up(Some(2500), Some(Duplex::Full)),
+            master: master("bond0", MasterKind::Bond),
+            default_route: Routes {
+                ipv4: true,
+                ipv6: true,
+            },
+            ..network_card("eth0")
+        },
+        // Hyper-V's cards are on its own bus, which udev's database has no names for.
+        NetworkCard {
+            bus: Bus::Other("vmbus".to_owned()),
+            model: None,
+            link: up(Some(25_000), None),
+            master: master("team0", MasterKind::Other),
+            virtual_functions: 1,
+            ..network_card("eth1")
+        },
+        NetworkCard {
+            bus: Bus::Other(String::new()),
+            model: None,
+            link: up(None, None),
+            master: master("vmbr0", MasterKind::Bridge),
+            default_route: Routes {
+                ipv4: true,
+                ipv6: false,
+            },
+            virtual_functions: 8,
+            ..network_card("eth2")
+        },
+        NetworkCard {
+            link: up(Some(1000), Some(Duplex::Full)),
+            ..network_card("eth3")
+        },
+    ];
+    let text = with_cards(Platform::Dedicated, Read::Done(cards));
+    assert_eq!(
+        table(&text, "Network cards"),
+        [
+            "Interface | Model | Driver | Link | MTU | Use",
+            "enp1s0 | PCI 1d6a:07b1 | — | down | — | —",
+            "enx1 | USB adapter | igb | 100 Mbit/s, half duplex | 1500 | default route (IPv6)",
+            concat!(
+                "eth0 | built into the board | igb | 2.5 Gbit/s, full duplex | 1500 | ",
+                "bond bond0, default route (IPv4, IPv6)"
+            ),
+            "eth1 | vmbus | igb | 25 Gbit/s | 1500 | in team0, 1 virtual function",
+            concat!(
+                "eth2 | — | igb | not reported | 1500 | ",
+                "bridge vmbr0, default route (IPv4), 8 virtual functions"
+            ),
+            concat!(
+                "eth3 | Intel I350 Gigabit Network Connection | igb | 1 Gbit/s, full duplex | ",
+                "1500 | —"
+            ),
+        ]
+    );
+    assert_eq!(field(&text, "Note"), [] as [&str; 0], "{text}");
+}
+
+#[test]
+fn a_card_whose_pcie_link_runs_below_its_best_has_a_note() {
+    let link = |generation, lanes| PcieLink { generation, lanes };
+    let pcie = |current, best| Some(Pcie { current, best });
+    let cards = vec![
+        NetworkCard {
+            pcie: pcie(link(3, 4), link(3, 8)),
+            ..network_card("ens1f0")
+        },
+        NetworkCard {
+            pcie: pcie(link(2, 8), link(3, 8)),
+            ..network_card("ens2f0")
+        },
+        NetworkCard {
+            pcie: pcie(link(3, 8), link(3, 8)),
+            ..network_card("ens3f0")
+        },
+        network_card("ens4f0"),
+    ];
+    let text = with_cards(Platform::Dedicated, Read::Done(cards));
+    assert_eq!(
+        field(&text, "Note"),
+        [
+            "ens1f0's card is linked at PCIe 3.0 x4, below the PCIe 3.0 x8 it supports",
+            "ens2f0's card is linked at PCIe 2.0 x8, below the PCIe 3.0 x8 it supports",
+        ]
+    );
+    assert_eq!(table(&text, "Network cards").len(), 5, "{text}");
+}
+
+#[test]
+fn without_cards_the_line_says_why() {
+    let docker = Platform::Container(ContainerKind::Docker);
+    for (platform, cards, value) in [
+        (Platform::Dedicated, Read::Done(vec![]), "none found"),
+        (
+            docker,
+            Read::Done(vec![]),
+            "none visible inside a container",
+        ),
+        (Platform::Vm(Hypervisor::Kvm), Read::Failed, "unavailable"),
+        (docker, Read::TimedOut, "unavailable (timed out)"),
+    ] {
+        let text = with_cards(platform, cards);
+        assert_eq!(field(&text, "Network cards"), [value], "{text}");
     }
 }
 

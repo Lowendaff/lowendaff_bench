@@ -27,6 +27,9 @@ Environment: KVM virtual machine
   Uptime              3 days, 4 hours, 0 minutes
   Load                0.10 / 0.20 / 0.30
   TCP congestion      bbr (queue fq)
+  Network cards
+  Interface  Model                          Driver      Link           MTU  Use
+  eth0       Red Hat Virtio network device  virtio_net  not reported  1500  default route (IPv4)
   IPv4                available; public address 203.0.*.* (from Cloudflare)
   IPv6                unavailable: this host has no IPv6 route
 

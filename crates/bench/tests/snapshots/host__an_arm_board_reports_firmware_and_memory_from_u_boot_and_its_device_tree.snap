@@ -34,6 +34,9 @@ Environment: no virtualization detected
   Uptime              8 minutes
   Load                0.00 / 0.10 / 0.10
   TCP congestion      cubic (queue fq_codel)
+  Network cards
+  Interface  Model                 Driver         Link                    MTU  Use
+  end0       rockchip,rk3568-gmac  rk_gmac-dwmac  1 Gbit/s, full duplex  1500  default route (IPv4)
   IPv4                unavailable
   IPv6                unavailable
 

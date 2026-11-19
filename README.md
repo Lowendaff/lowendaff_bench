@@ -18,13 +18,13 @@ Geekbench 7.
 and the conventions for code, commits and pull requests.
 
 The tool first reads its host: where it runs (a dedicated server, a virtual machine or a
-container), its CPU, memory, disks and system, and whether it reaches the Internet over IPv4 and
-IPv6, with the public address of each. The report starts with this system information: CPU,
-memory and swap, disks and filesystems, distribution, kernel, uptime, load, TCP congestion
-control, and the two address families; on dedicated servers also the machine, board and
-firmware, the BMC, ECC, the memory modules and RAID cards. Only the test items made for the
-platform run, and the test between NUMA nodes only where two of them can be used; `--list` shows
-the items by group, and where each applies.
+container), its CPU, memory, disks, network cards and system, and whether it reaches the Internet
+over IPv4 and IPv6, with the public address of each. The report starts with this system
+information: CPU, memory and swap, disks and filesystems, distribution, kernel, uptime, load, TCP
+congestion control, the network cards and their links, and the two address families; on dedicated
+servers also the machine, board and firmware, the BMC, ECC, the memory modules and RAID cards.
+Only the test items made for the platform run, and the test between NUMA nodes only where two of
+them can be used; `--list` shows the items by group, and where each applies.
 
 | Test item | Shows |
 |-----------|-------|

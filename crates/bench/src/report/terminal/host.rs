@@ -1,11 +1,14 @@
 //! The system section: the host profile in the catalog's words. Dedicated servers start with the
 //! machine, add the memory modules after memory and the RAID cards before the disks; a container
-//! shows only its own root filesystem. The section ends with one line per address family, with
-//! the public address masked unless the user asked to see it.
+//! shows only its own root filesystem. The network cards come after the system's lines, and the
+//! section ends with one line per address family, with the public address masked unless the user
+//! asked to see it.
 
 use std::net::IpAddr;
 use std::net::SocketAddr;
 
+use bench_host::cards::NetworkCard;
+use bench_host::cards::Pcie;
 use bench_host::cpu::Model;
 use bench_host::hardware::Hardware;
 use bench_host::machine::Firmware;
@@ -83,6 +86,10 @@ pub(super) fn section(out: &mut Out, host: &HostProfile, show_ip: bool) {
             out.field(INDENT, label(HostLabel::Os), &missing_text(missing));
             out.field(INDENT, label(HostLabel::Arch), &self::arch(&host.arch));
         }
+    }
+    match &host.cards {
+        Read::Done(cards) => self::cards(out, cards, kind == PlatformKind::Container),
+        missing => out.field(INDENT, label(HostLabel::Cards), &missing_text(missing)),
     }
     self::network(out, &host.network, show_ip);
 }
@@ -285,6 +292,50 @@ fn container_storage(out: &mut Out, storage: &StorageFacts) {
         HostHeader::Available,
     ];
     table(out, HostLabel::Filesystems, &headers, &[row]);
+}
+
+/// One row per network card, then a note on each whose PCIe link runs slower or narrower than
+/// the card can, as in a slot of fewer lanes; without cards, as inside a container, a line.
+fn cards(out: &mut Out, cards: &[NetworkCard], container: bool) {
+    let words = locale::words();
+    if cards.is_empty() {
+        out.field(INDENT, label(HostLabel::Cards), words.no_cards(container));
+        return;
+    }
+    let rows: Vec<Vec<String>> = cards
+        .iter()
+        .map(|card| {
+            vec![
+                card.interface.clone(),
+                card.model
+                    .clone()
+                    .unwrap_or_else(|| words.unnamed_card(&card.bus)),
+                card.driver.clone().unwrap_or_else(|| "—".to_owned()),
+                words.card_link(card.link),
+                card.mtu
+                    .map_or_else(|| "—".to_owned(), |mtu| mtu.to_string()),
+                words.card_uses(card),
+            ]
+        })
+        .collect();
+    let headers = [
+        HostHeader::Interface,
+        HostHeader::Model,
+        HostHeader::Driver,
+        HostHeader::Link,
+        HostHeader::Mtu,
+        HostHeader::Use,
+    ];
+    table(out, HostLabel::Cards, &headers, &rows);
+    for card in cards {
+        if let Some(pcie) = card.pcie.filter(Pcie::degraded) {
+            out.field(
+                INDENT,
+                &words.note(),
+                &words.slow_pcie(&card.interface, pcie),
+            );
+        }
+    }
 }
 
 fn table(out: &mut Out, title: HostLabel, headers: &[HostHeader], rows: &[Vec<String>]) {

@@ -6,6 +6,13 @@ use std::time::Duration;
 use bench_host::bmc;
 use bench_host::bmc::Bmc;
 use bench_host::bmc::InterfaceKind;
+use bench_host::cards::Bus;
+use bench_host::cards::Duplex;
+use bench_host::cards::Link;
+use bench_host::cards::MasterKind;
+use bench_host::cards::NetworkCard;
+use bench_host::cards::Pcie;
+use bench_host::cards::PcieLink;
 use bench_host::cpu::Model;
 use bench_host::cpu::Virtualization;
 use bench_host::network::Reach;
@@ -59,6 +66,7 @@ impl HostWords for English {
             HostLabel::Raid => "RAID card",
             HostLabel::Disks => "Disks",
             HostLabel::Filesystems => "Filesystems",
+            HostLabel::Cards => "Network cards",
             HostLabel::Os => "OS",
             HostLabel::Kernel => "Kernel",
             HostLabel::Arch => "Architecture",
@@ -84,6 +92,9 @@ impl HostWords for English {
             HostHeader::Slot => "Slot",
             HostHeader::Speed => "Speed",
             HostHeader::Vendor => "Vendor",
+            HostHeader::Driver => "Driver",
+            HostHeader::Link => "Link",
+            HostHeader::Mtu => "MTU",
         }
     }
 
@@ -406,6 +417,79 @@ impl HostWords for English {
             })
             .collect();
         parts.join(", ")
+    }
+
+    fn card_link(&self, link: Link) -> String {
+        let Link::Up { speed, duplex } = link else {
+            return "down".to_owned();
+        };
+        let Some(speed) = speed else {
+            return "not reported".to_owned();
+        };
+        let speed = if speed >= 1000 {
+            format!("{} Gbit/s", f64::from(speed) / 1000.0)
+        } else {
+            format!("{speed} Mbit/s")
+        };
+        match duplex {
+            Some(Duplex::Full) => format!("{speed}, full duplex"),
+            Some(Duplex::Half) => format!("{speed}, half duplex"),
+            None => speed,
+        }
+    }
+
+    fn card_uses(&self, card: &NetworkCard) -> String {
+        let mut parts = Vec::new();
+        if let Some(master) = &card.master {
+            parts.push(match master.kind {
+                MasterKind::Bridge => format!("bridge {}", master.name),
+                MasterKind::Bond => format!("bond {}", master.name),
+                MasterKind::Other => format!("in {}", master.name),
+            });
+        }
+        match (card.default_route.ipv4, card.default_route.ipv6) {
+            (true, true) => parts.push("default route (IPv4, IPv6)".to_owned()),
+            (true, false) => parts.push("default route (IPv4)".to_owned()),
+            (false, true) => parts.push("default route (IPv6)".to_owned()),
+            (false, false) => {}
+        }
+        if card.virtual_functions > 0 {
+            let functions = usize::try_from(card.virtual_functions).unwrap_or(usize::MAX);
+            parts.push(count(functions, "virtual function", "virtual functions"));
+        }
+        if parts.is_empty() {
+            "—".to_owned()
+        } else {
+            parts.join(", ")
+        }
+    }
+
+    fn unnamed_card(&self, bus: &Bus) -> String {
+        match bus {
+            Bus::Pci { vendor, device } => format!("PCI {vendor:04x}:{device:04x}"),
+            Bus::Usb => "USB adapter".to_owned(),
+            Bus::Platform(Some(name)) => name.clone(),
+            Bus::Platform(None) => "built into the board".to_owned(),
+            Bus::Other(name) if name.is_empty() => "—".to_owned(),
+            Bus::Other(name) => name.clone(),
+        }
+    }
+
+    fn no_cards(&self, container: bool) -> &'static str {
+        if container {
+            "none visible inside a container"
+        } else {
+            "none found"
+        }
+    }
+
+    fn slow_pcie(&self, interface: &str, pcie: Pcie) -> String {
+        let link = |link: PcieLink| format!("PCIe {}.0 x{}", link.generation, link.lanes);
+        format!(
+            "{interface}'s card is linked at {}, below the {} it supports",
+            link(pcie.current),
+            link(pcie.best)
+        )
     }
 
     fn test_directory(&self) -> &'static str {

@@ -24,6 +24,7 @@ Environment: LXC container
   Uptime              0 minutes
   Load                2.40 / 2.43 / 2.52 (host)
   TCP congestion      cubic
+  Network cards       none visible inside a container
   IPv4                unavailable
   IPv6                unavailable
 

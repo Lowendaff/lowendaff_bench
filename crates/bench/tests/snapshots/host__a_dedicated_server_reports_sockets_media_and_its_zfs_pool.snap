@@ -65,6 +65,12 @@ Environment: no virtualization detected
   Uptime              58 days, 20 hours, 27 minutes
   Load                2.69 / 2.58 / 2.70
   TCP congestion      cubic (queue fq_codel)
+  Network cards
+  Interface   Model                                          Driver     Link                    MTU  Use
+  ens33f0     Intel Ethernet Controller 10-Gigabit X540-AT2  ixgbe      down                   1500  —
+  ens33f1     Intel Ethernet Controller 10-Gigabit X540-AT2  ixgbe      1 Gbit/s, full duplex  1500  bridge vmbr0, default route (IPv4)
+  ens51f0np0  Mellanox MT27710 Family [ConnectX-4 Lx]        mlx5_core  down                   1500  —
+  ens51f1np1  Mellanox MT27710 Family [ConnectX-4 Lx]        mlx5_core  down                   1500  —
   IPv4                unavailable
   IPv6                unavailable
 

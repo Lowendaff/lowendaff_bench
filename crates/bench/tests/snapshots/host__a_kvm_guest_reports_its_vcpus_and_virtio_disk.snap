@@ -27,6 +27,9 @@ Environment: KVM virtual machine
   Uptime              2 days, 9 hours, 53 minutes
   Load                0.14 / 0.08 / 0.08
   TCP congestion      bbr (queue fq)
+  Network cards
+  Interface  Model                          Driver      Link           MTU  Use
+  eth0       Red Hat Virtio network device  virtio_net  not reported  1500  default route (IPv4)
   IPv4                unavailable
   IPv6                unavailable
 
