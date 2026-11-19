@@ -6,6 +6,10 @@
 # the generated lists, servers/iperf3.json and servers/netflix-ix.json, and nothing else: such pull
 # requests come from the data workflow, which a bot runs, and auto-merge merges them unread
 # (README "Network speed" and "Route tracing").
+# PR_COMMITS, when set, is the number of commits that the pull request has, as GitHub counts them:
+# <base>..<head> must hold as many, so that a history cut short, or a wrong base, fails instead of
+# passing with commits unchecked. A range without commits fails too, and so does a git that cannot
+# list them.
 #
 # Usage: scripts/check-commits.sh <base> <head>
 set -eu
@@ -58,11 +62,19 @@ check_text() {
     fi
 }
 
+# The commits are listed, and each commit's parents asked for, apart from the loop and the test:
+# set -e stops at neither a failed substitution in a for list nor one inside a test, so a git that
+# fails would leave commits unchecked, and the check would pass.
+if ! commits=$(git rev-list --reverse "$base..$head"); then
+    echo "check-commits: git cannot list the commits of $base..$head" >&2
+    exit 1
+fi
 count=0
-for commit in $(git rev-list --reverse "$base..$head"); do
+for commit in $commits; do
     count=$((count + 1))
     what=$(git log -1 --format='%h' "$commit")
-    if [ "$(git rev-list --parents -n 1 "$commit" | wc -w)" -gt 2 ]; then
+    parents=$(git rev-list --parents -n 1 "$commit")
+    if [ "$(printf '%s\n' "$parents" | wc -w)" -gt 2 ]; then
         problem "$what: a merge commit; rebase the branch instead"
         continue
     fi
@@ -87,6 +99,14 @@ for commit in $(git rev-list --reverse "$base..$head"); do
         problem "$what: no Co-authored-by trailers"
     fi
 done
+
+# A range without commits, or with another number than the pull request has, would pass with the
+# pull request's commits unchecked.
+if [ "$count" -eq 0 ]; then
+    problem "$base..$head holds no commit"
+elif [ -n "${PR_COMMITS:-}" ] && [ "$count" != "$PR_COMMITS" ]; then
+    problem "$base..$head holds $count commit(s), but the pull request has $PR_COMMITS"
+fi
 
 if [ -n "${PR_TITLE:-}" ]; then
     check_header "the title" "$PR_TITLE"

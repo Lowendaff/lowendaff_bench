@@ -33,6 +33,8 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_TITLE: ${{ github.event.pull_request.title }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          # The pull request's number of commits, as GitHub counts them, which the range must hold.
+          PR_COMMITS: ${{ github.event.pull_request.commits }}
           # Bot for the data workflow's pull requests, which may change the server list only.
           PR_AUTHOR_TYPE: ${{ github.event.pull_request.user.type }}
         run: scripts/check-commits.sh "origin/$BASE_REF" "$HEAD_SHA"

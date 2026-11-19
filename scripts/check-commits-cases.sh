@@ -4,6 +4,8 @@
 #
 # Usage: scripts/check-commits-cases.sh
 set -eu
+# The checker reads these from the environment, which each case sets for itself.
+unset PR_TITLE PR_NUMBER PR_AUTHOR_TYPE PR_COMMITS
 
 checker=$(cd "$(dirname "$0")" && pwd)/check-commits.sh
 scratch=$(mktemp -d)
@@ -24,21 +26,30 @@ base=$(git rev-parse HEAD)
 
 failures=0
 cases=0
-# check <accept|reject> <name> <base> <head> [<title> <number> [<author type>]]
-check() {
+# verdict <accept|reject> <name> <command>...: runs the command, the checker in the environment
+# that the case needs, and counts a failure when it does not decide as expected.
+verdict() {
     cases=$((cases + 1))
-    if PR_TITLE=${5:-} PR_NUMBER=${6:-} PR_AUTHOR_TYPE=${7:-} "$checker" "$3" "$4" \
-        > /dev/null 2>&1; then
+    expected=$1
+    name=$2
+    shift 2
+    if "$@" > /dev/null 2>&1; then
         got=accept
     else
         got=reject
     fi
-    if [ "$got" = "$1" ]; then
-        echo "ok: $2"
+    if [ "$got" = "$expected" ]; then
+        echo "ok: $name"
     else
-        echo "FAIL: $2: expected $1, got $got" >&2
+        echo "FAIL: $name: expected $expected, got $got" >&2
         failures=$((failures + 1))
     fi
+}
+
+# check <accept|reject> <name> <base> <head> [<title> <number> [<author type>]]
+check() {
+    verdict "$1" "$2" env PR_TITLE="${5:-}" PR_NUMBER="${6:-}" PR_AUTHOR_TYPE="${7:-}" \
+        "$checker" "$3" "$4"
 }
 
 # commit <message>: commits on top of the base, verbatim, and prints the commit.
@@ -117,15 +128,63 @@ $why"
 git merge -q --no-ff -m "fix: join the two sides
 
 $why" "$side"
-check reject "a merge commit" "$base" "$(git rev-parse HEAD)"
+merge=$(git rev-parse HEAD)
+check reject "a merge commit" "$base" "$merge"
 
-# The squash commit's header is the title with " (#N)" appended: at most 100 columns.
-check accept "a title" "$base" "$base" "ci: check the commit messages" 16
-check accept "a title of 100 columns with its number" "$base" "$base" \
+# The squash commit's header is the title with " (#N)" appended: at most 100 columns. The titles
+# come with a commit that follows the rules, since a range without commits fails.
+good=$(commit "feat(bench-api): add a thing
+
+$why")
+check accept "a title" "$base" "$good" "ci: check the commit messages" 16
+check accept "a title of 100 columns with its number" "$base" "$good" \
     "ci: $(printf '%090d' 0)" 16
-check reject "a title of 101 columns with its number" "$base" "$base" \
+check reject "a title of 101 columns with its number" "$base" "$good" \
     "ci: $(printf '%091d' 0)" 16
-check reject "a title that is not a header" "$base" "$base" "Check the commit messages" 16
+check reject "a title that is not a header" "$base" "$good" "Check the commit messages" 16
+
+# The checker passes only once it has checked every commit of the pull request: not when git
+# cannot list the commits, or fails after listing them, when the range holds none, when it holds
+# another number than the pull request has, as a history cut short or a wrong base gives, or when
+# git cannot tell a commit's parents.
+check reject "a base that git cannot resolve" no-such-base "$good"
+verdict reject "no repository" env GIT_DIR="$scratch/no-repository" "$checker" "$base" "$good"
+check reject "a range without commits" "$good" "$good"
+git checkout -q --detach "$good"
+git commit -q --allow-empty -m "test: cover the thing
+
+$why"
+two=$(git rev-parse HEAD)
+verdict accept "as many commits as the pull request has" \
+    env PR_COMMITS=2 "$checker" "$base" "$two"
+verdict reject "fewer commits than the pull request has" \
+    env PR_COMMITS=3 "$checker" "$base" "$two"
+verdict reject "more commits than the pull request has" \
+    env PR_COMMITS=1 "$checker" "$base" "$two"
+# A clone one commit deep, as a checkout without the history makes, holds the last commit only.
+git branch -q pull-request "$two"
+git clone -q --depth 1 --no-single-branch "file://$scratch/repo" "$scratch/shallow"
+verdict reject "a shallow history that holds one of the two commits" \
+    env GIT_DIR="$scratch/shallow/.git" PR_COMMITS=2 "$checker" origin/main origin/pull-request
+# Two gits that fail in the middle, as one whose repository goes away would: one after it lists
+# the commits, the other when it is asked for a commit's parents.
+real_git=$(command -v git)
+mkdir "$scratch/listing-fails" "$scratch/parents-fail"
+cat > "$scratch/listing-fails/git" << EOF
+#!/bin/sh
+case " \$* " in *" --reverse "*) "$real_git" "\$@"; exit 128 ;; esac
+exec "$real_git" "\$@"
+EOF
+cat > "$scratch/parents-fail/git" << EOF
+#!/bin/sh
+case " \$* " in *" --parents "*) exit 128 ;; esac
+exec "$real_git" "\$@"
+EOF
+chmod +x "$scratch/listing-fails/git" "$scratch/parents-fail/git"
+verdict reject "a git that fails after it lists the commits" \
+    env PATH="$scratch/listing-fails:$PATH" "$checker" "$base" "$two"
+verdict reject "a git that cannot tell a merge commit's parents" \
+    env PATH="$scratch/parents-fail:$PATH" "$checker" "$base" "$merge"
 
 # A bot's pull request changes the generated lists, servers/iperf3.json and
 # servers/netflix-ix.json, and nothing else.
