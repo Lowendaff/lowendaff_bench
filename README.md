@@ -258,8 +258,9 @@ decision with its evidence appears in the job summary. The workflow audit job, w
 scripts", also runs this decision's cases: `scripts/ci-scope-cases.sh`.
 
 `GH_TOKEN=$(gh auth token) scripts/verify-commits.sh` runs the gates on every commit of a branch,
-each commit on its own, then checks the commit messages. It leaves to CI the gates that need Linux
-or root, and Tool downloads.
+each commit on its own, then checks the messages of the same commits; it fails when git cannot
+list the commits, or there are none. It leaves to CI the gates that need Linux or root, and Tool
+downloads.
 
 CI pins these tool versions; install the same versions locally:
 

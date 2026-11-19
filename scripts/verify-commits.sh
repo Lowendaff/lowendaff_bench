@@ -1,8 +1,9 @@
 #!/bin/sh
 # Runs the gates of README "Gates" on every commit of a branch, each commit checked out on its
 # own, so that every commit builds and passes by itself (CONTRIBUTING.md "Commits"). Then checks
-# the commit messages. Left to CI: the gates that need Linux or root (static build, swap round
-# trip, smoke, smoke mutants, distributions) and the download of every pinned tool.
+# the messages of the same commits. It fails when git cannot list the commits, or there are none.
+# Left to CI: the gates that need Linux or root (static build, swap round trip, smoke, smoke
+# mutants, distributions) and the download of every pinned tool.
 #
 # Usage: GH_TOKEN=<token> scripts/verify-commits.sh [<base> [<head>]]   (main and HEAD)
 # The dependency policy and zizmor's online audits need the network; zizmor needs GH_TOKEN.
@@ -39,6 +40,17 @@ run_zizmor() {
     fi
 }
 
+# Listed apart from the loop, which would pass over git's failure: set -e does not stop at a failed
+# substitution in a for list, and a branch without commits would pass with nothing verified.
+if ! commits=$(git rev-list --reverse "$base..$head"); then
+    echo "verify-commits: git cannot list the commits of $base..$head" >&2
+    exit 1
+fi
+if [ -z "$commits" ]; then
+    echo "verify-commits: $base..$head holds no commit" >&2
+    exit 1
+fi
+
 # One worktree and one target directory for all commits, so that builds stay incremental.
 work=$repo/target/verify-commits
 tree=$work/tree
@@ -50,7 +62,8 @@ git worktree add --quiet --detach "$tree" "$base"
 trap 'git -C "$repo" worktree remove --force "$tree" 2> /dev/null || true' EXIT
 export CARGO_TARGET_DIR="$work/target"
 
-for commit in $(git rev-list --reverse "$base..$head"); do
+verified=0
+for commit in $commits; do
     echo "verify-commits: $(git log -1 --format='%h %s' "$commit")"
     git -C "$tree" checkout --quiet --detach "$commit"
     git -C "$tree" clean -dffxq
@@ -80,6 +93,9 @@ for commit in $(git rev-list --reverse "$base..$head"); do
         done
         run_zizmor --persona pedantic .
     )
+    verified=$((verified + 1))
 done
-scripts/check-commits.sh "$base" "$head"
+# The messages of the commits verified above: check-commits fails when the range holds another
+# number of commits, as it does when the branch moves during the run.
+PR_COMMITS=$verified scripts/check-commits.sh "$base" "$head"
 echo "verify-commits: every commit of $base..$head passes"
