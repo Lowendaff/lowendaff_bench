@@ -33,6 +33,14 @@ emit_link() {
     return 0
 }
 
+# A file that may fail to read, as a network card's speed does while its link is down: emitted
+# only when it reads, so that the capture leaves it out as the host does.
+emit_readable() {
+    [ -f "$1" ] || return 0
+    data=$(base64 -w0 < "$1" 2>/dev/null) || return 0
+    printf '@@@ FILE %s %s\n' "${1#/}" "$data"
+}
+
 for f in /proc/cpuinfo /proc/meminfo /proc/uptime /proc/loadavg /proc/swaps /proc/self/mountinfo \
     /proc/self/cgroup /proc/sys/kernel/osrelease /proc/sys/net/ipv4/tcp_congestion_control \
     /proc/sys/net/core/default_qdisc /etc/os-release /usr/lib/os-release /etc/lsb-release \
@@ -283,6 +291,61 @@ done
 for block in /sys/block/*; do
     emit_link "$block"
 done
+# Network cards: each interface's class link and, at the interface's own path, the files that
+# bench-host reads; for an interface with a device, the device's driver, bus and ids (a virtio
+# card's ids are its PCI parent's), the function it is a virtual function of, its PCIe link, and a
+# board's device tree name; of udev's entry only the keys below. Never `address`, `perm_addr`,
+# `broadcast`, `phys_port_id`, `phys_switch_id` or VPD, which can identify the card or the host.
+for class in /sys/class/net/*; do
+    [ -L "$class" ] || continue
+    emit_link "$class"
+    real=$(readlink -f "$class")
+    for f in type mtu operstate ifindex; do
+        emit_file "$real/$f"
+    done
+    for f in carrier speed duplex; do
+        emit_readable "$real/$f"
+    done
+    emit_link "$real/master"
+    # A bridge and a bond are known by a directory of their own, which a file in it keeps, since a
+    # fixture keeps no empty directory: whether the bridge runs STP, and the bond's mode.
+    emit_file "$real/bridge/stp_state"
+    emit_file "$real/bonding/mode"
+    [ -L "$real/device" ] || continue
+    emit_link "$real/device"
+    device=$(readlink -f "$real/device")
+    emit_link "$device/driver"
+    emit_link "$device/subsystem"
+    emit_link "$device/physfn"
+    emit_file "$device/of_node/compatible"
+    # A virtio device has ids of its own, the virtio bus's; its card's PCI ids are its parent's.
+    case $(readlink "$device/subsystem") in
+        */virtio) pci=$(dirname "$device") ;;
+        *) pci=$device ;;
+    esac
+    for f in vendor device subsystem_vendor subsystem_device class current_link_speed \
+        current_link_width max_link_speed max_link_width sriov_numvfs; do
+        emit_file "$pci/$f"
+    done
+    index=$(cat "$real/ifindex" 2>/dev/null) || continue
+    if [ -r "/run/udev/data/n$index" ]; then
+        keys=$(grep -E '^E:ID_(VENDOR_FROM_DATABASE|MODEL_FROM_DATABASE|NET_DRIVER)=' \
+            "/run/udev/data/n$index")
+        printf '@@@ FILE run/udev/data/n%s %s\n' "$index" "$(printf '%s\n' "$keys" | base64 -w0)"
+    fi
+done
+# The default routes alone, which name the interfaces that carry them, with their gateways zeroed;
+# never the other routes, whose destinations are the host's networks.
+if [ -r /proc/net/route ]; then
+    printf '@@@ FILE proc/net/route %s\n' "$(awk 'BEGIN {OFS = "\t"}
+        NR == 1 || ($2 == "00000000" && $8 == "00000000") {if (NR > 1) $3 = "00000000"; print}' \
+        /proc/net/route | base64 -w0)"
+fi
+if [ -r /proc/net/ipv6_route ]; then
+    zero=00000000000000000000000000000000
+    printf '@@@ FILE proc/net/ipv6_route %s\n' "$(awk -v zero="$zero" \
+        '$1 == zero && $2 == "00" {$3 = zero; $5 = zero; print}' /proc/net/ipv6_route | base64 -w0)"
+fi
 for ids in /usr/share/hwdata/pci.ids /usr/share/misc/pci.ids /usr/share/pci.ids; do
     [ -n "$raid" ] && [ -r "$ids" ] || continue
     printf '@@@ FILE %s %s\n' "${ids#/}" \
