@@ -1,0 +1,6 @@
+NAME        KNAME     TYPE          SIZE ROTA TRAN   MODEL               FSTYPE MOUNTPOINTS
+nvme0n1     nvme0n1   disk 1000204886016    0 nvme   INTEL SSDPE2KX010T7        
+├─nvme0n1p1 nvme0n1p1 part       1048576    0 nvme                              
+├─nvme0n1p2 nvme0n1p2 part    1073741824    0 nvme                       ext4   /boot
+├─nvme0n1p3 nvme0n1p3 part    8589934592    0 nvme                       swap   [SWAP]
+└─nvme0n1p4 nvme0n1p4 part  990537318400    0 nvme                       ext4   /

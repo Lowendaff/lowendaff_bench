@@ -14,6 +14,7 @@ Each directory is a read-only capture of one real host, made with `capture.sh` a
 | `lxc-limits-debian13-aarch64` | as above, with `--memory 512m --cpus 1.5 -e container=lxc`: a container whose own cgroup carries its limits, which a Proxmox VE container's does not | 2026-11-07 | not installed |
 | `rock3a-debian13-aarch64` | Radxa ROCK 3A board (Rockchip RK3568, 4 × Cortex-A55, 2 GB), Debian 13 (kernel 6.12); U-Boot with EFI and SMBIOS, a device tree, one NVMe SSD | 2026-11-09, owner's board | `none` |
 | `lxc-pve-debian13-x86_64` | unprivileged Proxmox VE container on the dedicated server above (`cores 2`, `memory 1024`, `swap 512`, nesting on), from the Debian 13 template 13.6-1, root on a ZFS subvolume; lxcfs serves `/proc/meminfo`, `/proc/cpuinfo`, `/proc/swaps`, `/proc/uptime` and `/sys/devices/system/cpu`, while the container's cgroup files say `max`. Made for the capture and destroyed after it | 2026-11-10, owner's server | `lxc` |
+| `dedicated-ubuntu24-x86_64` | Inspur i24 server, 2 × Xeon Platinum 8259CL, Ubuntu 24.04 (kernel 6.8), one NVMe SSD; an Intel X722 10 GbE controller, one port up at 10 Gbit/s | 2026-11-19, owner's fourth host | `none` |
 
 ## Adding a capture
 
@@ -39,3 +40,10 @@ Edits after capture:
 - `kvm-debian13-x86_64`: trimmed Docker's overlay mounts.
 - The two Docker captures were redone after `capture.sh` started reading the cgroup's memory usage.
 - `kvm-debian13-x86_64`, `dedicated-pve-x86_64` and `rock3a-debian13-aarch64`: added every CPU's cache directories, the NUMA nodes' `cpulist` and `meminfo`, and `/proc/self/status`, which `capture.sh` reads since 2026-11-10, from read-only captures of the same hosts that day. CPU 0's cache files were already there and matched; the other files keep their dates.
+- `kvm-debian13-x86_64`, `dedicated-pve-x86_64`, `rock3a-debian13-aarch64` and
+  `docker-debian13-aarch64`: added the network card files of a capture on 2026-11-19 (the same image
+  for the Docker one), which `capture.sh` reads since then: each interface's class link and files,
+  its device's links and ids, udev's three keys for network devices, and the default routes. Kept
+  loopback, the interfaces with a device and the bridges that hold one; trimmed the rest: the
+  server's guests' and containers' interfaces (veth, tap and firewall bridges), the VM's Docker
+  bridge and veth, and the tunnel devices of Docker Desktop's kernel.
