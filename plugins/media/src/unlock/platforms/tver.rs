@@ -1,0 +1,94 @@
+//! TVer unlock probe: creates an anonymous browser token and checks `callHome` availability.
+
+use bench_api::Context;
+use bench_api::HttpRequest;
+use bench_api::HttpResponse;
+use bench_api::IpFamily;
+
+use super::super::parse;
+use super::super::result::Output;
+use super::super::result::Verdict;
+use super::Platform;
+use super::ProbeFuture;
+
+/// Platform specification for TVer.
+pub const SPEC: Platform = Platform {
+    id: "tver",
+    name: "TVer",
+    probe,
+};
+
+/// Probes TVer in two steps over `family`.
+pub fn probe<'a>(
+    ctx: &'a Context<Output>,
+    family: IpFamily,
+    base_url: Option<&'a str>,
+) -> ProbeFuture<'a> {
+    Box::pin(async move {
+        let create_req = HttpRequest::post(
+            family,
+            parse::endpoint(
+                base_url,
+                SPEC.id,
+                "create",
+                "https://platform-api.tver.jp/v2/api/platform_users/browser/create",
+            ),
+            b"device_type=pc".to_vec(),
+        )
+        .with_header("content-type", "application/x-www-form-urlencoded")
+        .with_header("origin", "https://s.tver.jp")
+        .with_header("referer", "https://s.tver.jp/");
+        let create_res = match parse::send(ctx, create_req).await {
+            Ok(res) => res,
+            Err(verdict) => return verdict,
+        };
+        let Some((uid, token)) = credentials(&create_res) else {
+            return create_failure(&create_res);
+        };
+        let home = "https://platform-api.tver.jp/service/api/v1/callHome";
+        let check_url = match base_url {
+            Some(base) => format!("{base}/tver/callapi"),
+            None => format!("{home}?platform_uid={uid}&platform_token={token}&require_data=mylist"),
+        };
+        let check_req =
+            HttpRequest::get(family, check_url).with_header("x-tver-platform-type", "web");
+        match parse::send(ctx, check_req).await {
+            Ok(res) => parse(&res),
+            Err(verdict) => verdict,
+        }
+    })
+}
+
+/// Extracts `(platform_uid, platform_token)` from `browser/create`.
+#[must_use]
+pub fn credentials(response: &HttpResponse) -> Option<(String, String)> {
+    if parse::gate(response).is_some() || response.status != 200 {
+        return None;
+    }
+    let val = parse::json(response)?;
+    let result = val.get("result").unwrap_or(&val);
+    let uid = result.get("platform_uid")?.as_str()?.trim();
+    let token = result.get("platform_token")?.as_str()?.trim();
+    if uid.is_empty() || token.is_empty() {
+        return None;
+    }
+    Some((uid.to_owned(), token.to_owned()))
+}
+
+/// Verdict when `browser/create` gave no credentials.
+#[must_use]
+pub fn create_failure(response: &HttpResponse) -> Verdict {
+    if let Some(early) = parse::gate(response) {
+        return early;
+    }
+    if matches!(response.status, 403 | 451) {
+        return Verdict::no();
+    }
+    Verdict::Unexpected(format!("HTTP {}", response.status))
+}
+
+/// Evaluates TVer's `callHome` response.
+#[must_use]
+pub fn parse(response: &HttpResponse) -> Verdict {
+    parse::status_verdict(response, "JP", &["forbidden", "outside japan"])
+}

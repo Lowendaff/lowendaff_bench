@@ -1,18 +1,28 @@
-//! Pure response parsers for all 68 streaming platforms, plus shared WAF, rate-limit, JSON and
-//! ISO 3166 region-code helpers.
+//! Shared HTTP probe helpers and pure response-inspection utilities used by platform modules.
 
-pub mod americas;
-pub mod asia;
-pub mod europe;
-pub mod global;
-pub mod oceania;
-
+use bench_api::Context;
 use bench_api::HttpError;
+use bench_api::HttpRequest;
 use bench_api::HttpResponse;
 use serde_json::Value;
 
+use super::result::Output;
 use super::result::Restriction;
 use super::result::Verdict;
+
+/// Resolves the target URL: `base_url/<id>/<step>` when `base_url` is set, else `real_url`.
+#[must_use]
+pub fn endpoint(base_url: Option<&str>, id: &str, step: &str, real_url: &str) -> String {
+    match base_url {
+        Some(base) => format!("{base}/{id}/{step}"),
+        None => real_url.to_owned(),
+    }
+}
+
+/// Sends `request` through `ctx`, converting transport errors into [`Verdict`]s.
+pub async fn send(ctx: &Context<Output>, request: HttpRequest) -> Result<HttpResponse, Verdict> {
+    ctx.probe(&request).await.map_err(|err| error_verdict(&err))
+}
 
 /// Maps an [`HttpError`] to the corresponding [`Verdict`].
 #[must_use]
@@ -29,7 +39,7 @@ pub fn error_verdict(error: &HttpError) -> Verdict {
 }
 
 /// Checks universal rate-limit (`429`), anti-bot/WAF challenge, and `5xx` server errors before a
-/// service's own rules run. Never attempts to solve or bypass a challenge.
+/// platform's own rules run. Never attempts to solve or bypass a challenge.
 #[must_use]
 pub fn gate(response: &HttpResponse) -> Option<Verdict> {
     if response.status == 429 {
@@ -78,7 +88,7 @@ pub fn json(response: &HttpResponse) -> Option<Value> {
     serde_json::from_slice(&response.body).ok()
 }
 
-/// Normalizes a two-letter ASCII country code (`"us"` -> `"US"`), rejecting anything else.
+/// Normalizes a two-letter ASCII country code (`"us"` -> `"US"`), rejecting placeholders.
 #[must_use]
 pub fn country_code(raw: &str) -> Option<String> {
     let trimmed = raw.trim();
@@ -125,7 +135,7 @@ pub fn url_country(url_or_path: &str) -> Option<String> {
     None
 }
 
-/// Extracts the value after `prefix` up to `quote`, e.g. `"currentTerritory":"US"`.
+/// Extracts the substring between `prefix` and `suffix`.
 #[must_use]
 pub fn extract_between<'a>(haystack: &'a str, prefix: &str, suffix: &str) -> Option<&'a str> {
     let start = haystack.find(prefix)? + prefix.len();
@@ -145,8 +155,8 @@ pub fn trace_loc(body: &str) -> Option<String> {
     None
 }
 
-/// Verdict for a simple region-locked JSON or HTTP endpoint where `200` means unlocked in `region`
-/// and `401`/`403`/`451` means geo-blocked (`No`), unless body markers indicate proxy or geo block.
+/// Verdict for a region-locked endpoint where `2xx` means unlocked in `region` and `403`/`451`
+/// means geo-blocked, unless `blocked_markers` or proxy markers appear in the body.
 #[must_use]
 pub fn status_verdict(response: &HttpResponse, region: &str, blocked_markers: &[&str]) -> Verdict {
     if let Some(early) = gate(response) {

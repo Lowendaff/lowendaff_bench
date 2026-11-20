@@ -1,10 +1,10 @@
-//! Streaming media unlock (`media.unlock`): probes regional and global OTT platforms over IPv4
-//! and IPv6 directly from the host, without proxies or anti-bot bypasses.
+//! Streaming media unlock (`media.unlock`): probes individual OTT platforms arranged by continent
+//! over IPv4 and IPv6 directly from the host, without proxies or anti-bot bypasses.
 
 pub mod measure;
 pub mod parse;
+pub mod platforms;
 pub mod result;
-pub mod services;
 
 use std::time::Duration;
 
@@ -29,7 +29,7 @@ pub use result::Verdict;
 #[derive(Debug, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Unlock {
-    /// Geographic groups to probe (`global`, `asia`, `europe`, `americas`, `oceania`, `all`).
+    /// Continent groups to probe (`global`, `asia`, `europe`, `americas`, `oceania`, `all`).
     pub groups: Vec<Choice>,
     /// Specific service ids to probe; wins over `groups` when non-empty.
     pub services: Vec<String>,
@@ -57,8 +57,8 @@ impl Plugin for Unlock {
             Some(raw) => Some(validate_base_url(raw).map_err(Stop::Failed)?),
             None => None,
         };
-        let chosen = services::choose(&self.groups, &self.services);
-        if chosen.services.is_empty() {
+        let chosen = measure::plan(&self.groups, &self.services);
+        if chosen.scheduled.is_empty() {
             return Err(Stop::Skipped(Failure::NoService(chosen.unknown)));
         }
         let settings = Settings {
@@ -66,14 +66,7 @@ impl Plugin for Unlock {
             services: self.services.clone(),
             custom_base: base_url.is_some(),
         };
-        measure::measure(
-            ctx,
-            &chosen.services,
-            chosen.unknown,
-            settings,
-            base_url.as_deref(),
-        )
-        .await
+        measure::measure(ctx, chosen, settings, base_url.as_deref()).await
     }
 }
 

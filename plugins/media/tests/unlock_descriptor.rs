@@ -1,5 +1,5 @@
-//! Descriptor, catalog invariants, group/service selection and `base_url` validation tests for
-//! `media.unlock`.
+//! Descriptor, continent roster invariants, continent orchestration planning, and `base_url`
+//! validation tests for `media.unlock`.
 
 use std::collections::BTreeSet;
 
@@ -14,8 +14,8 @@ use plugin_media::unlock::Choice;
 use plugin_media::unlock::Failure;
 use plugin_media::unlock::Group;
 use plugin_media::unlock::Unlock;
-use plugin_media::unlock::services;
-use plugin_media::unlock::services::CATALOG;
+use plugin_media::unlock::measure;
+use plugin_media::unlock::platforms;
 
 #[test]
 fn descriptor_applies_to_every_platform_needs_any_network_and_uses_no_external_tools() {
@@ -42,63 +42,74 @@ fn descriptor_applies_to_every_platform_needs_any_network_and_uses_no_external_t
 }
 
 #[test]
-fn catalog_ids_are_unique_valid_and_ordered_by_group() {
-    assert_eq!(CATALOG.len(), 68);
+fn continent_rosters_have_unique_valid_ids_and_expected_counts() {
+    assert_eq!(platforms::GLOBAL.len(), 12);
+    assert_eq!(platforms::ASIA.len(), 24);
+    assert_eq!(platforms::EUROPE.len(), 14);
+    assert_eq!(platforms::AMERICAS.len(), 10);
+    assert_eq!(platforms::OCEANIA.len(), 8);
+
     let mut ids = BTreeSet::new();
     let mut names = BTreeSet::new();
-    let mut last_group = Group::Global;
+    let mut total = 0;
 
-    for spec in CATALOG {
-        assert!(!spec.id.is_empty());
-        assert!(
-            spec.id
-                .bytes()
-                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-'),
-            "invalid id: {}",
-            spec.id
-        );
-        assert!(ids.insert(spec.id), "duplicate id: {}", spec.id);
-        assert!(names.insert(spec.name), "duplicate name: {}", spec.name);
-        assert!(
-            spec.group >= last_group,
-            "{} is out of group order",
-            spec.id
-        );
-        last_group = spec.group;
+    for group in Group::ALL {
+        for spec in platforms::in_group(group) {
+            total += 1;
+            assert!(!spec.id.is_empty());
+            assert!(
+                spec.id
+                    .bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-'),
+                "invalid id: {}",
+                spec.id
+            );
+            assert!(ids.insert(spec.id), "duplicate id: {}", spec.id);
+            assert!(names.insert(spec.name), "duplicate name: {}", spec.name);
+        }
     }
 
-    let count = |group| CATALOG.iter().filter(|spec| spec.group == group).count();
-    assert_eq!(count(Group::Global), 12);
-    assert_eq!(count(Group::Asia), 24);
-    assert_eq!(count(Group::Europe), 14);
-    assert_eq!(count(Group::Americas), 10);
-    assert_eq!(count(Group::Oceania), 8);
+    assert_eq!(total, 68);
 }
 
 #[test]
-fn choose_filters_by_groups_or_lets_services_win_and_tracks_unknown_ids() {
-    let all = services::choose(&[], &[]);
-    assert_eq!(all.services.len(), CATALOG.len());
+fn plan_orchestrates_by_continent_lets_services_win_and_tracks_unknown_ids() {
+    let all = measure::plan(&[], &[]);
+    assert_eq!(all.scheduled.len(), 68);
     assert!(all.unknown.is_empty());
 
-    let oceania = services::choose(&[Choice::Oceania], &[]);
-    assert_eq!(oceania.services.len(), 8);
-    assert!(oceania.services.iter().all(|s| s.group == Group::Oceania));
+    let mut last_group = Group::Global;
+    for entry in &all.scheduled {
+        assert!(
+            entry.group >= last_group,
+            "{} scheduled out of continent order",
+            entry.platform.id
+        );
+        last_group = entry.group;
+    }
 
-    let every = services::choose(&[Choice::Oceania, Choice::All], &[]);
-    assert_eq!(every.services.len(), CATALOG.len());
+    let oceania = measure::plan(&[Choice::Oceania], &[]);
+    assert_eq!(oceania.scheduled.len(), 8);
+    assert!(oceania.scheduled.iter().all(|s| s.group == Group::Oceania));
 
-    let picked = services::choose(
+    let every = measure::plan(&[Choice::Oceania, Choice::All], &[]);
+    assert_eq!(every.scheduled.len(), 68);
+
+    let picked = measure::plan(
         &[Choice::Oceania],
         &[
-            "Netflix".to_owned(),
-            "missing-one".to_owned(),
             "bahamut".to_owned(),
+            "missing-one".to_owned(),
+            "Netflix".to_owned(),
             "MISSING-ONE".to_owned(),
         ],
     );
-    let ids: Vec<&str> = picked.services.iter().map(|s| s.id).collect();
-    assert_eq!(ids, ["netflix", "bahamut"], "services win over groups");
+    let ids: Vec<&str> = picked.scheduled.iter().map(|s| s.platform.id).collect();
+    assert_eq!(
+        ids,
+        ["netflix", "bahamut"],
+        "services win over groups and stay ordered by continent"
+    );
     assert_eq!(picked.unknown, ["missing-one"]);
 }
 
