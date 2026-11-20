@@ -1,5 +1,4 @@
-//! The command line's help, `--list`, and the errors of the command line, the config file and the
-//! run itself.
+//! The command line's help, `--list`, and the errors of the command line and the run itself.
 
 use std::fmt::Display;
 use std::path::Path;
@@ -16,8 +15,6 @@ pub trait ProgramWords {
     fn help_output(&self) -> String;
     /// The help of `-f` / `--format`.
     fn help_format(&self) -> String;
-    /// The help of `--config`.
-    fn help_config(&self) -> String;
     /// The help of `--work-dir`.
     fn help_work_dir(&self) -> String;
     /// The help of `--list`.
@@ -30,6 +27,14 @@ pub trait ProgramWords {
     fn help_download_connections(&self) -> String;
     /// The help of `--countries`.
     fn help_countries(&self) -> String;
+    /// The help of `--trace-groups`.
+    fn help_trace_groups(&self) -> String;
+    /// The help of `--media-groups`.
+    fn help_media_groups(&self) -> String;
+    /// The help of `--no-dnsbl`.
+    fn help_no_dnsbl(&self) -> String;
+    /// The help of `--no-mail`.
+    fn help_no_mail(&self) -> String;
     /// Items written as one list, as in "sysbench 1.0.20, fio 3.43".
     fn list(&self, items: &[String]) -> String;
     /// The first line of `--list`: how many test items there are.
@@ -49,17 +54,11 @@ pub trait ProgramWords {
     ) -> String;
     /// A name for `--only` or `--skip` that is no test item or group.
     fn unknown_selection(&self, name: &str) -> String;
-    /// A config file that cannot be read.
-    fn config_unreadable(&self, path: &Path, error: &dyn Display) -> String;
     /// An `--output` file that cannot be created for writing.
     fn output_unwritable(&self, path: &Path, error: &dyn Display) -> String;
-    /// A config file that is no valid TOML.
-    fn config_unparsable(&self, path: &Path, error: &dyn Display) -> String;
-    /// A top-level key of a config file other than `plugins`.
-    fn config_unknown_key(&self, key: &str) -> String;
-    /// A `plugins` key of a config file that is no table.
-    fn config_plugins_not_table(&self) -> String;
-    /// A config file's table for a test item that does not exist.
+    /// Invalid JSON passed via `--internal-overrides`.
+    fn overrides_invalid(&self, error: &dyn Display) -> String;
+    /// A settings table for a test item that does not exist.
     fn config_unknown_item(&self, id: &str) -> String;
     /// A test item's settings that it does not accept.
     fn config_invalid(&self, id: &str, error: &dyn Display) -> String;

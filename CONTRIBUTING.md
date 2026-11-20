@@ -61,11 +61,11 @@ Its tests are `plugins/<group>/tests/<name>_*.rs`, with the tool's recorded outp
 memory plugins' working-set plan. Every plugin calls its types `Output` and `Failure`, written
 with the module, as in `stream::Output`.
 
-A run goes this way: the program reads its arguments and checks for root, builds the selected
-plugins from their config in the registry's order, reads the host profile, leaves out the plugins
+A run goes this way: the program reads its command-line arguments and checks for root, builds the
+selected plugins in the registry's order, reads the host profile, leaves out the plugins
 that do not apply to the host, downloads the tools of the others, runs each plugin with its time
-limit while its progress goes to stderr, and writes the report to stdout once every plugin is
-done.
+limit while its progress goes to stderr, and writes the report to stdout (or `--output`) once
+every plugin is done.
 
 ## Adding a test item
 
@@ -123,8 +123,8 @@ formatted by `rustfmt` with its default settings (the guide's nightly-only optio
 used), with these rules of this repository:
 
 - Call free functions through their module; import types unqualified, except common names such
-  as `io::Error` and `toml::Value`; import a trait inside the function that uses it, unless the
-  whole file does; one item per `use` (ast-grep rules `call-functions-through-module` and
+  as `io::Error` and `serde_json::Value`; import a trait inside the function that uses it, unless
+  the whole file does; one item per `use` (ast-grep rules `call-functions-through-module` and
   `use-one-item`).
 - Name constructors `new` or `new_*`, or `try_new` when they return a `Result`. Implement
   `Display` instead of writing label helpers. Name a module after its primary type, without

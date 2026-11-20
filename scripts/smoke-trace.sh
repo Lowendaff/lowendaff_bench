@@ -1,16 +1,11 @@
 #!/bin/sh
-# The files that point route tracing at the loopback for the smoke test, and its part of the config
-# file: a target list that names 127.0.0.1 alone; a list of exchange ports that names it too, so
-# that its hop is named with an exchange; an answer of Google's that names no server, so that
-# YouTube's cache server is unavailable and nothing is looked up; an answer of fast.com's whose
-# first server is 127.0.0.1; and NextTrace without its service's lookups. The smoke run then
-# traces the loopback alone, as nobody with the file capability that the program gives NextTrace,
-# and downloads no list and asks no third party, so that a merge never waits on one. CI runs it
-# before smoke, after scripts/smoke-iperf3.sh.
+# The files that point route tracing at the loopback for the smoke test, and its entry in the
+# smoke overrides JSON: a target list that names 127.0.0.1 alone; a list of exchange ports that
+# names it too; an answer of Google's that names no server; an answer of fast.com's whose first
+# server is 127.0.0.1; and NextTrace without its service's lookups. CI runs it before smoke, after
+# scripts/smoke-iperf3.sh.
 #
-# Usage: scripts/smoke-trace.sh <directory> <config file>
-# Writes targets.json, exchanges.json, youtube.txt and netflix.json into the directory, and adds
-# the item's table to the config file. Linux only, for smoke.
+# Usage: scripts/smoke-trace.sh <directory> <overrides json>
 set -eu
 
 fail() {
@@ -18,10 +13,10 @@ fail() {
     exit 1
 }
 
-[ $# -eq 2 ] || fail "usage: scripts/smoke-trace.sh <directory> <config file>"
+[ $# -eq 2 ] || fail "usage: scripts/smoke-trace.sh <directory> <overrides json>"
 mkdir -p "$1"
 dir=$(cd "$1" && pwd)
-config=$2
+overrides=$2
 
 cat > "$dir/targets.json" <<LIST
 {
@@ -48,12 +43,14 @@ cat > "$dir/netflix.json" <<ANSWER
 {"client": {"ip": "127.0.0.1"}, "targets": [{"name": "https://127.0.0.1/speedtest",
  "url": "https://127.0.0.1/speedtest", "location": {"city": "Loopback", "country": "ZZ"}}]}
 ANSWER
-cat >> "$config" <<CONFIG
-[plugins."network.trace"]
-list = "$dir/targets.json"
-exchanges = "$dir/exchanges.json"
-youtube_api = "$dir/youtube.txt"
-netflix_api = "$dir/netflix.json"
-geo = false
-CONFIG
-echo "smoke-trace: route tracing traces the loopback; $config holds its table"
+tmp=$(mktemp)
+trap 'rm -f "$tmp"' EXIT
+jq --arg list "$dir/targets.json" \
+    --arg exchanges "$dir/exchanges.json" \
+    --arg yt "$dir/youtube.txt" \
+    --arg nf "$dir/netflix.json" \
+    '. + {"network.trace": {
+        list: $list, exchanges: $exchanges, youtube_api: $yt, netflix_api: $nf, geo: false
+    }}' "$overrides" > "$tmp"
+mv "$tmp" "$overrides"
+echo "smoke-trace: route tracing traces the loopback; $overrides updated"

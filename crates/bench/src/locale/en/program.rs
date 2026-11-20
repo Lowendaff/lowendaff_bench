@@ -12,11 +12,13 @@ impl ProgramWords for English {
     }
 
     fn help_only(&self) -> String {
-        "Run only these test items: comma-separated ids or groups, such as cpu,disk.fio".to_owned()
+        "Run only these test items: comma-separated groups (cpu,memory,disk,network,ip) or ids \
+         (such as cpu.sysbench,disk.fio)"
+            .to_owned()
     }
 
     fn help_skip(&self) -> String {
-        "Skip these test items: comma-separated ids or groups, such as cpu.geekbench,ip.media"
+        "Skip these test items: comma-separated groups or ids, such as cpu.geekbench,ip.media"
             .to_owned()
     }
 
@@ -26,10 +28,6 @@ impl ProgramWords for English {
 
     fn help_format(&self) -> String {
         "Report format: text, markdown (or md), or json".to_owned()
-    }
-
-    fn help_config(&self) -> String {
-        "Config file (TOML), with a table for each test item: [plugins.\"<id>\"]".to_owned()
     }
 
     fn help_work_dir(&self) -> String {
@@ -57,9 +55,27 @@ impl ProgramWords for English {
     }
 
     fn help_countries(&self) -> String {
-        "The countries whose servers the network speed test uses, by ISO 3166 code, or all; \
-         the list's default servers otherwise"
+        "The countries whose servers network.iperf3 uses, by ISO 3166 code (e.g. US,JP), or all"
             .to_owned()
+    }
+
+    fn help_trace_groups(&self) -> String {
+        "Target groups for network.trace: comma-separated services, china, international, or all"
+            .to_owned()
+    }
+
+    fn help_media_groups(&self) -> String {
+        "Regional groups for ip.media: comma-separated global, asia, europe, americas, oceania, \
+         or all"
+            .to_owned()
+    }
+
+    fn help_no_dnsbl(&self) -> String {
+        "Skip DNSBL blacklist lookups in ip.quality".to_owned()
+    }
+
+    fn help_no_mail(&self) -> String {
+        "Skip outbound TCP port-25 mail checks in ip.quality".to_owned()
     }
 
     fn list(&self, items: &[String]) -> String {
@@ -99,30 +115,16 @@ impl ProgramWords for English {
         format!("unknown test item or group `{name}`")
     }
 
-    fn config_unreadable(&self, path: &Path, error: &dyn Display) -> String {
-        format!("cannot read the config file {}: {error}", path.display())
-    }
-
     fn output_unwritable(&self, path: &Path, error: &dyn Display) -> String {
         format!("cannot write the report to {}: {error}", path.display())
     }
 
-    fn config_unparsable(&self, path: &Path, error: &dyn Display) -> String {
-        format!("cannot parse the config file {}: {error}", path.display())
-    }
-
-    fn config_unknown_key(&self, key: &str) -> String {
-        format!(
-            "unknown key `{key}` in the config file; only [plugins.\"<id>\"] tables are supported"
-        )
-    }
-
-    fn config_plugins_not_table(&self) -> String {
-        "plugins in the config file must be a table".to_owned()
+    fn overrides_invalid(&self, error: &dyn Display) -> String {
+        format!("invalid plugin overrides: {error}")
     }
 
     fn config_unknown_item(&self, id: &str) -> String {
-        format!("the config file has a table for the unknown test item `{id}`")
+        format!("settings given for unknown test item `{id}`")
     }
 
     fn config_invalid(&self, id: &str, error: &dyn Display) -> String {

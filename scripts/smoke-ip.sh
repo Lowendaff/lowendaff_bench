@@ -1,13 +1,12 @@
 #!/bin/sh
 # Local HTTP, UDP DNSBL and TCP port-25 responders on 127.0.0.1 for the smoke test, and their
-# table in the config file. The smoke run then exercises ip.quality end to end without contacting
-# any external intelligence API, DNSBL or mail server. CI runs it before smoke, after
+# entry in the smoke overrides JSON. The smoke run then exercises ip.quality end to end without
+# contacting any external intelligence API, DNSBL or mail server. CI runs it before smoke, after
 # scripts/smoke-trace.sh.
 #
-# Usage: scripts/smoke-ip.sh <directory> <config file>
+# Usage: scripts/smoke-ip.sh <directory> <overrides json>
 # Starts the responders on 127.0.0.1:18081 (HTTP), 127.0.0.1:18053 (UDP DNS) and 127.0.0.1:18025
-# (TCP SMTP), writes server.pid into the directory, and appends [plugins."ip.quality"] to the
-# config file.
+# (TCP SMTP), writes server.pid into the directory, and updates ip.quality in <overrides json>.
 set -eu
 
 fail() {
@@ -15,10 +14,10 @@ fail() {
     exit 1
 }
 
-[ $# -eq 2 ] || fail "usage: scripts/smoke-ip.sh <directory> <config file>"
+[ $# -eq 2 ] || fail "usage: scripts/smoke-ip.sh <directory> <overrides json>"
 mkdir -p "$1"
 dir=$(cd "$1" && pwd)
-config=$2
+overrides=$2
 http_port=18081
 dns_port=18053
 smtp_port=18025
@@ -126,10 +125,12 @@ while ! curl --fail --silent "http://127.0.0.1:$http_port/dbip/127.0.0.1" >/dev/
     sleep 0.1
 done
 
-cat >> "$config" <<CONFIG
-[plugins."ip.quality"]
-base_url = "http://127.0.0.1:$http_port"
-dns_server = "127.0.0.1:$dns_port"
-smtp_server = "127.0.0.1:$smtp_port"
-CONFIG
-echo "smoke-ip: responders listen on 127.0.0.1:$http_port/$dns_port/$smtp_port; $config updated"
+tmp=$(mktemp)
+trap 'rm -f "$tmp"' EXIT
+jq --arg base "http://127.0.0.1:$http_port" \
+    --arg dns "127.0.0.1:$dns_port" \
+    --arg smtp "127.0.0.1:$smtp_port" \
+    '. + {"ip.quality": {base_url: $base, dns_server: $dns, smtp_server: $smtp}}' \
+    "$overrides" > "$tmp"
+mv "$tmp" "$overrides"
+echo "smoke-ip: responders listen on 127.0.0.1:$http_port/$dns_port/$smtp_port; $overrides updated"

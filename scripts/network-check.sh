@@ -28,21 +28,14 @@ servers=$(jq -r '.servers[].id' "$list" | shuf -n "$count")
 [ -n "$servers" ] || fail "$list names no server"
 chosen=$(printf '%s\n' "$servers" | jq -R . | jq -s -c .)
 work=$(mktemp -d "$PWD/network.XXXXXX")
-config=$work.toml
 log=$work.log
-trap 'rm -f "$config" "$log"' EXIT
-cat > "$config" <<CONFIG
-[plugins."network.iperf3"]
-list = "$list"
-servers = $chosen
-seconds = 3
-streams = 2
-rate = 100
-CONFIG
+trap 'rm -f "$log"' EXIT
+overrides=$(jq -n -c --arg list "$list" --argjson servers "$chosen" \
+    '{"network.iperf3": {list: $list, servers: $servers, seconds: 3, streams: 2, rate: 100}}')
 
 # shellcheck disable=SC2086 # $as_root is one word or none
-report=$($as_root "$bin" -v --only network.iperf3 --config "$config" --work-dir "$work" \
-    2> "$log") || {
+report=$($as_root "$bin" -v --only network.iperf3 --internal-overrides "$overrides" \
+    --work-dir "$work" 2> "$log") || {
     cat "$log" >&2
     fail "the run failed"
 }

@@ -36,12 +36,11 @@
    - 针对 `Gmail`、`Outlook`、`Yahoo`、`iCloud`、`Proton Mail`、`Fastmail`、`QQ Mail` 与 `163 Mail` 共 8 家全球及中文主流邮箱的入站 MX 服务器，分别在 IPv4 与 IPv6 上向 TCP **25 端口**发起连接（单目标超时 5 秒）。
    - **严格非侵入式握手**：连接建立后仅读取服务端首行三位数字 SMTP Banner 状态码（`2xx` 如 `220` 记为可投递，`4xx`/`5xx` 记为连接期被拒，全部超时/拒绝则判定机房封禁了出站 25 端口），随后**立即发送 `QUIT\r\n` 断开连接**，绝不发送 `HELO`/`EHLO`、`MAIL FROM` 或任何邮件正文。
 
-### 隐私保护与配置示例
+### 隐私保护与命令行开关
 - 未指定 `--show-ip` 时，报告（含 `text`、`markdown`、`json`）自动对公网地址打码，并隐藏（在 JSON 中置为 `null`）可能直接包含 IP 数字的反向解析 PTR 主机名（`hostname`）。
-```toml
-[plugins."ip.quality"]
-dnsbl = true   # 设为 false 可跳过 DNSBL 黑名单查询
-mail = true    # 设为 false 可跳过出站 TCP 25 端口邮局探测
+- 可通过 `--no-dnsbl` 跳过 DNSBL 黑名单反查，或通过 `--no-mail` 跳过出站 TCP 25 端口邮局连接探测：
+```sh
+sudo ./lowendaff-bench --only ip.quality --no-mail
 ```
 
 ---
@@ -68,9 +67,9 @@ mail = true    # 设为 false 可跳过出站 TCP 25 端口邮局探测
 3. **合规反爬边界（绝不绕过人机验证）**：
    - 当目标平台返回 Cloudflare Turnstile、reCAPTCHA、hCaptcha 等人机验证或 WAF 质询页面时，探针**立即停止对该平台的后续请求并如实标记为 `blocked (WAF)`**，绝不尝试计算工作量证明、模拟浏览器绕过或借用第三方缓存结果。
 
-### 配置示例（`bench.toml`）
-```toml
-[plugins."ip.media"]
-groups = ["global", "asia"]        # 可选 global, asia, europe, americas, oceania 或 all
-services = ["netflix", "bahamut"]  # 按平台 id 精确指定待测服务；非空时优先于 groups
+### `--media-groups` 命令行区域枚举与示例
+- 可选值：`global`（全球跨国平台）、`asia`（亚洲）、`europe`（欧洲）、`americas`（美洲）、`oceania`（大洋洲）或 `all`（默认，检测全部 68 个平台）。
+```sh
+# 仅检测全球通用平台与亚洲流媒体平台
+sudo ./lowendaff-bench --only ip.media --media-groups global,asia
 ```

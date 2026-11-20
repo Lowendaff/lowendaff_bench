@@ -12,7 +12,9 @@ use std::time::Duration;
 use bench::app;
 use bench::app::Cli;
 use bench::app::EXIT_INTERRUPTED;
+use bench::app::MediaGroup;
 use bench::app::ReportOptions;
+use bench::app::TraceGroup;
 use bench::orchestrator;
 use bench::orchestrator::Planned;
 use bench::progress;
@@ -786,35 +788,53 @@ fn a_group_name_selects_every_plugin_of_the_group() {
 }
 
 #[test]
-fn config_file_holds_plugin_tables_only() {
-    let dir = tempfile::tempdir().unwrap();
-    let write = |name: &str, body: &str| {
-        let path = dir.path().join(name);
-        std::fs::write(&path, body).unwrap();
-        path
-    };
+fn config_flag_is_rejected_and_enum_parameters_configure_plugins() {
+    use clap::Parser;
 
-    let good = write("good.toml", "[plugins.\"test.good\"]\nsamples = 2\n");
-    let expected = BTreeMap::from([("test.good".to_owned(), serde_json::json!({ "samples": 2 }))]);
-    assert_eq!(app::load_config(Some(&good)).unwrap(), expected);
-
-    let stray = write("stray.toml", "timeout = 3\n");
-    assert_eq!(
-        app::load_config(Some(&stray)).unwrap_err(),
-        "unknown key `timeout` in the config file; only [plugins.\"<id>\"] tables are supported"
-    );
-
-    let broken = write("broken.toml", "[plugins\n");
     assert!(
-        app::load_config(Some(&broken))
-            .unwrap_err()
-            .starts_with("cannot parse the config file")
+        Cli::try_parse_from(["lowendaff-bench", "--config", "bench.toml"]).is_err(),
+        "--config local config file launching must not exist"
     );
+    assert!(Cli::try_parse_from(["lowendaff-bench", "--trace-groups", "mars"]).is_err());
+    assert!(Cli::try_parse_from(["lowendaff-bench", "--media-groups", "antarctica"]).is_err());
 
-    let bad_value = write("bad.toml", "[plugins.\"test.good\"]\nsamples = \"many\"\n");
-    let config = bad_value.to_string_lossy().into_owned();
-    let Err(errors) = app::prepare(&cli(&["--config", &config]), &plugins()) else {
-        panic!("bad config must not plan")
+    let parsed = cli(&[
+        "--trace-groups",
+        "services,china",
+        "--media-groups",
+        "global,asia",
+        "--no-dnsbl",
+        "--no-mail",
+    ]);
+    assert_eq!(
+        parsed.trace_groups,
+        [TraceGroup::Services, TraceGroup::China]
+    );
+    assert_eq!(parsed.media_groups, [MediaGroup::Global, MediaGroup::Asia]);
+    assert!(parsed.no_dnsbl);
+    assert!(parsed.no_mail);
+
+    let planned = app::prepare(&parsed, &registry::all()).expect("valid enum flags prepare");
+    assert_eq!(planned.len(), registry::all().len());
+
+    let expected = BTreeMap::from([("test.good".to_owned(), serde_json::json!({ "samples": 2 }))]);
+    assert_eq!(
+        app::parse_overrides(Some(r#"{"test.good":{"samples":2}}"#)).unwrap(),
+        expected
+    );
+    assert!(
+        app::parse_overrides(Some("{bad"))
+            .unwrap_err()
+            .starts_with("invalid plugin overrides: ")
+    );
+    let Err(errors) = app::prepare(
+        &cli(&[
+            "--internal-overrides",
+            r#"{"test.good":{"samples":"many"}}"#,
+        ]),
+        &plugins(),
+    ) else {
+        panic!("bad overrides must not plan")
     };
     assert!(
         errors[0].starts_with("invalid settings for test item test.good: "),
@@ -824,15 +844,12 @@ fn config_file_holds_plugin_tables_only() {
 
 #[tokio::test]
 async fn a_run_prints_sections_and_summary_then_removes_its_directory() {
-    let dir = tempfile::tempdir().unwrap();
-    let config = dir.path().join("bench.toml");
-    std::fs::write(&config, "[plugins.\"test.good\"]\nsamples = 3\n").unwrap();
     let planned = app::prepare(
         &cli(&[
             "--skip",
             "test.other",
-            "--config",
-            &config.to_string_lossy(),
+            "--internal-overrides",
+            r#"{"test.good":{"samples":3}}"#,
         ]),
         &plugins(),
     )

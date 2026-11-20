@@ -28,17 +28,15 @@
    - 若节点开放了端口段（如 `5201-5210`），插件使用系统随机种子随机选择起始端口以分散并发客户端；遇到服务端正忙（Busy）或瞬时连接失败时，等待 2 秒后换用同节点的下一个端口重试（最多 **3 次**）。若上传全部失败，则直接跳过该节点的下载测试以节省时间。
 4. **最小权限与流量提醒**：
    - 因对端均为第三方公共服务器，`iperf3` 强制降权至非特权用户 **`65534`（`nobody`）** 运行，且 `-v` 模式不回显含本机 IP 的 `iperf3` 原始输出。
-   - **流量估算**：在 `1 Gbit/s` 带宽下，单个双栈节点双向约消耗 `5 GB` 流量，默认 5 节点约消耗 `25 GB`（`10 Gbit/s` 机器可达 `250 GB`）。按流量计费的机器建议用 `--countries` 缩减节点、在配置中限制 `rate` 或用 `--skip network.iperf3` 跳过。
+   - **流量估算**：在 `1 Gbit/s` 带宽下，单个双栈节点双向约消耗 `5 GB` 流量，默认 5 节点约消耗 `25 GB`（`10 Gbit/s` 机器可达 `250 GB`）。按流量计费的机器建议用 `--countries` 缩减测速国家/地区，或用 `--skip network.iperf3` 跳过。
 
-### 配置示例（`bench.toml`）
-```toml
-[plugins."network.iperf3"]
-countries = ["US", "JP"]   # 按 ISO 3166 国家码筛选；命令行 --countries 优先级更高
-servers = ["tokyo"]        # 按节点 id 精确指定；非空时优先于 countries
-list = "my-servers.json"   # 自定义节点列表：本地文件路径或 https:// 地址
-seconds = 10               # 单向测试时长（秒）
-streams = 8                # 并发 TCP 流数
-rate = 100                 # 每条流发送速率上限（Mbit/s）；留空表示不限速
+### 常用命令行示例
+```sh
+# 仅测试日本与德国的公共 iperf3 节点
+sudo ./lowendaff-bench --only network.iperf3 --countries JP,DE
+
+# 测试列表中的全部可用国家节点
+sudo ./lowendaff-bench --only network.iperf3 --countries all
 ```
 
 ---
@@ -65,12 +63,13 @@ rate = 100                 # 每条流发送速率上限（Mbit/s）；留空表
    - 结合仓库自动同步 PeeringDB 生成的 `servers/netflix-ix.json`（`net_id=457`），当路由经过 Netflix 在全球各大互联网交换中心（如 Equinix、DE-CIX、HKIX、BBIX 等）的对等互联端口 IP 时，自动在跳点网络名旁标注所属 IX 名称。
    - **本机跳点脱敏**：未传入 `--show-ip` 时，路由路径中凡是匹配本机公网 IPv4 / IPv6 的跳点均自动打码（中间运营商路由器 IP 原样保留）。
 
-### 配置示例（`bench.toml`）
-```toml
-[plugins."network.trace"]
-groups = ["china"]                  # 可选 services, china, international 或 all
-targets = ["pek-4809", "youtube"]   # 按目标 id 精确指定（含 youtube 与 netflix）；优先于 groups
-list = "my-targets.json"            # 自定义目标列表（本地路径或 https:// 地址）
-exchanges = "my-ports.json"         # 自定义交换中心端口列表
-geo = true                          # 设为 false 可关闭 NextTrace 的跳点 ASN/地理位置查询
+### `--trace-groups` 命令行枚举与示例
+- `services`：仅追踪距离最近的 YouTube 与 Netflix 边缘缓存服务器
+- `china`：中国大陆三网及精品网目标（163 / CN2 / 169 / 9929 / CMNET / CMIN2）
+- `international`：国际 Tier-1 骨干网、Telegram 数据中心、AWS 与 GCP 目标
+- `all`：同时追踪流媒体缓存节点与列表内的全部国内外目标
+
+```sh
+# 仅追踪流媒体边缘缓存节点与中国大陆三网目标
+sudo ./lowendaff-bench --only network.trace --trace-groups services,china
 ```

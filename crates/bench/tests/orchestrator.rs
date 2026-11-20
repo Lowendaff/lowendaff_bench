@@ -982,7 +982,7 @@ fn config_errors_are_reported_together_before_anything_runs() {
     assert!(
         errors
             .iter()
-            .any(|e| e == "the config file has a table for the unknown test item `test.goood`")
+            .any(|e| e == "settings given for unknown test item `test.goood`")
     );
     assert!(errors.iter().any(|e| e == "unknown test item `test.nope`"));
     assert!(errors.iter().any(|e| {

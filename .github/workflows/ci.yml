@@ -256,23 +256,24 @@ jobs:
       # NextTrace runs with the file capability that the program gives it, as on any host.
       - name: Local trace targets
         if: steps.scope.outputs.run != 'false'
-        run: scripts/smoke-trace.sh "$RUNNER_TEMP/trace" "$RUNNER_TEMP/iperf3/config.toml"
+        run: scripts/smoke-trace.sh "$RUNNER_TEMP/trace" "$RUNNER_TEMP/iperf3/overrides.json"
       # IP reputation probes local HTTP, DNSBL and SMTP responders on 127.0.0.1, so that a merge
       # never waits on a third party.
       - name: Local IP reputation servers
         if: steps.scope.outputs.run != 'false'
-        run: scripts/smoke-ip.sh "$RUNNER_TEMP/ip" "$RUNNER_TEMP/iperf3/config.toml"
+        run: scripts/smoke-ip.sh "$RUNNER_TEMP/ip" "$RUNNER_TEMP/iperf3/overrides.json"
       # Streaming media unlock probes a local responder on 127.0.0.1, one service per regional
       # group, so that a merge never waits on a third party.
       - name: Local media server
         if: steps.scope.outputs.run != 'false'
-        run: scripts/smoke-media.sh "$RUNNER_TEMP/media" "$RUNNER_TEMP/iperf3/config.toml"
+        run: scripts/smoke-media.sh "$RUNNER_TEMP/media" "$RUNNER_TEMP/iperf3/overrides.json"
       # Geekbench would publish a result from every run and take minutes.
       - name: Smoke
         if: steps.scope.outputs.run != 'false'
         run: |
+          overrides=$(cat "$RUNNER_TEMP/iperf3/overrides.json")
           scripts/smoke.sh "target/$TARGET/release/lowendaff-bench" --skip cpu.geekbench \
-            --config "$RUNNER_TEMP/iperf3/config.toml"
+            --internal-overrides "$overrides"
       - name: Smoke mutants
         if: steps.scope.outputs.run != 'false'
         run: scripts/smoke-mutants.sh "$TARGET"

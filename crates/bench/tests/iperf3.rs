@@ -308,16 +308,19 @@ fn countries_on_the_command_line_win_over_the_config_files() {
 }
 
 #[test]
-fn the_plan_takes_the_countries_of_the_command_line_over_the_config_files() {
+fn the_plan_takes_the_countries_of_the_command_line_over_inline_overrides() {
     use clap::Parser;
 
-    // Countries that the item refuses in the config file show which countries the plan took.
-    let dir = tempfile::tempdir().expect("a directory");
-    let path = dir.path().join("config.toml");
-    std::fs::write(&path, "[plugins.\"network.iperf3\"]\ncountries = 5\n").expect("a file");
-    let config = path.to_str().expect("a UTF-8 path");
+    // Countries that the item refuses in the inline overrides show which countries the plan took.
+    let overrides = r#"{"network.iperf3":{"countries":5}}"#;
     let cli = |countries: &[&str]| {
-        let args = ["lowendaff-bench", "--only", "network", "--config", config];
+        let args = [
+            "lowendaff-bench",
+            "--only",
+            "network",
+            "--internal-overrides",
+            overrides,
+        ];
         app::Cli::try_parse_from(args.iter().chain(countries).copied()).expect("arguments")
     };
     assert!(app::prepare(&cli(&[]), &registry::all()).is_err());

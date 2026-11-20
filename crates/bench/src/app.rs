@@ -17,7 +17,10 @@ use bench_api::CancellationToken;
 use bench_api::IpFamily;
 use bench_api::Plugin;
 use bench_host::profile::HostProfile;
+use plugin_ip::media::Media;
+use plugin_ip::quality::Quality;
 use plugin_network::iperf3::Iperf3;
+use plugin_network::trace::Trace;
 use tokio::io::AsyncRead;
 
 use crate::locale;
@@ -36,7 +39,7 @@ use crate::report::Format;
 use crate::report::terminal::Page;
 use crate::results::Measured;
 
-/// Exit code for usage, config or environment errors, and for not running as root.
+/// Exit code for usage, option or environment errors, and for not running as root.
 pub const EXIT_USAGE: u8 = 2;
 /// Exit code after Ctrl-C; the results so far were printed.
 pub const EXIT_INTERRUPTED: u8 = 130;
@@ -46,6 +49,60 @@ const GRACE: Duration = Duration::from_secs(5);
 /// The connections that one tool's download uses at most, unless `--download-connections` says
 /// otherwise.
 pub const DOWNLOAD_CONNECTIONS: u16 = 32;
+
+/// Target group selection for `network.trace` (`--trace-groups`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum TraceGroup {
+    /// Nearest YouTube and Netflix cache servers.
+    Services,
+    /// Carrier targets in mainland China.
+    China,
+    /// International carrier and cloud targets.
+    International,
+    /// Both cache servers and every target in the list.
+    All,
+}
+
+impl TraceGroup {
+    const fn code(self) -> &'static str {
+        match self {
+            Self::Services => "services",
+            Self::China => "china",
+            Self::International => "international",
+            Self::All => "all",
+        }
+    }
+}
+
+/// Regional group selection for `ip.media` (`--media-groups`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum MediaGroup {
+    /// Multinational streaming platforms.
+    Global,
+    /// Asian streaming platforms (HK/MO/TW, JP, KR, SEA, IN).
+    Asia,
+    /// European streaming platforms.
+    Europe,
+    /// North and Latin American streaming platforms.
+    Americas,
+    /// Australian and New Zealand streaming platforms.
+    Oceania,
+    /// Every regional group.
+    All,
+}
+
+impl MediaGroup {
+    const fn code(self) -> &'static str {
+        match self {
+            Self::Global => "global",
+            Self::Asia => "asia",
+            Self::Europe => "europe",
+            Self::Americas => "americas",
+            Self::Oceania => "oceania",
+            Self::All => "all",
+        }
+    }
+}
 
 // The help's words come from the catalog, as every other text that the program shows does.
 #[derive(Debug, clap::Parser)]
@@ -72,10 +129,6 @@ pub struct Cli {
         help = locale::words().help_format()
     )]
     pub format: Format,
-
-    // A TOML file with a table of settings for each test item.
-    #[arg(long, help = locale::words().help_config())]
-    pub config: Option<PathBuf>,
 
     // Where the run directory goes.
     #[arg(long, default_value = ".", help = locale::words().help_work_dir())]
@@ -106,6 +159,36 @@ pub struct Cli {
     // The countries whose servers the network speed test uses, instead of the list's defaults.
     #[arg(long, value_delimiter = ',', help = locale::words().help_countries())]
     pub countries: Vec<String>,
+
+    // Target groups for route tracing.
+    #[arg(
+        long,
+        value_enum,
+        value_delimiter = ',',
+        help = locale::words().help_trace_groups()
+    )]
+    pub trace_groups: Vec<TraceGroup>,
+
+    // Regional groups for media unlock.
+    #[arg(
+        long,
+        value_enum,
+        value_delimiter = ',',
+        help = locale::words().help_media_groups()
+    )]
+    pub media_groups: Vec<MediaGroup>,
+
+    // Skips DNSBL blacklist lookups in ip.quality.
+    #[arg(long, help = locale::words().help_no_dnsbl())]
+    pub no_dnsbl: bool,
+
+    // Skips outbound TCP port-25 mail checks in ip.quality.
+    #[arg(long, help = locale::words().help_no_mail())]
+    pub no_mail: bool,
+
+    // Inline JSON overrides used by CI loopback smoke scripts (hidden; no local config files).
+    #[arg(long = "internal-overrides", hide = true)]
+    pub internal_overrides: Option<String>,
 }
 
 impl Cli {
@@ -154,12 +237,22 @@ fn item(entry: &Entry, out: &mut impl Write) {
 
 /// Builds every selected plugin; all problems are reported together and nothing runs.
 pub fn prepare(cli: &Cli, registry: &[Entry]) -> Result<Vec<Planned<Measured>>, Vec<String>> {
-    let mut config = load_config(cli.config.as_deref()).map_err(|err| vec![err])?;
+    let mut settings =
+        parse_overrides(cli.internal_overrides.as_deref()).map_err(|err| vec![err])?;
     if !cli.countries.is_empty() {
-        countries(&mut config, &cli.countries);
+        countries(&mut settings, &cli.countries);
+    }
+    if !cli.trace_groups.is_empty() {
+        trace_groups(&mut settings, &cli.trace_groups);
+    }
+    if !cli.media_groups.is_empty() {
+        media_groups(&mut settings, &cli.media_groups);
+    }
+    if cli.no_dnsbl || cli.no_mail {
+        ip_quality(&mut settings, !cli.no_dnsbl, !cli.no_mail);
     }
     let ids = select(registry, &cli.only, &cli.skip)?;
-    orchestrator::plan(registry, &ids, &config)
+    orchestrator::plan(registry, &ids, &settings)
 }
 
 /// Registry order, narrowed by `--only` and `--skip`, which take ids or group names; unknown
@@ -189,12 +282,10 @@ pub fn select(
         .collect())
 }
 
-/// Sets `--countries` in the network speed test's table, over what the config file says there.
-/// A table that is not a table is left as it is, for the plan to refuse.
-pub fn countries(config: &mut BTreeMap<String, serde_json::Value>, countries: &[String]) {
-    let table = config
-        .entry(Iperf3::DESCRIPTOR.id.to_owned())
-        .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
+/// Sets `--countries` in the network speed test's table, over any inline override.
+/// A table that is not a JSON object is left as it is, for the plan to refuse.
+pub fn countries(settings: &mut BTreeMap<String, serde_json::Value>, countries: &[String]) {
+    let table = plugin_table(settings, Iperf3::DESCRIPTOR.id);
     if let Some(table) = table.as_object_mut() {
         let countries = countries
             .iter()
@@ -204,32 +295,58 @@ pub fn countries(config: &mut BTreeMap<String, serde_json::Value>, countries: &[
     }
 }
 
-/// Reads `[plugins."<id>"]` tables; any other top-level key is an error.
-pub fn load_config(path: Option<&Path>) -> Result<BTreeMap<String, serde_json::Value>, String> {
-    let Some(path) = path else {
+/// Sets `--trace-groups` in `network.trace`'s table.
+pub fn trace_groups(settings: &mut BTreeMap<String, serde_json::Value>, groups: &[TraceGroup]) {
+    let table = plugin_table(settings, Trace::DESCRIPTOR.id);
+    if let Some(table) = table.as_object_mut() {
+        let values = groups
+            .iter()
+            .map(|group| serde_json::Value::String(group.code().to_owned()))
+            .collect();
+        table.insert("groups".to_owned(), serde_json::Value::Array(values));
+    }
+}
+
+/// Sets `--media-groups` in `ip.media`'s table.
+pub fn media_groups(settings: &mut BTreeMap<String, serde_json::Value>, groups: &[MediaGroup]) {
+    let table = plugin_table(settings, Media::DESCRIPTOR.id);
+    if let Some(table) = table.as_object_mut() {
+        let values = groups
+            .iter()
+            .map(|group| serde_json::Value::String(group.code().to_owned()))
+            .collect();
+        table.insert("groups".to_owned(), serde_json::Value::Array(values));
+    }
+}
+
+/// Sets `--no-dnsbl` and `--no-mail` in `ip.quality`'s table.
+pub fn ip_quality(settings: &mut BTreeMap<String, serde_json::Value>, dnsbl: bool, mail: bool) {
+    let table = plugin_table(settings, Quality::DESCRIPTOR.id);
+    if let Some(table) = table.as_object_mut() {
+        if !dnsbl {
+            table.insert("dnsbl".to_owned(), serde_json::Value::Bool(false));
+        }
+        if !mail {
+            table.insert("mail".to_owned(), serde_json::Value::Bool(false));
+        }
+    }
+}
+
+fn plugin_table<'a>(
+    settings: &'a mut BTreeMap<String, serde_json::Value>,
+    id: &str,
+) -> &'a mut serde_json::Value {
+    settings
+        .entry(id.to_owned())
+        .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()))
+}
+
+/// Parses inline JSON plugin overrides (`{"<plugin-id>": { ... }}`).
+pub fn parse_overrides(raw: Option<&str>) -> Result<BTreeMap<String, serde_json::Value>, String> {
+    let Some(raw) = raw else {
         return Ok(BTreeMap::new());
     };
-    let text =
-        fs::read_to_string(path).map_err(|err| locale::words().config_unreadable(path, &err))?;
-    let mut table: toml::Table =
-        toml::from_str(&text).map_err(|err| locale::words().config_unparsable(path, &err))?;
-    let plugins = table.remove("plugins");
-    if let Some(key) = table.keys().next() {
-        return Err(locale::words().config_unknown_key(key));
-    }
-    let Some(plugins) = plugins else {
-        return Ok(BTreeMap::new());
-    };
-    let toml::Value::Table(plugins) = plugins else {
-        return Err(locale::words().config_plugins_not_table());
-    };
-    let mut config = BTreeMap::new();
-    for (id, value) in plugins {
-        let value =
-            serde_json::to_value(value).map_err(|err| locale::words().config_invalid(&id, &err))?;
-        config.insert(id, value);
-    }
-    Ok(config)
+    serde_json::from_str(raw).map_err(|err| locale::words().overrides_invalid(&err))
 }
 
 /// Opens `--output` before the run starts, so an unwritable path fails at once.

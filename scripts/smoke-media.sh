@@ -1,12 +1,12 @@
 #!/bin/sh
 # A local HTTP server on 127.0.0.1 for the smoke test, answering the probes of one streaming
-# service per regional group, and its table in the config file. The smoke run then exercises
-# ip.media end to end without contacting any external streaming platform. CI runs it before
-# smoke, after scripts/smoke-ip.sh.
+# service per regional group, and its entry in the smoke overrides JSON. The smoke run then
+# exercises ip.media end to end without contacting any external streaming platform. CI runs it
+# before smoke, after scripts/smoke-ip.sh.
 #
-# Usage: scripts/smoke-media.sh <directory> <config file>
-# Starts the server on 127.0.0.1:18080, writes server.pid into the directory, and appends
-# [plugins."ip.media"] to the config file.
+# Usage: scripts/smoke-media.sh <directory> <overrides json>
+# Starts the server on 127.0.0.1:18080, writes server.pid into the directory, and updates ip.media
+# in <overrides json>.
 set -eu
 
 fail() {
@@ -14,10 +14,10 @@ fail() {
     exit 1
 }
 
-[ $# -eq 2 ] || fail "usage: scripts/smoke-media.sh <directory> <config file>"
+[ $# -eq 2 ] || fail "usage: scripts/smoke-media.sh <directory> <overrides json>"
 mkdir -p "$1"
 dir=$(cd "$1" && pwd)
-config=$2
+overrides=$2
 port=18080
 
 cat > "$dir/server.py" <<'PY'
@@ -75,9 +75,11 @@ while ! curl --fail --silent "http://127.0.0.1:$port/abema/check" >/dev/null 2>&
     sleep 0.1
 done
 
-cat >> "$config" <<CONFIG
-[plugins."ip.media"]
-services = ["netflix", "abema", "bbc-iplayer", "starz", "stan"]
-base_url = "http://127.0.0.1:$port"
-CONFIG
-echo "smoke-media: media server listens on 127.0.0.1:$port; $config holds its table"
+tmp=$(mktemp)
+trap 'rm -f "$tmp"' EXIT
+jq --arg base "http://127.0.0.1:$port" \
+    '. + {"ip.media": {
+        services: ["netflix", "abema", "bbc-iplayer", "starz", "stan"], base_url: $base
+    }}' "$overrides" > "$tmp"
+mv "$tmp" "$overrides"
+echo "smoke-media: media server listens on 127.0.0.1:$port; $overrides updated"

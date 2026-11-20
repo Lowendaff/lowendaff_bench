@@ -1,11 +1,11 @@
 #!/bin/sh
 # An iperf3 server on this host for the smoke test, of the build that the program pins, and the
-# files that point the network item at it: a server list that names this server alone, and a
-# config file with that list and short tests. The smoke run then measures no public server and
+# files that point the network item at it: a server list that names this server alone, and inline
+# JSON overrides with that list and short tests. The smoke run then measures no public server and
 # downloads no list, so that a merge never waits on a third party. CI runs it before smoke.
 #
 # Usage: scripts/smoke-iperf3.sh <directory>
-# Writes iperf3, servers.json and config.toml into the directory; the server listens on
+# Writes iperf3, servers.json and overrides.json into the directory; the server listens on
 # 127.0.0.1, port 5201, until the host stops. Linux only, with network access for the build, and
 # cargo, which reads the pin.
 set -eu
@@ -49,10 +49,6 @@ cat > "$dir/servers.json" <<LIST
   ]
 }
 LIST
-cat > "$dir/config.toml" <<CONFIG
-[plugins."network.iperf3"]
-list = "$dir/servers.json"
-seconds = 2
-streams = 2
-CONFIG
-echo "smoke-iperf3: iperf3 listens on 127.0.0.1:5201; the network item takes $dir/config.toml"
+jq -n --arg list "$dir/servers.json" \
+    '{"network.iperf3": {list: $list, seconds: 2, streams: 2}}' > "$dir/overrides.json"
+echo "smoke-iperf3: iperf3 listens on 127.0.0.1:5201; overrides written to $dir/overrides.json"
