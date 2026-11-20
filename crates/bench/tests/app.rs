@@ -1678,74 +1678,91 @@ fn the_items_that_do_not_apply_here_are_named_as_the_report_names_them() {
 }
 
 #[test]
-fn tui_is_off_by_default_and_mutually_exclusive_with_every_other_flag() {
-    use clap::CommandFactory;
+fn zero_args_selects_tui_flag_is_gone_and_all_runs_full_cli_suite() {
     use clap::Parser;
 
-    assert!(!cli(&[]).tui, "zero arguments must keep standard CLI mode");
-    assert!(cli(&["--tui"]).tui, "--tui alone must enable TUI mode");
+    assert!(app::should_enter_tui(0));
+    assert!(app::should_enter_tui(1));
+    assert!(!app::should_enter_tui(2));
+    assert!(
+        Cli::try_parse_from(["lowendaff-bench", "--tui"]).is_err(),
+        "--tui flag must be removed"
+    );
 
-    let incompatible: &[&[&str]] = &[
-        &["--tui", "--only", "cpu"],
-        &["--tui", "--skip", "cpu.bench"],
-        &["--tui", "-o", "report.txt"],
-        &["--tui", "--output", "report.md"],
-        &["--tui", "-f", "text"],
-        &["--tui", "--format", "json"],
-        &["--tui", "--work-dir", "."],
-        &["--tui", "--list"],
-        &["--tui", "-v"],
-        &["--tui", "--verbose"],
-        &["--tui", "--show-ip"],
-        &["--tui", "--download-connections", "32"],
-        &["--tui", "--cpu-bench", "sysbench"],
-        &["--tui", "--countries", "US"],
-        &["--tui", "--trace-groups", "china"],
-        &["--tui", "--media-groups", "asia"],
-        &["--tui", "--no-dnsbl"],
-        &["--tui", "--no-mail"],
-        &["--tui", "--no-bgp-upload"],
-        &["--tui", "--internal-overrides", "{}"],
-    ];
-    for args in incompatible {
-        let full: Vec<&str> = std::iter::once("lowendaff-bench")
-            .chain(args.iter().copied())
-            .collect();
-        assert!(
-            Cli::try_parse_from(&full).is_err(),
-            "--tui must reject accompanying arguments: {args:?}"
-        );
-    }
+    let via_flag = cli(&["--all"]);
+    assert!(via_flag.all);
+    let all = registry::all();
+    let planned_flag = app::prepare(&via_flag, &all).unwrap();
+    assert_eq!(planned_flag.len(), 12);
 
-    // Every non-built-in argument declared on Cli must be covered by --tui's conflict list.
-    let cmd = Cli::command();
-    for arg in cmd.get_arguments() {
-        let id = arg.get_id().as_str();
-        if matches!(id, "tui" | "help" | "version") {
-            continue;
-        }
-        let long = arg
-            .get_long()
-            .expect("every bench CLI argument declares a long flag");
-        let flag = format!("--{long}");
-        let takes_vals = arg.get_num_args().is_some_and(|range| range.takes_values());
-        let parsed = if takes_vals {
-            let sample = match id {
-                "format" => "text",
-                "download_connections" => "32",
-                "cpu_bench" => "all",
-                "trace_groups" => "all",
-                "media_groups" => "all",
-                "internal_overrides" => "{}",
-                _ => "cpu",
-            };
-            Cli::try_parse_from(["lowendaff-bench", "--tui", &flag, sample])
-        } else {
-            Cli::try_parse_from(["lowendaff-bench", "--tui", &flag])
-        };
-        assert!(
-            parsed.is_err(),
-            "--tui must conflict with --{long} (arg id `{id}`)"
-        );
-    }
+    let planned_short = app::prepare(&cli(&["-a", "--skip", "network.trace"]), &all).unwrap();
+    assert_eq!(planned_short.len(), 11);
+
+    let planned_only_all =
+        app::prepare(&cli(&["--only", "all", "--skip", "ip.media"]), &all).unwrap();
+    assert_eq!(planned_only_all.len(), 11);
+
+    let planned_skip_all = app::prepare(&cli(&["--skip", "all"]), &all).unwrap();
+    assert!(planned_skip_all.is_empty());
+
+    assert!(
+        Cli::try_parse_from(["lowendaff-bench", "--all", "--only", "cpu"]).is_err(),
+        "--all must conflict with --only"
+    );
+}
+
+#[tokio::test]
+async fn default_report_archive_formats_utc_timestamps_and_writes_unwrapped_copy() {
+    use bench::report_path;
+
+    assert_eq!(report_path::format_utc_timestamp(0), "19700101-000000");
+    assert_eq!(
+        report_path::format_utc_timestamp(1_709_251_199),
+        "20240229-235959"
+    );
+    let tmp = tempfile::tempdir().unwrap();
+    let archive_path = report_path::path_in(tmp.path(), 1_795_204_800, Format::Markdown);
+    assert!(
+        archive_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .is_some_and(|n| n.starts_with("lowendaff-bench-") && n.ends_with(".md"))
+    );
+
+    let work = tempfile::tempdir().unwrap();
+    let mut stdout_buf = Vec::new();
+    let (log, capturing) = Captured::start(false);
+    let report = ReportOptions {
+        out: &mut stdout_buf,
+        format: Format::Markdown,
+        width: Some(40),
+        show_ip: false,
+    };
+    let downloads = Downloads::default();
+    let code = app::execute_with_copy(
+        Vec::new(),
+        HostProfile::default(),
+        work.path(),
+        &CancellationToken::new(),
+        |family, url, range| downloads.open(family, url, range),
+        1,
+        report,
+        Some(&archive_path),
+    )
+    .await
+    .unwrap();
+    drop(capturing);
+
+    assert_eq!(code, 0);
+    let stdout_text = String::from_utf8(stdout_buf).unwrap();
+    let saved_text = std::fs::read_to_string(&archive_path).unwrap();
+    assert_eq!(saved_text, stdout_text);
+    assert!(saved_text.starts_with("# lowendaff-bench"));
+    assert!(
+        log.lines()
+            .iter()
+            .any(|line| line.contains("Saved report to")),
+        "progress log should confirm archive path: {:?}",
+        log.lines()
+    );
 }

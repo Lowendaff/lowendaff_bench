@@ -13,6 +13,7 @@ use bench::network;
 use bench::progress;
 use bench::registry;
 use bench::report::Format;
+use bench::report_path;
 use bench::tui;
 use bench_api::CancellationToken;
 use bench_host::profile::HostProfile;
@@ -20,6 +21,7 @@ use tokio::runtime;
 use tokio::signal;
 
 fn main() -> ExitCode {
+    let default_tui = app::should_enter_tui(std::env::args_os().len());
     let cli = Cli::from_env();
     let registry = registry::all();
     if cli.list {
@@ -30,7 +32,7 @@ fn main() -> ExitCode {
         eprintln!("{}", locale::words().not_root());
         return ExitCode::from(app::EXIT_USAGE);
     }
-    if cli.tui {
+    if default_tui {
         return tui::run(registry);
     }
     progress::init(cli.verbose);
@@ -86,13 +88,17 @@ fn main() -> ExitCode {
             .map_err(|err| locale::words().network_failed(&err))?;
         progress::network(&host.network);
         let fetchers = Fetchers::try_new()?;
+        let auto_copy = cli
+            .output
+            .is_none()
+            .then(|| report_path::default_path(cli.format));
         let report = ReportOptions {
             out: output,
             format: cli.format,
             width: report_width,
             show_ip: cli.show_ip,
         };
-        app::execute(
+        app::execute_with_copy(
             planned,
             host,
             &cli.work_dir,
@@ -100,6 +106,7 @@ fn main() -> ExitCode {
             |family, url, range| fetchers.open(family, url, range),
             usize::from(cli.download_connections),
             report,
+            auto_copy.as_deref(),
         )
         .await
     });

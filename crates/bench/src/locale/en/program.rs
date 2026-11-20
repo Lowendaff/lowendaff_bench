@@ -8,22 +8,30 @@ use crate::locale::ProgramWords;
 
 impl ProgramWords for English {
     fn about(&self) -> String {
-        "Comprehensive test of a Linux server; run it as root.".to_owned()
+        "Comprehensive test of a Linux server; run it as root (starts interactive TUI when given \
+         no options)."
+            .to_owned()
+    }
+
+    fn help_all(&self) -> String {
+        "Run every test item in non-interactive CLI mode".to_owned()
     }
 
     fn help_only(&self) -> String {
-        "Run only these test items: comma-separated groups (cpu,memory,disk,network,ip) or ids \
-         (such as cpu.bench,disk.fio)"
+        "Run only these test items: comma-separated groups (cpu,memory,disk,network,ip), ids \
+         (such as cpu.bench,disk.fio), or all"
             .to_owned()
     }
 
     fn help_skip(&self) -> String {
-        "Skip these test items: comma-separated groups or ids, such as cpu.bench,ip.media"
+        "Skip these test items: comma-separated groups, ids, or all (such as cpu.bench,ip.media)"
             .to_owned()
     }
 
     fn help_output(&self) -> String {
-        "Write the report to this file instead of standard output".to_owned()
+        "Write the report to this file instead of standard output (otherwise prints to stdout \
+         and saves a copy in /tmp)"
+            .to_owned()
     }
 
     fn help_format(&self) -> String {
@@ -88,13 +96,9 @@ impl ProgramWords for English {
         "Skip uploading BGP topology SVG diagrams to imageupload.app in text mode".to_owned()
     }
 
-    fn help_tui(&self) -> String {
-        "Start the interactive terminal interface (cannot be combined with other options)"
-            .to_owned()
-    }
-
     fn tui_not_a_tty(&self) -> String {
-        "--tui requires an interactive terminal (TTY)".to_owned()
+        "interactive mode requires a terminal (TTY); pass --all or --only <ITEM> for CLI mode"
+            .to_owned()
     }
 
     fn list(&self, items: &[String]) -> String {

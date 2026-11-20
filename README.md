@@ -9,8 +9,9 @@ cloud instances), and containers (Docker, LXC, OpenVZ).
 ### Key Highlights
 
 - **Single file, zero setup, no config files.** Download one standalone binary and run it right
-  away on `x86_64` or `aarch64` (ARM64) Linux. Everything is controlled with straightforward
-  command-line options or the interactive `--tui` interface.
+  away on `x86_64` or `aarch64` (ARM64) Linux. Running with no options opens the interactive
+  terminal interface (TUI); passing any option (such as `-a` / `--all`) runs non-interactive CLI
+  mode.
 - **Fair, comparable numbers across every Linux distro.** Helper tools (`sysbench`, `7-Zip`,
   `UnixBench`, `HPL`, `PassMark`, `fio`, `iperf3`, `NextTrace`, `Geekbench 7`, etc.) are
   automatically downloaded at pinned versions and verified by size and SHA-256 before running,
@@ -21,9 +22,9 @@ cloud instances), and containers (Docker, LXC, OpenVZ).
   ARM64). Memory and HPL tests scale to available RAM, and Geekbench 7 automatically sets up
   temporary swap space when RAM is tight so small VPS instances do not crash.
 - **Privacy-friendly reports ready to share.** View clean tables directly in your terminal, or save
-  the report as **Markdown** or **JSON**. By default, your server's public IP addresses, reverse
-  DNS hostnames, and hardware serial numbers are masked so you can share results without manual
-  redaction.
+  the report as **Markdown** or **JSON** (every run also archives a timestamped copy under
+  `/tmp/lowendaff-bench-<timestamp>.<ext>` by default). Your server's public IP addresses, reverse
+  DNS hostnames, and hardware serial numbers are masked unless `--show-ip` is passed.
 
 For deep-dive guides on how each test calculates and interprets its numbers, see
 [`docs/`](docs/README.md) (in Chinese).
@@ -41,12 +42,12 @@ run it with `sudo` (or as `root`):
 # Example for x86_64 (replace with lowendaff-bench-aarch64 on ARM64 servers)
 curl -fLO https://github.com/Lowendaff/lowendaff_bench/releases/latest/download/lowendaff-bench-x86_64
 chmod +x lowendaff-bench-x86_64
-sudo ./lowendaff-bench-x86_64
+sudo ./lowendaff-bench-x86_64        # Opens interactive TUI (or add --all for non-interactive CLI)
 ```
 
-> While tests are running, live progress is shown on screen. Once finished, the complete formatted
-> report prints at the end. Press `Ctrl-C` once at any time to stop early and still get a report of
-> everything completed so far.
+> Every finished run also archives an unwrapped copy of the report to
+> `/tmp/lowendaff-bench-<timestamp>.<txt|md|json>` automatically. Press `Ctrl-C` once at any time
+> to stop early and still get a report of everything completed so far.
 
 ---
 
@@ -58,11 +59,11 @@ Assuming the binary is named `lowendaff-bench`:
 # 1. See all 12 available test items and what they require (no root needed)
 ./lowendaff-bench --list
 
-# 2. Run the full suite (CPU, memory, disk, network speed/routes/BGP, IP reputation, media unlock)
+# 2. Launch the interactive TUI (default when run with no options: toggle items, edit params, view report)
 sudo ./lowendaff-bench
 
-# 2b. Launch the interactive TUI (toggle items, edit parameters, watch progress, and browse report)
-sudo ./lowendaff-bench --tui
+# 2b. Run the full suite non-interactively in CLI mode (CPU, memory, disk, network, IP, streaming)
+sudo ./lowendaff-bench --all
 
 # 3. Quick server check: run fast CPU sub-suites (skip UnixBench & Geekbench) and skip route tracing
 sudo ./lowendaff-bench --cpu-bench sysbench,7zip,hpl,passmark --skip network.trace
@@ -105,10 +106,11 @@ sudo ALL_PROXY=socks5h://127.0.0.1:1080 ./lowendaff-bench --download-connections
 
 | Option | Syntax | Default | What it does |
 |---|---|---|---|
-| `--tui` | *(flag)* | Off | Launch the interactive terminal interface to toggle items, edit per-item & global parameters, monitor live progress, and browse the report (**mutually exclusive with all other options**) |
-| `--only` | `<ITEM,...>` | All items | Run only the listed categories or test IDs (comma-separated or repeated) |
-| `--skip` | `<ITEM,...>` | None | Skip the listed categories or test IDs (can be combined with `--only`) |
-| `-o, --output` | `<FILE>` | Terminal | Save the final report to `<FILE>` instead of printing it to standard output |
+| *(no options)* | — | Interactive TUI | Running `sudo ./lowendaff-bench` with zero arguments launches the interactive TUI (toggle items with bidirectional sub-option sync, edit parameters, monitor progress, and browse the report) |
+| `-a, --all` | *(flag)* | Off | Run every test item in non-interactive CLI mode (equivalent to `--only all`) |
+| `--only` | `<ITEM,...>` | All items | Run only the listed categories, test IDs, or `all` in CLI mode (comma-separated or repeated) |
+| `--skip` | `<ITEM,...>` | None | Skip the listed categories, test IDs, or `all` (can be combined with `--all` or `--only`) |
+| `-o, --output` | `<FILE>` | Terminal + `/tmp` | Write the final report only to `<FILE>` (when omitted, prints to terminal/viewer and saves an unwrapped copy to `/tmp/lowendaff-bench-<timestamp>.<ext>`) |
 | `-f, --format` | `<FORMAT>` | `text` | Choose report format: `text`, `markdown` (or `md`), or `json` |
 | `--work-dir` | `<DIR>` | `.` | Directory used for temporary test files, cleaned up on exit (point this at the disk you want to test; avoid `/tmp`) |
 | `--cpu-bench` | `<SUITE,...>` | 6 default suites | Choose which sub-suites `cpu.bench` runs (`sysbench`, `7zip`, `unixbench`, `hpl`, `passmark`, `ycruncher`, `prime95`, `geekbench`, or `all`) |

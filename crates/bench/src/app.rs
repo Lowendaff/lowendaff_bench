@@ -153,7 +153,11 @@ impl MediaGroup {
 #[derive(Debug, clap::Parser)]
 #[command(name = "lowendaff-bench", version, about = locale::words().about())]
 pub struct Cli {
-    // The test items to run: ids or groups.
+    // Runs every test item in non-interactive CLI mode.
+    #[arg(short, long, conflicts_with = "only", help = locale::words().help_all())]
+    pub all: bool,
+
+    // The test items to run: ids, groups, or `all`.
     #[arg(long, value_delimiter = ',', help = locale::words().help_only())]
     pub only: Vec<String>,
 
@@ -244,35 +248,15 @@ pub struct Cli {
     #[arg(long, help = locale::words().help_no_bgp_upload())]
     pub no_bgp_upload: bool,
 
-    // Starts the interactive terminal interface; incompatible with all other options.
-    #[arg(
-        long,
-        conflicts_with_all = [
-            "only",
-            "skip",
-            "output",
-            "format",
-            "work_dir",
-            "list",
-            "verbose",
-            "show_ip",
-            "download_connections",
-            "cpu_bench",
-            "countries",
-            "trace_groups",
-            "media_groups",
-            "no_dnsbl",
-            "no_mail",
-            "no_bgp_upload",
-            "internal_overrides",
-        ],
-        help = locale::words().help_tui()
-    )]
-    pub tui: bool,
-
     // Inline JSON overrides used by CI loopback smoke scripts (hidden; no local config files).
     #[arg(long = "internal-overrides", hide = true)]
     pub internal_overrides: Option<String>,
+}
+
+/// Whether `os_arg_count` (`std::env::args_os().len()`) selects the default interactive TUI.
+#[must_use]
+pub const fn should_enter_tui(os_arg_count: usize) -> bool {
+    os_arg_count <= 1
 }
 
 impl Cli {
@@ -345,15 +329,16 @@ pub fn prepare(cli: &Cli, registry: &[Entry]) -> Result<Vec<Planned<Measured>>, 
     orchestrator::plan(registry, &ids, &settings)
 }
 
-/// Registry order, narrowed by `--only` and `--skip`, which take ids or group names; unknown
-/// names are errors.
+/// Registry order, narrowed by `--only` and `--skip`, which take ids, group names, or `all`;
+/// unknown names are errors.
 pub fn select(
     registry: &[Entry],
     only: &[String],
     skip: &[String],
 ) -> Result<Vec<&'static str>, Vec<String>> {
-    // A name is a whole id or a whole group, never a part of one.
-    let names = |name: &str, id: &str| name == id || name == orchestrator::group_of(id);
+    // A name is `all`, a whole id, or a whole group, never a part of one.
+    let names =
+        |name: &str, id: &str| name == "all" || name == id || name == orchestrator::group_of(id);
     let known = |name: &String| registry.iter().any(|entry| names(name, entry.id));
     let errors: Vec<String> = only
         .iter()
@@ -528,6 +513,37 @@ where
     R: AsyncRead + Unpin,
     W: Write,
 {
+    execute_with_copy(
+        planned,
+        host,
+        work_dir,
+        cancel,
+        fetch,
+        connections,
+        report,
+        None,
+    )
+    .await
+}
+
+/// Like [`execute`], and optionally saves an unwrapped archive copy of the report to `copy_path`.
+#[allow(clippy::too_many_arguments)]
+pub async fn execute_with_copy<F, Fut, R, W>(
+    planned: Vec<Planned<Measured>>,
+    host: HostProfile,
+    work_dir: &Path,
+    cancel: &CancellationToken,
+    fetch: F,
+    connections: usize,
+    report: ReportOptions<W>,
+    copy_path: Option<&Path>,
+) -> Result<u8, String>
+where
+    F: Fn(Option<IpFamily>, &'static str, Option<Range<u64>>) -> Fut,
+    Fut: Future<Output = Result<Part<R>, DownloadError>>,
+    R: AsyncRead + Unpin,
+    W: Write,
+{
     let mut outcome = execute_with_observer(
         planned,
         host,
@@ -552,14 +568,26 @@ where
             outcome.exit_code = EXIT_INTERRUPTED;
         }
     }
+    let rendered = outcome.render(format, width, show_ip);
     // Output is best effort: a closed stdout must not change the exit code.
-    let _ = out.write_all(outcome.render(format, width, show_ip).as_bytes());
+    let _ = out.write_all(rendered.as_bytes());
     let _ = out.flush();
+    if let Some(path) = copy_path {
+        let archive_text = if width.is_none() {
+            rendered
+        } else {
+            outcome.render(format, None, show_ip)
+        };
+        match crate::report_path::save_copy(path, &archive_text) {
+            Ok(()) => tracing::info!("{}", locale::words().tui_saved_to(path)),
+            Err(err) => tracing::warn!("{err}"),
+        }
+    }
     Ok(outcome.exit_code)
 }
 
 /// Runs a prepared plan with a custom [`Observer`] and returns the raw [`Outcome`] without writing
-/// the report, so both CLI output and the interactive `--tui` viewer share the same runner.
+/// the report, so both CLI output and the interactive TUI viewer share the same runner.
 pub async fn execute_with_observer<F, Fut, R>(
     planned: Vec<Planned<Measured>>,
     host: HostProfile,

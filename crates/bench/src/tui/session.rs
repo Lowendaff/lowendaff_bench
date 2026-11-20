@@ -18,6 +18,7 @@ use crate::app::Outcome;
 use crate::locale;
 use crate::registry::Entry;
 use crate::report::Format;
+use crate::report_path;
 
 /// Maximum lines retained in the in-memory live event log.
 const MAX_LOG_LINES: usize = 2000;
@@ -685,7 +686,7 @@ impl Session {
                 NavTarget::Start => Command::StartRun,
                 NavTarget::Item(idx) => {
                     if let Some(item) = self.config.items.get_mut(idx) {
-                        item.enabled = !item.enabled;
+                        item.toggle_enabled();
                     }
                     self.note = None;
                     Command::None
@@ -970,7 +971,9 @@ impl Session {
             }
             KeyCode::Char('s' | 'S') => {
                 let default_path = if self.config.global.output.trim().is_empty() {
-                    default_filename(results.format).to_owned()
+                    report_path::default_path(results.format)
+                        .display()
+                        .to_string()
                 } else {
                     self.config.global.output.trim().to_owned()
                 };
@@ -1164,12 +1167,4 @@ fn extract_sections(lines: &[String], format: Format) -> Vec<SectionAnchor> {
         }
     }
     anchors
-}
-
-const fn default_filename(format: Format) -> &'static str {
-    match format {
-        Format::Text => "report.txt",
-        Format::Markdown => "report.md",
-        Format::Json => "report.json",
-    }
 }

@@ -1,4 +1,4 @@
-//! Interactive `--tui` terminal interface powered by `ratatui` and `crossterm`: alternate-screen
+//! Interactive terminal interface powered by `ratatui` and `crossterm`: alternate-screen
 //! lifecycle with panic restoration, background benchmark runner, in-memory `tracing` subscriber,
 //! live progress dashboard, and 2D-scrollable multi-format report viewer.
 
@@ -11,7 +11,6 @@ use std::io;
 use std::io::IsTerminal;
 use std::io::Stdout;
 use std::io::Write;
-use std::path::Path;
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::Arc;
@@ -56,6 +55,7 @@ use crate::progress;
 use crate::progress::Log;
 use crate::registry::Entry;
 use crate::report;
+use crate::report_path;
 use crate::results::Measured;
 
 pub use config::GlobalConfig;
@@ -68,7 +68,7 @@ pub use session::Pane;
 pub use session::Screen;
 pub use session::Session;
 
-/// Runs the interactive `--tui` session until the user exits.
+/// Runs the interactive TUI session until the user exits.
 #[must_use]
 pub fn run(registry: Vec<Entry>) -> ExitCode {
     if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
@@ -191,7 +191,7 @@ async fn event_loop(
                         }
                     }
                     Command::SaveReport { path, contents } => {
-                        let res = write_report_file(&path, &contents);
+                        let res = report_path::save_copy(&path, &contents);
                         session.on_report_saved(&path, res);
                     }
                     Command::Quit(code) => {
@@ -273,11 +273,11 @@ fn launch_run(
         .build_plan(registry)
         .map_err(|errs| errs.join("; "))?;
 
-    let output_path = {
+    let custom_output = {
         let trimmed = session.config.global.output.trim();
         (!trimmed.is_empty()).then(|| PathBuf::from(trimmed))
     };
-    if let Some(path) = &output_path {
+    if let Some(path) = &custom_output {
         let _file = app::create_output(path)?;
     }
 
@@ -301,15 +301,21 @@ fn launch_run(
 
     tokio::spawn(async move {
         let outcome = run_worker(planned, work_dir, connections, &worker_cancel, tx.clone()).await;
-        let saved_note = match (&outcome, &output_path) {
-            (Ok(done), Some(path)) => {
+        let saved_note = match &outcome {
+            Ok(done) => {
+                let target_path = custom_output
+                    .clone()
+                    .unwrap_or_else(|| report_path::default_path(save_format));
                 let text = done.render(save_format, None, save_show_ip);
-                match write_report_file(path, &text) {
-                    Ok(()) => Some((session::NoteKind::Info, locale::words().tui_saved_to(path))),
+                match report_path::save_copy(&target_path, &text) {
+                    Ok(()) => Some((
+                        session::NoteKind::Info,
+                        locale::words().tui_saved_to(&target_path),
+                    )),
                     Err(err) => Some((session::NoteKind::Error, err)),
                 }
             }
-            _ => None,
+            Err(_) => None,
         };
         let _ = tx.send(WorkerEvent::Finished {
             result: outcome,
@@ -406,13 +412,6 @@ impl Observer<Measured> for TuiObserver {
             skipped,
         });
     }
-}
-
-fn write_report_file(path: &Path, contents: &str) -> Result<(), String> {
-    let mut file = app::create_output(path)?;
-    file.write_all(contents.as_bytes())
-        .and_then(|()| file.flush())
-        .map_err(|err| locale::words().output_unwritable(path, &err))
 }
 
 fn install_panic_hook() {

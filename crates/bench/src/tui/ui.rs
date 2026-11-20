@@ -40,6 +40,7 @@ use super::session::RunningState;
 use super::session::Screen;
 use super::session::Session;
 use crate::locale;
+use crate::report_path;
 
 /// Minimum terminal columns for full multi-pane layout.
 const MIN_COLS: u16 = 60;
@@ -137,10 +138,10 @@ fn draw_config_left(frame: &mut Frame<'_>, session: &Session, area: Rect) {
                 } else {
                     ("[ ]", Style::default().add_modifier(Modifier::DIM))
                 };
-                let star = if item.params.is_default() {
-                    Span::raw(" ")
-                } else {
+                let star = if item.is_customized() {
                     Span::styled("*", Style::default().fg(Color::Yellow))
+                } else {
+                    Span::raw(" ")
                 };
                 let name_style = if item.enabled {
                     Style::default()
@@ -216,8 +217,10 @@ fn draw_config_right(frame: &mut Frame<'_>, session: &Session, area: Rect) {
             let block = pane_block(words.tui_overview_pane(), active);
             let inner = block.inner(area);
             frame.render_widget(block, area);
+            let auto_out;
             let output_label = if session.config.global.output.trim().is_empty() {
-                words.tui_viewer_only()
+                auto_out = report_path::auto_label(session.config.global.format);
+                auto_out.as_str()
             } else {
                 session.config.global.output.trim()
             };
@@ -336,13 +339,20 @@ fn draw_field_list(
         .map(|row| {
             let pad = label_cols.saturating_sub(row.label.width());
             let padded_label = format!("{}{}  ", row.label, " ".repeat(pad));
-            let val_style = if row.customized {
+            let label_style = if row.dimmed {
+                Style::default().add_modifier(Modifier::DIM)
+            } else {
+                Style::default()
+            };
+            let val_style = if row.dimmed {
+                Style::default().add_modifier(Modifier::DIM)
+            } else if row.customized {
                 Style::default().fg(Color::Yellow)
             } else {
                 Style::default()
             };
             ListItem::new(Line::from(vec![
-                Span::raw(padded_label),
+                Span::styled(padded_label, label_style),
                 Span::styled(row.value.clone(), val_style),
             ]))
         })
