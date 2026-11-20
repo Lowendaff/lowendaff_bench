@@ -6,6 +6,7 @@ mod items;
 mod log;
 mod program;
 mod report;
+mod tui;
 
 /// English.
 pub struct English;

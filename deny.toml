@@ -16,6 +16,7 @@ allow = [
     "ISC",
     "MIT",
     "Unicode-3.0",
+    "Zlib", # foldhash (via hashbrown in ratatui-core)
 ]
 confidence-threshold = 0.93
 
@@ -65,6 +66,13 @@ deny = [
         "bench",
     ] },
     { crate = "comfy-table", reason = "only the reporter in bench formats", wrappers = [
+        "bench",
+    ] },
+    { crate = "crossterm", reason = "only the TUI in bench drives the terminal", wrappers = [
+        "bench",
+        "ratatui-crossterm",
+    ] },
+    { crate = "ratatui", reason = "only the TUI in bench draws the interface", wrappers = [
         "bench",
     ] },
     { crate = "reqwest", reason = "only the program in bench connects anywhere", wrappers = [

@@ -26,7 +26,9 @@ use tokio::io::AsyncRead;
 use crate::locale;
 use crate::netprobe::NetProbers;
 use crate::orchestrator;
+use crate::orchestrator::Observer;
 use crate::orchestrator::Planned;
+use crate::orchestrator::Run;
 use crate::orchestrator::Settings;
 use crate::prober::Probers;
 use crate::progress::Log;
@@ -185,6 +187,30 @@ pub struct Cli {
     // Skips outbound TCP port-25 mail checks in ip.quality.
     #[arg(long, help = locale::words().help_no_mail())]
     pub no_mail: bool,
+
+    // Starts the interactive terminal interface; incompatible with all other options.
+    #[arg(
+        long,
+        conflicts_with_all = [
+            "only",
+            "skip",
+            "output",
+            "format",
+            "work_dir",
+            "list",
+            "verbose",
+            "show_ip",
+            "download_connections",
+            "countries",
+            "trace_groups",
+            "media_groups",
+            "no_dnsbl",
+            "no_mail",
+            "internal_overrides",
+        ],
+        help = locale::words().help_tui()
+    )]
+    pub tui: bool,
 
     // Inline JSON overrides used by CI loopback smoke scripts (hidden; no local config files).
     #[arg(long = "internal-overrides", hide = true)]
@@ -367,6 +393,37 @@ pub struct ReportOptions<W> {
     pub show_ip: bool,
 }
 
+/// Everything produced by a benchmark run before the report is formatted.
+#[derive(Debug, Clone)]
+pub struct Outcome {
+    /// The host profile collected before the run.
+    pub host: Arc<HostProfile>,
+    /// Titles of plugins that do not apply to this host.
+    pub not_applicable: Vec<&'static str>,
+    /// Every applicable plugin's run result, in run order.
+    pub runs: Vec<Run<Measured>>,
+    /// Total elapsed wall time of the run.
+    pub total: Duration,
+    /// Process exit code (`0`, or `EXIT_INTERRUPTED` if cancelled).
+    pub exit_code: u8,
+}
+
+impl Outcome {
+    /// Renders this outcome in `format` (`width` wraps tables in [`Format::Text`] only).
+    #[must_use]
+    pub fn render(&self, format: Format, width: Option<u16>, show_ip: bool) -> String {
+        let page = Page {
+            version: env!("CARGO_PKG_VERSION"),
+            host: &self.host,
+            show_ip,
+            not_applicable: &self.not_applicable,
+            runs: &self.runs,
+            total: self.total,
+        };
+        report::render(&page, format, width)
+    }
+}
+
 /// Runs a prepared plan on the host that `host` describes, inside a fresh run directory under
 /// `work_dir`, which is removed afterwards, with the tools that `fetch` downloads from their
 /// pinned addresses, over up to `connections` connections a file, and the files that the plugins
@@ -386,6 +443,44 @@ where
     Fut: Future<Output = Result<Part<R>, DownloadError>>,
     R: AsyncRead + Unpin,
     W: Write,
+{
+    let outcome = execute_with_observer(
+        planned,
+        host,
+        work_dir,
+        cancel,
+        fetch,
+        connections,
+        &mut Log,
+    )
+    .await?;
+    let ReportOptions {
+        mut out,
+        format,
+        width,
+        show_ip,
+    } = report;
+    // Output is best effort: a closed stdout must not change the exit code.
+    let _ = out.write_all(outcome.render(format, width, show_ip).as_bytes());
+    let _ = out.flush();
+    Ok(outcome.exit_code)
+}
+
+/// Runs a prepared plan with a custom [`Observer`] and returns the raw [`Outcome`] without writing
+/// the report, so both CLI output and the interactive `--tui` viewer share the same runner.
+pub async fn execute_with_observer<F, Fut, R>(
+    planned: Vec<Planned<Measured>>,
+    host: HostProfile,
+    work_dir: &Path,
+    cancel: &CancellationToken,
+    fetch: F,
+    connections: usize,
+    observer: &mut dyn Observer<Measured>,
+) -> Result<Outcome, String>
+where
+    F: Fn(Option<IpFamily>, &'static str, Option<Range<u64>>) -> Fut,
+    Fut: Future<Output = Result<Part<R>, DownloadError>>,
+    R: AsyncRead + Unpin,
 {
     use std::os::unix::fs::PermissionsExt;
 
@@ -456,28 +551,19 @@ where
         net: Some(net_probers),
         host: Arc::clone(&host),
     };
-    let runs = orchestrator::run_plan(planned, cancel, &settings, &mut Log).await;
-    let ReportOptions {
-        mut out,
-        format,
-        width,
-        show_ip,
-    } = report;
-    let page = Page {
-        version: env!("CARGO_PKG_VERSION"),
-        host: &host,
-        show_ip,
-        not_applicable: &not_applicable,
-        runs: &runs,
-        total: started.elapsed(),
-    };
-    // Output is best effort: a closed stdout must not change the exit code.
-    let _ = out.write_all(report::render(&page, format, width).as_bytes());
-    let _ = out.flush();
+    let runs = orchestrator::run_plan(planned, cancel, &settings, observer).await;
+    let total = started.elapsed();
     drop(run_dir);
-    Ok(if cancel.is_cancelled() {
+    let exit_code = if cancel.is_cancelled() {
         EXIT_INTERRUPTED
     } else {
         0
+    };
+    Ok(Outcome {
+        host,
+        not_applicable,
+        runs,
+        total,
+        exit_code,
     })
 }
