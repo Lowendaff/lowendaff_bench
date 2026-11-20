@@ -18,36 +18,59 @@ fail() {
 target=$1
 repo=$PWD
 scratch=$repo/target/smoke-mutants
-bin=$scratch/target/$target/release/lowendaff-bench
+built=$repo/target/$target/release/lowendaff-bench
+bin=$scratch/bin/lowendaff-bench
 if [ "$(id -u)" -eq 0 ]; then
     as_root=""
 else
     as_root="sudo"
 fi
 
-# A defective binary can leave root-owned files in the run directory.
+# A defective binary can leave root-owned files in the run directory; if Static build already
+# produced $built, restore it on exit so later steps see the untouched release binary.
 cleanup() {
-    rm -rf "$scratch/src"
+    if [ -f "$scratch/orig-lowendaff-bench" ]; then
+        cp -p "$scratch/orig-lowendaff-bench" "$built" || true
+    fi
     $as_root rm -rf "$scratch/run"
+    rm -rf "$scratch"
 }
 trap cleanup EXIT
 
-# build [<file> <perl substitution>]: builds the binary from a fresh copy of the sources,
-# with the substitution applied to the file.
+rm -rf "$scratch"
+mkdir -p "$scratch/bin" "$scratch/src"
+if [ -f "$built" ]; then
+    cp -p "$built" "$scratch/orig-lowendaff-bench"
+fi
+# Preserve timestamps (-p) so Cargo treats unchanged workspace and dependency crates in
+# $repo/target as fresh instead of recompiling 200+ dependencies from scratch.
+cp -pR Cargo.toml Cargo.lock crates plugins "$scratch/src/"
+dirty=""
+
+# build [<file> <perl substitution>]: builds the binary from $scratch/src, restoring any file
+# mutated by the previous round first (without -p so Cargo sees its mtime advance).
 build() {
-    rm -rf "$scratch/src"
-    mkdir -p "$scratch/src"
-    # Every workspace member: crates/* and plugins/* (Cargo.toml).
-    cp -R Cargo.toml Cargo.lock crates plugins "$scratch/src/"
+    if [ -n "$dirty" ]; then
+        cp "$repo/$dirty" "$scratch/src/$dirty"
+        dirty=""
+    fi
     if [ $# -eq 2 ]; then
         [ -f "$1" ] || fail "no such file: $1"
+        cp "$repo/$1" "$scratch/src/$1"
         perl -0pi -e "$2" "$scratch/src/$1"
         if cmp -s "$1" "$scratch/src/$1"; then
             fail "the substitution does not change $1: $2"
         fi
+        dirty=$1
     fi
-    cargo build --quiet --release --locked --target "$target" --bin lowendaff-bench \
-        --manifest-path "$scratch/src/Cargo.toml" --target-dir "$scratch/target"
+    # Unset RUSTC_WRAPPER: dependency crates are already compiled in $repo/target, and one-off
+    # mutant binaries are never cacheable by sccache.
+    (
+        unset RUSTC_WRAPPER
+        cargo build --quiet --release --locked --target "$target" --bin lowendaff-bench \
+            --manifest-path "$scratch/src/Cargo.toml" --target-dir "$repo/target"
+    )
+    cp -p "$built" "$bin"
 }
 
 # smoke: runs smoke.sh on the built binary in a fresh directory and prints its output. The

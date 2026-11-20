@@ -196,10 +196,18 @@ jobs:
           rustup toolchain install
           rustup target add "$TARGET"
       # musl-gcc builds ring's C code for the musl target; mold links faster. Both come from
-      # the Ubuntu 24.04 archive, so their versions follow the runner image.
+      # the Ubuntu 24.04 archive, so their versions follow the runner image. Preinstalled
+      # third-party apt lists and man-db triggers are skipped to keep apt fast and reliable.
       - name: Install musl-gcc and mold
         if: steps.scope.outputs.run != 'false'
-        run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends musl-tools mold
+        run: |
+          if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then
+            sudo find /etc/apt/sources.list.d -maxdepth 1 ! -name ubuntu.sources -type f -delete
+          fi
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends \
+            -o Dpkg::Options::=--path-exclude='/usr/share/man/*' \
+            musl-tools mold
       - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
         if: steps.scope.outputs.run != 'false'
         with:
