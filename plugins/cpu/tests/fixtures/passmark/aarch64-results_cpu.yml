@@ -1,0 +1,36 @@
+BaselineInfo:
+  WebDBID: -1
+  TimeStamp: 20261120184440
+Version:
+  Major: 11
+  Minor: 0
+  Build: 1004
+  SpecialBuildName: ""
+  ptArchitecture: aarch64_linux
+Results:
+  Results Complete: true
+  NumTestProcesses: 10
+  CPU_INTEGER_MATH: 51407.408000000003
+  CPU_FLOATINGPOINT_MATH: 92573.485450241016
+  CPU_PRIME: 109.28130034272702
+  CPU_SORTING: 41246.95685207683
+  CPU_ENCRYPTION: 2175.2290775329398
+  CPU_COMPRESSION: 68736.19669098781
+  CPU_SINGLETHREAD: 4324.9122047560022
+  CPU_PHYSICS: 2029.5340838963823
+  CPU_MATRIX_MULT_SSE: 8922.2679552103145
+  SUMM_CPU: 10413.786880825828
+  SUMM_ME: 0
+SystemInformation:
+  OSName: Debian GNU/Linux 13 (trixie)
+  Kernel: 6.12.0-generic
+  Device: ""
+  Processor: Generic ARM64 - 10 Core
+  NumSockets: 1
+  Manufacturer: Generic
+  NumCores: 10
+  NumLogicals: 10
+  CPUFrequency: 0
+  CPUMaxFrequency: 0
+  Memory: 8192
+Checksum: 0000000000000000000000000000000000000000

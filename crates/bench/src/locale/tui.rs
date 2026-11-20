@@ -60,6 +60,8 @@ pub trait TuiWords {
     fn tui_no(&self) -> &'static str;
     /// Field label: whether a test item is enabled.
     fn tui_field_enabled(&self) -> &'static str;
+    /// `cpu.bench` field: sub-suite toggle.
+    fn tui_field_cpu_suite(&self, suite: &str) -> String;
     /// `network.iperf3` field: ISO country codes or `all`.
     fn tui_field_countries(&self) -> &'static str;
     /// `network.iperf3` field: specific server IDs.
@@ -104,6 +106,8 @@ pub trait TuiWords {
     fn tui_default_none(&self) -> &'static str;
     /// Placeholder value when rate limit is unset.
     fn tui_unlimited(&self) -> &'static str;
+    /// Note explaining `cpu.bench` default and opt-in sub-suites.
+    fn tui_default_cpu_note(&self) -> &'static str;
     /// Placeholder value when trace groups use default cache + carrier list.
     fn tui_default_trace_note(&self) -> &'static str;
     /// Note explaining `network.bgp` topology SVG upload in `text` mode.
@@ -122,6 +126,8 @@ pub trait TuiWords {
     fn tui_edit_hint(&self) -> &'static str;
     /// Validation error when no test item is enabled.
     fn tui_no_items_selected(&self) -> String;
+    /// Validation error when `cpu.bench` is enabled with all sub-suites unchecked.
+    fn tui_no_cpu_suites_selected(&self) -> String;
     /// Validation error for an integer field outside `min..=max`.
     fn tui_invalid_number(&self, field: &str, min: u32, max: u32) -> String;
     /// Validation error when `work_dir` is empty.

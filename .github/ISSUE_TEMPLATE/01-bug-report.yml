@@ -18,7 +18,7 @@ body:
       options:
         - "CLI & Orchestrator / 命令行参数与调度器"
         - "[System] Host & Hardware Profile / 系统与硬件环境探针"
-        - "cpu.* (cpu.sysbench / cpu.geekbench)"
+        - "cpu.bench (sysbench / 7zip / unixbench / hpl / passmark / ycruncher / prime95 / geekbench)"
         - "memory.* (sysbench / stream / latency / numa)"
         - "disk.* (disk.health / disk.fio)"
         - "network.* (network.iperf3 / network.trace / network.bgp)"

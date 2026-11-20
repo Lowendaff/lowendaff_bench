@@ -43,6 +43,9 @@ pub struct Job {
     pub dir: Option<PathBuf>,
     /// How long it may run before it is stopped.
     pub limit: Duration,
+    /// Optional duration after which `SIGINT` is sent once so a continuous test (such as
+    /// `mprime -t`) shuts down cleanly and flushes its summary before [`Self::limit`].
+    pub interrupt_after: Option<Duration>,
     /// Whether it runs in a process group of its own, killed as a whole: stopping a tool that
     /// starts workers would otherwise leave them running.
     pub group: bool,
@@ -93,6 +96,7 @@ impl Job {
             envs: Vec::new(),
             dir: None,
             limit,
+            interrupt_after: None,
             group: false,
             first_to_go: false,
             quotable: true,
@@ -219,7 +223,25 @@ impl Job {
     async fn wait(&self, child: Child, cancel: &CancellationToken) -> Result<Output, RunError> {
         // On a timeout or a cancellation the group is killed when this is dropped, at the end:
         // its id is not given to another group while any of its processes lives.
-        let group = self.group.then(|| Group::of(&child));
+        let pid = child
+            .id()
+            .and_then(|id| i32::try_from(id).ok())
+            .and_then(Pid::from_raw);
+        let group = self.group.then_some(Group { leader: pid });
+        let is_group = self.group;
+        let interrupt_after = self.interrupt_after;
+        let interrupt_task = interrupt_after.map(|after| {
+            tokio::spawn(async move {
+                tokio::time::sleep(after).await;
+                if let Some(target) = pid {
+                    if is_group {
+                        let _ = rustix::process::kill_process_group(target, Signal::INT);
+                    } else {
+                        let _ = rustix::process::kill_process(target, Signal::INT);
+                    }
+                }
+            })
+        });
         let ended = tokio::select! {
             finished = tokio::time::timeout(self.limit, child.wait_with_output()) => {
                 match finished {
@@ -237,6 +259,9 @@ impl Job {
             }
             () = cancel.cancelled() => Err(RunError::Cancelled),
         };
+        if let Some(handle) = interrupt_task {
+            handle.abort();
+        }
         // The leader ended on its own and was reaped: once any workers it left end too, the
         // group's id may be another group's.
         if ended.is_ok()
@@ -359,15 +384,6 @@ struct Group {
 }
 
 impl Group {
-    /// The group that `child` leads.
-    fn of(child: &Child) -> Self {
-        let leader = child
-            .id()
-            .and_then(|id| i32::try_from(id).ok())
-            .and_then(Pid::from_raw);
-        Self { leader }
-    }
-
     /// The group ended on its own: dropping it kills nothing.
     fn disarm(mut self) {
         self.leader = None;

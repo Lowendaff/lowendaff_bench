@@ -1,0 +1,25 @@
+[Main thread Nov 20 18:56] Mersenne number primality test program version 30.19 build 20
+[Main thread Nov 20 18:56] Optimizing for CPU architecture: Core i3/i5/i7, L2 cache size: 0 MB
+[Main thread Nov 20 18:56] Starting workers.
+[Worker #1 Nov 20 18:56] Worker starting
+[Worker #2 Nov 20 18:56] Worker starting
+[Worker #3 Nov 20 18:56] Worker starting
+[Worker #4 Nov 20 18:56] Worker starting
+[Worker #1 Nov 20 18:56] Beginning a continuous torture test on your computer.
+[Worker #2 Nov 20 18:56] Beginning a continuous torture test on your computer.
+[Worker #3 Nov 20 18:56] Beginning a continuous torture test on your computer.
+[Worker #4 Nov 20 18:56] Beginning a continuous torture test on your computer.
+[Worker #1 Nov 20 18:56] Test 1, 1100000 Lucas-Lehmer in-place iterations of M376833 using FMA3 FFT length 18K, Pass1=384, Pass2=48, clm=2.
+[Worker #2 Nov 20 18:56] Test 1, 1100000 Lucas-Lehmer in-place iterations of M376833 using FMA3 FFT length 18K, Pass1=384, Pass2=48, clm=2.
+[Worker #3 Nov 20 18:56] Test 1, 1100000 Lucas-Lehmer in-place iterations of M376833 using FMA3 FFT length 18K, Pass1=384, Pass2=48, clm=2.
+[Worker #4 Nov 20 18:56] Test 1, 1100000 Lucas-Lehmer in-place iterations of M376833 using FMA3 FFT length 18K, Pass1=384, Pass2=48, clm=2.
+[Main thread Nov 20 18:57] Stopping all worker windows.
+[Worker #1 Nov 20 18:57] Torture Test completed 2 tests in 1 minutes - 0 errors, 0 warnings.
+[Worker #2 Nov 20 18:57] Torture Test completed 2 tests in 1 minutes - 0 errors, 0 warnings.
+[Worker #3 Nov 20 18:57] Torture Test completed 2 tests in 1 minutes - 0 errors, 0 warnings.
+[Worker #4 Nov 20 18:57] Torture Test completed 2 tests in 1 minutes - 0 errors, 0 warnings.
+[Worker #1 Nov 20 18:57] Worker stopped.
+[Worker #2 Nov 20 18:57] Worker stopped.
+[Worker #3 Nov 20 18:57] Worker stopped.
+[Worker #4 Nov 20 18:57] Worker stopped.
+[Main thread Nov 20 18:57] Execution halted.

@@ -1,0 +1,25 @@
+y-cruncher v0.8.7 Build 9547-gcc
+
+Auto-Selecting: 13-HSW ~ Airi
+
+Constant:   Pi
+Algorithm:  Chudnovsky (1988)
+
+Decimal Digits:       25,000,000
+Hexadecimal Digits:   20,762,051 (Disabled)
+
+Computation Mode:     Ram Only
+
+Total Computation Time:     3.153 seconds  ( 0.053 minutes )
+Start-to-End Wall Time:     3.342 seconds  ( 0.056 minutes )
+
+CPU Utilization:          724.29 %  +    3.81 % kernel overhead
+Multi-core Efficiency:     72.43 %  +    0.38 % kernel overhead
+
+Spot Check: Good through 25,000,000
+
+Program:              y-cruncher v0.8.7 Build 9547-icx
+Tuning Profile:       Linux/13-HSW ~ Airi => Akari (20241023)
+Processor(s):         Example x86_64 CPU @ 2.50GHz
+Topology:             10 threads / 10 cores / 1 socket / 1 NUMA node
+Usable Memory:        8,589,934,592 (8.00 GiB)

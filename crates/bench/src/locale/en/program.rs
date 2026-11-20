@@ -13,12 +13,12 @@ impl ProgramWords for English {
 
     fn help_only(&self) -> String {
         "Run only these test items: comma-separated groups (cpu,memory,disk,network,ip) or ids \
-         (such as cpu.sysbench,disk.fio)"
+         (such as cpu.bench,disk.fio)"
             .to_owned()
     }
 
     fn help_skip(&self) -> String {
-        "Skip these test items: comma-separated groups or ids, such as cpu.geekbench,ip.media"
+        "Skip these test items: comma-separated groups or ids, such as cpu.bench,ip.media"
             .to_owned()
     }
 
@@ -52,6 +52,12 @@ impl ProgramWords for English {
 
     fn help_download_connections(&self) -> String {
         "The most connections that the download of one file uses at once (1 to 256)".to_owned()
+    }
+
+    fn help_cpu_bench(&self) -> String {
+        "Sub-suites for cpu.bench: comma-separated sysbench, 7zip, unixbench, hpl, passmark, \
+         ycruncher, prime95, geekbench, or all"
+            .to_owned()
     }
 
     fn help_countries(&self) -> String {

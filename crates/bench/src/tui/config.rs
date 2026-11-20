@@ -1,9 +1,11 @@
-//! User-editable TUI configuration for all 13 benchmark plugins and global run/report options.
+//! User-editable TUI configuration for all 12 benchmark plugins and global run/report options.
 
 use std::collections::BTreeMap;
 
 use bench_api::Net;
 use bench_api::Requirements;
+use plugin_cpu::bench::DEFAULT_SUITES;
+use plugin_cpu::bench::SUITE_CODES;
 use plugin_network::iperf3::result::Settings as IperfSettings;
 
 use crate::app;
@@ -14,6 +16,9 @@ use crate::registry::Entry;
 use crate::report;
 use crate::report::Format;
 use crate::results::Measured;
+
+/// CPU sub-suite codes in UI display and execution order.
+pub const CPU_SUITES: [&str; 8] = SUITE_CODES;
 
 /// Route tracing group codes in UI display order.
 pub const TRACE_GROUPS: [&str; 4] = ["services", "china", "international", "all"];
@@ -26,6 +31,12 @@ pub const MEDIA_GROUPS: [&str; 6] = ["global", "asia", "europe", "americas", "oc
 pub enum ItemParams {
     /// Plugin uses fixed standardized parameters for cross-server comparability.
     Fixed,
+    /// `cpu.bench` sub-suite toggles (`sysbench`, `7zip`, `unixbench`, `hpl`, `passmark`,
+    /// `ycruncher`, `prime95`, `geekbench`).
+    CpuBench {
+        /// Enabled sub-suites in [`CPU_SUITES`] order.
+        suites: [bool; 8],
+    },
     /// `network.iperf3` speed test parameters.
     Iperf3 {
         /// Comma-separated ISO 3166 country codes or `all`; empty uses default locations.
@@ -74,6 +85,9 @@ impl ItemParams {
     #[must_use]
     pub fn default_for(id: &str) -> Self {
         match id {
+            "cpu.bench" => Self::CpuBench {
+                suites: DEFAULT_SUITES,
+            },
             "network.iperf3" => Self::Iperf3 {
                 countries: String::new(),
                 servers: String::new(),
@@ -104,6 +118,7 @@ impl ItemParams {
     pub fn is_default(&self) -> bool {
         match self {
             Self::Fixed => true,
+            Self::CpuBench { suites } => *suites == DEFAULT_SUITES,
             Self::Iperf3 {
                 countries,
                 servers,
@@ -134,6 +149,17 @@ impl ItemParams {
         let mut map = serde_json::Map::new();
         match self {
             Self::Fixed => {}
+            Self::CpuBench { suites } => {
+                if *suites != DEFAULT_SUITES {
+                    let chosen: Vec<String> = CPU_SUITES
+                        .iter()
+                        .zip(suites.iter())
+                        .filter(|(_, on)| **on)
+                        .map(|(code, _)| (*code).to_owned())
+                        .collect();
+                    map.insert("suites".to_owned(), string_array(&chosen));
+                }
+            }
             Self::Iperf3 {
                 countries,
                 servers,
@@ -378,6 +404,14 @@ impl TuiConfig {
         if self.global.work_dir.trim().is_empty() {
             return Err(vec![locale::words().tui_empty_work_dir()]);
         }
+        for item in &self.items {
+            if item.enabled
+                && let ItemParams::CpuBench { suites } = &item.params
+                && !suites.iter().any(|on| *on)
+            {
+                return Err(vec![locale::words().tui_no_cpu_suites_selected()]);
+            }
+        }
         let settings = self.plugin_settings();
         orchestrator::plan(registry, &ids, &settings)
     }
@@ -415,6 +449,15 @@ impl TuiConfig {
         let mut rows = vec![bool_row(words.tui_field_enabled(), item.enabled, true)];
         match &item.params {
             ItemParams::Fixed => {}
+            ItemParams::CpuBench { suites } => {
+                for ((code, on), def_on) in CPU_SUITES
+                    .iter()
+                    .zip(suites.iter())
+                    .zip(DEFAULT_SUITES.iter())
+                {
+                    rows.push(bool_row(&words.tui_field_cpu_suite(code), *on, *def_on));
+                }
+            }
             ItemParams::Iperf3 {
                 countries,
                 servers,
@@ -549,6 +592,11 @@ impl TuiConfig {
         }
         match &mut item.params {
             ItemParams::Fixed | ItemParams::Iperf3 { .. } => {}
+            ItemParams::CpuBench { suites } => {
+                if (1..=8).contains(&field_idx) {
+                    suites[field_idx - 1] = !suites[field_idx - 1];
+                }
+            }
             ItemParams::Trace { groups, geo, .. } => match field_idx {
                 1..=4 => groups[field_idx - 1] = !groups[field_idx - 1],
                 6 => *geo = !*geo,
@@ -584,6 +632,11 @@ impl TuiConfig {
         }
         match &mut item.params {
             ItemParams::Fixed => {}
+            ItemParams::CpuBench { suites } => {
+                if (1..=8).contains(&field_idx) {
+                    suites[field_idx - 1] = !suites[field_idx - 1];
+                }
+            }
             ItemParams::Iperf3 {
                 seconds,
                 streams,
@@ -634,7 +687,10 @@ impl TuiConfig {
         };
         let trimmed = input.trim();
         match &mut item.params {
-            ItemParams::Fixed | ItemParams::Bgp { .. } | ItemParams::IpQuality { .. } => {}
+            ItemParams::Fixed
+            | ItemParams::CpuBench { .. }
+            | ItemParams::Bgp { .. }
+            | ItemParams::IpQuality { .. } => {}
             ItemParams::Iperf3 {
                 countries,
                 servers,

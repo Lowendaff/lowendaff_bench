@@ -40,8 +40,7 @@ impl ReportWords for English {
 
     fn item_name(&self, id: &str) -> Option<&'static str> {
         match id {
-            "cpu.sysbench" => Some("CPU performance"),
-            "cpu.geekbench" => Some("Geekbench 7"),
+            "cpu.bench" => Some("CPU benchmark"),
             "memory.sysbench" => Some("Memory sysbench"),
             "memory.stream" => Some("Memory STREAM"),
             "memory.latency" => Some("Memory latency"),

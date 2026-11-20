@@ -26,34 +26,32 @@ pub fn all() -> Vec<Entry> {
         // Disk health: SMART through smartctl, on dedicated servers only. Before disk performance,
         // so that the disks are idle and fio's writes are not counted.
         entry::<plugin_disk::health::Smartctl>(Measured::DiskHealth),
-        // CPU performance: sysbench, before fio's writes can disturb it.
-        entry::<plugin_cpu::sysbench::Sysbench>(Measured::CpuSysbench),
         // Memory performance in chapters: sysbench, STREAM, multichase's latency and the NUMA
-        // matrix, after CPU performance and before fio's writes.
+        // matrix, before fio's writes.
         entry::<plugin_memory::sysbench::Sysbench>(Measured::MemorySysbench),
         entry::<plugin_memory::stream::Stream>(Measured::MemoryStream),
         entry::<plugin_memory::latency::Latency>(Measured::MemoryLatency),
         entry::<plugin_memory::numa::Numa>(Measured::MemoryNuma),
         // Disk performance: fio with YABS's method, on every platform.
         entry::<plugin_disk::fio::Fio>(Measured::DiskFio),
-        // Network speed: iperf3 with YABS's method, after fio and before Geekbench, as YABS
+        // Network speed: iperf3 with YABS's method, after fio and before CPU benchmarks, as YABS
         // orders them.
         entry::<plugin_network::iperf3::Iperf3>(Measured::NetworkIperf3),
         // Route tracing: after network speed, so that its probes do not share the link with
-        // iperf3's streams, and before Geekbench.
+        // iperf3's streams.
         entry::<plugin_network::trace::Trace>(Measured::NetworkTrace),
         // BGP paths: lightweight RIPEstat route-state and RPKI queries for the host's public
         // prefixes, right after route tracing inside the Network chapter.
         entry::<plugin_network::bgp::Bgp>(Measured::NetworkBgp),
         // IP reputation: lightweight intelligence, DNSBL and port-25 probes, after network checks
-        // and before streaming media unlock and Geekbench.
+        // and before streaming media unlock.
         entry::<plugin_ip::quality::Quality>(Measured::IpQuality),
-        // Media unlock: lightweight direct HTTPS probes across global and regional OTT platforms,
-        // after IP reputation and before Geekbench.
+        // Media unlock: lightweight direct HTTPS probes across global and regional OTT platforms.
         entry::<plugin_ip::media::Media>(Measured::IpMedia),
-        // Geekbench 7: last, being the longest, with a download, an upload and perhaps swap that
-        // must not disturb the disk test.
-        entry::<plugin_cpu::geekbench::Geekbench>(Measured::CpuGeekbench),
+        // Unified CPU benchmark (`cpu.bench`): runs sysbench, 7-Zip, UnixBench, HPL, PassMark,
+        // Geekbench 7 (and optional y-cruncher / Prime95) last, as UnixBench's file tests and
+        // Geekbench's temporary swap and long runtime must not disturb disk or network tests.
+        entry::<plugin_cpu::bench::CpuBench>(Measured::cpu_bench),
     ]
 }
 
@@ -172,12 +170,22 @@ fn check_tool(owner: &str, tool: &ToolSpec, problems: &mut Vec<String>) {
     if name.is_empty() || tool.version.is_empty() {
         problems.push(format!("{owner}: tool name and version must be set"));
     }
-    for arch in RELEASE_ARCHES {
-        if tool.asset_for(arch).is_none() {
-            problems.push(format!("{owner}: tool {name} has no {arch} build"));
+    if tool.all_arches {
+        for arch in RELEASE_ARCHES {
+            if tool.asset_for(arch).is_none() {
+                problems.push(format!("{owner}: tool {name} has no {arch} build"));
+            }
         }
+    } else if tool.assets.is_empty() {
+        problems.push(format!("{owner}: tool {name} has no assets"));
     }
     for asset in tool.assets {
+        if !RELEASE_ARCHES.contains(&asset.arch) {
+            problems.push(format!(
+                "{owner}: tool {name} names unsupported arch {}",
+                asset.arch
+            ));
+        }
         if !asset.url.starts_with("https://") {
             problems.push(format!(
                 "{owner}: tool {name} must be downloaded over https"
@@ -196,7 +204,7 @@ fn check_tool(owner: &str, tool: &ToolSpec, problems: &mut Vec<String>) {
             problems.push(format!("{owner}: tool {name} size must be positive"));
         }
     }
-    if let ToolForm::TarGz { executable } = tool.form {
+    let check_exe = |executable: &str, problems: &mut Vec<String>| {
         let plain = !executable.is_empty()
             && executable != "."
             && executable != ".."
@@ -205,6 +213,16 @@ fn check_tool(owner: &str, tool: &ToolSpec, problems: &mut Vec<String>) {
             problems.push(format!(
                 "{owner}: tool {name} must name its executable in the archive by file name"
             ));
+        }
+    };
+    match tool.form {
+        ToolForm::Executable => {}
+        ToolForm::TarGz { executable }
+        | ToolForm::TarGzFlat { executable }
+        | ToolForm::TarXz { executable } => check_exe(executable, &mut *problems),
+        ToolForm::Zip { x86_64, aarch64 } => {
+            check_exe(x86_64, &mut *problems);
+            check_exe(aarch64, &mut *problems);
         }
     }
 }
@@ -231,14 +249,11 @@ mod tests {
 
     #[test]
     fn the_items_run_in_the_owners_order() {
-        // SMART is read while the disks are idle and before fio's writes; sysbench runs before
-        // fio too. The network test follows fio, and Geekbench comes last, as in YABS.
         let ids: Vec<&str> = super::all().iter().map(|entry| entry.id).collect();
         assert_eq!(
             ids,
             [
                 "disk.health",
-                "cpu.sysbench",
                 "memory.sysbench",
                 "memory.stream",
                 "memory.latency",
@@ -249,7 +264,7 @@ mod tests {
                 "network.bgp",
                 "ip.quality",
                 "ip.media",
-                "cpu.geekbench",
+                "cpu.bench",
             ]
         );
     }

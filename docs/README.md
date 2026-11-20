@@ -2,14 +2,14 @@
 
 返回首页：[English](../README.md) | [简体中文](../README.zh-CN.md) | [日本語](../README.ja.md)
 
-本目录详细说明 `lowendaff-bench` 在执行前的主机环境采集机制，以及全部 5 大分组、13 个检测插件的测试方法、参数选择依据、异常处理逻辑与可配置项。
+本目录详细说明 `lowendaff-bench` 在执行前的主机环境采集机制，以及全部 5 大分组、12 个检测插件的测试方法、参数选择依据、异常处理逻辑与可配置项。
 
 ## 模块导航
 
 | 模块文档 | 对应报告章节 | 包含内容 / 插件 ID |
 |---|---|---|
 | [主机画像与环境探测](system.md) | `[System]` | 虚拟化与容器识别、CPU/内存/cgroup 采集、SMBIOS/EDAC/BMC/RAID 卡硬件识别、存储与网卡拓扑、双栈公网 IP 直连探测 |
-| [CPU 性能检测](cpu.md) | `[CPU performance]` | `cpu.sysbench`（单核/多核素数计算）、`cpu.geekbench`（Geekbench 7 跑分、动态临时 Swap 与 OOM 保护） |
+| [CPU 性能检测](cpu.md) | `[CPU performance]` | `cpu.bench`（统一调度 `sysbench`、`7zip`、`unixbench`、`hpl`、`passmark`、`ycruncher`、`prime95`、`geekbench` 共 8 项可选子基准） |
 | [内存与缓存性能检测](memory.md) | `[Memory performance]` | 共享工作集规划器、`memory.sysbench`（顺序读写）、`memory.stream`（STREAM 四核函数）、`memory.latency`（各级缓存与主存延迟）、`memory.numa`（跨节点带宽与延迟矩阵） |
 | [磁盘健康与性能检测](disk.md) | `[Disks]` | `disk.health`（物理盘只读 SMART 与硬件 RAID 穿透）、`disk.fio`（对齐 YABS 的四块大小混合随机读写） |
 | [网络吞吐、路由追踪与 BGP 拓扑](network.md) | `[Network]` | `network.iperf3`（双向多线程公网测速与节点池巡检）、`network.trace`（最小权限 ICMP 路由追踪与 IX 识别）、`network.bgp`（全球 RIS 采集点 BGP 自治域路径拓扑、RPKI 校验与三端图形绘制） |

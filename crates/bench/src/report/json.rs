@@ -153,8 +153,7 @@ fn fault_reason(fault: &Fault) -> String {
 
 fn serialize_measured(measured: &Measured, own: &[IpAddr], show_ip: bool) -> Option<Value> {
     match measured {
-        Measured::CpuSysbench(r) => r.output.as_ref().map(to_value),
-        Measured::CpuGeekbench(r) => r.output.as_ref().map(to_value),
+        Measured::CpuBench(r) => r.output.as_ref().map(to_value),
         Measured::MemorySysbench(r) => r.output.as_ref().map(to_value),
         Measured::MemoryStream(r) => r.output.as_ref().map(to_value),
         Measured::MemoryLatency(r) => r.output.as_ref().map(to_value),

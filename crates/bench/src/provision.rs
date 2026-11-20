@@ -134,12 +134,19 @@ fn of(tool: &ToolSpec) -> Download<'_> {
 
 /// Unique tools needed by the planned plugins, in plan order.
 pub fn required_tools(requirements: impl IntoIterator<Item = Requirements>) -> Vec<ToolSpec> {
+    required_tools_from_specs(
+        requirements
+            .into_iter()
+            .flat_map(|requires| requires.tools.iter().copied()),
+    )
+}
+
+/// Unique tools from an iterator of [`ToolSpec`]s, preserving first-seen order.
+pub fn required_tools_from_specs(specs: impl IntoIterator<Item = ToolSpec>) -> Vec<ToolSpec> {
     let mut tools: Vec<ToolSpec> = Vec::new();
-    for requires in requirements {
-        for tool in requires.tools {
-            if !tools.iter().any(|known| known.name == tool.name) {
-                tools.push(*tool);
-            }
+    for tool in specs {
+        if !tools.iter().any(|known| known.name == tool.name) {
+            tools.push(tool);
         }
     }
     tools
@@ -338,7 +345,7 @@ where
         written = fetch_checked(fetch, tool, asset, &partial, connections) => written,
         () = cancel.cancelled() => Err(locale::words().download_interrupted()),
     };
-    finish(written, &partial, tool, dir).await
+    finish(written, &partial, tool, asset.arch, dir).await
 }
 
 /// Fetches `asset` into `path` and checks its size and SHA-256: a file under two byte ranges
@@ -452,12 +459,20 @@ pub async fn install<R: AsyncRead + Unpin>(
     let written = write_verified(body, asset, &partial)
         .await
         .map_err(|err| err.to_string());
-    finish(written, &partial, tool, dir).await
+    finish(written, &partial, tool, asset.arch, dir).await
 }
 
 /// Where a tool's download stays until it has been checked.
 fn partial_path(dir: &Path, tool: &ToolSpec) -> PathBuf {
     dir.join(format!("{}.part", tool.name))
+}
+
+#[derive(Clone, Copy)]
+enum ArchiveKind {
+    TarGz,
+    TarGzFlat,
+    TarXz,
+    Zip,
 }
 
 /// Installs the checked download at `partial` as `tool.form` says, unless writing it failed,
@@ -466,6 +481,7 @@ async fn finish(
     written: Result<(), String>,
     partial: &Path,
     tool: &ToolSpec,
+    arch: &str,
     dir: &Path,
 ) -> Result<PathBuf, String> {
     let installed = dir.join(tool.name);
@@ -474,7 +490,19 @@ async fn finish(
             ToolForm::Executable => make_executable(partial, &installed)
                 .await
                 .map(|()| installed),
-            ToolForm::TarGz { executable } => unpack(partial, dir, tool.name, executable).await,
+            ToolForm::TarGz { executable } => {
+                unpack(partial, dir, tool.name, executable, ArchiveKind::TarGz).await
+            }
+            ToolForm::TarGzFlat { executable } => {
+                unpack(partial, dir, tool.name, executable, ArchiveKind::TarGzFlat).await
+            }
+            ToolForm::TarXz { executable } => {
+                unpack(partial, dir, tool.name, executable, ArchiveKind::TarXz).await
+            }
+            ToolForm::Zip { x86_64, aarch64 } => {
+                let executable = if arch == "aarch64" { aarch64 } else { x86_64 };
+                unpack(partial, dir, tool.name, executable, ArchiveKind::Zip).await
+            }
         },
         Err(err) => Err(err),
     };
@@ -772,20 +800,34 @@ async fn unpack(
     dir: &Path,
     name: &str,
     executable: &str,
+    kind: ArchiveKind,
 ) -> Result<PathBuf, String> {
+    use std::os::unix::fs::PermissionsExt;
+
     let staging = dir.join(format!("{name}.unpack"));
     let installed = dir.join(name);
     let unpacked = {
         let (archive, staging) = (archive.to_path_buf(), staging.clone());
-        tokio::task::spawn_blocking(move || unpack_into(&archive, &staging))
-            .await
-            .unwrap_or_else(|err| Err(locale::words().unpack_failed(&err)))
+        tokio::task::spawn_blocking(move || match kind {
+            ArchiveKind::TarGz => unpack_tar_gz(&archive, &staging),
+            ArchiveKind::TarGzFlat => unpack_tar_gz_flat(&archive, &staging),
+            ArchiveKind::TarXz => unpack_tar_xz(&archive, &staging),
+            ArchiveKind::Zip => unpack_zip(&archive, &staging),
+        })
+        .await
+        .unwrap_or_else(|err| Err(locale::words().unpack_failed(&err)))
     };
+    let exe_in_staging = staging.join(executable);
     let outcome = match unpacked {
-        Ok(()) => match fs::metadata(staging.join(executable)).await {
-            Ok(metadata) if metadata.is_file() => fs::rename(&staging, &installed)
-                .await
-                .map_err(|err| locale::words().install_failed(&err)),
+        Ok(()) => match fs::metadata(&exe_in_staging).await {
+            Ok(metadata) if metadata.is_file() => {
+                let install_res = async {
+                    fs::set_permissions(&exe_in_staging, Permissions::from_mode(0o755)).await?;
+                    fs::rename(&staging, &installed).await
+                }
+                .await;
+                install_res.map_err(|err| locale::words().install_failed(&err))
+            }
             _ => Err(locale::words().no_executable(executable)),
         },
         Err(err) => Err(err),
@@ -796,16 +838,49 @@ async fn unpack(
     outcome.map(|()| installed.join(executable))
 }
 
-/// Writes the entries of a gzip-compressed tar archive under `staging`, without their one
-/// top-level directory. Only regular files and directories are accepted, and only paths of
-/// plain names, so that nothing lands outside `staging`.
-fn unpack_into(archive: &Path, staging: &Path) -> Result<(), String> {
+fn unpack_tar_gz(archive: &Path, staging: &Path) -> Result<(), String> {
+    let write_error = |err: io::Error| locale::words().unpack_failed(&err);
+    let file = std::fs::File::open(archive).map_err(write_error)?;
+    unpack_tar_stripped(
+        tar::Archive::new(flate2::read::GzDecoder::new(file)),
+        staging,
+    )
+}
+
+fn unpack_tar_xz(archive: &Path, staging: &Path) -> Result<(), String> {
+    let damaged = |err: lzma_rs::error::Error| locale::words().damaged_archive(&err);
+    let write_error = |err: io::Error| locale::words().unpack_failed(&err);
+    let temp_tar = staging.with_extension("tar");
+    let decompressed = (|| -> Result<(), String> {
+        let input = std::fs::File::open(archive).map_err(write_error)?;
+        let mut reader = std::io::BufReader::new(input);
+        let output = std::fs::File::create(&temp_tar).map_err(write_error)?;
+        let mut writer = std::io::BufWriter::new(output);
+        lzma_rs::xz_decompress(&mut reader, &mut writer).map_err(damaged)?;
+        io::Write::flush(&mut writer).map_err(write_error)
+    })();
+    if let Err(err) = decompressed {
+        let _ = std::fs::remove_file(&temp_tar);
+        return Err(err);
+    }
+    let result = std::fs::File::open(&temp_tar)
+        .map_err(write_error)
+        .and_then(|tar_file| unpack_tar_stripped(tar::Archive::new(tar_file), staging));
+    let _ = std::fs::remove_file(&temp_tar);
+    result
+}
+
+/// Writes the entries of a tar archive under `staging`, without their one top-level directory.
+/// Only regular files and directories are accepted, and only paths of plain names, so that nothing
+/// lands outside `staging`.
+fn unpack_tar_stripped<R: io::Read>(
+    mut archive: tar::Archive<R>,
+    staging: &Path,
+) -> Result<(), String> {
     use std::path::Component;
 
     let damaged = |err: io::Error| locale::words().damaged_archive(&err);
     let write_error = |err: io::Error| locale::words().unpack_failed(&err);
-    let file = std::fs::File::open(archive).map_err(write_error)?;
-    let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(file));
     std::fs::create_dir(staging).map_err(write_error)?;
     let entries = archive.entries().map_err(damaged)?;
     let mut top: Option<OsString> = None;
@@ -842,4 +917,236 @@ fn unpack_into(archive: &Path, staging: &Path) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// Writes the entries of a flat gzip-compressed tar archive directly under `staging`. Accepts
+/// regular files, directories, and plain sibling symlinks (`libgmp.so.10 -> libgmp.so.10.4.1`)
+/// whose target is a single plain file name in the same directory.
+fn unpack_tar_gz_flat(archive: &Path, staging: &Path) -> Result<(), String> {
+    use std::path::Component;
+
+    let damaged = |err: io::Error| locale::words().damaged_archive(&err);
+    let write_error = |err: io::Error| locale::words().unpack_failed(&err);
+    let file = std::fs::File::open(archive).map_err(write_error)?;
+    let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(file));
+    std::fs::create_dir(staging).map_err(write_error)?;
+    let entries = archive.entries().map_err(damaged)?;
+    for entry in entries {
+        let mut entry = entry.map_err(damaged)?;
+        let path = entry.path().map_err(damaged)?.into_owned();
+        let unsupported = || locale::words().unsupported_entry(&path);
+        let mut target = staging.to_path_buf();
+        let mut saw_any = false;
+        for component in path.components() {
+            match component {
+                Component::CurDir => {}
+                Component::Normal(name) => {
+                    saw_any = true;
+                    target.push(name);
+                }
+                _ => return Err(unsupported()),
+            }
+        }
+        let kind = entry.header().entry_type();
+        if kind.is_dir() {
+            std::fs::create_dir_all(&target).map_err(write_error)?;
+        } else if kind.is_file() && saw_any {
+            if let Some(parent) = target.parent() {
+                std::fs::create_dir_all(parent).map_err(write_error)?;
+            }
+            entry.unpack(&target).map_err(write_error)?;
+        } else if kind.is_symlink() && saw_any {
+            let link = entry
+                .link_name()
+                .map_err(damaged)?
+                .ok_or_else(unsupported)?;
+            let mut link_comps = link.components();
+            let (Some(Component::Normal(sibling)), None) = (link_comps.next(), link_comps.next())
+            else {
+                return Err(unsupported());
+            };
+            if let Some(parent) = target.parent() {
+                std::fs::create_dir_all(parent).map_err(write_error)?;
+            }
+            std::os::unix::fs::symlink(sibling, &target).map_err(write_error)?;
+        } else {
+            return Err(unsupported());
+        }
+    }
+    Ok(())
+}
+
+/// Unpacks a standard 32-bit ZIP archive with one top-level directory into `staging`, verifying
+/// every entry's CRC-32 and uncompressed size.
+fn unpack_zip(archive: &Path, staging: &Path) -> Result<(), String> {
+    use std::io::Read;
+    use std::os::unix::fs::PermissionsExt;
+    use std::path::Component;
+
+    let damaged_msg = |msg: &str| locale::words().damaged_archive(&msg);
+    let write_error = |err: io::Error| locale::words().unpack_failed(&err);
+    let bytes = std::fs::read(archive).map_err(write_error)?;
+    let eocd = find_zip_eocd(&bytes).ok_or_else(|| damaged_msg("missing ZIP central directory"))?;
+    let total_entries = usize::from(read_u16_le(&bytes, eocd + 10)?);
+    let cd_size = usize::try_from(read_u32_le(&bytes, eocd + 12)?)
+        .map_err(|_| damaged_msg("central directory size overflow"))?;
+    let cd_offset = usize::try_from(read_u32_le(&bytes, eocd + 16)?)
+        .map_err(|_| damaged_msg("central directory offset overflow"))?;
+    let cd_end = cd_offset
+        .checked_add(cd_size)
+        .filter(|end| *end <= eocd)
+        .ok_or_else(|| damaged_msg("central directory out of bounds"))?;
+
+    std::fs::create_dir(staging).map_err(write_error)?;
+    let mut top: Option<OsString> = None;
+    let mut cursor = cd_offset;
+    for _ in 0..total_entries {
+        if cursor + 46 > cd_end || read_u32_le(&bytes, cursor)? != 0x0201_4b50 {
+            return Err(damaged_msg("invalid central directory file header"));
+        }
+        let method = read_u16_le(&bytes, cursor + 10)?;
+        let expected_crc = read_u32_le(&bytes, cursor + 16)?;
+        let comp_size = usize::try_from(read_u32_le(&bytes, cursor + 20)?)
+            .map_err(|_| damaged_msg("compressed size overflow"))?;
+        let uncomp_size = u64::from(read_u32_le(&bytes, cursor + 24)?);
+        let name_len = usize::from(read_u16_le(&bytes, cursor + 28)?);
+        let extra_len = usize::from(read_u16_le(&bytes, cursor + 30)?);
+        let comment_len = usize::from(read_u16_le(&bytes, cursor + 32)?);
+        let external_attrs = read_u32_le(&bytes, cursor + 38)?;
+        let local_offset = usize::try_from(read_u32_le(&bytes, cursor + 42)?)
+            .map_err(|_| damaged_msg("local header offset overflow"))?;
+        let header_end = cursor
+            .checked_add(46)
+            .and_then(|v| v.checked_add(name_len))
+            .and_then(|v| v.checked_add(extra_len))
+            .and_then(|v| v.checked_add(comment_len))
+            .filter(|end| *end <= cd_end)
+            .ok_or_else(|| damaged_msg("truncated central directory entry"))?;
+        let name_bytes = &bytes[cursor + 46..cursor + 46 + name_len];
+        cursor = header_end;
+
+        let raw_name = std::str::from_utf8(name_bytes)
+            .map_err(|_| damaged_msg("non-UTF-8 entry name in ZIP"))?;
+        let entry_path = Path::new(raw_name);
+        let unsupported = || locale::words().unsupported_entry(entry_path);
+        let is_dir = raw_name.ends_with('/');
+        let unix_type = (external_attrs >> 16) & 0o170_000;
+        if unix_type != 0 && unix_type != 0o100_000 && unix_type != 0o040_000 {
+            return Err(unsupported());
+        }
+
+        let mut components = entry_path.components();
+        let Some(Component::Normal(first)) = components.next() else {
+            return Err(unsupported());
+        };
+        match &top {
+            None => top = Some(first.to_owned()),
+            Some(top) if top.as_os_str() != first => return Err(unsupported()),
+            Some(_) => {}
+        }
+        let mut target = staging.to_path_buf();
+        for component in components {
+            let Component::Normal(part) = component else {
+                return Err(unsupported());
+            };
+            target.push(part);
+        }
+        if is_dir || unix_type == 0o040_000 {
+            std::fs::create_dir_all(&target).map_err(write_error)?;
+            continue;
+        }
+        if target == staging {
+            return Err(unsupported());
+        }
+
+        if local_offset + 30 > bytes.len() || read_u32_le(&bytes, local_offset)? != 0x0403_4b50 {
+            return Err(damaged_msg("invalid local file header"));
+        }
+        let l_name_len = usize::from(read_u16_le(&bytes, local_offset + 26)?);
+        let l_extra_len = usize::from(read_u16_le(&bytes, local_offset + 28)?);
+        let data_start = local_offset
+            .checked_add(30)
+            .and_then(|v| v.checked_add(l_name_len))
+            .and_then(|v| v.checked_add(l_extra_len))
+            .ok_or_else(|| damaged_msg("local header overflow"))?;
+        let data_end = data_start
+            .checked_add(comp_size)
+            .filter(|end| *end <= bytes.len())
+            .ok_or_else(|| damaged_msg("compressed payload out of bounds"))?;
+        let payload = &bytes[data_start..data_end];
+
+        if let Some(parent) = target.parent() {
+            std::fs::create_dir_all(parent).map_err(write_error)?;
+        }
+        let mut out_file = std::fs::File::create(&target).map_err(write_error)?;
+        let mut crc = crc32fast::Hasher::new();
+        let mut written_bytes: u64 = 0;
+        let mut copy_checked = |reader: &mut dyn Read| -> Result<(), String> {
+            let mut buf = [0_u8; 32 * 1024];
+            loop {
+                let n = reader
+                    .read(&mut buf)
+                    .map_err(|err| locale::words().damaged_archive(&err))?;
+                if n == 0 {
+                    break;
+                }
+                written_bytes += n as u64;
+                if written_bytes > uncomp_size {
+                    return Err(damaged_msg("ZIP entry exceeded uncompressed size"));
+                }
+                crc.update(&buf[..n]);
+                io::Write::write_all(&mut out_file, &buf[..n]).map_err(write_error)?;
+            }
+            Ok(())
+        };
+        match method {
+            0 => copy_checked(&mut io::Cursor::new(payload))?,
+            8 => copy_checked(&mut flate2::read::DeflateDecoder::new(payload))?,
+            _ => return Err(damaged_msg("unsupported ZIP compression method")),
+        }
+        io::Write::flush(&mut out_file).map_err(write_error)?;
+        if written_bytes != uncomp_size || crc.finalize() != expected_crc {
+            return Err(damaged_msg("ZIP entry CRC-32 or size mismatch"));
+        }
+        let unix_mode = (external_attrs >> 16) & 0o777;
+        if unix_mode & 0o111 != 0 {
+            std::fs::set_permissions(&target, Permissions::from_mode(0o755))
+                .map_err(write_error)?;
+        }
+    }
+    Ok(())
+}
+
+fn find_zip_eocd(bytes: &[u8]) -> Option<usize> {
+    if bytes.len() < 22 {
+        return None;
+    }
+    let min_pos = bytes.len().saturating_sub(22 + 65_535);
+    let mut pos = bytes.len() - 22;
+    loop {
+        if bytes[pos..pos + 4] == [0x50, 0x4b, 0x05, 0x06] {
+            let comment_len = usize::from(u16::from_le_bytes([bytes[pos + 20], bytes[pos + 21]]));
+            if pos + 22 + comment_len == bytes.len() {
+                return Some(pos);
+            }
+        }
+        if pos <= min_pos {
+            return None;
+        }
+        pos -= 1;
+    }
+}
+
+fn read_u16_le(bytes: &[u8], offset: usize) -> Result<u16, String> {
+    let slice = bytes
+        .get(offset..offset + 2)
+        .ok_or_else(|| locale::words().damaged_archive(&"unexpected end of ZIP"))?;
+    Ok(u16::from_le_bytes([slice[0], slice[1]]))
+}
+
+fn read_u32_le(bytes: &[u8], offset: usize) -> Result<u32, String> {
+    let slice = bytes
+        .get(offset..offset + 4)
+        .ok_or_else(|| locale::words().damaged_archive(&"unexpected end of ZIP"))?;
+    Ok(u32::from_le_bytes([slice[0], slice[1], slice[2], slice[3]]))
 }

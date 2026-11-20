@@ -21,6 +21,7 @@ async fn a_tool_that_needs_raw_sockets_is_not_downloaded_where_the_system_would_
     const TRACER: ToolSpec = ToolSpec {
         name: "tracer",
         version: "1.0",
+        all_arches: false,
         raw_sockets: true,
         form: ToolForm::Executable,
         assets: &[ToolAsset {

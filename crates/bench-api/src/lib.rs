@@ -100,8 +100,11 @@ pub struct ToolSpec {
     pub name: &'static str,
     /// Upstream version the builds were made from.
     pub version: &'static str,
-    /// One static build per architecture in [`RELEASE_ARCHES`].
+    /// Downloadable builds by architecture.
     pub assets: &'static [ToolAsset],
+    /// Whether builds must cover every architecture in [`RELEASE_ARCHES`]; `false` only for
+    /// upstream tools that support a subset of release architectures (such as `x86_64` only).
+    pub all_arches: bool,
     /// What each asset is.
     pub form: ToolForm,
     /// Whether the tool sends and receives raw packets, as a tracer does. The program then gives
@@ -128,6 +131,26 @@ pub enum ToolForm {
     TarGz {
         /// File name of the executable in the archive's top-level directory.
         executable: &'static str,
+    },
+    /// A gzip-compressed tar archive whose files sit directly at the archive root, unpacked into
+    /// a directory named after the tool.
+    TarGzFlat {
+        /// File name of the executable at the archive root.
+        executable: &'static str,
+    },
+    /// An xz-compressed tar archive with one top-level directory, unpacked into a directory named
+    /// after the tool, without that top-level directory.
+    TarXz {
+        /// File name of the executable in the archive's top-level directory.
+        executable: &'static str,
+    },
+    /// A ZIP archive with one top-level directory, unpacked into a directory named after the
+    /// tool, without that top-level directory.
+    Zip {
+        /// File name of the executable in the archive's top-level directory on `x86_64`.
+        x86_64: &'static str,
+        /// File name of the executable in the archive's top-level directory on `aarch64`.
+        aarch64: &'static str,
     },
 }
 
@@ -317,6 +340,16 @@ pub enum Step {
     Bgp {
         /// Whether the query evaluates the host's IPv6 address, else IPv4.
         ipv6: bool,
+    },
+    /// Running one sub-suite or stage of the unified CPU benchmark (`cpu.bench`).
+    CpuSuite {
+        /// Suite code (`sysbench`, `7zip`, `unixbench`, `hpl`, `passmark`, `ycruncher`,
+        /// `prime95`, or `geekbench`).
+        suite: &'static str,
+        /// Optional stage code within the suite.
+        stage: Option<&'static str>,
+        /// Optional thread or parallel copy count when positive.
+        threads: Option<usize>,
     },
 }
 
@@ -635,6 +668,21 @@ pub trait Plugin: DeserializeOwned + Default + Send + Sync + 'static {
     type Failure: Serialize + Send + 'static;
     /// Static facts about the plugin.
     const DESCRIPTOR: Descriptor;
+    /// Dynamic host preconditions for this configured instance; defaults to
+    /// [`Self::DESCRIPTOR`]'s requirements.
+    fn host_requirements(&self, _host: &HostProfile) -> Requirements {
+        Self::DESCRIPTOR.requires
+    }
+    /// Pinned tools needed by this configured instance on `host`; defaults to
+    /// [`Self::DESCRIPTOR`]'s tools.
+    fn tools_for(&self, _host: &HostProfile) -> Vec<ToolSpec> {
+        Self::DESCRIPTOR.requires.tools.to_vec()
+    }
+    /// Whether the plugin runs when at least one tool in [`Self::tools_for`] is ready (`false` by
+    /// default: every tool must be ready).
+    fn partial_tools(&self) -> bool {
+        false
+    }
     /// The files it needs besides its tools, which may depend on its configuration; none by
     /// default. The orchestrator gets them before the first test.
     fn files(&self) -> Vec<FileSpec> {
@@ -651,6 +699,7 @@ pub trait Plugin: DeserializeOwned + Default + Send + Sync + 'static {
 pub struct Context<O> {
     host: Arc<HostProfile>,
     tools: Arc<BTreeMap<String, PathBuf>>,
+    failed_tools: Arc<BTreeMap<String, String>>,
     files: Arc<Files>,
     http: Arc<dyn HttpClient>,
     net: Arc<dyn NetClient>,
@@ -690,6 +739,7 @@ impl<O: Measurement> Context<O> {
         let ctx = Self {
             host,
             tools,
+            failed_tools: Arc::default(),
             files,
             http: Arc::new(NoHttpClient),
             net: Arc::new(NoNetClient),
@@ -712,11 +762,25 @@ impl<O: Measurement> Context<O> {
         &self.host
     }
 
-    /// The path of a provisioned tool; `None` for a tool the plugin did not declare, since the
-    /// orchestrator runs a plugin only when every declared tool is ready.
+    /// The path of a provisioned tool; `None` for a tool the plugin did not declare, or for a
+    /// tool that failed to provision when [`Plugin::partial_tools`] is enabled.
     #[must_use]
     pub fn tool(&self, name: &str) -> Option<&Path> {
         self.tools.get(name).map(PathBuf::as_path)
+    }
+
+    /// Why a tool failed to provision, when recorded by the orchestrator; `None` when the tool is
+    /// ready or was not requested.
+    #[must_use]
+    pub fn missing_tool(&self, name: &str) -> Option<&str> {
+        self.failed_tools.get(name).map(String::as_str)
+    }
+
+    /// Attaches the map of tool provisioning failure reasons for [`Self::missing_tool`].
+    #[must_use]
+    pub fn with_failed_tools(mut self, failed_tools: Arc<BTreeMap<String, String>>) -> Self {
+        self.failed_tools = failed_tools;
+        self
     }
 
     /// The path of a file that the plugin asked for, by its name; `None` for a file it did not

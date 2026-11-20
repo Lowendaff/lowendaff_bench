@@ -17,6 +17,7 @@ use bench_api::CancellationToken;
 use bench_api::IpFamily;
 use bench_api::Plugin;
 use bench_host::profile::HostProfile;
+use plugin_cpu::bench::CpuBench;
 use plugin_ip::media::Media;
 use plugin_ip::quality::Quality;
 use plugin_network::bgp::Bgp;
@@ -53,6 +54,46 @@ const GRACE: Duration = Duration::from_secs(5);
 /// The connections that one tool's download uses at most, unless `--download-connections` says
 /// otherwise.
 pub const DOWNLOAD_CONNECTIONS: u16 = 32;
+
+/// Sub-suite selection for `cpu.bench` (`--cpu-bench`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum CpuSuite {
+    /// sysbench prime-sieve CPU benchmark (1-thread & N-thread).
+    Sysbench,
+    /// 7-Zip LZMA2 compression & decompression MIPS (1-thread & N-thread).
+    #[value(name = "7zip")]
+    SevenZip,
+    /// Byte-UnixBench 6.0.1 12-item System Index (1-copy & N-copy).
+    Unixbench,
+    /// High-Performance Linpack (OpenBLAS) dense FP64 LU GFLOPS.
+    Hpl,
+    /// PassMark PerformanceTest Linux CPU Mark & sub-tests.
+    Passmark,
+    /// y-cruncher multi-threaded Pi computation (`x86_64` only).
+    Ycruncher,
+    /// Prime95 (`mprime`) Small-FFT torture stability test (`x86_64` only).
+    Prime95,
+    /// Geekbench 7 single-core & multi-core CPU benchmark.
+    Geekbench,
+    /// Every CPU sub-suite (auto-skipping `x86_64`-only suites on `aarch64`).
+    All,
+}
+
+impl CpuSuite {
+    const fn code(self) -> &'static str {
+        match self {
+            Self::Sysbench => "sysbench",
+            Self::SevenZip => "7zip",
+            Self::Unixbench => "unixbench",
+            Self::Hpl => "hpl",
+            Self::Passmark => "passmark",
+            Self::Ycruncher => "ycruncher",
+            Self::Prime95 => "prime95",
+            Self::Geekbench => "geekbench",
+            Self::All => "all",
+        }
+    }
+}
 
 /// Target group selection for `network.trace` (`--trace-groups`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
@@ -160,6 +201,15 @@ pub struct Cli {
     )]
     pub download_connections: u16,
 
+    // Sub-suites for cpu.bench.
+    #[arg(
+        long,
+        value_enum,
+        value_delimiter = ',',
+        help = locale::words().help_cpu_bench()
+    )]
+    pub cpu_bench: Vec<CpuSuite>,
+
     // The countries whose servers the network speed test uses, instead of the list's defaults.
     #[arg(long, value_delimiter = ',', help = locale::words().help_countries())]
     pub countries: Vec<String>,
@@ -207,6 +257,7 @@ pub struct Cli {
             "verbose",
             "show_ip",
             "download_connections",
+            "cpu_bench",
             "countries",
             "trace_groups",
             "media_groups",
@@ -272,6 +323,9 @@ fn item(entry: &Entry, out: &mut impl Write) {
 pub fn prepare(cli: &Cli, registry: &[Entry]) -> Result<Vec<Planned<Measured>>, Vec<String>> {
     let mut settings =
         parse_overrides(cli.internal_overrides.as_deref()).map_err(|err| vec![err])?;
+    if !cli.cpu_bench.is_empty() {
+        cpu_bench(&mut settings, &cli.cpu_bench);
+    }
     if !cli.countries.is_empty() {
         countries(&mut settings, &cli.countries);
     }
@@ -316,6 +370,18 @@ pub fn select(
         .filter(|id| only.is_empty() || only.iter().any(|wanted| names(wanted, id)))
         .filter(|id| !skip.iter().any(|skipped| names(skipped, id)))
         .collect())
+}
+
+/// Sets `--cpu-bench` in `cpu.bench`'s table.
+pub fn cpu_bench(settings: &mut BTreeMap<String, serde_json::Value>, suites: &[CpuSuite]) {
+    let table = plugin_table(settings, CpuBench::DESCRIPTOR.id);
+    if let Some(table) = table.as_object_mut() {
+        let values = suites
+            .iter()
+            .map(|suite| serde_json::Value::String(suite.code().to_owned()))
+            .collect();
+        table.insert("suites".to_owned(), serde_json::Value::Array(values));
+    }
 }
 
 /// Sets `--countries` in the network speed test's table, over any inline override.
@@ -524,11 +590,13 @@ where
     // Only the tools of items this host can run, so that nothing is downloaded in vain, such
     // as Geekbench on a host without glibc or IPv4.
     let runnable = || {
-        planned
-            .iter()
-            .filter(|planned| orchestrator::check_host(planned.requires(), &host).is_ok())
+        planned.iter().filter(|planned| {
+            orchestrator::check_host(&planned.host_requirements(&host), &host).is_ok()
+        })
     };
-    let tools = provision::required_tools(runnable().map(|planned| *planned.requires()));
+    let tools = provision::required_tools_from_specs(
+        runnable().flat_map(|planned| planned.tools_for(&host)),
+    );
     let mut ready = BTreeMap::new();
     let mut failed_tools = BTreeMap::new();
     if !tools.is_empty() {

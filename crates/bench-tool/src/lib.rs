@@ -1,8 +1,9 @@
 //! The external tools of lowendaff-bench, each pinned to one build: the URL, SHA-256 and size of
-//! its download for each architecture. This repository builds and publishes every tool except
-//! Geekbench, whose own builds are downloaded from Primate Labs. Test items take the tools they
-//! need from here, so that items sharing a tool share its pin and none depends on another, and
-//! run them through the shared code of [`job`] and [`retried`].
+//! its download for each architecture. This repository builds and publishes its open-source tools,
+//! while proprietary or prebuilt vendor suites (Geekbench, PassMark, y-cruncher, Prime95) are
+//! downloaded from their upstream distributions and verified by size and SHA-256 before unpacking.
+//! Test items take the tools they need from here, so that items sharing a tool share its pin and
+//! none depends on another, and run them through the shared code of [`job`] and [`retried`].
 
 #![warn(missing_docs)]
 
@@ -13,10 +14,40 @@ use bench_api::ToolAsset;
 use bench_api::ToolForm;
 use bench_api::ToolSpec;
 
+/// 7-Zip 26.06 (`7zz`) from the release `7zip-26.06-1`, built static without the unRAR codec.
+pub const SEVENZIP: ToolSpec = ToolSpec {
+    name: "7zip",
+    version: "26.06",
+    all_arches: true,
+    raw_sockets: false,
+    form: ToolForm::Executable,
+    assets: &[
+        ToolAsset {
+            arch: "x86_64",
+            url: concat!(
+                "https://github.com/Lowendaff/lowendaff_bench/releases/download/7zip-26.06-1/",
+                "7zip-x86_64"
+            ),
+            sha256: "2ca1d7a93960113b84405ed211fe85f00b797b37927b76bcce0c58ca11646db5",
+            size: 2_644_368,
+        },
+        ToolAsset {
+            arch: "aarch64",
+            url: concat!(
+                "https://github.com/Lowendaff/lowendaff_bench/releases/download/7zip-26.06-1/",
+                "7zip-aarch64"
+            ),
+            sha256: "11b600d2c362a1e6ffbd4142f29857a5f6b888606f7f0b48fb50168097d5c841",
+            size: 2_558_248,
+        },
+    ],
+};
+
 /// fio 3.43 from the release `fio-3.43-2`, which the tools workflow built and published.
 pub const FIO: ToolSpec = ToolSpec {
     name: "fio",
     version: "3.43",
+    all_arches: true,
     raw_sockets: false,
     form: ToolForm::Executable,
     assets: &[
@@ -46,6 +77,7 @@ pub const FIO: ToolSpec = ToolSpec {
 pub const GEEKBENCH: ToolSpec = ToolSpec {
     name: "geekbench",
     version: "7.1.0",
+    all_arches: true,
     raw_sockets: false,
     form: ToolForm::TarGz {
         executable: "geekbench7",
@@ -66,11 +98,42 @@ pub const GEEKBENCH: ToolSpec = ToolSpec {
     ],
 };
 
+/// High-Performance Linpack (HPL) 2.3 linked statically against OpenBLAS 0.3.34 (`DYNAMIC_ARCH=1`
+/// + OpenMP) and single-node MPI stubs, from the release `hpl-2.3-1`.
+pub const HPL: ToolSpec = ToolSpec {
+    name: "hpl",
+    version: "2.3",
+    all_arches: true,
+    raw_sockets: false,
+    form: ToolForm::Executable,
+    assets: &[
+        ToolAsset {
+            arch: "x86_64",
+            url: concat!(
+                "https://github.com/Lowendaff/lowendaff_bench/releases/download/hpl-2.3-1/",
+                "hpl-x86_64"
+            ),
+            sha256: "f3ea9b272c4469a6f919f6d8a9929afb1126e57f7dd9daa2e15de7946cbcfd49",
+            size: 21_250_248,
+        },
+        ToolAsset {
+            arch: "aarch64",
+            url: concat!(
+                "https://github.com/Lowendaff/lowendaff_bench/releases/download/hpl-2.3-1/",
+                "hpl-aarch64"
+            ),
+            sha256: "4ea8933757dab2008eab71227f9e07070560ee690419fabb6f09206bf4153cb5",
+            size: 12_341_824,
+        },
+    ],
+};
+
 /// iperf3 3.22 from the release `iperf3-3.22-1`, which the tools workflow built and published:
 /// static, without OpenSSL and so without iperf3's authentication code, and without SCTP.
 pub const IPERF3: ToolSpec = ToolSpec {
     name: "iperf3",
     version: "3.22",
+    all_arches: true,
     raw_sockets: false,
     form: ToolForm::Executable,
     assets: &[
@@ -99,6 +162,7 @@ pub const IPERF3: ToolSpec = ToolSpec {
 pub const MULTICHASE: ToolSpec = ToolSpec {
     name: "multichase",
     version: "2026.10.01",
+    all_arches: true,
     raw_sockets: false,
     form: ToolForm::TarGz {
         executable: "multichase",
@@ -132,6 +196,7 @@ pub const MULTICHASE: ToolSpec = ToolSpec {
 pub const NEXTTRACE: ToolSpec = ToolSpec {
     name: "nexttrace",
     version: "1.7.6",
+    all_arches: true,
     raw_sockets: true,
     form: ToolForm::Executable,
     assets: &[
@@ -155,11 +220,88 @@ pub const NEXTTRACE: ToolSpec = ToolSpec {
         },
     ],
 };
+
+/// PassMark PerformanceTest Linux 11.0 Build 1004, downloaded directly from PassMark Software.
+pub const PASSMARK: ToolSpec = ToolSpec {
+    name: "passmark",
+    version: "11.0.1004",
+    all_arches: true,
+    raw_sockets: false,
+    form: ToolForm::Zip {
+        x86_64: "PerformanceTest_Linux_x86-64",
+        aarch64: "PerformanceTest_Linux_ARM64",
+    },
+    assets: &[
+        ToolAsset {
+            arch: "x86_64",
+            url: "https://www.passmark.com/downloads/PerformanceTest_Linux_x86-64.zip",
+            sha256: "dab991f957373a5cfaa1e1b212a882bbb4d0fb85abaa22fc7694e8bd9dc070ad",
+            size: 5_646_190,
+        },
+        ToolAsset {
+            arch: "aarch64",
+            url: "https://www.passmark.com/downloads/PerformanceTest_Linux_ARM64.zip",
+            sha256: "968d247170df1a060e798ce0e9c033c83c8e018fafbd2930d4db666c7d435021",
+            size: 2_588_994,
+        },
+    ],
+};
+
+/// Open-source runtime libraries (`libncurses.so.5`, `xterm` terminfo, and `libcurl.so.4`) built
+/// against glibc 2.28 in `passmark-libs-1.0-1` so PassMark runs on distros without `libncurses5`.
+pub const PASSMARK_LIBS: ToolSpec = ToolSpec {
+    name: "passmark-libs",
+    version: "1.0",
+    all_arches: true,
+    raw_sockets: false,
+    form: ToolForm::TarGz {
+        executable: "libncurses.so.5",
+    },
+    assets: &[
+        ToolAsset {
+            arch: "x86_64",
+            url: concat!(
+                "https://github.com/Lowendaff/lowendaff_bench/releases/download/",
+                "passmark-libs-1.0-1/passmark-libs-x86_64.tar.gz"
+            ),
+            sha256: "a965f18bb5038f5a9cb3cfba21f43777e5ab1985afd96953de1de8420fdb06a6",
+            size: 407_002,
+        },
+        ToolAsset {
+            arch: "aarch64",
+            url: concat!(
+                "https://github.com/Lowendaff/lowendaff_bench/releases/download/",
+                "passmark-libs-1.0-1/passmark-libs-aarch64.tar.gz"
+            ),
+            sha256: "4a2b6fe85c0113c2c65144a775da83167f13009c182fe6bb1a9fa273b4ed1a9f",
+            size: 399_976,
+        },
+    ],
+};
+
+/// Prime95 (`mprime`) 30.19 build 20 for Linux x86_64, downloaded from GIMPS (`mersenne.org`).
+pub const PRIME95: ToolSpec = ToolSpec {
+    name: "prime95",
+    version: "30.19b20",
+    all_arches: false,
+    raw_sockets: false,
+    form: ToolForm::TarGzFlat {
+        executable: "mprime",
+    },
+    assets: &[ToolAsset {
+        arch: "x86_64",
+        url: "https://www.mersenne.org/download/software/v30/30.19/p95v3019b20.linux64.tar.gz",
+        sha256: "4ce2377e03deb4cf189523136e26401ba08f67857a128e420dd030d00cdca601",
+        size: 5_912_959,
+    }],
+};
+
 /// smartctl 7.5 from the release `smartctl-7.5-1`, which the smartctl workflow built and
 /// published.
 pub const SMARTCTL: ToolSpec = ToolSpec {
     name: "smartctl",
     version: "7.5",
+    all_arches: true,
     raw_sockets: false,
     form: ToolForm::Executable,
     assets: &[
@@ -189,6 +331,7 @@ pub const SMARTCTL: ToolSpec = ToolSpec {
 pub const STREAM: ToolSpec = ToolSpec {
     name: "stream",
     version: "5.10",
+    all_arches: true,
     raw_sockets: false,
     form: ToolForm::TarGz {
         executable: "stream-2m",
@@ -220,6 +363,7 @@ pub const STREAM: ToolSpec = ToolSpec {
 pub const SYSBENCH: ToolSpec = ToolSpec {
     name: "sysbench",
     version: "1.0.20",
+    all_arches: true,
     raw_sockets: false,
     form: ToolForm::Executable,
     assets: &[
@@ -242,4 +386,57 @@ pub const SYSBENCH: ToolSpec = ToolSpec {
             size: 1_879_248,
         },
     ],
+};
+
+/// Byte-UnixBench 6.0.1 system index programs (`dhry2reg`, `whetstone-double`, `execl`, `fstime`,
+/// `pipe`, `context1`, `spawn`, `syscall`, `looper`, `multi.sh`, `tst.sh`, `sort.src`,
+/// `index.base`) built static in `unixbench-6.0.1-1`.
+pub const UNIXBENCH: ToolSpec = ToolSpec {
+    name: "unixbench",
+    version: "6.0.1",
+    all_arches: true,
+    raw_sockets: false,
+    form: ToolForm::TarGz {
+        executable: "dhry2reg",
+    },
+    assets: &[
+        ToolAsset {
+            arch: "x86_64",
+            url: concat!(
+                "https://github.com/Lowendaff/lowendaff_bench/releases/download/",
+                "unixbench-6.0.1-1/unixbench-x86_64.tar.gz"
+            ),
+            sha256: "bd7a8951ea3939c77d8eeaddbe88f43151e3fd4b0b5a86bbcaf38eb7295003f8",
+            size: 137_554,
+        },
+        ToolAsset {
+            arch: "aarch64",
+            url: concat!(
+                "https://github.com/Lowendaff/lowendaff_bench/releases/download/",
+                "unixbench-6.0.1-1/unixbench-aarch64.tar.gz"
+            ),
+            sha256: "8408bdde367b51dc0486c9f7a771fcf50a1fa9e04eeb9aa59402977128c84aba",
+            size: 238_521,
+        },
+    ],
+};
+
+/// y-cruncher 0.8.7 Build 9547 static Linux x86_64 release.
+pub const YCRUNCHER: ToolSpec = ToolSpec {
+    name: "ycruncher",
+    version: "0.8.7.9547",
+    all_arches: false,
+    raw_sockets: false,
+    form: ToolForm::TarXz {
+        executable: "y-cruncher",
+    },
+    assets: &[ToolAsset {
+        arch: "x86_64",
+        url: concat!(
+            "https://github.com/Mysticial/y-cruncher/releases/download/v0.8.7.9547/",
+            "y-cruncher.v0.8.7.9547-static.tar.xz"
+        ),
+        sha256: "e22ff344f42763520d2331f19ed6177f3a7c78ac5bd462e9c060c38267181490",
+        size: 35_954_568,
+    }],
 };

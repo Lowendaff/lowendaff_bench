@@ -7,6 +7,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use bench_api::Context;
+use bench_api::Measurement;
 use bench_api::Step;
 use bench_api::Stop;
 use bench_tool::job;
@@ -65,7 +66,50 @@ where
     F: Fn(Job) -> Fut,
     Fut: Future<Output = Result<job::Output, RunError>>,
 {
-    ctx.progress(Step::Test { threads: 1 });
+    measure_inner(
+        ctx,
+        program,
+        threads,
+        false,
+        |partial| ctx.publish(partial),
+        run,
+    )
+    .await
+}
+
+/// Measures `sysbench` as a sub-suite inside `cpu.bench`, emitting [`Step::CpuSuite`] and calling
+/// `on_partial` after the single-thread run completes.
+pub async fn measure_suite<O, F, Fut, P>(
+    ctx: &Context<O>,
+    program: &Path,
+    threads: usize,
+    on_partial: P,
+    run: F,
+) -> Result<Output, Stop<Failure>>
+where
+    O: Measurement,
+    F: Fn(Job) -> Fut,
+    Fut: Future<Output = Result<job::Output, RunError>>,
+    P: FnMut(&Output),
+{
+    measure_inner(ctx, program, threads, true, on_partial, run).await
+}
+
+async fn measure_inner<O, F, Fut, P>(
+    ctx: &Context<O>,
+    program: &Path,
+    threads: usize,
+    suite_steps: bool,
+    mut on_partial: P,
+    run: F,
+) -> Result<Output, Stop<Failure>>
+where
+    O: Measurement,
+    F: Fn(Job) -> Fut,
+    Fut: Future<Output = Result<job::Output, RunError>>,
+    P: FnMut(&Output),
+{
+    ctx.progress(step(suite_steps, 1));
     let (reading, retries) = match tried(ctx, &run, program, 1).await {
         Tried::Done(reading, retries) => (reading, retries),
         Tried::Failed(faults) => return Err(Stop::Failed(Failure::Single(faults))),
@@ -83,8 +127,8 @@ where
     if threads <= 1 {
         return Ok(output);
     }
-    ctx.publish(&output);
-    ctx.progress(Step::Test { threads });
+    on_partial(&output);
+    ctx.progress(step(suite_steps, threads));
     match tried(ctx, &run, program, threads).await {
         Tried::Done(reading, retries) => {
             output.multi = Some(Run {
@@ -94,8 +138,20 @@ where
             });
             Ok(output)
         }
-        Tried::Failed(faults) => Err(Stop::Failed(Failure::Multi(faults))),
+        Tried::Failed(faults) => Err(Stop::Failed((output, Failure::Multi(faults)).1)),
         Tried::Cancelled => Err(Stop::Failed(Failure::Cancelled)),
+    }
+}
+
+fn step(suite_steps: bool, threads: usize) -> Step {
+    if suite_steps {
+        Step::CpuSuite {
+            suite: "sysbench",
+            stage: None,
+            threads: Some(threads),
+        }
+    } else {
+        Step::Test { threads }
     }
 }
 
@@ -116,8 +172,9 @@ enum Attempt {
 }
 
 /// Runs with `threads` threads until an attempt works, up to [`ATTEMPTS`] times.
-async fn tried<F, Fut>(ctx: &Context<Output>, run: &F, program: &Path, threads: usize) -> Tried
+async fn tried<O, F, Fut>(ctx: &Context<O>, run: &F, program: &Path, threads: usize) -> Tried
 where
+    O: Measurement,
     F: Fn(Job) -> Fut,
     Fut: Future<Output = Result<job::Output, RunError>>,
 {

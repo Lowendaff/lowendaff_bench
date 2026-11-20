@@ -3,40 +3,46 @@ source: crates/bench/tests/cpu.rs
 expression: text
 ---
 [CPU performance]
-  Geekbench 7
+  CPU benchmark
     Geekbench 7.1.0
     Single-core         1771
     Multi-core          4347
     Result link         unavailable
     done in 300.0 s
-  Geekbench 7
+  CPU benchmark
     Note                available memory may be short (needs about 2 GiB, 0.5 GiB available); no temporary swap: vm.swappiness is 0 here, so the kernel would not swap memory out
+    Note                Geekbench 7: failed (the upload failed (unable to resolve host browser.geekbench.com); the free version gives scores only after an upload)
     failed: the upload failed (unable to resolve host browser.geekbench.com); the free version gives scores only after an upload
-  Geekbench 7
+  CPU benchmark
     Note                available memory short (needs about 5 GiB, 1.0 GiB available); added 4 GiB of temporary swap, so the scores may be low
+    Note                Geekbench 7: failed (ended by the system for want of memory while running)
     failed: ended by the system for want of memory while running
-  Geekbench 7
+  CPU benchmark
+    Note                Geekbench 7: failed (still running after 60 minutes, stopped)
     failed: still running after 60 minutes, stopped
-  Geekbench 7
+  CPU benchmark
+    Note                Geekbench 7: failed (Geekbench printed no scores)
     failed: Geekbench printed no scores
-  Geekbench 7
+  CPU benchmark
+    Note                Geekbench 7: failed (Geekbench exit code 255: Error: The `--no-upload` switch is only available in Geekbench 7 Pro.)
     failed: Geekbench exit code 255: Error: The `--no-upload` switch is only available in Geekbench 7 Pro.
-  Geekbench 7
+  CPU benchmark
+    Note                Geekbench 7: failed (interrupted)
     failed: interrupted
-  Geekbench 7
+  CPU benchmark
     skipped: needs glibc 2.35 or newer; this host has 2.31
-  Geekbench 7
+  CPU benchmark
     skipped: needs an IPv4 connection
 
 [Summary]
-  Geekbench 7         done in 300.0 s
-  Geekbench 7         failed: the upload failed (unable to resolve host browser.geekbench.com); the free version gives scores only after an upload
-  Geekbench 7         failed: ended by the system for want of memory while running
-  Geekbench 7         failed: still running after 60 minutes, stopped
-  Geekbench 7         failed: Geekbench printed no scores
-  Geekbench 7         failed: Geekbench exit code 255: Error: The `--no-upload` switch is only available in Geekbench 7 Pro.
-  Geekbench 7         failed: interrupted
-  Geekbench 7         skipped: needs glibc 2.35 or newer; this host has 2.31
-  Geekbench 7         skipped: needs an IPv4 connection
+  CPU benchmark       done in 300.0 s
+  CPU benchmark       failed: the upload failed (unable to resolve host browser.geekbench.com); the free version gives scores only after an upload
+  CPU benchmark       failed: ended by the system for want of memory while running
+  CPU benchmark       failed: still running after 60 minutes, stopped
+  CPU benchmark       failed: Geekbench printed no scores
+  CPU benchmark       failed: Geekbench exit code 255: Error: The `--no-upload` switch is only available in Geekbench 7 Pro.
+  CPU benchmark       failed: interrupted
+  CPU benchmark       skipped: needs glibc 2.35 or newer; this host has 2.31
+  CPU benchmark       skipped: needs an IPv4 connection
 
 9 items: 1 done, 2 skipped, 6 failed, 0 timed out, 0 interrupted. Total time 50.0 s

@@ -11,6 +11,7 @@ use std::time::Duration;
 
 use bench::app;
 use bench::app::Cli;
+use bench::app::CpuSuite;
 use bench::app::EXIT_INTERRUPTED;
 use bench::app::MediaGroup;
 use bench::app::ReportOptions;
@@ -54,16 +55,17 @@ use bench_host::profile::Read;
 use bench_host::profile::StorageFacts;
 use bench_host::storage::Filesystem;
 use common::Captured;
+use plugin_cpu::bench as cpu_bench;
 use plugin_cpu::geekbench;
 use plugin_cpu::geekbench::result::Scores;
 use serde::Deserialize;
 
 mod common;
 
-/// What the tests' plugins return, Geekbench 7's result being the simplest of the program's to
-/// build: empty, so that the report shows only how a plugin ended.
-type Output = geekbench::Output;
-type Failure = geekbench::Failure;
+/// What the tests' plugins return: `cpu.bench`'s output, empty by default so that the report shows
+/// only how a plugin ended.
+type Output = cpu_bench::Output;
+type Failure = cpu_bench::Failure;
 
 const fn descriptor(id: &'static str) -> Descriptor {
     Descriptor {
@@ -106,11 +108,16 @@ impl Plugin for Good {
 
     async fn run(&self, _ctx: &Context<Output>) -> Result<Output, Stop<Failure>> {
         Ok(Output {
-            scores: Some(Scores {
-                version: None,
-                single: self.samples,
-                multi: self.samples,
-                url: None,
+            geekbench: Some(cpu_bench::SuiteOutcome::Done {
+                output: geekbench::Output {
+                    scores: Some(Scores {
+                        version: None,
+                        single: self.samples,
+                        multi: self.samples,
+                        url: None,
+                    }),
+                    ..geekbench::Output::default()
+                },
             }),
             ..Output::default()
         })
@@ -123,7 +130,7 @@ stand_in!(Lone, descriptor("lone"));
 
 /// The registry's entry of a plugin of these tests.
 fn entry<P: Plugin<Output = Output, Failure = Failure>>() -> Entry {
-    registry::entry::<P>(Measured::CpuGeekbench)
+    registry::entry::<P>(Measured::cpu_bench)
 }
 
 fn plugins() -> Vec<Entry> {
@@ -302,7 +309,7 @@ async fn a_work_directory_given_with_dots_leaves_none_in_the_paths_under_it() {
     // Captured, so that no test logs while another listens (see `common`).
     let (_log, capturing) = Captured::start(false);
     let code = app::execute(
-        vec![Planned::new(plugin, Measured::CpuGeekbench)],
+        vec![Planned::new(plugin, Measured::cpu_bench)],
         HostProfile::default(),
         &work.path().join(".").join("."),
         &CancellationToken::new(),
@@ -384,7 +391,7 @@ async fn a_plugin_gets_its_files_downloaded_into_the_run_directory_or_where_they
     };
 
     let (code, text, _log) = run(
-        vec![Planned::new(plugin, Measured::CpuGeekbench)],
+        vec![Planned::new(plugin, Measured::cpu_bench)],
         HostProfile::default(),
         &CancellationToken::new(),
         &downloads,
@@ -421,7 +428,7 @@ async fn a_plugin_whose_file_cannot_be_had_is_skipped_with_the_reason() {
     };
 
     let (code, text, log) = execute(
-        vec![Planned::new(plugin, Measured::CpuGeekbench)],
+        vec![Planned::new(plugin, Measured::cpu_bench)],
         HostProfile::default(),
         &CancellationToken::new(),
     )
@@ -501,7 +508,7 @@ async fn optional_files_come_over_their_family_and_a_missing_one_leaves_the_plug
             body,
             ..Downloads::default()
         };
-        let planned = vec![Planned::new(plugin, Measured::CpuGeekbench)];
+        let planned = vec![Planned::new(plugin, Measured::cpu_bench)];
         let (code, text, _) = run(
             planned,
             host,
@@ -585,7 +592,7 @@ async fn the_files_of_a_plugin_that_cannot_run_here_are_not_downloaded() {
     };
 
     let (code, text, _log) = run(
-        vec![Planned::new(ReadsFilesOverIpv4 {}, Measured::CpuGeekbench)],
+        vec![Planned::new(ReadsFilesOverIpv4 {}, Measured::cpu_bench)],
         HostProfile::default(),
         &CancellationToken::new(),
         &downloads,
@@ -641,11 +648,11 @@ fn output_and_format_flags_accept_short_and_long_forms_and_md_alias() {
 #[test]
 fn skip_leaves_out_single_plugins_or_groups_in_the_real_registry() {
     let all = registry::all();
-    let planned = app::prepare(&cli(&["--skip", "cpu.geekbench,ip.media"]), &all).unwrap();
+    let planned = app::prepare(&cli(&["--skip", "cpu.bench,ip.media"]), &all).unwrap();
     let kept: Vec<&str> = planned.iter().map(Planned::id).collect();
-    assert!(!kept.contains(&"cpu.geekbench"), "{kept:?}");
+    assert!(!kept.contains(&"cpu.bench"), "{kept:?}");
     assert!(!kept.contains(&"ip.media"), "{kept:?}");
-    assert!(kept.contains(&"cpu.sysbench"), "sibling stays: {kept:?}");
+    assert!(kept.contains(&"memory.sysbench"), "sibling stays: {kept:?}");
     assert!(kept.contains(&"ip.quality"), "sibling stays: {kept:?}");
     assert_eq!(kept.len(), all.len() - 2);
 
@@ -654,7 +661,7 @@ fn skip_leaves_out_single_plugins_or_groups_in_the_real_registry() {
             "--only",
             "ip,cpu",
             "--skip",
-            "cpu.geekbench",
+            "cpu.bench",
             "--skip",
             "ip.media",
         ]),
@@ -662,7 +669,7 @@ fn skip_leaves_out_single_plugins_or_groups_in_the_real_registry() {
     )
     .unwrap();
     let kept: Vec<&str> = repeated.iter().map(Planned::id).collect();
-    assert_eq!(kept, ["cpu.sysbench", "ip.quality"]);
+    assert_eq!(kept, ["ip.quality"]);
 }
 
 #[tokio::test]
@@ -795,10 +802,13 @@ fn config_flag_is_rejected_and_enum_parameters_configure_plugins() {
         Cli::try_parse_from(["lowendaff-bench", "--config", "bench.toml"]).is_err(),
         "--config local config file launching must not exist"
     );
+    assert!(Cli::try_parse_from(["lowendaff-bench", "--cpu-bench", "pts"]).is_err());
     assert!(Cli::try_parse_from(["lowendaff-bench", "--trace-groups", "mars"]).is_err());
     assert!(Cli::try_parse_from(["lowendaff-bench", "--media-groups", "antarctica"]).is_err());
 
     let parsed = cli(&[
+        "--cpu-bench",
+        "sysbench,7zip,hpl",
         "--trace-groups",
         "services,china",
         "--media-groups",
@@ -807,6 +817,10 @@ fn config_flag_is_rejected_and_enum_parameters_configure_plugins() {
         "--no-mail",
         "--no-bgp-upload",
     ]);
+    assert_eq!(
+        parsed.cpu_bench,
+        [CpuSuite::Sysbench, CpuSuite::SevenZip, CpuSuite::Hpl]
+    );
     assert_eq!(
         parsed.trace_groups,
         [TraceGroup::Services, TraceGroup::China]
@@ -924,6 +938,7 @@ stand_in!(
 const SMARTCTL: ToolSpec = ToolSpec {
     name: "smartctl",
     version: "7.4",
+    all_arches: true,
     raw_sockets: false,
     form: ToolForm::Executable,
     assets: &[
@@ -1111,6 +1126,7 @@ async fn a_tool_that_cannot_be_provisioned_skips_its_plugins_with_the_reason() {
 const GEEKBENCH: ToolSpec = ToolSpec {
     name: "geekbench",
     version: "7.1.0",
+    all_arches: true,
     raw_sockets: false,
     form: ToolForm::TarGz {
         executable: "geekbench7",
@@ -1210,6 +1226,7 @@ fn script() -> &'static [u8] {
 const SCRIPT_TOOL: ToolSpec = ToolSpec {
     name: "script",
     version: "1.0",
+    all_arches: true,
     raw_sockets: false,
     form: ToolForm::Executable,
     assets: &[
@@ -1410,7 +1427,7 @@ async fn plugins_see_the_host_as_the_run_read_it() {
     };
 
     let (code, _, _) = execute(
-        vec![Planned::new(plugin, Measured::CpuGeekbench)],
+        vec![Planned::new(plugin, Measured::cpu_bench)],
         host,
         &CancellationToken::new(),
     )
@@ -1523,8 +1540,7 @@ fn the_list_keeps_each_group_together_in_the_reports_order() {
     assert_eq!(
         ids,
         [
-            "cpu.sysbench",
-            "cpu.geekbench",
+            "cpu.bench",
             "memory.sysbench",
             "memory.stream",
             "memory.latency",
@@ -1544,10 +1560,11 @@ fn the_list_keeps_each_group_together_in_the_reports_order() {
         .collect();
     assert_eq!(
         cpu,
-        [
-            "  cpu.sysbench  CPU performance (tools: sysbench 1.0.20)",
-            "  cpu.geekbench  Geekbench 7 (tools: geekbench 7.1.0)"
-        ],
+        [concat!(
+            "  cpu.bench  CPU benchmark (tools: sysbench 1.0.20, 7zip 26.06, unixbench 6.0.1, ",
+            "hpl 2.3, passmark 11.0.1004, passmark-libs 1.0, ycruncher 0.8.7.9547, ",
+            "prime95 30.19b20, geekbench 7.1.0)"
+        )],
         "the reporter names the plugins"
     );
     let memory: Vec<&str> = text
@@ -1616,13 +1633,7 @@ fn the_plan_keeps_the_reporters_names() {
         .iter()
         .map(|planned| (planned.id(), planned.title()))
         .collect();
-    assert_eq!(
-        names,
-        [
-            ("cpu.sysbench", Some("CPU performance")),
-            ("cpu.geekbench", Some("Geekbench 7"))
-        ]
-    );
+    assert_eq!(names, [("cpu.bench", Some("CPU benchmark"))]);
     let planned = app::prepare(&cli(&["--only", "disk"]), &registry::all()).unwrap();
     let names: Vec<(&str, Option<&str>)> = planned
         .iter()
@@ -1663,7 +1674,7 @@ fn the_items_that_do_not_apply_here_are_named_as_the_report_names_them() {
     let (applicable, names) = orchestrator::for_host(planned, &vm);
 
     assert_eq!(names, ["Disk health", "Memory NUMA"]);
-    assert_eq!(applicable.len(), 11, "the others run");
+    assert_eq!(applicable.len(), 10, "the others run");
 }
 
 #[test]
@@ -1676,7 +1687,7 @@ fn tui_is_off_by_default_and_mutually_exclusive_with_every_other_flag() {
 
     let incompatible: &[&[&str]] = &[
         &["--tui", "--only", "cpu"],
-        &["--tui", "--skip", "cpu.geekbench"],
+        &["--tui", "--skip", "cpu.bench"],
         &["--tui", "-o", "report.txt"],
         &["--tui", "--output", "report.md"],
         &["--tui", "-f", "text"],
@@ -1687,6 +1698,7 @@ fn tui_is_off_by_default_and_mutually_exclusive_with_every_other_flag() {
         &["--tui", "--verbose"],
         &["--tui", "--show-ip"],
         &["--tui", "--download-connections", "32"],
+        &["--tui", "--cpu-bench", "sysbench"],
         &["--tui", "--countries", "US"],
         &["--tui", "--trace-groups", "china"],
         &["--tui", "--media-groups", "asia"],
@@ -1721,6 +1733,7 @@ fn tui_is_off_by_default_and_mutually_exclusive_with_every_other_flag() {
             let sample = match id {
                 "format" => "text",
                 "download_connections" => "32",
+                "cpu_bench" => "all",
                 "trace_groups" => "all",
                 "media_groups" => "all",
                 "internal_overrides" => "{}",

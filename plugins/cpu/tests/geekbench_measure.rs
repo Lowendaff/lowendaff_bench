@@ -145,6 +145,7 @@ fn geekbench_runs_its_cpu_benchmark_with_an_upload() {
             envs: vec![("LANG".into(), "C".into())],
             dir: Some(PathBuf::from("/run/work")),
             limit: Duration::from_secs(3600),
+            interrupt_after: None,
             group: true,
             first_to_go: true,
             quotable: false,

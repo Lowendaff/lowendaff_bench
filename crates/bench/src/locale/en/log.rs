@@ -41,6 +41,7 @@ impl LogWords for English {
     }
 
     fn item_progress(&self, id: &str, step: Step) -> String {
+        use crate::locale::CpuWords;
         use crate::locale::IpWords;
         use crate::locale::MediaWords;
         use crate::locale::MemoryWords;
@@ -79,6 +80,11 @@ impl LogWords for English {
                 format!("checking {} for {}", self.ip_stage(stage), family(ipv6))
             }
             Step::Bgp { ipv6 } => format!("querying BGP routes for {}", family(ipv6)),
+            Step::CpuSuite {
+                suite,
+                stage,
+                threads,
+            } => self.cpu_suite_step(suite, stage, threads),
         };
         format!("{id} {step}")
     }

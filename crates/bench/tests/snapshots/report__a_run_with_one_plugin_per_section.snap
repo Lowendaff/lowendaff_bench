@@ -48,6 +48,6 @@ Environment: KVM virtual machine
 
 [Summary]
   Disk performance    done in 0.2 s
-  Geekbench 7         skipped: needs an IPv4 connection
+  CPU benchmark       skipped: needs an IPv4 connection
 
 2 items: 1 done, 1 skipped, 0 failed, 0 timed out, 0 interrupted. Total time 1.0 s

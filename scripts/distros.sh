@@ -76,7 +76,7 @@ check_image() {
         reason="needs glibc 2.35 or newer; this host has $glibc"
     fi
     output=$(docker run --rm --network none -v "$bin:/usr/local/bin/lowendaff-bench:ro" -w /root \
-        "$image" lowendaff-bench --only cpu.geekbench 2>&1) ||
+        "$image" lowendaff-bench --only cpu.bench --cpu-bench geekbench 2>&1) ||
         fail "$name: exited with $?: $output"
     printf '%s\n' "$output" | grep -qx "  skipped: $reason" ||
         fail "$name: Geekbench 7 was not skipped with \"$reason\": $output"

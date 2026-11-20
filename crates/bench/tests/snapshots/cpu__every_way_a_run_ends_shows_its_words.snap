@@ -3,40 +3,43 @@ source: crates/bench/tests/cpu.rs
 expression: text
 ---
 [CPU performance]
-  CPU performance
+  CPU benchmark
     sysbench: prime limit 10000, 20 s each
     Test           Threads  Events/s
     Single thread        1  12842.07
     done in 40.1 s
-  CPU performance
+  CPU benchmark
+    Note                sysbench: failed (sysbench exit code 1: boom (4 attempts))
     failed: sysbench exit code 1: boom (4 attempts)
-  CPU performance
+  CPU benchmark
     sysbench 1.0.20: prime limit 10000, 20 s each
     Test           Threads  Events/s
     Single thread        1  12842.07
+    Note                sysbench: failed (multi-thread test: still running after 60 s, stopped (4 attempts))
     failed: multi-thread test: still running after 60 s, stopped (4 attempts)
-  CPU performance
+  CPU benchmark
+    Note                sysbench: failed (interrupted)
     failed: interrupted
-  CPU performance
+  CPU benchmark
     skipped: tool sysbench unavailable: download failed
-  CPU performance
+  CPU benchmark
     sysbench 1.0.20: prime limit 10000, 20 s each
     Test           Threads  Events/s
     Single thread        1  12842.07
     timed out; the results until then are kept
-  CPU performance
+  CPU benchmark
     sysbench 1.0.20: prime limit 10000, 20 s each
     Test           Threads  Events/s
     Single thread        1  12842.07
     interrupted
 
 [Summary]
-  CPU performance     done in 40.1 s
-  CPU performance     failed: sysbench exit code 1: boom (4 attempts)
-  CPU performance     failed: multi-thread test: still running after 60 s, stopped (4 attempts)
-  CPU performance     failed: interrupted
-  CPU performance     skipped: tool sysbench unavailable: download failed
-  CPU performance     timed out; the results until then are kept
-  CPU performance     interrupted
+  CPU benchmark       done in 40.1 s
+  CPU benchmark       failed: sysbench exit code 1: boom (4 attempts)
+  CPU benchmark       failed: multi-thread test: still running after 60 s, stopped (4 attempts)
+  CPU benchmark       failed: interrupted
+  CPU benchmark       skipped: tool sysbench unavailable: download failed
+  CPU benchmark       timed out; the results until then are kept
+  CPU benchmark       interrupted
 
 7 items: 1 done, 1 skipped, 3 failed, 1 timed out, 1 interrupted. Total time 50.0 s
