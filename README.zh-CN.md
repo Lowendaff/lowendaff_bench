@@ -96,6 +96,7 @@ sudo ALL_PROXY=socks5h://127.0.0.1:1080 ./lowendaff-bench --download-connections
 | `--media-groups` | `<区域,...>` | `all`（全部区域） | 选择 `ip.media` 要测试哪些地区的流媒体与在线服务 |
 | `--no-dnsbl` | 无需带值 | 关闭 | 在 `ip.quality` 中跳过 25 个邮件/垃圾信息黑名单（DNSBL）查询 |
 | `--no-mail` | 无需带值 | 关闭 | 在 `ip.quality` 中跳过 25 端口各大邮箱服务连通性测试 |
+| `--no-bgp-upload` | 无需带值 | 关闭 | 在 `text` 模式下跳过将 `network.bgp` 拓扑 SVG 上传至 `imageupload.app` 图床 |
 | `--download-connections` | `<1..=256>` | `32` | 下载外部测试工具时的最大并发连接数，网络不稳定时可适当调小 |
 | `--show-ip` | 无需带值 | 关闭（默认打码） | 在最终报告里显示完整的本机公网 IPv4/IPv6 地址和反向解析域名 |
 | `-v, --verbose` | 无需带值 | 关闭 | 打印更详细的下载过程与子工具运行日志（方便排查卡住或报错原因） |
@@ -148,7 +149,7 @@ sudo ALL_PROXY=socks5h://127.0.0.1:1080 ./lowendaff-bench --download-connections
 | `disk` | `disk.fio`<br>硬盘随机读写 | 所有服务器 | 采用与 YABS 相同的测试标准（50% 读 + 50% 写），测试 `4K`、`64K`、`512K`、`1M` 四种块大小下的真实读写速度与 IOPS，建站跑数据库重点看 `4K`，大文件吞吐看 `512K`/`1M` | [`docs/disk.md`](docs/disk.md) |
 | `network` | `network.iperf3`<br>全球带宽测速 | 所有联网机器 | 默认连接美西、美东、东京、法兰克福 5 个公共节点，用多线程同时测 IPv4 和 IPv6 的上传、下载真实带宽与延迟 | [`docs/network.md`](docs/network.md) |
 | `network` | `network.trace`<br>去程路由追踪 | 支持原始套接字的机器 | 追踪本机到 YouTube/Netflix 节点、国内三网（163/CN2/9929/CMIN2）及国际骨干网的每一跳路径，看清线路是直连还是绕路 | [`docs/network.md`](docs/network.md) |
-| `network` | `network.bgp`<br>BGP 上游拓扑图 | 有公网 IP 的机器 | 查询本机 IP 所在网段的 BGP 宣告前缀、RPKI 签名状态与直连上游占比，并在终端直接绘制自治域拓扑图（Markdown 模式自动生成 Mermaid 矢量图，JSON 模式内置独立 SVG 源码） | [`docs/network.md`](docs/network.md) |
+| `network` | `network.bgp`<br>BGP 上游拓扑图 | 有公网 IP 的机器 | 查询本机 IP 所在网段的 BGP 宣告前缀、RPKI 签名状态与直连上游占比，在终端模式生成 `imageupload.app` 高清 SVG 拓扑图链接（不含本机 IP；Markdown 模式生成 Mermaid 矢量图，JSON 模式内置独立 SVG 源码） | [`docs/network.md`](docs/network.md) |
 | `ip` | `ip.quality`<br>IP 质量与纯净度 | 有公网 IP 的机器 | 汇总 9 家风控数据库结果，判断 IP 是**原生 IP** 还是**广播 IP**、属于机房还是家宽、欺诈风险高低、历史暴露端口、是否在 25 个黑名单里，以及 25 邮件端口是否开放 | [`docs/ip.md`](docs/ip.md) |
 | `ip` | `ip.media`<br>流媒体解锁检测 | 所有联网机器 | 实测全球五大区域共 68 个流媒体与在线平台（Netflix、Disney+、YouTube、B站港澳台、巴哈姆特、Abema 等）能否正常解锁及识别到的所在地区 | [`docs/ip.md`](docs/ip.md) |
 | `cpu` | `cpu.geekbench`<br>Geekbench 7 跑分 | `glibc >= 2.35` 且有 IPv4 | 运行官方 Geekbench 7.1.0 综合基准测试，给出大家最熟悉的单核、多核跑分和官方网页报告链接 | [`docs/cpu.md`](docs/cpu.md) |

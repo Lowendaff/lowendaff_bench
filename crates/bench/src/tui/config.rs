@@ -48,6 +48,11 @@ pub enum ItemParams {
         /// Whether NextTrace resolves hop ASNs and geolocation.
         geo: bool,
     },
+    /// `network.bgp` routing topology parameters.
+    Bgp {
+        /// Whether to upload rendered topology SVGs to `imageupload.app` in `text` mode.
+        upload: bool,
+    },
     /// `ip.quality` reputation check parameters.
     IpQuality {
         /// Whether to query 25 DNSBL spam/abuse zones.
@@ -81,6 +86,7 @@ impl ItemParams {
                 targets: String::new(),
                 geo: true,
             },
+            "network.bgp" => Self::Bgp { upload: true },
             "ip.quality" => Self::IpQuality {
                 dnsbl: true,
                 mail: true,
@@ -116,6 +122,7 @@ impl ItemParams {
                 targets,
                 geo,
             } => !groups.iter().any(|on| *on) && split_csv(targets).is_empty() && *geo,
+            Self::Bgp { upload } => *upload,
             Self::IpQuality { dnsbl, mail } => *dnsbl && *mail,
             Self::IpMedia { groups, services } => {
                 !groups.iter().any(|on| *on) && split_csv(services).is_empty()
@@ -172,6 +179,11 @@ impl ItemParams {
                 }
                 if !geo {
                     map.insert("geo".to_owned(), serde_json::Value::Bool(false));
+                }
+            }
+            Self::Bgp { upload } => {
+                if !upload {
+                    map.insert("upload".to_owned(), serde_json::Value::Bool(false));
                 }
             }
             Self::IpQuality { dnsbl, mail } => {
@@ -458,6 +470,9 @@ impl TuiConfig {
                 ));
                 rows.push(bool_row(words.tui_field_geo(), *geo, true));
             }
+            ItemParams::Bgp { upload } => {
+                rows.push(bool_row(words.tui_field_bgp_upload(), *upload, true));
+            }
             ItemParams::IpQuality { dnsbl, mail } => {
                 rows.push(bool_row(words.tui_field_dnsbl(), *dnsbl, true));
                 rows.push(bool_row(words.tui_field_mail(), *mail, true));
@@ -539,6 +554,11 @@ impl TuiConfig {
                 6 => *geo = !*geo,
                 _ => {}
             },
+            ItemParams::Bgp { upload } => {
+                if field_idx == 1 {
+                    *upload = !*upload;
+                }
+            }
             ItemParams::IpQuality { dnsbl, mail } => match field_idx {
                 1 => *dnsbl = !*dnsbl,
                 2 => *mail = !*mail,
@@ -583,6 +603,11 @@ impl TuiConfig {
                 6 => *geo = !*geo,
                 _ => {}
             },
+            ItemParams::Bgp { upload } => {
+                if field_idx == 1 {
+                    *upload = !*upload;
+                }
+            }
             ItemParams::IpQuality { dnsbl, mail } => match field_idx {
                 1 => *dnsbl = !*dnsbl,
                 2 => *mail = !*mail,
@@ -609,7 +634,7 @@ impl TuiConfig {
         };
         let trimmed = input.trim();
         match &mut item.params {
-            ItemParams::Fixed | ItemParams::IpQuality { .. } => {}
+            ItemParams::Fixed | ItemParams::Bgp { .. } | ItemParams::IpQuality { .. } => {}
             ItemParams::Iperf3 {
                 countries,
                 servers,

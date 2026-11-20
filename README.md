@@ -115,6 +115,7 @@ sudo ALL_PROXY=socks5h://127.0.0.1:1080 ./lowendaff-bench --download-connections
 | `--media-groups` | `<GROUP,...>` | `all` | Choose which regional groups `ip.media` checks for streaming availability |
 | `--no-dnsbl` | *(flag)* | Off | Skip the 25 spam/abuse blacklist (DNSBL) lookups inside `ip.quality` |
 | `--no-mail` | *(flag)* | Off | Skip outbound port-25 mail server connectivity checks inside `ip.quality` |
+| `--no-bgp-upload` | *(flag)* | Off | Skip uploading `network.bgp` topology SVG diagrams to `imageupload.app` in `text` mode |
 | `--download-connections` | `<1..=256>` | `32` | Max parallel connections when downloading benchmark tools |
 | `--show-ip` | *(flag)* | Off (masked) | Show your server's full public IPv4/IPv6 addresses and hostnames in the report |
 | `-v, --verbose` | *(flag)* | Off | Print detailed download progress and underlying tool commands for troubleshooting |
@@ -172,7 +173,7 @@ Then it runs up to 13 test items in order:
 | `disk` | `disk.fio`<br>Disk read/write | All servers | Runs YABS-compatible 50/50 random read/write tests at `4K`, `64K`, `512K`, and `1M` block sizes to show both database IOPS (`4K`) and large-file throughput (`512K`/`1M`) | [`docs/disk.md`](docs/disk.md) |
 | `network` | `network.iperf3`<br>Network speed | Servers with internet | Tests upload, download, and latency over IPv4 and IPv6 against public servers (default: Los Angeles, New York, Virginia, Tokyo, Frankfurt) | [`docs/network.md`](docs/network.md) |
 | `network` | `network.trace`<br>Route tracing | Servers with raw sockets | Traces hop-by-hop network paths to nearest YouTube/Netflix caches, Chinese carriers, and global backbones so you can spot direct vs detoured routing | [`docs/network.md`](docs/network.md) |
-| `network` | `network.bgp`<br>BGP paths | Servers with a public IP | Queries global RIS route collectors for your announced prefix, RPKI status, and upstream carriers, drawing an AS-path diagram in the terminal, a Mermaid flowchart in Markdown, and standalone SVG markup in JSON | [`docs/network.md`](docs/network.md) |
+| `network` | `network.bgp`<br>BGP paths | Servers with a public IP | Queries global RIS route collectors for your announced prefix, RPKI status, and upstream carriers, providing an unlisted `imageupload.app` SVG topology link in `text` mode, a Mermaid flowchart in Markdown, and standalone SVG markup in JSON | [`docs/network.md`](docs/network.md) |
 | `ip` | `ip.quality`<br>IP reputation | Servers with a public IP | Cross-checks 9 IP databases to show whether your IP is **native** or **broadcast**, datacenter vs residential, fraud/risk indicators, open ports, 25 spam blacklists, and port-25 mail reachability | [`docs/ip.md`](docs/ip.md) |
 | `ip` | `ip.media`<br>Streaming unlock | Servers with internet | Tests direct IPv4/IPv6 access across 68 streaming and online services in 5 world regions (Netflix, Disney+, YouTube, BBC iPlayer, Bahamut, Abema, etc.) and reports the unlocked region | [`docs/ip.md`](docs/ip.md) |
 | `cpu` | `cpu.geekbench`<br>Geekbench 7 | `glibc >= 2.35` + IPv4 | Runs official Geekbench 7.1.0 for widely comparable single-core and multi-core scores plus an online result link | [`docs/cpu.md`](docs/cpu.md) |

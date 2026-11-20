@@ -231,8 +231,21 @@ fn defaults_match_standard_cli_and_every_customized_plugin_builds_cleanly() {
     cfg.apply_item_edit(media_idx, 7, "netflix,youtube")
         .unwrap();
 
-    assert_eq!(cfg.customized_count(), 4);
+    let bgp_idx = cfg
+        .items
+        .iter()
+        .position(|item| item.id == "network.bgp")
+        .unwrap();
+    assert_eq!(cfg.activate_item_field(bgp_idx, 1), None); // upload -> false
+
+    assert_eq!(cfg.customized_count(), 5);
     let settings = cfg.plugin_settings();
+    assert_eq!(
+        settings["network.bgp"],
+        serde_json::json!({
+            "upload": false,
+        })
+    );
     assert_eq!(
         settings["network.iperf3"],
         serde_json::json!({

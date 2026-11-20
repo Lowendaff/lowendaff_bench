@@ -78,6 +78,10 @@ impl ProgramWords for English {
         "Skip outbound TCP port-25 mail checks in ip.quality".to_owned()
     }
 
+    fn help_no_bgp_upload(&self) -> String {
+        "Skip uploading BGP topology SVG diagrams to imageupload.app in text mode".to_owned()
+    }
+
     fn help_tui(&self) -> String {
         "Start the interactive terminal interface (cannot be combined with other options)"
             .to_owned()

@@ -84,6 +84,7 @@ sudo ./lowendaff-bench --only network.trace --trace-groups services,china
 | 适用平台 | 全平台（需具备公网 IPv4 或 IPv6 地址） |
 | 数据来源 | RIPE NCC 公开免认证接口 RIPEstat Data API（`bgp-state`、`rpki-validation`、`as-overview`） |
 | 超时上限 | `2 分钟` |
+| 快捷参数 | `--no-bgp-upload`（跳过 `text` 模式图床上传） |
 
 ### 测试与绘图逻辑
 1. **全球全表采集点路由聚合（`bgp-state`）**：
@@ -96,15 +97,18 @@ sudo ./lowendaff-bench --only network.trace --trace-groups services,china
    - **起源侧首跳 Tier-1 截断与去重跳数分列**：优先筛选经过 Tier-1 骨干网的路径，并在自 Origin 向外到达的**首个** Tier-1 骨干网处截断（剔除采集点侧冗余的 Tier-1 互联跳数，同时保证高扇出上游如 `AS6939` 不会挤占多层级备份上游路径）；按去重后的真实 AS 跳数（`origin, 1, 2, ...`）划分纵向列，连续重复的同一 ASN（AS-PATH Prepend）折叠为单框并在连线上以虚线与 `×N` 标注；
    - **主干居中 DFS + 重心法（Barycenter）降交叉 + 邻接对齐行分配**：先将子树规模最大的主干排在纵向中心，再经多轮正反向重心扫掠最小化多上游网状交叉，最后以最密列为锚点向两侧做邻接吸附单调行号投影，消除同列重叠与悬空绕线。
 4. **三种报告格式的拓扑图输出**：
-   - **`text` 终端模式**：在二维 Unicode 字符画布上绘制圆角节点框（`╭─╮│╰─╯`）与**双端口正交连线**（出线与同行直连走盒内第 1 行、跨行入线走第 2 行，杜绝相邻行连线误焊；主路径双线 `═▸`、普通路径细线 `─▸`、Prepend 路径 `┄×N▸`）；支持多级宽度自适应——单屏略宽时自动切换紧凑盒宽（16 列 → 13 列），遇到 5 层及以上深层下游网络时自动按桥接列横向分段续画（`N (cont.)` 与右侧 `══▸` 续接标），仅在超窄分屏（`< 42` 列）下降级为带共享子树标记 `(↑)` 的缩进树状图；
-   - **`markdown` 模式**：输出原生 ```` ```mermaid ````（`flowchart LR`）代码块，在 GitHub、GitLab、Obsidian 等平台无需外部图片文件即可直接渲染为矢量图；
-   - **`json` 模式**：在 `ipv4.svg` / `ipv6.svg` 字段中直接内嵌完整自包含的三次贝塞尔曲线 `<svg>` 矢量图源码（内联配色与样式，可直接保存为 `.svg` 查看）。
-   - **默认隐私脱敏**：未传入 `--show-ip` 时，宣告前缀自动打码保留掩码长度（如 `203.0.*.*/24`、`2001:db8:*/48`），拓扑图内部不携带原始 IP。
+   - **`text` 终端模式**：输出 IPv4 / IPv6 双栈路由摘要表与主要观测 `AS_PATH` 列表，并将生成的匿名 SVG 矢量拓扑图以 `unlisted`（不公开收录）方式上传至 `imageupload.app`，直接在终端展示不折行的可点击图床链接（如 `https://imageupload.app/i/<key>`）；若图床上传超时或限流，仅追加一行 `Note` 说明而不会影响测试成功状态，也可通过 `--no-bgp-upload`（或 `--tui` 中的 `Upload topology image` 开关）关闭上传；
+   - **`markdown` 模式**：输出原生 ```` ```mermaid ````（`flowchart LR`）代码块（不触发外部图床上传），在 GitHub、GitLab、Obsidian 等平台可直接渲染为矢量图；
+   - **`json` 模式**：在 `ipv4.svg` / `ipv6.svg` 字段中直接内嵌完整自包含的三次贝塞尔曲线 `<svg>` 矢量图源码（内联配色与样式，不触发外部图床上传，可直接保存为 `.svg` 查看）。
+   - **默认隐私脱敏**：未传入 `--show-ip` 时，宣告前缀自动打码保留掩码长度（如 `203.0.*.*/24`、`2001:db8:*/48`）；上传与内嵌的 SVG 拓扑图内部仅包含自治域号（ASN）、运营商简称、节点权重与 Prepend 倍数，**绝不包含本机公网 IP 或前缀**。
 
 ```sh
-# 单独查看本机 BGP 路由拓扑图（终端直接画图）
+# 单独查询本机 BGP 路由并生成可点击的 SVG 拓扑图链接
 sudo ./lowendaff-bench --only network.bgp
 
-# 导出包含独立 SVG 源码的 JSON 文件
+# 仅在终端查看 BGP 摘要与 AS_PATH 表，不上传拓扑图到图床
+sudo ./lowendaff-bench --only network.bgp --no-bgp-upload
+
+# 导出包含独立 SVG 源码的 JSON 文件（不会向外部图床发起上传）
 sudo ./lowendaff-bench --only network.bgp -f json -o bgp.json
 ```

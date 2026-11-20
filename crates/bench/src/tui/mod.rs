@@ -44,6 +44,7 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use crate::app;
 use crate::app::Outcome;
+use crate::bgp_upload;
 use crate::fetcher::Fetchers;
 use crate::locale;
 use crate::network;
@@ -349,7 +350,7 @@ async fn run_worker(
 
     let fetchers = Fetchers::try_new()?;
     let mut observer = TuiObserver { tx, log: Log };
-    app::execute_with_observer(
+    let mut outcome = app::execute_with_observer(
         planned,
         host,
         &work_dir,
@@ -358,7 +359,14 @@ async fn run_worker(
         connections,
         &mut observer,
     )
-    .await
+    .await?;
+    let upload_started = Instant::now();
+    bgp_upload::populate_runs(&mut outcome.runs, cancel).await;
+    outcome.total += upload_started.elapsed();
+    if cancel.is_cancelled() {
+        outcome.exit_code = app::EXIT_INTERRUPTED;
+    }
+    Ok(outcome)
 }
 
 struct TuiObserver {

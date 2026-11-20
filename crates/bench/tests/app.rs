@@ -805,6 +805,7 @@ fn config_flag_is_rejected_and_enum_parameters_configure_plugins() {
         "global,asia",
         "--no-dnsbl",
         "--no-mail",
+        "--no-bgp-upload",
     ]);
     assert_eq!(
         parsed.trace_groups,
@@ -813,6 +814,7 @@ fn config_flag_is_rejected_and_enum_parameters_configure_plugins() {
     assert_eq!(parsed.media_groups, [MediaGroup::Global, MediaGroup::Asia]);
     assert!(parsed.no_dnsbl);
     assert!(parsed.no_mail);
+    assert!(parsed.no_bgp_upload);
 
     let planned = app::prepare(&parsed, &registry::all()).expect("valid enum flags prepare");
     assert_eq!(planned.len(), registry::all().len());
@@ -1690,6 +1692,7 @@ fn tui_is_off_by_default_and_mutually_exclusive_with_every_other_flag() {
         &["--tui", "--media-groups", "asia"],
         &["--tui", "--no-dnsbl"],
         &["--tui", "--no-mail"],
+        &["--tui", "--no-bgp-upload"],
         &["--tui", "--internal-overrides", "{}"],
     ];
     for args in incompatible {

@@ -76,6 +76,8 @@ pub trait TuiWords {
     fn tui_field_targets(&self) -> &'static str;
     /// `network.trace` field: hop ASN and geolocation lookup.
     fn tui_field_geo(&self) -> &'static str;
+    /// `network.bgp` field: upload topology SVG to `imageupload.app` in `text` mode.
+    fn tui_field_bgp_upload(&self) -> &'static str;
     /// `ip.quality` field: 25 DNSBL blacklist lookups.
     fn tui_field_dnsbl(&self) -> &'static str;
     /// `ip.quality` field: outbound TCP port-25 mail checks.
@@ -104,6 +106,8 @@ pub trait TuiWords {
     fn tui_unlimited(&self) -> &'static str;
     /// Placeholder value when trace groups use default cache + carrier list.
     fn tui_default_trace_note(&self) -> &'static str;
+    /// Note explaining `network.bgp` topology SVG upload in `text` mode.
+    fn tui_default_bgp_note(&self) -> &'static str;
     /// Placeholder value when media groups test all regions by default.
     fn tui_default_media_note(&self) -> &'static str;
     /// Placeholder value when no output file is set (viewer only).

@@ -372,24 +372,6 @@ impl Out {
         matches!(self.mode, Mode::Markdown { .. })
     }
 
-    /// Terminal wrap width when rendering plain text on a TTY, or `None` otherwise.
-    fn terminal_width(&self) -> Option<u16> {
-        match self.mode {
-            Mode::Terminal { width } => width,
-            Mode::Markdown { .. } => None,
-        }
-    }
-
-    /// Pre-formatted lines (such as a terminal Unicode topology diagram), written verbatim in
-    /// terminal mode without Markdown escaping or `comfy-table` wrapping.
-    fn raw_lines(&mut self, lines: &[String]) {
-        if let Mode::Terminal { .. } = &mut self.mode {
-            for line in lines {
-                let _ = writeln!(self.text, "{line}");
-            }
-        }
-    }
-
     /// Fenced code block (` ```<lang> `) in Markdown mode, unescaped so diagram languages such as
     /// `mermaid` preserve their operators and line breaks.
     fn code_block(&mut self, lang: &str, content: &str) {

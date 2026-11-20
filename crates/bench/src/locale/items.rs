@@ -633,7 +633,7 @@ pub enum BgpField {
 /// BGP path topology words (`network.bgp`).
 pub trait BgpWords {
     /// Method line at the top of `[BGP paths]`.
-    fn bgp_method(&self, custom_endpoints: bool) -> String;
+    fn bgp_method(&self, custom_endpoints: bool, upload: bool) -> String;
     /// Summary subtable heading.
     fn bgp_summary_title(&self) -> &'static str;
     /// Summary subtable headers (`["Field", "IPv4", "IPv6"]`).
@@ -650,12 +650,15 @@ pub trait BgpWords {
     fn bgp_visibility_cell(&self, peers: u32, distinct_paths: usize) -> String;
     /// Direct collector-only peering cell when all paths have length 1.
     fn bgp_direct_peering(&self) -> &'static str;
-    /// Heading above a family's topology diagram (`IPv4 topology` / `IPv6 topology`).
+    /// Label/heading for a family's topology (`IPv4 topology` / `IPv6 topology`).
     fn bgp_topology_title(&self, ipv6: bool) -> &'static str;
-    /// Heading above a family's top observed paths table (`IPv4 observed paths` / `IPv6 observed paths`).
+    /// Heading above a family's top observed paths table (`IPv4 observed paths` /
+    /// `IPv6 observed paths`).
     fn bgp_paths_title(&self, ipv6: bool) -> &'static str;
     /// Headers of the observed paths table (`["Peers", "Hops", "AS_PATH"]`).
     fn bgp_paths_headers(&self) -> [&'static str; 3];
+    /// Per-family note when topology image upload failed in `text` mode.
+    fn bgp_upload_failed(&self, ipv6: bool, reason: &str) -> String;
     /// Per-family note when one family's BGP lookup failed.
     fn bgp_family_failed(&self, ipv6: bool, reason: &str) -> String;
     /// Failure reason when every attempted `bgp-state` lookup failed.

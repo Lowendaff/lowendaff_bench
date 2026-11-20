@@ -26,12 +26,27 @@ pub use result::Settings;
 pub use result::UpstreamShare;
 
 /// BGP path topology plugin (`network.bgp`).
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Bgp {
+    /// Whether to upload rendered topology SVGs to `imageupload.app` in `text` mode.
+    pub upload: bool,
     /// Optional base URL override (`https://...` or loopback `http://127.0.0.1` / `http://[::1]`)
     /// used by local smoke responders.
     pub base_url: Option<String>,
+    /// Optional topology upload endpoint override (`https://...` or loopback `http://127.0.0.1` /
+    /// `http://[::1]`) used by local smoke responders.
+    pub upload_url: Option<String>,
+}
+
+impl Default for Bgp {
+    fn default() -> Self {
+        Self {
+            upload: true,
+            base_url: None,
+            upload_url: None,
+        }
+    }
 }
 
 impl Plugin for Bgp {
@@ -53,8 +68,14 @@ impl Plugin for Bgp {
             Some(raw) => Some(validate_base_url(raw).map_err(Stop::Failed)?),
             None => None,
         };
+        let upload_url = match self.upload_url.as_deref() {
+            Some(raw) => Some(validate_base_url(raw).map_err(Stop::Failed)?),
+            None => None,
+        };
         let settings = Settings {
-            custom_endpoints: base_url.is_some(),
+            custom_endpoints: base_url.is_some() || upload_url.is_some(),
+            upload: self.upload,
+            upload_url,
         };
         measure::measure(ctx, settings, base_url.as_deref()).await
     }
