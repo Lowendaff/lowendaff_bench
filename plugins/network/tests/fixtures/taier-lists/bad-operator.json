@@ -1,0 +1,1 @@
+{"version": 1, "locations": [{"id": "beijing", "province": "Beijing", "city": "Beijing", "default": true, "nodes": [{"operator": "starlink", "ip": "192.0.2.1", "port": 65499}]}]}

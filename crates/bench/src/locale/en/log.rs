@@ -85,6 +85,11 @@ impl LogWords for English {
                 stage,
                 threads,
             } => self.cpu_suite_step(suite, stage, threads),
+            Step::Taier {
+                location,
+                operator,
+                stage,
+            } => format!("{location} ({operator}): {stage}"),
         };
         format!("{id} {step}")
     }

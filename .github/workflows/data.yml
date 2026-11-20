@@ -20,6 +20,7 @@ on:
     paths:
       - servers/iperf3-candidates.json
       - scripts/iperf3-servers.sh
+      - scripts/taier-servers.sh
       - scripts/netflix-ix.sh
       - scripts/list-rules.jq
       - .github/workflows/data.yml
@@ -54,6 +55,20 @@ jobs:
             from-markdown: >-
               `servers/iperf3-candidates.json` and the export of
               [iperf3serverlist.net](https://iperf3serverlist.net)
+            entries: locations
+          - name: Taier server list
+            file: servers/taier.json
+            script: scripts/taier-servers.sh
+            # update refuses an export of fewer than 50 valid nodes, one without defaults, and a
+            # list that would lose a third of its locations at once.
+            source: https://raw.githubusercontent.com/transflo/speedtaier/main/serverlist_decrypted.json
+            limit: 2097152
+            branch: data/taier-servers
+            title: "build: update the Taier server list"
+            from: the GlobalSpeed node export of transflo/speedtaier
+            from-markdown: >-
+              the GlobalSpeed node export of
+              [`transflo/speedtaier`](https://github.com/transflo/speedtaier)
             entries: locations
           - name: Netflix's exchange ports
             file: servers/netflix-ix.json

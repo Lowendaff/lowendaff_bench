@@ -9,12 +9,17 @@ use std::sync::atomic::AtomicU16;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
+use bench_api::CancellationToken;
 use bench_api::DnsAnswer;
 use bench_api::IpFamily;
 use bench_api::NetClient;
 use bench_api::NetError;
 use bench_api::NetFuture;
 use bench_api::SmtpBanner;
+use bench_api::TaierAdmission;
+use bench_api::TaierPacketStats;
+use bench_api::TaierStreamSpec;
+use bench_api::TaierTransfer;
 use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpSocket;
@@ -22,6 +27,7 @@ use tokio::net::TcpStream;
 use tokio::net::UdpSocket;
 
 use crate::locale;
+use crate::taier_probe;
 
 /// Default DNS port.
 const DNS_PORT: u16 = 53;
@@ -120,6 +126,56 @@ impl NetClient for NetProbers {
         timeout: Duration,
     ) -> NetFuture<'a, SmtpBanner> {
         Box::pin(async move { self.probe_smtp(family, host, port, timeout).await })
+    }
+
+    fn taier_acquire<'a>(
+        &'a self,
+        ip: Ipv4Addr,
+        port: u16,
+        query: &'a str,
+        timeout: Duration,
+    ) -> NetFuture<'a, TaierAdmission> {
+        Box::pin(async move { taier_probe::acquire(ip, port, query, timeout).await })
+    }
+
+    fn taier_release<'a>(
+        &'a self,
+        ip: Ipv4Addr,
+        port: u16,
+        key: &'a str,
+        timeout: Duration,
+    ) -> NetFuture<'a, ()> {
+        Box::pin(async move {
+            taier_probe::release(ip, port, key, timeout).await;
+            Ok(())
+        })
+    }
+
+    fn taier_download<'a>(
+        &'a self,
+        spec: &'a TaierStreamSpec,
+        cancel: &'a CancellationToken,
+    ) -> NetFuture<'a, TaierTransfer> {
+        Box::pin(async move { taier_probe::download(spec, cancel).await })
+    }
+
+    fn taier_upload<'a>(
+        &'a self,
+        spec: &'a TaierStreamSpec,
+        cancel: &'a CancellationToken,
+    ) -> NetFuture<'a, TaierTransfer> {
+        Box::pin(async move { taier_probe::upload(spec, cancel).await })
+    }
+
+    fn taier_packet_probe<'a>(
+        &'a self,
+        ip: Ipv4Addr,
+        port: u16,
+        large: bool,
+        samples: u8,
+        cancel: &'a CancellationToken,
+    ) -> NetFuture<'a, TaierPacketStats> {
+        Box::pin(async move { taier_probe::packet_probe(ip, port, large, samples, cancel).await })
     }
 }
 

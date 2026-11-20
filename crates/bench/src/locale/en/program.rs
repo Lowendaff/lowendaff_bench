@@ -96,6 +96,22 @@ impl ProgramWords for English {
             .to_owned()
     }
 
+    fn help_taier_cities(&self) -> String {
+        "Cities, provinces, or location IDs for network.taier (e.g. Beijing,Shanghai,Jiangsu), \
+         or all"
+            .to_owned()
+    }
+
+    fn help_taier_operators(&self) -> String {
+        "Carriers for network.taier: comma-separated telecom, unicom, mobile, cernet, cbn, \
+         other, or all"
+            .to_owned()
+    }
+
+    fn help_no_taier_probes(&self) -> String {
+        "Skip 64B and 1400B TCP latency/jitter/loss probes in network.taier".to_owned()
+    }
+
     fn help_trace_groups(&self) -> String {
         "Target groups for network.trace: comma-separated services, china, international, or all"
             .to_owned()

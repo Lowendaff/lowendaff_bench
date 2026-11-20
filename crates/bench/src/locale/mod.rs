@@ -41,6 +41,11 @@ pub use items::MemoryWords;
 pub use items::NetworkWords;
 pub use items::NoSwapWhy;
 pub use items::Probe;
+pub use items::TaierCell;
+pub use items::TaierChoice;
+pub use items::TaierListProblem;
+pub use items::TaierRule;
+pub use items::TaierWords;
 pub use items::TraceChoice;
 pub use items::TraceList;
 pub use items::TraceListProblem;
@@ -66,6 +71,7 @@ pub trait Words:
     + MemoryWords
     + DiskWords
     + NetworkWords
+    + TaierWords
     + TraceWords
     + BgpWords
     + IpWords
@@ -85,6 +91,7 @@ impl<T> Words for T where
         + MemoryWords
         + DiskWords
         + NetworkWords
+        + TaierWords
         + TraceWords
         + BgpWords
         + IpWords

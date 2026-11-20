@@ -11,6 +11,7 @@ use plugin_memory::numa;
 use plugin_memory::stream;
 use plugin_network::bgp;
 use plugin_network::iperf3;
+use plugin_network::taier;
 use plugin_network::trace;
 
 /// A plugin's result, complete or as far as it got, and its own reason when it stopped short.
@@ -42,6 +43,8 @@ pub enum Measured {
     DiskFio(Report<fio::Output, fio::Failure>),
     /// Network speed (`network.iperf3`).
     NetworkIperf3(Report<iperf3::Output, iperf3::Failure>),
+    /// China carrier speed (`network.taier`).
+    NetworkTaier(Report<taier::Output, taier::Failure>),
     /// Route tracing (`network.trace`).
     NetworkTrace(Report<trace::Output, trace::Failure>),
     /// BGP paths (`network.bgp`).

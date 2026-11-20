@@ -17,6 +17,7 @@ use bench::results::Measured;
 use bench::results::Report;
 use bench_api::Net;
 use bench_api::Stop;
+use bench_api::TaierPacketStats;
 use bench_host::cards::Bus;
 use bench_host::cards::Link;
 use bench_host::cards::NetworkCard;
@@ -881,5 +882,168 @@ fn bgp_renders_text_imageupload_url_mermaid_and_json_svg_with_ip_masking() {
     assert_eq!(
         full_json["runs"][0]["output"]["ipv4"]["prefix"],
         "203.0.113.0/24"
+    );
+}
+
+#[test]
+fn taier_renders_text_markdown_json_probes_fallbacks_and_stop_reasons() {
+    use plugin_network::taier;
+    use plugin_network::taier::NodeMeasured;
+    use plugin_network::taier::NodeOutcome;
+    use plugin_network::taier::Operator;
+    use plugin_network::taier::Settings;
+    use plugin_network::taier::TestedNode;
+
+    let output = taier::Output {
+        settings: Settings {
+            seconds: 4,
+            streams: 8,
+            probes: true,
+            cities: vec!["Beijing".to_owned(), "Guangzhou".to_owned()],
+            operators: vec![Operator::Telecom, Operator::Unicom],
+            custom_list: false,
+        },
+        unknown: vec!["Atlantis".to_owned()],
+        results: vec![
+            TestedNode {
+                id: "beijing".to_owned(),
+                province: "Beijing".to_owned(),
+                city: "Beijing".to_owned(),
+                operator: Operator::Telecom,
+                ip: "192.0.2.10".parse().expect("doc ip"),
+                port: 65499,
+                tried_nodes: 2,
+                outcome: NodeOutcome::Measured(NodeMeasured {
+                    download_bps: 945_000_000,
+                    upload_bps: 312_000_000,
+                    small_probe: Some(TaierPacketStats {
+                        sent: 10,
+                        lost: 0,
+                        avg_micros: Some(12_400),
+                        min_micros: Some(11_800),
+                        max_micros: Some(13_900),
+                        jitter_micros: Some(850),
+                    }),
+                    large_probe: Some(TaierPacketStats {
+                        sent: 10,
+                        lost: 1,
+                        avg_micros: Some(14_200),
+                        min_micros: Some(13_100),
+                        max_micros: Some(16_500),
+                        jitter_micros: Some(1_100),
+                    }),
+                }),
+            },
+            TestedNode {
+                id: "guangdong-guangzhou".to_owned(),
+                province: "Guangdong".to_owned(),
+                city: "Guangzhou".to_owned(),
+                operator: Operator::Unicom,
+                ip: "198.51.100.20".parse().expect("doc ip"),
+                port: 9443,
+                tried_nodes: 1,
+                outcome: NodeOutcome::Busy,
+            },
+            TestedNode {
+                id: "guangdong-guangzhou".to_owned(),
+                province: "Guangdong".to_owned(),
+                city: "Guangzhou".to_owned(),
+                operator: Operator::Telecom,
+                ip: "198.51.100.21".parse().expect("doc ip"),
+                port: 65499,
+                tried_nodes: 1,
+                outcome: NodeOutcome::Failed("download closed before HTTP header".to_owned()),
+            },
+        ],
+    };
+
+    let taier_run = run(
+        "network.taier",
+        Status::Completed,
+        Some(9.4),
+        Some(Measured::NetworkTaier(Report {
+            output: Some(output),
+            stop: None,
+        })),
+    );
+    let skipped_run = run(
+        "network.taier",
+        Status::Skipped(None),
+        Some(0.1),
+        Some(Measured::NetworkTaier(Report {
+            output: None,
+            stop: Some(Stop::Skipped(taier::Failure::NoNode(vec![
+                "Mars".to_owned(),
+            ]))),
+        })),
+    );
+
+    let host_profile = host();
+    let runs = [taier_run];
+    let page = Page {
+        version: "0.1.0",
+        host: &host_profile,
+        show_ip: false,
+        not_applicable: &[],
+        runs: &runs,
+        total: Duration::from_millis(9400),
+    };
+
+    let text = report::render(&page, Format::Text, None);
+    assert!(
+        text.contains(
+            "CAICT GlobalSpeed (Taier): 8 streams, 4 s each way, HTTP/1.1, 64B & 1400B TCP probes; \
+             cities Beijing, Guangzhou; carriers telecom, unicom"
+        ),
+        "{text}"
+    );
+    assert!(
+        text.contains("no location in the Taier list for Atlantis"),
+        "{text}"
+    );
+    assert!(text.contains("945 Mbit/s"), "{text}");
+    assert!(text.contains("312 Mbit/s"), "{text}");
+    assert!(text.contains("12.4 ± 0.85 ms / 0%"), "{text}");
+    assert!(text.contains("14.2 ± 1.10 ms / 10%"), "{text}");
+    assert!(text.contains("Guangzhou, Guangdong"), "{text}");
+    assert!(text.contains("busy"), "{text}");
+    assert!(
+        text.contains("Beijing (Telecom): connected on candidate 2 after busy/unreachable nodes"),
+        "{text}"
+    );
+    assert!(
+        text.contains("Guangzhou, Guangdong (Telecom): failed: download closed before HTTP header"),
+        "{text}"
+    );
+
+    let md = report::render(&page, Format::Markdown, None);
+    assert!(
+        md.contains(
+            "| Location | Carrier | Download | Upload | 64B RTT / Loss | 1400B RTT / Loss |"
+        ),
+        "{md}"
+    );
+
+    let json: serde_json::Value =
+        serde_json::from_str(&report::render(&page, Format::Json, None)).expect("valid JSON");
+    assert_eq!(json["runs"][0]["id"], "network.taier");
+    assert_eq!(json["runs"][0]["title"], "China carrier speed");
+    assert_eq!(
+        json["runs"][0]["output"]["results"][0]["outcome"]["data"]["download_bps"],
+        945_000_000
+    );
+
+    let skip_runs = [skipped_run];
+    let skip_text = report::render(
+        &Page {
+            runs: &skip_runs,
+            ..page
+        },
+        Format::Text,
+        None,
+    );
+    assert!(
+        skip_text.contains("skipped: no carrier node in the Taier list for Mars"),
+        "{skip_text}"
     );
 }

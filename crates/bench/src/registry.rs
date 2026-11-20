@@ -37,6 +37,9 @@ pub fn all() -> Vec<Entry> {
         // Network speed: iperf3 with YABS's method, after fio and before CPU benchmarks, as YABS
         // orders them.
         entry::<plugin_network::iperf3::Iperf3>(Measured::NetworkIperf3),
+        // China carrier speed: native multi-stream CAICT GlobalSpeed HTTP/1.1 download and upload
+        // plus 64 B / 1400 B packet probes across mainland China carriers.
+        entry::<plugin_network::taier::Taier>(Measured::NetworkTaier),
         // Route tracing: after network speed, so that its probes do not share the link with
         // iperf3's streams.
         entry::<plugin_network::trace::Trace>(Measured::NetworkTrace),
@@ -260,6 +263,7 @@ mod tests {
                 "memory.numa",
                 "disk.fio",
                 "network.iperf3",
+                "network.taier",
                 "network.trace",
                 "network.bgp",
                 "ip.quality",

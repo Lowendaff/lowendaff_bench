@@ -144,7 +144,7 @@ fn release_events_and_stray_pastes_are_ignored_while_editor_supports_cursor_and_
 
     // Bracketed paste outside an open editor must not trigger single-key shortcuts like 'a' or 'q'.
     session.handle_paste("aqdr");
-    assert_eq!(session.config.enabled_count(), 12);
+    assert_eq!(session.config.enabled_count(), 13);
 
     // Open Global -> work_dir editor and exercise cursor movement, Delete, Backspace, and Paste.
     let _ = session.handle_key(press(KeyCode::End));
@@ -177,8 +177,8 @@ fn defaults_match_standard_cli_and_every_customized_plugin_builds_cleanly() {
     let all = registry::all();
     let mut cfg = TuiConfig::from_registry(&all);
 
-    assert_eq!(cfg.items.len(), 12);
-    assert_eq!(cfg.enabled_count(), 12);
+    assert_eq!(cfg.items.len(), 13);
+    assert_eq!(cfg.enabled_count(), 13);
     assert_eq!(cfg.customized_count(), 0);
     assert!(
         cfg.plugin_settings().is_empty(),
@@ -250,8 +250,32 @@ fn defaults_match_standard_cli_and_every_customized_plugin_builds_cleanly() {
     assert_eq!(cfg.activate_item_field(cpu_idx, 6), None); // ycruncher -> true
     assert_eq!(cfg.activate_item_field(cpu_idx, 8), None); // geekbench -> false
 
-    assert_eq!(cfg.customized_count(), 6);
+    let taier_idx = cfg
+        .items
+        .iter()
+        .position(|item| item.id == "network.taier")
+        .unwrap();
+    assert_eq!(cfg.activate_item_field(taier_idx, 3), None); // mobile -> false
+    cfg.apply_item_edit(taier_idx, 8, " Beijing , Jiangsu ")
+        .unwrap();
+    cfg.apply_item_edit(taier_idx, 9, "6").unwrap();
+    cfg.apply_item_edit(taier_idx, 10, "4").unwrap();
+    assert_eq!(cfg.activate_item_field(taier_idx, 11), None); // probes -> false
+    assert!(cfg.apply_item_edit(taier_idx, 9, "0").is_err());
+    assert!(cfg.apply_item_edit(taier_idx, 10, "99").is_err());
+
+    assert_eq!(cfg.customized_count(), 7);
     let settings = cfg.plugin_settings();
+    assert_eq!(
+        settings["network.taier"],
+        serde_json::json!({
+            "operators": ["telecom", "unicom"],
+            "cities": ["Beijing", "Jiangsu"],
+            "seconds": 6,
+            "streams": 4,
+            "probes": false,
+        })
+    );
     assert_eq!(
         settings["cpu.bench"],
         serde_json::json!({
@@ -297,7 +321,14 @@ fn defaults_match_standard_cli_and_every_customized_plugin_builds_cleanly() {
     let planned = cfg
         .build_plan(&all)
         .expect("customized settings must build");
-    assert_eq!(planned.len(), 12);
+    assert_eq!(planned.len(), 13);
+
+    // Unchecking every carrier in network.taier while enabled is rejected.
+    if let ItemParams::Taier { operators, .. } = &mut cfg.items[taier_idx].params {
+        *operators = [false; 7];
+    }
+    assert!(cfg.build_plan(&all).is_err());
+    cfg.items[taier_idx].reset();
 
     // Unchecking every sub-suite in cpu.bench while cpu.bench is enabled is rejected.
     if let ItemParams::CpuBench { suites } = &mut cfg.items[cpu_idx].params {
@@ -413,7 +444,7 @@ fn keyboard_navigation_drives_item_switches_groups_params_and_global_options() {
 
     let _ = session.handle_key(press(KeyCode::Home));
     let _ = session.handle_key(press(KeyCode::Char('d')));
-    assert_eq!(session.config.enabled_count(), 12);
+    assert_eq!(session.config.enabled_count(), 13);
     assert_eq!(
         session.config.global.download_connections,
         app::DOWNLOAD_CONNECTIONS
@@ -448,7 +479,7 @@ fn keyboard_navigation_drives_item_switches_groups_params_and_global_options() {
 
     let planned = session.config.build_plan(&all).unwrap();
     let ids: Vec<&str> = planned.iter().map(Planned::id).collect();
-    assert_eq!(ids.len(), 12);
+    assert_eq!(ids.len(), 13);
 }
 
 #[test]
@@ -695,5 +726,28 @@ fn disabling_items_clears_sub_selections_and_editing_sub_options_re_enables_bidi
     assert_eq!(
         cfg.plugin_settings()["network.iperf3"],
         serde_json::json!({ "seconds": 15 })
+    );
+
+    // 6. network.taier: unchecking all 3 default carriers auto-disables; checking a carrier
+    //    while disabled re-enables with probes=true; `all` syncs all 6 carriers.
+    let taier_idx = cfg
+        .items
+        .iter()
+        .position(|item| item.id == "network.taier")
+        .unwrap();
+    assert!(!cfg.items[taier_idx].enabled);
+    cfg.activate_item_field(taier_idx, 1); // check telecom while disabled
+    assert!(cfg.items[taier_idx].enabled);
+    assert_eq!(
+        cfg.plugin_settings()["network.taier"],
+        serde_json::json!({ "operators": ["telecom"] })
+    );
+    cfg.activate_item_field(taier_idx, 1); // uncheck telecom -> auto-disables!
+    assert!(!cfg.items[taier_idx].enabled);
+    cfg.activate_item_field(taier_idx, 7); // check `all` -> enables all 6!
+    assert!(cfg.items[taier_idx].enabled);
+    assert_eq!(
+        cfg.plugin_settings()["network.taier"],
+        serde_json::json!({ "operators": ["all"] })
     );
 }

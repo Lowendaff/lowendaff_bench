@@ -41,11 +41,12 @@ plugins/
   cpu/         cpu.bench (sysbench, 7zip, unixbench, hpl, passmark, ycruncher, prime95, geekbench)
   memory/      memory.sysbench, memory.stream, memory.latency, memory.numa
   disk/        disk.health, disk.fio
-  network/     network.iperf3, network.trace, network.bgp
+  network/     network.iperf3, network.taier, network.trace, network.bgp
   ip/          ip.quality, ip.media
 docs/          detailed module-by-module guides explaining how each test item measures and judges
 servers/       the lists that the network items download at run time: network speed's servers,
-               with their candidates, route tracing's targets and Netflix's exchange ports
+               with their candidates, China carrier speed's nodes, route tracing's targets and
+               Netflix's exchange ports
 ```
 
 Each test item is a plugin, whose id is `<group>.<name>`, in the crate of its group,
@@ -107,16 +108,17 @@ fresh export, and `scripts/iperf3-servers.sh check`. The list is never edited by
 refuses a server that is no candidate. From then on, the `data` workflow keeps the list current by
 itself: twice a day, it runs `update` with a fresh export and, when the list changes, opens a pull
 request as the GitHub App `lowendaff-bench-data`, which merges itself once the required checks pass;
-`scripts/check-commits.sh` lets a bot's pull request change the generated lists, this one and
-`servers/netflix-ix.json`, and nothing else. Nothing builds from a list in `servers/`, so that a
-change of the lists alone needs no build: `check` refuses a file that names one, other than
-Markdown, the lists' scripts and their cases, ci-scope and its cases, check-commits and its cases,
-and the workflows that test and update the lists, and Rust code that names one other than by the
-address that the program downloads it from. A rule of the list changes in the program's reader
-(`plugins/network/src/iperf3/servers.rs`) and in the script together, with a fixture in
-`plugins/network/tests/fixtures/server-lists/` that both read. The same workflow keeps route
-tracing's list of Netflix's exchange ports, `servers/netflix-ix.json`, current from PeeringDB with
-`scripts/netflix-ix.sh update`.
+`scripts/check-commits.sh` lets a bot's pull request change the generated lists, this one,
+`servers/taier.json` and `servers/netflix-ix.json`, and nothing else. Nothing builds from a list in
+`servers/`, so that a change of the lists alone needs no build: `check` refuses a file that names
+one, other than Markdown, the lists' scripts and their cases, ci-scope and its cases, check-commits
+and its cases, and the workflows that test and update the lists, and Rust code that names one other
+than by the address that the program downloads it from. A rule of the list changes in the program's
+reader (`plugins/network/src/iperf3/servers.rs`) and in the script together, with a fixture in
+`plugins/network/tests/fixtures/server-lists/` that both read. The same workflow keeps China
+carrier speed's list (`servers/taier.json`, via `scripts/taier-servers.sh update`) and route
+tracing's list of Netflix's exchange ports (`servers/netflix-ix.json`, via
+`scripts/netflix-ix.sh update`) current.
 
 ## Code
 
@@ -263,9 +265,9 @@ ones before pushing:
 - `cargo deny check`, `zizmor --persona pedantic .`, `actionlint`, and `shellcheck` across `*.sh`
 - `scripts/check-commits-cases.sh` and `scripts/check-commits.sh origin/main HEAD`
 - `ast-grep test`, `ast-grep scan`, `scripts/check-docs-cases.sh` and `scripts/check-docs.sh`
-- `scripts/{iperf3-servers,traceroute-targets,netflix-ix}{-cases,}.sh` (`check` subcommand)
+- `scripts/{iperf3-servers,taier-servers,traceroute-targets,netflix-ix}{-cases,}.sh` (`check`)
 - On Linux (`x86_64` and `aarch64`): static `musl` release build, `swap-file` roundtrip example,
-  `scripts/smoke.sh` with local loopback responders (`smoke-{iperf3,trace,ip,media,bgp}.sh`),
+  `scripts/smoke.sh` with local responders (`smoke-{iperf3,taier,trace,ip,media,bgp}.sh`),
   `scripts/smoke-mutants.sh`, `scripts/distros.sh`, and non-blocking `scripts/network-check.sh`.
 
 CI pins `cargo-nextest` `0.9.151`, `cargo-deny` `0.20.2`, `zizmor` `1.32.0`, `ast-grep` `0.51.1`,

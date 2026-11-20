@@ -87,6 +87,10 @@ pub(in crate::report) fn stop_reason(run: &Run<Measured>) -> Option<String> {
             .stop
             .as_ref()
             .map(|stop| network::iperf3_failure(failure(stop))),
+        Some(Measured::NetworkTaier(report)) => report
+            .stop
+            .as_ref()
+            .map(|stop| network::taier_failure(failure(stop))),
         Some(Measured::NetworkTrace(report)) => report
             .stop
             .as_ref()

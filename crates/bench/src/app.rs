@@ -22,6 +22,7 @@ use plugin_ip::media::Media;
 use plugin_ip::quality::Quality;
 use plugin_network::bgp::Bgp;
 use plugin_network::iperf3::Iperf3;
+use plugin_network::taier::Taier;
 use plugin_network::trace::Trace;
 use tokio::io::AsyncRead;
 
@@ -93,6 +94,39 @@ impl CpuSuite {
             Self::Ycruncher => "ycruncher",
             Self::Prime95 => "prime95",
             Self::Geekbench => "geekbench",
+            Self::All => "all",
+        }
+    }
+}
+
+/// Carrier selection for `network.taier` (`--taier-operators`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum TaierOperator {
+    /// China Telecom (`AS4134` / `AS4809`).
+    Telecom,
+    /// China Unicom (`AS4837` / `AS9929`).
+    Unicom,
+    /// China Mobile (`AS9808` / `AS58807`).
+    Mobile,
+    /// China Education and Research Network (`CERNET`).
+    Cernet,
+    /// China Broadnet (`CBN`).
+    Cbn,
+    /// Overseas or unlisted carrier.
+    Other,
+    /// Every carrier in the selected locations.
+    All,
+}
+
+impl TaierOperator {
+    const fn code(self) -> &'static str {
+        match self {
+            Self::Telecom => "telecom",
+            Self::Unicom => "unicom",
+            Self::Mobile => "mobile",
+            Self::Cernet => "cernet",
+            Self::Cbn => "cbn",
+            Self::Other => "other",
             Self::All => "all",
         }
     }
@@ -228,6 +262,23 @@ pub struct Cli {
     // The countries whose servers the network speed test uses, instead of the list's defaults.
     #[arg(long, value_delimiter = ',', help = locale::words().help_countries())]
     pub countries: Vec<String>,
+
+    // Cities, provinces, or location IDs for China carrier speed (network.taier).
+    #[arg(long, value_delimiter = ',', help = locale::words().help_taier_cities())]
+    pub taier_cities: Vec<String>,
+
+    // Carriers for China carrier speed (network.taier).
+    #[arg(
+        long,
+        value_enum,
+        value_delimiter = ',',
+        help = locale::words().help_taier_operators()
+    )]
+    pub taier_operators: Vec<TaierOperator>,
+
+    // Skips 64B and 1400B packet probes in network.taier.
+    #[arg(long, help = locale::words().help_no_taier_probes())]
+    pub no_taier_probes: bool,
 
     // Target groups for route tracing.
     #[arg(
@@ -372,6 +423,14 @@ pub fn prepare(cli: &Cli, registry: &[Entry]) -> Result<Vec<Planned<Measured>>, 
     if !cli.countries.is_empty() {
         countries(&mut settings, &cli.countries);
     }
+    if !cli.taier_cities.is_empty() || !cli.taier_operators.is_empty() || cli.no_taier_probes {
+        taier_settings(
+            &mut settings,
+            &cli.taier_cities,
+            &cli.taier_operators,
+            !cli.no_taier_probes,
+        );
+    }
     if !cli.trace_groups.is_empty() {
         trace_groups(&mut settings, &cli.trace_groups);
     }
@@ -451,6 +510,35 @@ pub fn countries(settings: &mut BTreeMap<String, serde_json::Value>, countries: 
             .map(|country| serde_json::Value::String(country.clone()))
             .collect();
         table.insert("countries".to_owned(), serde_json::Value::Array(countries));
+    }
+}
+
+/// Sets `--taier-cities`, `--taier-operators`, and `--no-taier-probes` in `network.taier`'s table.
+pub fn taier_settings(
+    settings: &mut BTreeMap<String, serde_json::Value>,
+    cities: &[String],
+    operators: &[TaierOperator],
+    probes: bool,
+) {
+    let table = plugin_table(settings, Taier::DESCRIPTOR.id);
+    if let Some(table) = table.as_object_mut() {
+        if !cities.is_empty() {
+            let values = cities
+                .iter()
+                .map(|city| serde_json::Value::String(city.clone()))
+                .collect();
+            table.insert("cities".to_owned(), serde_json::Value::Array(values));
+        }
+        if !operators.is_empty() {
+            let values = operators
+                .iter()
+                .map(|op| serde_json::Value::String(op.code().to_owned()))
+                .collect();
+            table.insert("operators".to_owned(), serde_json::Value::Array(values));
+        }
+        if !probes {
+            table.insert("probes".to_owned(), serde_json::Value::Bool(false));
+        }
     }
 }
 

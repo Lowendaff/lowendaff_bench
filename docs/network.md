@@ -1,8 +1,8 @@
-# 网络吞吐、路由追踪与 BGP 拓扑（`network.iperf3`、`network.trace`、`network.bgp`）
+# 网络吞吐、中国三网测速、路由追踪与 BGP 拓扑（`network.iperf3`、`network.taier`、`network.trace`、`network.bgp`）
 
 [返回文档目录](README.md) | [简体中文首页](../README.zh-CN.md)
 
-网络章节包含三项测试：**`network.iperf3`** 测量本机与全球公网节点之间的双向多线程 TCP 吞吐带宽及往返延迟；**`network.trace`** 执行逐跳 ICMP 路由追踪，识别去程骨干网线路、运营商 AS（如 163 / CN2 / 9929 / CMIN2）、流媒体边缘缓存服务器与互联网交换中心（IX）；**`network.bgp`** 通过全球全表采集点查询本机公网前缀的控制面 BGP `AS_PATH` 传播路径、直连上游占比与 RPKI 路由签名状态，并直接绘制自治域拓扑图。
+网络章节包含四项测试：**`network.iperf3`** 测量本机与全球公网节点之间的双向多线程 TCP 吞吐带宽及往返延迟；**`network.taier`** 基于中国信通院“全球网测（泰尔测速）”协议，使用纯 Rust 原生套接字测量中国大陆三网及教育网/广电节点的上下行带宽与 `64B` / `1400B` 大小包延迟、抖动与丢包率；**`network.trace`** 执行逐跳 ICMP 路由追踪，识别去程骨干网线路、运营商 AS（如 163 / CN2 / 9929 / CMIN2）、流媒体边缘缓存服务器与互联网交换中心（IX）；**`network.bgp`** 通过全球全表采集点查询本机公网前缀的控制面 BGP `AS_PATH` 传播路径、直连上游占比与 RPKI 路由签名状态，并直接绘制自治域拓扑图。
 
 ---
 
@@ -41,7 +41,46 @@ sudo ./lowendaff-bench --only network.iperf3 --countries all
 
 ---
 
-## 2. 去程路由追踪：`network.trace`
+## 2. 中国三网测速（泰尔）：`network.taier`
+
+| 属性 | 说明 |
+|---|---|
+| 插件 ID | `network.taier`（所属分组：`network`） |
+| 适用平台 | 全平台（需具备 IPv4 公网连接） |
+| 依赖工具 | **零外部二进制依赖**（100% 纯 Rust 原生异步直连 IPv4 `TcpSocket` 实现，绝不经过下载代理） |
+| 超时上限 | `30 分钟` |
+| 快捷参数 | `--taier-cities <城市/省份列表或 all>`、`--taier-operators <运营商列表或 all>`、`--no-taier-probes` |
+
+### 测试逻辑
+1. **全国三网节点库与自动巡检同步（`servers/taier.json`）**：
+   - 节点列表由 `scripts/taier-servers.sh` 将上游中国信通院“全球网测（`com.cnspeedtest.globalspeed`）”全国服务器表归一化转换为纯 ASCII JSON（`<= 64 KiB`），涵盖全国 30+ 省级行政区、250+ 地级市/自治州及中国电信（`telecom`）、中国联通（`unicom`）、中国移动（`mobile`）、教育网（`cernet`）、中国广电（`cbn`）等 600+ 个测速节点，并通过 `.github/workflows/data.yml` 每日自动同步更新。
+   - **默认范围与按需勾选**：默认测试 **北京、上海、广州 × 电信、联通、移动** 共 9 个核心槽位；既支持在命令行通过 `--taier-cities Beijing,Jiangsu`、`--taier-operators telecom,unicom,cernet` 按城市/省份/运营商筛选，也支持在交互式 TUI 中直接勾选运营商、编辑城市、调节单向时长与并发流数。
+2. **原生 `dovalid` 队列鉴权、繁忙自动回退与租约释放**：
+   - 内置纯 Rust RFC 1321 MD5 摘要与 Luhn 校验算法生成 15 位合规合成 Android IMEI，向节点发起 `GET /speed/dovalid` 鉴权握手：
+     - 返回 `1-<uuid>`：获得测速排队租约，进入测速；
+     - 返回 `-1`（服务端队列繁忙）：自动在同一 `(城市, 运营商)` 槽位的候选节点池中无缝回退切换至下一台节点；
+     - 返回 `0`（老版本节点签名策略差异）：自动回退空 `token` 重试一次；
+     - 无论测速成功、报错还是 `Ctrl-C` 中断，结束前均保证发送 `POST /speed/dovalid?key=<uuid>` 立即归还服务端并发槽位。
+3. **多线程 HTTP/1.1 上下行吞吐测量（完全绕过代理）**：
+   - 所有测速套接字均直接绑定 `0.0.0.0:0`（`SO_RCVBUF`/`SO_SNDBUF = 512 KiB`、`TCP_NODELAY`），不受任何环境变量或 `--socks5-proxy` / `--github-proxy` 影响。
+   - 默认开启 **8 条并发流、每方向持续 4 秒**：先并发请求 `/speed/File(1G).dl` 测量持续下载吞吐带宽，再并发通过 `multipart/form-data` 流式写入 `/speed/doAnalsLoad.do` 测量持续上传吞吐带宽。
+4. **`64B` 小包与 `1400B` 单 MSS 大包延迟 / 抖动 / 丢包探测**：
+   - 在不依赖 `mtr` 或原始套接字权限的前提下，紧随带宽测试执行两组各 10 次定频 TCP 探测（可通过 `--no-taier-probes` 跳过）：
+     - **`64B` 小包探测**：测量直连 TCP `SYN -> SYN-ACK` 握手往返时延、样本标准差抖动（Jitter）与超时丢包率；
+     - **`1400B` 大包探测**：在 `TCP_NODELAY` 连接上发送精确填充至 `1348 B` 的单段 HTTP 载荷（加上 `20 B` IPv4 头 + `32 B` TCP/Timestamp 头恰好构成 **`1400 B`** 单 MSS IP 报文，贴近 MTU 上限而不触发 IP 分片），检测跨境/跨网链路对满载大包的限速、QoS 丢包或 PMTUD 黑洞。
+
+### 常用命令行示例
+```sh
+# 按默认配置测试北上广 × 电信/联通/移动
+sudo ./lowendaff-bench --only network.taier
+
+# 指定测试江苏全省与深圳的电信、联通、移动及教育网节点
+sudo ./lowendaff-bench --only network.taier --taier-cities Jiangsu,guangdong-shenzhen --taier-operators telecom,unicom,mobile,cernet
+```
+
+---
+
+## 3. 去程路由追踪：`network.trace`
 
 | 属性 | 说明 |
 |---|---|
@@ -76,7 +115,7 @@ sudo ./lowendaff-bench --only network.trace --trace-groups services,china
 
 ---
 
-## 3. BGP 自治域路径拓扑：`network.bgp`
+## 4. BGP 自治域路径拓扑：`network.bgp`
 
 | 属性 | 说明 |
 |---|---|

@@ -754,3 +754,113 @@ pub trait BgpWords {
     /// Failure reason when every attempted `bgp-state` lookup failed.
     fn bgp_query_failed(&self, reason: &str) -> String;
 }
+
+/// Effective parameters and non-default filters shown in `network.taier`'s method line.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TaierChoice {
+    /// Parallel TCP streams per direction.
+    pub streams: u8,
+    /// Duration per direction in seconds.
+    pub seconds: u16,
+    /// Whether `64 B` and `1400 B` TCP packet probes ran.
+    pub probes: bool,
+    /// Non-empty when city/province filters were requested.
+    pub cities: Vec<String>,
+    /// Non-empty when non-default carrier filters were requested.
+    pub operators: Vec<String>,
+    /// Whether a custom `list` path or URL overrode the default Taier server list.
+    pub custom_list: bool,
+}
+
+/// Non-measured cell kinds in `[China carrier speed]` (`network.taier`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TaierCell {
+    /// Every candidate node in this slot was busy (`dovalid: -1`).
+    Busy,
+    /// No candidate node accepted TCP connections.
+    Unreachable,
+    /// Node rejected `dovalid` authentication (`0` or `2`).
+    AuthRejected,
+    /// Handshake or stream timed out.
+    TimedOut,
+    /// Unexpected protocol or stream error.
+    Error,
+}
+
+/// What makes the Taier server list unusable.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TaierListProblem<'a> {
+    /// Could not be read from disk.
+    Unreadable(&'a str),
+    /// Larger than `usize` bytes.
+    TooLarge(usize),
+    /// Invalid JSON or field types.
+    Format(&'a str),
+    /// Newer schema version.
+    Newer(u64),
+    /// Unknown/zero schema version.
+    Version(u64),
+    /// Empty `locations` array.
+    Empty,
+    /// More than `most` locations.
+    TooMany(usize, usize),
+    /// Location at 1-based position broke `TaierRule`.
+    Rule(usize, TaierRule),
+    /// Duplicate location `id`.
+    Duplicate(&'a str),
+}
+
+/// Validation rule broken by an entry in the Taier server list.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TaierRule {
+    /// Location `id`.
+    Id,
+    /// Location `province`.
+    Province,
+    /// Location `city`.
+    City,
+    /// Location `nodes` array length.
+    Nodes,
+    /// Node `operator`.
+    Operator,
+    /// Node `ip`.
+    Ip,
+    /// Node `port`.
+    Port,
+    /// Duplicate `ip:port` inside one location.
+    DuplicateEndpoint,
+}
+
+/// China carrier speed's words (`network.taier`).
+pub trait TaierWords {
+    /// Method line at the top of `[China carrier speed]`.
+    fn taier_method(&self, choice: &TaierChoice) -> String;
+    /// Note when requested city/province tokens matched no location.
+    fn taier_unknown_cities(&self, names: &[String]) -> String;
+    /// Table headers (`4` columns when `probes == false`, `6` columns when `probes == true`).
+    fn taier_headers(&self, probes: bool) -> Vec<&'static str>;
+    /// Human-readable location cell (`Beijing` or `Guangzhou, Guangdong`).
+    fn taier_place(&self, city: &str, province: &str) -> String;
+    /// Human-readable carrier cell (`Telecom`, `Unicom`, `Mobile`, `CERNET`, `Broadnet`, `Other`).
+    fn taier_operator(&self, code: &str) -> &'static str;
+    /// Non-measured throughput cell (`busy`, `unreachable`, `auth rejected`, `timed out`, `error`).
+    fn taier_cell(&self, cell: TaierCell) -> &'static str;
+    /// Packet probe cell (`12.4 ± 0.85 ms / 0%`, `12.4 ms / 10%`, `100% loss`, or `—`).
+    fn taier_probe_cell(
+        &self,
+        rtt_digits: Option<&str>,
+        jitter_digits: Option<&str>,
+        lost: u8,
+        sent: u8,
+    ) -> String;
+    /// Note when a `(location, operator)` slot fell back past busy/unreachable candidate nodes.
+    fn taier_fallback(&self, place: &str, operator: &str, tried: u8) -> String;
+    /// Note when a `(location, operator)` slot failed with a protocol/stream error.
+    fn taier_node_failed(&self, place: &str, operator: &str, reason: &str) -> String;
+    /// Failure/skip reason when the Taier server list cannot be used.
+    fn taier_list_problem(&self, problem: TaierListProblem<'_>) -> String;
+    /// Skip reason when no `(location, operator)` slot matched the selection.
+    fn taier_no_node(&self, unknown: &[String]) -> String;
+    /// Failure reason when every attempted `(location, operator)` slot failed.
+    fn taier_no_result(&self) -> String;
+}

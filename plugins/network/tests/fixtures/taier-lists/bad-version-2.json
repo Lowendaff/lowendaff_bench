@@ -1,0 +1,1 @@
+{"version": 2, "locations": [{"id": "beijing", "province": "Beijing", "city": "Beijing", "default": true, "nodes": [{"operator": "telecom", "ip": "198.51.100.1", "port": 65499}, {"operator": "unicom", "ip": "198.51.100.2", "port": 65499}, {"operator": "mobile", "ip": "198.51.100.3", "port": 9443}]}]}

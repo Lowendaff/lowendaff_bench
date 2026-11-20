@@ -128,6 +128,7 @@ SERVERS_OF_LOCATIONS='
 check_names() {
     if found=$(git grep -n -I --untracked -E 'servers/[A-Za-z0-9._-]' -- . ':(exclude)*.md' \
         ':(exclude)scripts/iperf3-servers.sh' ':(exclude)scripts/iperf3-servers-cases.sh' \
+        ':(exclude)scripts/taier-servers.sh' ':(exclude)scripts/taier-servers-cases.sh' \
         ':(exclude)scripts/traceroute-targets.sh' ':(exclude)scripts/traceroute-targets-cases.sh' \
         ':(exclude)scripts/netflix-ix.sh' ':(exclude)scripts/netflix-ix-cases.sh' \
         ':(exclude)scripts/ci-scope.sh' ':(exclude)scripts/ci-scope-cases.sh' \

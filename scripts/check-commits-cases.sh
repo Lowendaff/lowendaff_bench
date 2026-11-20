@@ -224,11 +224,17 @@ exchanges=$(files "$ports
 
 206.223.116.133: Equinix San Jose, added" servers/netflix-ix.json '{"version": 1}')
 check accept "a bot's pull request of the exchange ports" "$base" "$exchanges" "$ports" 16 Bot
+taier_title="build: update the Taier server list"
+taier_list=$(files "$taier_title
+
+beijing: 3 nodes, added" servers/taier.json '{"version": 1}')
+check accept "a bot's pull request of the Taier server list" "$base" "$taier_list" \
+    "$taier_title" 16 Bot
 generated=$(files "$ports
 
-Both generated lists in one pull request." servers/iperf3.json '{}' \
-    servers/netflix-ix.json '{}')
-check accept "a bot's pull request of both generated lists" "$base" "$generated" "$ports" 16 Bot
+All three generated lists in one pull request." servers/iperf3.json '{}' \
+    servers/taier.json '{}' servers/netflix-ix.json '{}')
+check accept "a bot's pull request of all generated lists" "$base" "$generated" "$ports" 16 Bot
 targets=$(files "build: change route tracing's targets
 
 pek-4809: another name" servers/traceroute.json '{"version": 1}')
