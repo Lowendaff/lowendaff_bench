@@ -1,266 +1,167 @@
 # lowendaff-bench
 
-A comprehensive test tool for Linux servers, virtual or dedicated, written in Rust:
+**English** | [&#x7B80;&#x4F53;&#x4E2D;&#x6587; (Simplified Chinese)](README.zh-CN.md) | [&#x65E5;&#x672C;&#x8A9E; (Japanese)](README.ja.md)
 
-- Each test item is a plugin compiled into one static binary.
-- An orchestrator selects the plugins, downloads the pinned tools they need and runs them in
-  order with timeouts. It logs its progress on stderr, and writes one report on stdout (or to
-  `-o` / `--output`) in plain text, Markdown or JSON when every plugin is done.
-- It must run as root.
+A comprehensive, single-binary benchmark and diagnostics suite for Linux servers (dedicated bare
+metal, virtual machines and containers), written in Rust:
 
-The program prints in English. Every word it prints comes from one message catalog in
-`crates/bench/src/locale/`, so another language needs only a catalog of its own.
+- **One static binary, twelve plugins.** Every test item is compiled into `lowendaff-bench` (`musl`
+  static builds for `x86_64` and `aarch64`) with strongly typed results and isolated failure/timeout
+  handling.
+- **Zero host-tool drift.** External benchmark binaries (`sysbench`, `STREAM`, `multichase`,
+  `smartctl`, `fio`, `iperf3`, `NextTrace`, `Geekbench 7`) are downloaded on demand and verified
+  against pinned sizes and `SHA-256` digests before execution; host-installed binaries are never
+  used.
+- **Platform-aware & memory-safe.** Hardware-only items (`disk.health`) and multi-socket items
+  (`memory.numa`) are automatically filtered by host capability; memory tests size themselves to at
+  most half of available RAM while exceeding `4x` last-level CPU cache.
+- **Multi-format output & privacy by default.** Live progress streams to `stderr`; the final report
+  renders as aligned terminal `text`, GitHub-Flavored `markdown` (`md`), or structured `json` on
+  `stdout` or via `-o` / `--output`, masking the server's public IPv4/IPv6 addresses and PTR
+  hostnames unless `--show-ip` is passed.
 
-**Status:** twelve test items, each a plugin with a result of its own type: disk health, CPU
-performance, four items of memory performance, disk performance, network speed, route tracing,
-IP reputation, streaming media unlock and Geekbench 7.
-[`CONTRIBUTING.md`](CONTRIBUTING.md) holds the layout of the code, the steps to add a test item
-and the conventions for code, commits and pull requests.
+Detailed test-methodology guides (in Chinese) live under [`docs/`](docs/README.md); architecture
+and contributor conventions live in [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
-The tool first reads its host: where it runs (a dedicated server, a virtual machine or a
-container), its CPU, memory, disks, network cards and system, and whether it reaches the Internet
-over IPv4 and IPv6, with the public address of each. The report starts with this system
-information: CPU, memory and swap, disks and filesystems, distribution, kernel, uptime, load, TCP
-congestion control, the network cards and their links, and the two address families; on dedicated
-servers also the machine, board and firmware, the BMC, ECC, the memory modules and RAID cards.
-Only the test items made for the platform run, and the test between NUMA nodes only where two of
-them can be used; `--list` shows the items by group, and where each applies.
+---
 
-| Test item | Shows |
-|-----------|-------|
-| Disk health (`disk.health`) | Dedicated servers only: each physical disk's SMART health as smartctl judges it, with power-on time, temperature, endurance used, data written, bad blocks and interface errors. Disks behind MegaRAID and 3SNIC RAID cards are included |
-| CPU performance (`cpu.sysbench`) | sysbench's CPU test (primes up to 10000), 20 seconds with one thread and 20 seconds with every usable thread: events per second, and how many times the single-thread rate the multi-thread one is |
-| Memory sysbench (`memory.sysbench`) | sysbench's sequential read and write bandwidth, each with one thread and with every usable thread |
-| Memory STREAM (`memory.stream`) | STREAM's Copy, Scale, Add and Triad, each with one thread and with every usable thread |
-| Memory latency (`memory.latency`) | multichase's latency in each cache level and in memory |
-| Memory NUMA (`memory.numa`) | Machines with two usable NUMA nodes or more: the bandwidth (multiload's stream-triad) and the latency from each node's CPUs to each node's memory |
-| Disk performance (`disk.fio`) | Speed and IOPS of the test directory's filesystem, measured with fio exactly as YABS does: mixed random reads and writes (50/50) at 4K, 64K, 512K and 1M. Skipped on a RAM disk or without enough free space |
-| Network speed (`network.iperf3`) | iperf3's TCP throughput each way, and the latency, between the host and public iperf3 servers, as YABS measures them: over IPv4, then over IPv6 when the host has it, an upload and a download of 10 seconds over 8 streams to each server, by default those of Los Angeles, New York, Virginia, Tokyo and Frankfurt. About 5 GB of traffic per server at 1 Gbit/s ("Network speed" below); `--skip network` leaves it out |
-| Route tracing (`network.trace`) | NextTrace's classic ICMP trace from the host to the original project's 71 targets, carriers in mainland China and abroad, and to the nearest YouTube and Netflix cache servers, over IPv4, then over IPv6 when the host has it: every hop, each address with its network, place and latency, and whether the target was reached. Adds 6 to 18 minutes to a run |
-| IP reputation (`ip.quality`) | Reputation and network identity of the host's public IPv4 and IPv6 addresses across nine unauthenticated intelligence sources, 25 public DNSBL zones (24 for IPv4, 9 for IPv6) and eight mail providers on TCP port 25: ASN, RIR, native versus broadcast origin, usage type, fraud/abuse scores, risk factors, blacklist hits and SMTP banner reachability |
-| Media unlock (`ip.media`) | Regional availability of 68 streaming platforms across Global, Asia, Europe, Americas and Oceania, probed directly over HTTPS without a proxy over IPv4 and IPv6: full unlock and region code, originals only, geo-restriction, anti-bot WAF block or missing IPv6 record |
-| Geekbench 7 (`cpu.geekbench`) | Geekbench 7's single- and multi-core scores and the public result link. The free version uploads every result to the Geekbench Browser; `--skip cpu.geekbench` leaves it out. Needs IPv4 and glibc 2.35 or later, and adds temporary swap when memory is short |
+## Quick Start & Usage Examples
 
-The four memory items make up the report's memory section. Each reads the available memory when
-it starts, and every run fits in half of it.
-
-## Usage
+Download the latest static binary for your architecture from
+[GitHub Releases](https://github.com/Lowendaff/lowendaff_bench/releases) (or build from source; see
+[Build](#build)), verify `SHA256SUMS`, and run as `root`:
 
 ```sh
-lowendaff-bench --list                           # list the test items by group
-sudo lowendaff-bench                             # run all of them
-sudo lowendaff-bench --only cpu,disk.fio         # run a subset by group or id
-sudo lowendaff-bench --skip cpu.geekbench,ip.media  # skip specific items or whole groups
-sudo lowendaff-bench -o report.md -f markdown    # write text, markdown (md) or json to a file
-sudo lowendaff-bench --config bench.toml         # per-item settings: [plugins."<id>"]
-sudo lowendaff-bench -v                          # log more detail: each download and tool run
-sudo lowendaff-bench --show-ip                   # show the public addresses in full
-sudo lowendaff-bench --download-connections 8    # at most 8 connections per download (default 32)
-sudo lowendaff-bench --countries JP,DE           # the network test's servers in these countries
+# 1. Inspect all 12 registered test items, their groups, platform rules and pinned tool versions
+./lowendaff-bench --list
+
+# 2. Run the full suite (prints live progress on stderr and the text report on stdout)
+sudo ./lowendaff-bench
+
+# 3. Fast daily check: skip Geekbench 7 (uploads public scores) and 73-target route tracing
+sudo ./lowendaff-bench --skip cpu.geekbench,network.trace
+
+# 4. Run only specific groups or individual plugins (mix group names and plugin IDs freely)
+sudo ./lowendaff-bench --only ip
+sudo ./lowendaff-bench --only cpu.sysbench,memory.stream,disk.fio
+
+# 5. Run an entire group except one plugin (e.g. IP reputation without streaming unlock)
+sudo ./lowendaff-bench --only ip --skip ip.media
+
+# 6. Save a GitHub-Flavored Markdown or JSON report to a file (stdout stays quiet)
+sudo ./lowendaff-bench -o report.md -f markdown
+sudo ./lowendaff-bench -o report.json -f json
+
+# 7. Benchmark a specific mounted disk/filesystem instead of the current directory (avoid /tmp)
+sudo ./lowendaff-bench --only disk.fio --work-dir /mnt/nvme
+
+# 8. Test network speed only against servers in Japan and Germany (saves bandwidth)
+sudo ./lowendaff-bench --only network.iperf3 --countries JP,DE
+
+# 9. Accelerate tool downloads via a SOCKS5/HTTP proxy on restricted networks
+#    (Note: put proxy variables after sudo; IP/media/network probes still connect directly)
+sudo ALL_PROXY=socks5h://127.0.0.1:1080 ./lowendaff-bench --download-connections 16
+
+# 10. Customize per-plugin settings via TOML and reveal full public IP addresses in the report
+sudo ./lowendaff-bench --config bench.toml --show-ip -v
 ```
 
-- **Output.** The progress log on stderr has one line per event, after the time since the start:
-  the host and its network, the tools' downloads, and each item's start, steps and end; `-v` adds
-  each download's address, its number of byte ranges and its retries, and each tool's command and
-  exit code, with its last lines when it fails, except for Geekbench and smartctl, whose output
-  holds a result's claim link or the disks' serial numbers, and iperf3, whose output names the
-  host's own address. The report follows on stdout (or in `-o` / `--output <file>`, opened before
-  anything runs and written without duplicating to stdout) once every item is done: the system
-  information, a section for each group (CPU, memory, disks, network, IP) and a summary of how
-  each item ended. `-f` / `--format` chooses `text` (default), `markdown` (`md`) or `json`; all
-  three formats mask the host's public addresses unless `--show-ip` is given. On a terminal, `text`
-  tables wrap to the terminal's width; files, Markdown and JSON never wrap. After Ctrl-C the report
-  holds what finished, and the rest is marked interrupted.
-- **Public addresses.** Each address family that reaches the Internet asks Cloudflare, ipify and
-  icanhazip in turn, without a proxy, for the address they see; the first valid answer counts.
-  Behind NAT that is the shared address. The report masks it, keeping two octets of IPv4 and the
-  first 32 bits of IPv6, unless `--show-ip` is given; the progress log masks it always.
+### Example `bench.toml` Configuration
 
-- **Run directory.** The tool creates its run directory under the current directory, or under
-  `--work-dir`, and removes it at exit. Avoid `/tmp`: it may be RAM-backed or mounted `noexec`.
-- **Exit codes:**
-  - `0`: the run finished;
-  - `2`: usage or config error, or not root;
-  - `130`: interrupted.
-- **Downloads.** Before the first item runs, the program downloads the tools that the items need,
-  and the files that they ask for, such as the network test's server list.
-  A file of 2 MiB or more comes in byte ranges over up to 32 connections at once
-  (`--download-connections` sets the number, from 1 to 256), when its server serves ranges: a slow
-  route often limits each connection rather than the host. Each range must come back exactly as
-  asked for, and the whole file must match its pinned size and SHA-256 before it is used. A
-  download that fails in a way that may pass (no answer, a server answering 408, 429 or 5xx, or a
-  body that breaks off, stalls for 30 seconds or ends short) gets up to four attempts, after waits
-  of 1, 2 and 4 seconds. A byte range goes on from its first missing byte, and one that brought
-  1 MiB or more before it broke off starts its count afresh; a smaller file, or one from a server
-  without ranges, starts over. Ctrl-C stops the downloads too.
-- **Proxies.** Tool downloads go through the proxy that `HTTPS_PROXY` or `ALL_PROXY` names
-  (lowercase names work too); `NO_PROXY` exempts hosts. HTTP and SOCKS5 proxies work, and with
-  `socks5h://` the proxy resolves the names. On a server that reaches GitHub poorly, for
-  example, `ssh -D 1080 <a host abroad>` opens a SOCKS5 proxy, and
-  `sudo ALL_PROXY=socks5h://127.0.0.1:1080 lowendaff-bench` uses it: put the variable after
-  `sudo`, which drops most of the caller's environment. A proxy cannot change a tool, since each
-  is pinned by SHA-256 and size. A download that fails on the network names the proxy variable
-  that is set, or suggests setting one. The network checks at start connect directly.
+Every configurable plugin reads its own `[plugins."<id>"]` table:
 
-## Network speed
+```toml
+[plugins."network.iperf3"]
+countries = ["US", "JP"]            # ISO 3166 country codes or ["all"]; --countries overrides this
+servers = ["tokyo"]                 # explicit server IDs from servers/iperf3.json; overrides countries
+seconds = 10                        # duration per direction (upload, then download)
+streams = 8                         # parallel TCP streams
+rate = 100                          # per-stream cap in Mbit/s (omit for unlimited)
 
-The network test (`network.iperf3`) runs iperf3 as YABS does. Over IPv4, then over IPv6 when the
-host reaches the Internet over it, each server gets an upload of 10 seconds over 8 streams, a
-second's pause, then a download: `iperf3 -4|-6 -c <server> -p <port> -P 8 -t 10 -J`, with `-R`
-for the download. A run that fails, such as on a server that is busy with another client, is
-tried again 2 seconds later on another port of the server, up to three times; a server that no
-port answers gets no download. The upload shows the speed that the server received, the download
-the speed that the host received, and the latency is the smallest round-trip time that the
-host's kernel saw during the upload. iperf3 runs as the unprivileged user 65534 (`nobody`), since
-the servers are third parties.
+[plugins."network.trace"]
+groups = ["china"]                  # services, china, international, or all
+targets = ["pek-4809", "youtube"]   # explicit target IDs; overrides groups
+geo = true                          # set false to disable hop ASN/geolocation lookups
 
-- **Traffic.** Each server moves about 5 GB at 1 Gbit/s, over both families and directions: about
-  25 GB for the five default servers, ten times as much on a 10 Gbit/s host. On a host that pays
-  for its traffic, choose fewer servers, or leave the test out with `--skip network`.
-- **The servers.** They are listed in `servers/iperf3.json` in this repository, which the program
-  downloads at each run from
-  `https://raw.githubusercontent.com/Lowendaff/lowendaff_bench/main/servers/iperf3.json`, so that a
-  server that disappears is replaced without a new release. The list holds, for each location, the
-  first of its reviewed candidates in `servers/iperf3-candidates.json` that
-  [iperf3serverlist.net](https://iperf3serverlist.net), which checks its servers every 15 minutes,
-  still lists; `scripts/iperf3-servers.sh update` writes it, and no one edits it by hand. A
-  location without such a candidate is left out. The `data` workflow runs `update` twice a day, and
-  when the list changes, opens a pull request that merges itself once the required checks pass.
-  It writes as the GitHub App `lowendaff-bench-data`, whose key only `main` can use, and its pull
-  requests may change the generated lists only. The program checks the list's rules before it
-  uses it (`scripts/iperf3-servers.sh` names them), and CI checks them in every pull request.
-- **Choosing servers.** By default, the servers that the list marks as defaults. `--countries`
-  takes ISO 3166 codes in any case, separated by commas, or `all`: every server of those
-  countries, instead of the defaults. A code without a server in the list gets a note.
-- **Settings.** The table `[plugins."network.iperf3"]` of the config file may set:
+[plugins."ip.quality"]
+dnsbl = true                        # set false to skip 25-zone DNSBL blacklist lookups
+mail = true                         # set false to skip outbound TCP port-25 MX banner checks
 
-  ```toml
-  [plugins."network.iperf3"]
-  countries = ["US", "JP"]   # as --countries, which wins over it
-  servers = ["tokyo"]        # by the list's ids; wins over the countries
-  list = "my-servers.json"   # another list in the same format: a path, or an https address
-  seconds = 10               # each way
-  streams = 8
-  rate = 100                 # Mbit/s that a stream sends at most; no limit when left out
-  ```
+[plugins."ip.media"]
+groups = ["global", "asia"]         # global, asia, europe, americas, oceania, or all
+services = ["netflix", "bahamut"]   # explicit platform IDs; overrides groups
+```
 
-## Route tracing
+---
 
-Route tracing (`network.trace`) runs NextTrace's classic traceroute, as the original project
-traced: ICMP, 3 probes a hop, 30 hops at most and a second for each probe, one target after
-another, each stopped after 60 seconds (`nexttrace --traceroute -j -M -C -g en -q 3 -m 30
---timeout 1000 -4|-6 <target>`). Over IPv4, then over IPv6 when the host reaches the Internet over
-it, it traces the nearest YouTube and Netflix cache servers, then the list's targets, in China and
-abroad; over IPv6, those that have an IPv6 name. The report shows every hop of every trace: each
-address that answered, with its network (AS number, and ISP or owner), place and smallest
-latency, a `*` for a hop that answered no probe, and whether the target was reached. The host's
-own public addresses are masked unless `--show-ip` is given; the routers' are shown as they are.
+## What Each Section & Test Item Does
 
-- **Privileges.** NextTrace sends and receives raw ICMP packets. The program gives its copy of
-  NextTrace the file capability `cap_net_raw+ep` and runs it as the unprivileged user 65534
-  (`nobody`) from `/`, so that it may send raw packets and nothing else of root's. Where the
-  system would not give the capability, the item is skipped with the reason: under
-  `no_new_privs`, without CAP_NET_RAW in the bounding set (as in a container that drops it), or
-  with the work directory on a filesystem mounted `nosuid` (choose another with `--work-dir`).
-- **What third parties see.** NextTrace looks up each hop's network and place with its own
-  service, `api.nxtrace.org`, which sees every hop's address and the host's own; its upload of a
-  trace map is always off (`-M`). The service names many networks in Chinese, and the report
-  shows them as it names them. To find the cache servers, the program asks Google and fast.com
-  over each family, which see the host's address as any connection to them would; the item
-  neither shows nor keeps the address that their answers name.
-- **Time.** A trace takes about 5 to 15 seconds: the 73 traces over IPv4 add 6 to 18 minutes to
-  a run, and a host with IPv6 adds up to 50 more. The item stops after an hour and keeps the
-  traces done. `--skip network.trace` leaves it out.
-- **The targets.** They are listed in `servers/traceroute.json` in this repository, which the
-  program downloads at each run from
-  `https://raw.githubusercontent.com/Lowendaff/lowendaff_bench/main/servers/traceroute.json`: the
-  original project's 71 targets, the Chinese carriers' networks (163, CN2, 169, 9929, CMNET and
-  CMIN2) in Beijing, Shanghai and Guangzhou, and abroad Telegram's data centres, AWS, GCP and ten
-  carriers of the Internet's backbone. The list changes by pull request only;
-  `scripts/traceroute-targets.sh` checks the rules that the program checks.
-- **The cache servers.** YouTube's from the line of Google's
-  `https://redirector.googlevideo.com/report_mapping?di=no`, whose server id the item writes as
-  the host name `r1---sn-<code>.googlevideo.com`; Netflix's from fast.com's API, with the token
-  of fast.com's own page: the first server that it names. A lookup that fails marks only that
-  cache server unavailable, with the reason, and the item goes on.
-- **Netflix's exchange ports.** A hop at an address that Netflix's network takes at an internet
-  exchange is named with the exchange, from `servers/netflix-ix.json`, which
-  `scripts/netflix-ix.sh update` writes from PeeringDB's list of Netflix's ports
-  (`https://www.peeringdb.com/api/netixlan?net_id=457`); a run without the list shows no
-  exchange names. The `data` workflow runs `update` twice a day too and, when the list changes,
-  opens a pull request of the App that merges itself once the required checks pass.
-- **Settings.** The table `[plugins."network.trace"]` of the config file may set:
+Before running any plugin, `lowendaff-bench` collects a read-only **System Profile (`[System]`)**
+from kernel and firmware interfaces within a 30-second budget: virtualization/container type, CPU
+model (including ARM implementer/part decoding) and caches, RAM/swap and container cgroup quotas,
+OS/kernel/uptime/load/TCP congestion control, physical disks/filesystems, NICs with PCIe link-width
+degradation warnings, direct IPv4/IPv6 reachability, and on dedicated servers DMI/SMBIOS memory
+slots, ECC/EDAC error counters, BMC/IPMI and hardware RAID controllers. See
+[`docs/system.md`](docs/system.md).
 
-  ```toml
-  [plugins."network.trace"]
-  groups = ["china"]              # services, china, international or all; by default both
-                                  # cache servers and the list's defaults
-  targets = ["pek-4809", "youtube"]  # by the list's ids, youtube and netflix among them;
-                                     # wins over the groups
-  list = "my-targets.json"        # another target list: a path, or an https address
-  exchanges = "my-ports.json"     # another list of exchange ports
-  youtube_api = "mapping.txt"     # another answer in place of Google's report_mapping
-  netflix_api = "https://api.example/netflix"  # in place of fast.com's API, should its token
-                                               # stop working
-  geo = false                     # no lookups of the hops' networks and places
-  ```
+| Group | Plugin ID | Title | Applies to | What it measures | Detailed guide |
+|---|---|---|---|---|---|
+| `disk` | `disk.health` | Disk health | Dedicated servers | Read-only `smartctl` SMART status across NVMe/SATA/SAS disks and behind MegaRAID / 3SNIC RAID cards: health verdict, power-on hours, temperature, wear, data written, bad blocks and link errors (serials/WWNs are never kept) | [`docs/disk.md`](docs/disk.md) |
+| `cpu` | `cpu.sysbench` | CPU performance | All platforms | `sysbench` prime test (`primes <= 10000`, 20 s) on 1 thread and all usable threads, events/s and multi-to-single scaling ratio | [`docs/cpu.md`](docs/cpu.md) |
+| `memory` | `memory.sysbench` | Memory sysbench | All platforms | Sequential read and write throughput (`MiB/s`) on 1 thread and all usable threads with cache-exceeding buffers (`>= 4x LLC`, `<= 50%` free RAM) | [`docs/memory.md`](docs/memory.md) |
+| `memory` | `memory.stream` | Memory STREAM | All platforms | Sustained `Copy`, `Scale`, `Add` and `Triad` bandwidth (`MB/s`) across six pre-built array sizes (`2M`..`64M` doubles), auto-fitted to cache and available RAM | [`docs/memory.md`](docs/memory.md) |
+| `memory` | `memory.latency` | Memory latency | All platforms | Random pointer-chasing access latency (`ns`) in `L1d`, `L2`, `L3` caches (`1/2` cache size) and main memory (`>= 4x LLC`) via `multichase` | [`docs/memory.md`](docs/memory.md) |
+| `memory` | `memory.numa` | Memory NUMA | `>= 2` usable NUMA nodes | Node-to-node `stream-triad` bandwidth (`multiload`) and random latency (`multichase`) matrix across every CPU node and memory node | [`docs/memory.md`](docs/memory.md) |
+| `disk` | `disk.fio` | Disk performance | All platforms | YABS-compatible `libaio` + `O_DIRECT` 50/50 random read/write speed and IOPS at `4K`, `64K`, `512K` and `1M` (`2 GiB` file, `512 MiB` on ARM/RISC-V; refuses `tmpfs`/`ramfs`) | [`docs/disk.md`](docs/disk.md) |
+| `network` | `network.iperf3` | Network speed | All (needs network) | Bidirectional 8-stream, 10 s TCP throughput and minimum RTT over IPv4 and IPv6 against reviewed public servers (default: LA, NY, Virginia, Tokyo, Frankfurt; ~5 GB/server at 1 Gbit/s) | [`docs/network.md`](docs/network.md) |
+| `network` | `network.trace` | Route tracing | All (needs `CAP_NET_RAW`) | Unprivileged `NextTrace` ICMP hop-by-hop route tracing (with `cap_net_raw+ep`) to nearest YouTube/Netflix caches and 71 Chinese/international carrier targets, with PeeringDB Netflix IX port matching | [`docs/network.md`](docs/network.md) |
+| `ip` | `ip.quality` | IP reputation | All (needs public IP) | Dual-stack evaluation across 9 intelligence APIs (ASN, RIR `native` vs `broadcast` origin, usage type, fraud scores, Shodan ports/CVEs, 7 risk factors), 25 DNSBL zones (filtering RFC 5782 resolver refusals) and 8 mail providers on TCP port 25 | [`docs/ip.md`](docs/ip.md) |
+| `ip` | `ip.media` | Media unlock | All (needs network) | Direct dual-stack HTTPS availability checks across 68 streaming/OTT services in 5 regions (`global`, `asia`, `europe`, `americas`, `oceania`), reporting unlock region, originals-only, geo-block or WAF challenge | [`docs/ip.md`](docs/ip.md) |
+| `cpu` | `cpu.geekbench` | Geekbench 7 | `glibc >= 2.35` + IPv4 | Official Geekbench 7.1.0 single- and multi-core scores + browser link, with automatic temporary swap provisioning (up to 8 GiB) and OOM protection on low-RAM hosts | [`docs/cpu.md`](docs/cpu.md) |
 
-## IP reputation
+---
 
-IP reputation (`ip.quality`) evaluates the host's public IPv4 and IPv6 addresses across nine
-unauthenticated intelligence services (`Scamalytics`, `ProxyCheck`, `ipapi.is`, `GreyNoise`,
-`Shodan`, `RIPEstat`, `IPinfo`, `DB-IP` and `IPWHOIS`), 25 public DNSBL zones (24 for IPv4, 9 for
-IPv6) and eight email providers' inbound MX servers (`Gmail`, `Outlook`, `Yahoo`, `iCloud`,
-`Proton Mail`, `Fastmail`, `QQ Mail` and `163 Mail`) on TCP port 25.
+## Output, Privacy & Runtime Behavior
 
-- **Native vs broadcast origin.** Comparing the official RIR WHOIS registration country (`RIPEstat`
-  and `ipapi.is`) with the operational GeoIP consensus across five databases shows whether the
-  address is `native` to its hosting country or `broadcast` from another country's allocation.
-- **DNSBL filtering.** Reversed-IP `A` queries go to the host's configured recursive resolvers;
-  RFC 5782 policy-refusal responses (`127.255.255.0/24`, such as Spamhaus's answer to open public
-  resolvers) and non-`127.0.0.0/8` replies are counted as refused rather than blacklist hits.
-- **Port-25 mail check.** Each MX check reads only the initial three-digit SMTP greeting (`220` vs
-  `4xx`/`5xx` rejection) and immediately sends `QUIT`, never `HELO` or mail data.
-- **Privacy and what third parties see.** The nine intelligence endpoints, the configured DNS
-  resolvers and the eight MX servers see the host's public IP addresses. The report masks the
-  host's own addresses and hides reverse-DNS hostnames unless `--show-ip` is given.
-  `--skip ip.quality` leaves the item out (or `--skip ip` to leave out both IP items).
-- **Settings.** The table `[plugins."ip.quality"]` of the config file may set:
+- **CLI flags summary:**
+  - `--only <LIST>` / `--skip <LIST>`: comma-separated (or repeated) group names (`cpu`, `memory`,
+    `disk`, `network`, `ip`) or plugin IDs (`cpu.geekbench,ip.media`).
+  - `-o, --output <PATH>`: open `<PATH>` before running benchmarks and write the report there
+    instead of `stdout` (fails immediately with exit code `2` if `<PATH>` cannot be created).
+  - `-f, --format <FORMAT>`: `text` (default), `markdown` (alias `md`), or `json`. Terminal width
+    wrapping applies only to `text` on a TTY; files, `markdown` and `json` never wrap.
+  - `--config <PATH>`: TOML file with `[plugins."<id>"]` tables.
+  - `--work-dir <DIR>`: parent directory for the temporary run directory (removed at exit; avoid
+    `/tmp`, which is often `tmpfs` or mounted `noexec`).
+  - `--countries <CODES>`: comma-separated ISO 3166 codes (or `all`) for `network.iperf3`.
+  - `--download-connections <1..=256>`: parallel HTTP range connections per tool download (default
+    `32` for files `>= 2 MiB`, with automatic range resume and 4 retries).
+  - `--show-ip`: show full public IPv4/IPv6 addresses and reverse-DNS hostnames in the report.
+  - `-v, --verbose`: log download URLs/ranges/retries and tool commands/exit codes (redacting
+    `geekbench` claim links, `smartctl` serial numbers and `iperf3` own-IP output).
+- **Public address privacy.** Public IP discovery, `ip.quality`, `ip.media` and `network.trace`
+  cache lookups always connect directly (ignoring `HTTPS_PROXY` / `ALL_PROXY`). Without
+  `--show-ip`, every report format (`text`, `markdown`, `json`) masks own IPv4 addresses to two
+  octets (`203.0.*.*`), masks own IPv6 addresses to 32 bits (`2001:db8:*`), and omits PTR
+  hostnames; `stderr` logs always mask addresses.
+- **Interrupts & exit codes:**
+  - `0`: run completed (individual skipped/failed items are recorded inside the report);
+  - `2`: invalid CLI usage, bad config, unwritable `--output`, or not running as `root`;
+  - `130`: interrupted via `Ctrl-C` (partial results collected so far are still written to the
+    report; a second `Ctrl-C` exits immediately).
+- **Dynamic server & target lists.** `network.iperf3` and `network.trace` fetch
+  `servers/iperf3.json`, `servers/traceroute.json` and `servers/netflix-ix.json` from `main` at run
+  time and validate them against strict schema and size limits; the `data` workflow refreshes
+  `servers/iperf3.json` (against `iperf3serverlist.net` from reviewed candidates in
+  `servers/iperf3-candidates.json`) and `servers/netflix-ix.json` (from PeeringDB) twice daily.
 
-  ```toml
-  [plugins."ip.quality"]
-  dnsbl = true   # set false to skip DNSBL blacklist lookups
-  mail = true    # set false to skip outbound TCP port-25 MX banner checks
-  ```
-
-## Streaming media
-
-Media unlock (`ip.media`) checks regional availability across 68 streaming services in five
-geographic groups (`global`, `asia`, `europe`, `americas` and `oceania`). Over IPv4, then over
-IPv6 when the host reaches the Internet over it, the item sends lightweight HTTPS requests
-directly from the host (never through `HTTPS_PROXY` or `ALL_PROXY`) with bounded concurrency per
-group, and reports side-by-side IPv4 and IPv6 verdicts: `yes` (with the two-letter region when
-reported), `originals only`, `no`, `blocked (WAF)`, `rate limited`, or `no IPv6 address`.
-
-- **Anti-bot challenges.** When a platform responds with an anti-bot or WAF gate such as
-  Cloudflare Turnstile, the item stops probing that platform at once and reports `blocked (WAF)`
-  without attempting to solve or bypass it.
-- **What third parties see.** Every selected streaming platform receives an HTTPS request from
-  the host's public IPv4 and IPv6 addresses, as an ordinary client connection would.
-  `--skip ip.media` leaves the item out.
-- **Settings.** The table `[plugins."ip.media"]` of the config file may set:
-
-  ```toml
-  [plugins."ip.media"]
-  groups = ["global", "asia"]        # global, asia, europe, americas, oceania or all
-  services = ["netflix", "bahamut"]  # by service id; wins over groups
-  ```
+---
 
 ## Build
 
-The toolchain is pinned in [`rust-toolchain.toml`](rust-toolchain.toml). Release binaries are
-static musl builds for `x86_64` and `aarch64`. The `ring` crate compiles C code for the musl
-target, so the build needs `musl-gcc` (Debian/Ubuntu package `musl-tools`).
+The Rust toolchain is pinned in [`rust-toolchain.toml`](rust-toolchain.toml). Release binaries are
+static `musl` builds for `x86_64` and `aarch64` (`musl-gcc` from `musl-tools` compiles `ring`'s C
+sources):
 
 ```sh
 rustup target add x86_64-unknown-linux-musl
@@ -270,6 +171,8 @@ cargo build --release --locked --target x86_64-unknown-linux-musl --bin lowendaf
 Pushing a version tag (`v*`, matching `[workspace.package] version` in `Cargo.toml`) triggers
 `.github/workflows/release.yml`, which builds `lowendaff-bench-x86_64` and `lowendaff-bench-aarch64`
 and publishes them with `SHA256SUMS` as a GitHub Release.
+
+---
 
 ## Gates
 
@@ -289,100 +192,41 @@ commands. Run them locally before pushing.
 | Checker cases | `scripts/check-commits-cases.sh` | any host |
 | Commit messages | `scripts/check-commits.sh origin/main HEAD`, which fails when git cannot list the commits or the range holds none; CI adds the title, the pull request's number of commits, which the range must hold, and the author's kind: a bot's pull request may change the generated lists, `servers/iperf3.json` and `servers/netflix-ix.json`, only | any host |
 | Rule tests | `ast-grep test` (cases in `ast-grep/tests/`) | any host |
-| Rules | `ast-grep scan` (rules in `ast-grep/rules/`, config in `sgconfig.yml`), then `scripts/check-docs-cases.sh` and `scripts/check-docs.sh`: no tracked file holds CJK characters, except the catalog of another language in `crates/bench/src/locale/<language>/`, and no tracked file outside the fixture data points into the design documents | any host |
+| Rules | `ast-grep scan` (rules in `ast-grep/rules/`, config in `sgconfig.yml`), then `scripts/check-docs-cases.sh` and `scripts/check-docs.sh`: no tracked file outside localized Markdown (`README.zh-CN.md`, `README.ja.md`, `docs/*.md`) and non-English catalogs (`crates/bench/src/locale/<language>/`) holds CJK characters, and no tracked file outside fixture data points into external design documents | any host |
 | Server list | `scripts/iperf3-servers-cases.sh`, then `scripts/iperf3-servers.sh check`: the network test's server list and its candidates follow their rules, the list holds candidates only, and nothing builds from a list in `servers/`; the cases include the fixtures that the program's reader reads too | any host with jq |
 | Target list | `scripts/traceroute-targets-cases.sh`, then `scripts/traceroute-targets.sh check`: route tracing's target list follows its rules; the cases include the fixtures that the program's reader reads too | any host with jq |
 | Exchange list | `scripts/netflix-ix-cases.sh`, then `scripts/netflix-ix.sh check`: the list of Netflix's exchange ports follows its rules; the cases include the fixtures that the program's reader reads too, and the safety stops of `update` | any host with jq |
 | Static build | `cargo build --release --locked --target <arch>-unknown-linux-musl --bin lowendaff-bench` | Linux |
 | Swap round trip | `cargo build --release --locked --target <arch>-unknown-linux-musl -p swap-file --example roundtrip`, then `sudo target/<arch>-unknown-linux-musl/release/examples/roundtrip <dir>`: turns a 64 MiB swap file in `<dir>` on and off | Linux, with sudo, on a filesystem that holds swap files, such as ext4 |
-| Smoke | `scripts/smoke-iperf3.sh <dir>`, which starts an iperf3 server of the pinned build on 127.0.0.1 and writes a server list naming it and a config file, `scripts/smoke-trace.sh <dir2> <dir>/config.toml`, which points route tracing at 127.0.0.1 with lists and answers of its own and without NextTrace's lookups, `scripts/smoke-ip.sh <dir3> <dir>/config.toml`, which starts local HTTP, DNSBL and SMTP responders on 127.0.0.1 for IP reputation, and `scripts/smoke-media.sh <dir4> <dir>/config.toml`, which starts a local responder on 127.0.0.1 for media unlock, then `scripts/smoke.sh target/<arch>-unknown-linux-musl/release/lowendaff-bench --skip cpu.geekbench --config <dir>/config.toml`: a full run without Geekbench 7, which would publish a result, in which no test item is skipped, fails or times out, with the network test against that server only, the report on stdout and the progress log on stderr, then a short run that must find the public IPv4 address without the proxy that the environment names | Linux, as root or with sudo, with network access (it downloads sysbench, STREAM, multichase, fio, iperf3 and NextTrace) |
-| Smoke mutants | `scripts/smoke-mutants.sh <arch>-unknown-linux-musl`: smoke must reject deliberately broken builds; these runs skip the groups cpu, memory, disk, network and ip (`--skip cpu,memory,disk,network,ip`) | Linux, as root or with sudo |
-| Distributions | `scripts/distros.sh target/<arch>-unknown-linux-musl/release/lowendaff-bench ghcr.io/lowendaff/mirror`: the system information of a run with every test item skipped, in the images of `scripts/distros.txt`, 12 distributions (13 on x86_64), pulled from their copies on GHCR, with the uptime and load marked as the host's, and Geekbench 7 there without a network, which must skip for the image's glibc; without the last argument, from the original registries | Linux or macOS with Docker; the copies need `docker login ghcr.io` |
-| Network speed, not required | `scripts/network-check.sh <build> servers/iperf3.json`: the network test against one or two servers of the list, chosen at random, 3 seconds over 2 streams of at most 100 Mbit/s each (300 MB at most); it fails only when the program misbehaves, and a server that is busy or cannot be reached shows in the job's summary. CI runs it in the job `network speed against public servers` with the x86_64 build of the test job, which no merge waits for | Linux, as root or with sudo, with network access |
+| Smoke | `scripts/smoke-iperf3.sh <dir>`, `scripts/smoke-trace.sh <dir2> <dir>/config.toml`, `scripts/smoke-ip.sh <dir3> <dir>/config.toml` and `scripts/smoke-media.sh <dir4> <dir>/config.toml` start local loopback responders, then `scripts/smoke.sh target/<arch>-unknown-linux-musl/release/lowendaff-bench --skip cpu.geekbench --config <dir>/config.toml` runs a full pass in which no item skips, fails or times out, followed by a proxy-bypass check | Linux, as root or with sudo, with network access |
+| Smoke mutants | `scripts/smoke-mutants.sh <arch>-unknown-linux-musl`: smoke must reject deliberately broken builds (`--skip cpu,memory,disk,network,ip`) | Linux, as root or with sudo |
+| Distributions | `scripts/distros.sh target/<arch>-unknown-linux-musl/release/lowendaff-bench ghcr.io/lowendaff/mirror`: system profile and glibc skip checks across the pinned container images in `scripts/distros.txt` | Linux or macOS with Docker |
+| Network speed, not required | `scripts/network-check.sh <build> servers/iperf3.json`: short 3 s / 2-stream / 100 Mbit/s check against one or two random public servers; non-blocking | Linux, as root or with sudo, with network access |
 
-`<arch>` is `x86_64` or `aarch64`.
+`<arch>` is `x86_64` or `aarch64`. The `linux` CI jobs run `scripts/ci-scope.sh` first to skip
+rebuilds when only Markdown, `LICENSE`, or `servers/*.json` changed since a validated ancestor.
+`GH_TOKEN=$(gh auth token) scripts/verify-commits.sh` validates every commit on a branch locally.
 
-The two `test, static build and smoke` jobs first run `scripts/ci-scope.sh`, which decides whether
-the rest of the job runs. A job skips its other steps, and still passes, in two cases:
+CI pins cargo-nextest `0.9.151`, cargo-deny `0.20.2`, zizmor `1.32.0`, ast-grep `0.51.1`,
+shellcheck `0.11.0`, and actionlint `1.7.12`. Weekly `latest-deps` checks newest allowed crate
+versions, `mirror` mirrors `scripts/distros.txt` digests to GHCR, and Dependabot proposes updates
+for releases at least 7 days old.
 
-- an earlier run validated an ancestor of the commit in full, on the same base and runner image,
-  and only Markdown, `LICENSE` or the server lists in `servers/` changed since;
-- the whole change (a pull request against its base, or a push against the commit before it)
-  touches only Markdown, `LICENSE` or the server lists.
-
-No step of these jobs reads a list in `servers/`: the program downloads the lists at run time,
-and `scripts/iperf3-servers.sh check` refuses any other file that names a list in `servers/`.
-So a change of a list alone builds nothing, and users get it on their next run.
-
-Anything else, or any doubt, runs every step. A job that ran every step successfully uploads a
-validation record (`validation-pr<N>-<arch>` or `validation-main-<arch>`, kept 90 days), and the
-decision with its evidence appears in the job summary. The workflow audit job, which runs "Shell
-scripts", also runs this decision's cases: `scripts/ci-scope-cases.sh`.
-
-`GH_TOKEN=$(gh auth token) scripts/verify-commits.sh` runs the gates on every commit of a branch,
-each commit on its own, then checks the messages of the same commits; it fails when git cannot
-list the commits, or there are none. It leaves to CI the gates that need Linux or root, and Tool
-downloads.
-
-CI pins these tool versions; install the same versions locally:
-
-- cargo-nextest 0.9.151;
-- cargo-deny 0.20.2;
-- zizmor 1.32.0, for example `uvx zizmor@1.32.0 --persona pedantic .`;
-- ast-grep 0.51.1;
-- shellcheck 0.11.0;
-- actionlint 1.7.12.
-
-The `cargo deny check` and `zizmor` gates need network access: one fetches the RustSec advisory
-database, the other runs online audits (zizmor needs `GH_TOKEN` for those).
-
-CI also uses sccache (backed by the GitHub Actions cache) and the mold linker. They change build
-speed, not results, so they are optional locally.
-
-Every Monday, the `latest-deps` workflow updates a scratch checkout to the newest dependency
-versions that `Cargo.toml` allows. It then runs the tests and the dependency policy. A failure
-means an upstream release would break the build. The committed `Cargo.lock` is not touched.
-
-`scripts/distros.txt` lists container images pinned by digest. The `mirror` workflow copies them
-to `ghcr.io/lowendaff/mirror` under the same digests with `scripts/mirror.sh`, which checks each
-copy, so that CI can pull them from there: AWS ECR Public allows one anonymous pull per second
-per address, and GitHub's runners share addresses. The workflow publishes with `GITHUB_TOKEN`, so
-the packages are linked to this repository and CI can pull them with its own token. After
-changing `scripts/distros.txt`, run `gh workflow run mirror.yml --ref <branch>`; images that are
-already copied are skipped.
-
-Dependabot (`.github/dependabot.yml`) proposes weekly update PRs for cargo and for the pinned
-GitHub Actions. It waits until a release is at least 7 days old.
+---
 
 ## Third-party tools
 
-Some test items run external tools. The program downloads each tool as a pinned build and checks
-its SHA-256 and size before use; it never uses a tool already installed on the host. This
-repository builds the tools and publishes them as immutable GitHub releases, except Geekbench.
+External tools are built reproducibly by `.github/workflows/tools.yml` from `scripts/build-*.sh`
+and published as immutable GitHub releases of this repository (with sources, licenses and
+`SHA256SUMS`), except Geekbench 7, whose license forbids redistribution and which is downloaded
+directly from `cdn.geekbench.com` under its pinned SHA-256 and size.
 
 | Tool | Version | License | Used by | Release |
 |------|---------|---------|---------|---------|
 | fio, with libaio 0.3.113 linked statically | 3.43 | GPL-2.0; libaio LGPL-2.1 | Disk performance (`disk.fio`) | `fio-3.43-2` |
-| iperf3, without OpenSSL, so without its authentication code, and without SCTP | 3.22 | BSD-3-Clause, with the notices of the code it bundles | Network speed (`network.iperf3`) | `iperf3-3.22-1` |
+| iperf3, without OpenSSL or SCTP | 3.22 | BSD-3-Clause | Network speed (`network.iperf3`) | `iperf3-3.22-1` |
 | smartctl, from smartmontools | 7.5 | GPL-2.0-or-later | Disk health (`disk.health`) | `smartctl-7.5-1` |
-| sysbench, with its bundled LuaJIT and Concurrency Kit | 1.0.20 | GPL-2.0-or-later; LuaJIT MIT; Concurrency Kit BSD-2-Clause | CPU performance (`cpu.sysbench`), memory sysbench (`memory.sysbench`) | `sysbench-1.0.20-1` |
-| STREAM, built for six array sizes | 5.10 | STREAM's own: free to use and change, but published results must follow its run rules or say that they do not | Memory STREAM (`memory.stream`) | `stream-5.10-1` |
-| NextTrace, its tiny flavor, with Go's fallback roots | 1.7.6 | GPL-3.0; Go's standard library BSD-3-Clause | Route tracing (`network.trace`) | `nexttrace-1.7.6-1` |
-| multichase and multiload, with glibc 2.41 linked statically | commit `8b68e918` of 2026-10-01 | Apache-2.0; glibc LGPL-2.1 | Memory latency (`memory.latency`), memory NUMA (`memory.numa`) | `multichase-2026.10.01-1` |
-
-Each release holds the binaries for x86_64 and aarch64, the exact sources they were built from,
-the build script, the license texts (also that of the C library linked statically: musl's, which
-`fio-3.43-1` lacked, or glibc's for multichase) and `SHA256SUMS`. The workflow `tools` builds
-each tool with `scripts/build-<tool>.sh` in the image that the script names on its `IMAGE` and
-`IMAGE_DIGEST` lines: Alpine 3.22, or Debian 13 for multichase, which needs glibc. A pull request
-that changes a build runs every build without publishing anything. To publish a new build,
-update the script's `RELEASE` (the tool's version and the build number) and, for a new version,
-the sources and their SHA-256; merge, run `gh workflow run tools.yml --ref main -f tool=<tool>`,
-and then update the tool's pin in `crates/bench-tool`. The builds are reproducible bit for bit
-while the images' packages stay the same.
-
-Geekbench 7.1.0, for Geekbench 7 (`cpu.geekbench`), is the exception. It is closed source and
-its license forbids redistribution, so the program downloads Primate Labs' own archive from
-`cdn.geekbench.com`, pinned by SHA-256 and size, and unpacks it. The free license allows
-personal, non-commercial use on one's own devices only, requires every result to be uploaded to
-the Geekbench Browser, and forbids automated use; the owner accepted that risk.
+| sysbench, with bundled LuaJIT and Concurrency Kit | 1.0.20 | GPL-2.0-or-later; MIT; BSD-2-Clause | CPU (`cpu.sysbench`), memory (`memory.sysbench`) | `sysbench-1.0.20-1` |
+| STREAM, built for six array sizes | 5.10 | STREAM license | Memory STREAM (`memory.stream`) | `stream-5.10-1` |
+| NextTrace, tiny flavor with Go fallback roots | 1.7.6 | GPL-3.0; BSD-3-Clause | Route tracing (`network.trace`) | `nexttrace-1.7.6-1` |
+| multichase and multiload, with glibc 2.41 static | commit `8b68e918` (2026-10-01) | Apache-2.0; glibc LGPL-2.1 | Memory latency (`memory.latency`), NUMA (`memory.numa`) | `multichase-2026.10.01-1` |

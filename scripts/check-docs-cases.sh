@@ -119,6 +119,15 @@ check reject 'a catalog outside the program' 'plugins/cpu/src/locale/zh/report.r
 write_bytes crates/bench/src/locale/zh/report.rs "\"$chinese\""
 write_bytes crates/bench/src/locale/zh/host.rs "\"$kana$korean$comma\""
 check accept 'the catalog of another language'
+write_bytes README.zh-CN.md "# $chinese"
+write_bytes README.ja.md "# $kana"
+write_bytes docs/cpu.md "# CPU $chinese"
+write_bytes docs/sub/guide.md "# $chinese"
+check accept 'localized READMEs and Markdown guides under docs/'
+write_bytes docs/script.sh "echo '$chinese'"
+check reject 'CJK in a script under docs/' 'docs/script.sh:1:'
+write_bytes docs/design/cpu.md "# $chinese"
+check reject 'CJK in docs/design/' 'docs/design/cpu.md:1:'
 # A degree sign, a dash, a multiplication sign and the emoji.
 other="25 \302\260C \342\200\224 2 \303\227 3 $emoji"
 write_bytes crates/bench/src/lib.rs "pub const SHOWN: &str = \"$other\";"
@@ -128,12 +137,13 @@ write scripts/build.sh '# The flags follow docs/design/cpu.md.'
 check reject 'a path to the design documents' 'scripts/build.sh:1:'
 write crates/bench/src/lib.rs 'pub const DONE: &str = "done"; // (§5.3)'
 check reject 'a section sign' 'crates/bench/src/lib.rs:1:'
-for id in D-16 P-11 S-22 DK-02 DH-08 CP-07 ME-09 R-19 H-01 NW-07 RT-07 NC-04 MU-05 IQ-04 OR-01; do
+for id in D-16 P-11 S-22 DK-02 DH-08 CP-07 ME-09 R-19 H-01 NW-07 RT-07 NC-04 MU-05 IQ-04 \
+    OR-01 MD-01; do
     write README.md "Because of $id, it runs last."
     check reject "the decision id $id" 'README.md:1:'
 done
 write README.md 'A Xeon D-1541, the P-256 curve, SHA-256, x86-64, HDD-12,
-S-1, S-123, CP-1, ME-1, NW-1, RT-1, NC-1, MU-1, IQ-1 and OR-1.'
+S-1, S-123, CP-1, ME-1, NW-1, RT-1, NC-1, MU-1, IQ-1, OR-1 and MD-1.'
 check accept 'text that only looks like a decision id'
 write .github/workflows/ci.yml '# Smoke skips it (design cpu, 9.3).'
 check reject 'a parenthetical that starts with design' '.github/workflows/ci.yml:1:'

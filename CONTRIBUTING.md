@@ -6,7 +6,9 @@ recorded in design documents outside the repository.
 
 ## Languages
 
-- Code, identifiers, comments, documents and commit messages are English.
+- Code, identifiers, comments, commit messages and English documents (`README.md`,
+  `CONTRIBUTING.md`, `.github/`) are English; localized user documentation lives in
+  `README.zh-CN.md`, `README.ja.md` and `docs/*.md`.
 - Text that the program shows its users is English, and comes from the message catalog in
   `crates/bench/src/locale/`: a trait per part of the program, which each language implements
   in a module of its own. Messages for developers, such as the registry checks, are English and
@@ -15,8 +17,9 @@ recorded in design documents outside the repository.
   every trait, listed in `LOCALES`; the compiler names each text it still lacks. The locale comes
   from `LC_ALL`, `LC_MESSAGES` or `LANG`. The tests expect the English catalog, which
   `LC_ALL=C` selects.
-- No tracked file holds a CJK character, so that tests, fixtures and comments stay English too
-  (`scripts/check-docs.sh`); only the catalog of another language holds its words.
+- Outside localized Markdown documents (`README.zh-CN.md`, `README.ja.md`, `docs/*.md`) and
+  catalogs of other languages, no tracked file holds a CJK character, so that code, tests,
+  fixtures, scripts and comments stay English (`scripts/check-docs.sh`).
 - Pull request bodies are English, in the sections of the template.
 
 ## Layout
@@ -38,6 +41,7 @@ plugins/
   disk/        disk.health, disk.fio
   network/     network.iperf3, network.trace
   ip/          ip.quality, ip.media
+docs/          detailed module-by-module guides explaining how each test item measures and judges
 servers/       the lists that the network items download at run time: network speed's servers,
                with their candidates, route tracing's targets and Netflix's exchange ports
 ```
