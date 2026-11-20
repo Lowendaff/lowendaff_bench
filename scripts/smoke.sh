@@ -40,9 +40,11 @@ else
 fi
 
 # The non-root run must stop at the root check. Exit code 2 alone does not show that: usage
-# errors and an unwritable run directory exit with 2 too.
+# errors and an unwritable run directory exit with 2 too. Skip every group so that, when
+# smoke-mutants.sh deletes the root check, the defective binary finishes in a second instead of
+# running the full suite (including public iperf3 servers and Geekbench 7) for ten minutes.
 set +e
-refusal=$($as_user "$bin" 2>&1 >/dev/null)
+refusal=$($as_user "$bin" --skip cpu,memory,disk,network,ip 2>&1 >/dev/null)
 code=$?
 set -e
 [ "$code" -eq 2 ] || fail "non-root run exited with $code, expected 2"
