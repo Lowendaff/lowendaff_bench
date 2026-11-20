@@ -38,7 +38,7 @@ crates/
                files, and the message catalog
   swap-file/   a temporary swap file, with the only unsafe code
 plugins/
-  cpu/         cpu.sysbench, cpu.geekbench
+  cpu/         cpu.bench (sysbench, 7zip, unixbench, hpl, passmark, ycruncher, prime95, geekbench)
   memory/      memory.sysbench, memory.stream, memory.latency, memory.numa
   disk/        disk.health, disk.fio
   network/     network.iperf3, network.trace, network.bgp
@@ -230,15 +230,22 @@ points into them: a comment or a document gives the reason itself.
 
 External tools are built reproducibly by `.github/workflows/tools.yml` from `scripts/build-*.sh`
 and published as immutable GitHub releases of this repository (with sources, licenses and
-`SHA256SUMS`), except Geekbench 7, whose license forbids redistribution and which is downloaded
-directly from `cdn.geekbench.com` under its pinned SHA-256 and size:
+`SHA256SUMS`), except vendor-distributed suites (`Geekbench 7`, `PassMark PerformanceTest`,
+`y-cruncher`, and `Prime95`), which are downloaded directly from their upstream distributions
+under pinned SHA-256 and size:
 
+- `7-Zip` (`7zz`) 26.06 without unRAR (`LGPL-2.1-or-later`; `BSD-3-Clause`) — `7zip-26.06-1`
+  (`cpu.bench`)
 - `fio` 3.43 with `libaio` 0.3.113 static (`GPL-2.0`; `LGPL-2.1`) — `fio-3.43-2` (`disk.fio`)
+- `HPL` 2.3 with `OpenBLAS` 0.3.34 OpenMP static (`BSD-3-Clause`) — `hpl-2.3-1` (`cpu.bench`)
 - `iperf3` 3.22 without OpenSSL or SCTP (`BSD-3-Clause`) — `iperf3-3.22-1` (`network.iperf3`)
+- `passmark-libs` (`ncurses` 6.5 ABI 5 + `curl` 8.12.1 runtime, `MIT`; `curl`) —
+  `passmark-libs-1.0-1` (`cpu.bench`)
 - `smartctl` 7.5 from smartmontools (`GPL-2.0-or-later`) — `smartctl-7.5-1` (`disk.health`)
 - `sysbench` 1.0.20 (`GPL-2.0-or-later`; `MIT`; `BSD-2-Clause`) — `sysbench-1.0.20-1`
-  (`cpu.sysbench`, `memory.sysbench`)
+  (`cpu.bench`, `memory.sysbench`)
 - `STREAM` 5.10 for six array sizes (STREAM license) — `stream-5.10-1` (`memory.stream`)
+- `Byte-UnixBench` 6.0.1 static (`GPL-2.0`) — `unixbench-6.0.1-1` (`cpu.bench`)
 - `NextTrace` 1.7.6 tiny flavor (`GPL-3.0`; `BSD-3-Clause`) — `nexttrace-1.7.6-1`
   (`network.trace`)
 - `multichase` and `multiload` `8b68e918` with `glibc` 2.41 static (`Apache-2.0`; `LGPL-2.1`) —

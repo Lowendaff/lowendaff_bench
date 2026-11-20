@@ -10,15 +10,16 @@ cloud instances), and containers (Docker, LXC, OpenVZ).
 
 - **Single file, zero setup, no config files.** Download one standalone binary and run it right
   away on `x86_64` or `aarch64` (ARM64) Linux. Everything is controlled with straightforward
-  command-line options.
-- **Fair, comparable numbers across every Linux distro.** Helper tools (`sysbench`, `fio`,
-  `iperf3`, `NextTrace`, `Geekbench 7`, etc.) are automatically downloaded at pinned versions and
-  verified before running, rather than relying on outdated packages installed on the host.
-- **Adapts to your server and protects low-memory VPS instances.** Automatically skips tests that
-  do not apply to your machine (for example, physical drive SMART checks on virtual machines or
-  multi-socket NUMA tests on single-CPU hosts). Memory tests stay under half of free RAM, and
-  Geekbench 7 automatically sets up temporary swap space when RAM is tight so small VPS instances
-  do not crash.
+  command-line options or the interactive `--tui` interface.
+- **Fair, comparable numbers across every Linux distro.** Helper tools (`sysbench`, `7-Zip`,
+  `UnixBench`, `HPL`, `PassMark`, `fio`, `iperf3`, `NextTrace`, `Geekbench 7`, etc.) are
+  automatically downloaded at pinned versions and verified by size and SHA-256 before running,
+  rather than relying on outdated packages installed on the host.
+- **Adapts to your server and protects low-memory VPS instances.** Automatically skips tests or CPU
+  sub-suites that do not apply to your machine (for example, physical drive SMART checks on virtual
+  machines, multi-socket NUMA tests on single-CPU hosts, or `x86_64`-only CPU stress suites on
+  ARM64). Memory and HPL tests scale to available RAM, and Geekbench 7 automatically sets up
+  temporary swap space when RAM is tight so small VPS instances do not crash.
 - **Privacy-friendly reports ready to share.** View clean tables directly in your terminal, or save
   the report as **Markdown** or **JSON**. By default, your server's public IP addresses, reverse
   DNS hostnames, and hardware serial numbers are masked so you can share results without manual
@@ -54,7 +55,7 @@ sudo ./lowendaff-bench-x86_64
 Assuming the binary is named `lowendaff-bench`:
 
 ```sh
-# 1. See all 13 available test items and what they require (no root needed)
+# 1. See all 12 available test items and what they require (no root needed)
 ./lowendaff-bench --list
 
 # 2. Run the full suite (CPU, memory, disk, network speed/routes/BGP, IP reputation, media unlock)
@@ -63,15 +64,15 @@ sudo ./lowendaff-bench
 # 2b. Launch the interactive TUI (toggle items, edit parameters, watch progress, and browse report)
 sudo ./lowendaff-bench --tui
 
-# 3. Quick server check: skip Geekbench 7 (long & uploads public scores) and route tracing
-sudo ./lowendaff-bench --skip cpu.geekbench,network.trace
+# 3. Quick server check: run fast CPU sub-suites (skip UnixBench & Geekbench) and skip route tracing
+sudo ./lowendaff-bench --cpu-bench sysbench,7zip,hpl,passmark --skip network.trace
 
 # 4. Check IP reputation & streaming unlock, or draw the server's BGP upstream topology graph
 sudo ./lowendaff-bench --only ip
 sudo ./lowendaff-bench --only network.bgp
 
-# 5. Pick any mix of categories and individual test items
-sudo ./lowendaff-bench --only cpu.sysbench,memory.stream,disk.fio
+# 5. Pick any mix of items and opt-in CPU stress sub-suites (such as y-cruncher & Prime95)
+sudo ./lowendaff-bench --only cpu.bench,memory.stream,disk.fio --cpu-bench sysbench,7zip,ycruncher,prime95
 
 # 6. Run a category while excluding one item (e.g. IP reputation without streaming checks)
 sudo ./lowendaff-bench --only ip --skip ip.media
@@ -110,6 +111,7 @@ sudo ALL_PROXY=socks5h://127.0.0.1:1080 ./lowendaff-bench --download-connections
 | `-o, --output` | `<FILE>` | Terminal | Save the final report to `<FILE>` instead of printing it to standard output |
 | `-f, --format` | `<FORMAT>` | `text` | Choose report format: `text`, `markdown` (or `md`), or `json` |
 | `--work-dir` | `<DIR>` | `.` | Directory used for temporary test files, cleaned up on exit (point this at the disk you want to test; avoid `/tmp`) |
+| `--cpu-bench` | `<SUITE,...>` | 6 default suites | Choose which sub-suites `cpu.bench` runs (`sysbench`, `7zip`, `unixbench`, `hpl`, `passmark`, `ycruncher`, `prime95`, `geekbench`, or `all`) |
 | `--countries` | `<CODE,...>` | Default locations | Limit `network.iperf3` to two-letter country codes (such as `JP,US,DE`) or `all` |
 | `--trace-groups` | `<GROUP,...>` | Caches + defaults | Choose which target groups `network.trace` traces routes to |
 | `--media-groups` | `<GROUP,...>` | `all` | Choose which regional groups `ip.media` checks for streaming availability |
@@ -127,15 +129,24 @@ sudo ALL_PROXY=socks5h://127.0.0.1:1080 ./lowendaff-bench --download-connections
 
 | Option | Allowed Values | Description |
 |---|---|---|
-| `--only` / `--skip` *(categories)* | `cpu` | Both CPU tests: `cpu.sysbench`, `cpu.geekbench` |
+| `--only` / `--skip` *(categories)* | `cpu` | Unified CPU benchmark suite: `cpu.bench` |
 | | `memory` | All 4 memory tests: `memory.sysbench`, `memory.stream`, `memory.latency`, `memory.numa` |
 | | `disk` | Both disk tests: `disk.health`, `disk.fio` |
 | | `network` | All 3 network tests: `network.iperf3`, `network.trace`, `network.bgp` |
 | | `ip` | Both IP tests: `ip.quality`, `ip.media` |
-| `--only` / `--skip` *(single items)* | `disk.health`, `cpu.sysbench`, `memory.sysbench`, `memory.stream`, `memory.latency`, `memory.numa`, `disk.fio`, `network.iperf3`, `network.trace`, `network.bgp`, `ip.quality`, `ip.media`, `cpu.geekbench` | Include or exclude any individual test item |
+| `--only` / `--skip` *(single items)* | `disk.health`, `memory.sysbench`, `memory.stream`, `memory.latency`, `memory.numa`, `disk.fio`, `network.iperf3`, `network.trace`, `network.bgp`, `ip.quality`, `ip.media`, `cpu.bench` | Include or exclude any individual test item |
 | `-f, --format` | `text` | Aligned plain-text tables formatted for terminal viewing |
 | | `markdown` *(or `md`)* | GitHub-Flavored Markdown ready to paste into posts, wikis, or issues |
 | | `json` | Structured JSON output for scripts, dashboards, or automated archiving |
+| `--cpu-bench` | `sysbench` | 20-second prime sieve on 1 thread and all threads *(default)* |
+| | `7zip` | 7-Zip LZMA2 compression & decompression MIPS on 1 thread and all threads *(default)* |
+| | `unixbench` | Byte-UnixBench 6.0.1 full 12-item System Index at 1 copy and N copies *(default)* |
+| | `hpl` | High-Performance Linpack (`OpenBLAS` FP64 LU) sustained GFLOPS *(default)* |
+| | `passmark` | PassMark PerformanceTest Linux CPU Mark & 8 sub-tests *(default; `glibc >= 2.28`)* |
+| | `ycruncher` | y-cruncher multi-threaded Pi computation *(opt-in; `x86_64` only)* |
+| | `prime95` | Prime95 (`mprime`) 65-second Small-FFT torture stability test *(opt-in; `x86_64` only)* |
+| | `geekbench` | Official Geekbench 7.1.0 single-core & multi-core scores + URL *(default; `glibc >= 2.35` + IPv4)* |
+| | `all` | All 8 CPU sub-suites above (auto-skipping unsupported ones on the current host) |
 | `--trace-groups` | `services` | Nearest YouTube and Netflix video cache servers only |
 | | `china` | Mainland China carrier routes (Telecom 163/CN2, Unicom 169/9929, Mobile CMNET/CMIN2) |
 | | `international` | Global Tier-1 backbones, Telegram data centers, AWS, and Google Cloud nodes |
@@ -160,12 +171,11 @@ PCIe slots), and IPv4/IPv6 connectivity. On dedicated servers, it also lists pop
 ECC memory error counts, IPMI/BMC controllers, and hardware RAID cards (see
 [`docs/system.md`](docs/system.md)).
 
-Then it runs up to 13 test items in order:
+Then it runs up to 12 test items in order:
 
 | Category | Item ID & Name | Where it runs | What it tells you | Deep dive |
 |---|---|---|---|---|
 | `disk` | `disk.health`<br>Disk health | Dedicated servers | Reads drive SMART data (including drives behind common hardware RAID cards) to check overall health, power-on hours, temperature, SSD wear, total writes, and bad sectors | [`docs/disk.md`](docs/disk.md) |
-| `cpu` | `cpu.sysbench`<br>CPU speed | All servers | Runs a 20-second prime calculation on 1 core and on all cores to measure single-core responsiveness and multi-core scaling | [`docs/cpu.md`](docs/cpu.md) |
 | `memory` | `memory.sysbench`<br>Sequential memory | All servers | Measures single-thread and multi-thread sequential memory read/write speed | [`docs/memory.md`](docs/memory.md) |
 | `memory` | `memory.stream`<br>Sustained bandwidth | All servers | Uses the industry-standard STREAM benchmark to measure sustained real-world RAM bandwidth (`Copy`, `Scale`, `Add`, `Triad`) | [`docs/memory.md`](docs/memory.md) |
 | `memory` | `memory.latency`<br>Cache & RAM latency | All servers | Measures random access latency in nanoseconds across CPU L1/L2/L3 caches and main memory | [`docs/memory.md`](docs/memory.md) |
@@ -176,7 +186,7 @@ Then it runs up to 13 test items in order:
 | `network` | `network.bgp`<br>BGP paths | Servers with a public IP | Queries global RIS route collectors for your announced prefix, RPKI status, and upstream carriers, providing an unlisted `imageupload.app` SVG topology link in `text` mode, a Mermaid flowchart in Markdown, and standalone SVG markup in JSON | [`docs/network.md`](docs/network.md) |
 | `ip` | `ip.quality`<br>IP reputation | Servers with a public IP | Cross-checks 9 IP databases to show whether your IP is **native** or **broadcast**, datacenter vs residential, fraud/risk indicators, open ports, 25 spam blacklists, and port-25 mail reachability | [`docs/ip.md`](docs/ip.md) |
 | `ip` | `ip.media`<br>Streaming unlock | Servers with internet | Tests direct IPv4/IPv6 access across 68 streaming and online services in 5 world regions (Netflix, Disney+, YouTube, BBC iPlayer, Bahamut, Abema, etc.) and reports the unlocked region | [`docs/ip.md`](docs/ip.md) |
-| `cpu` | `cpu.geekbench`<br>Geekbench 7 | `glibc >= 2.35` + IPv4 | Runs official Geekbench 7.1.0 for widely comparable single-core and multi-core scores plus an online result link | [`docs/cpu.md`](docs/cpu.md) |
+| `cpu` | `cpu.bench`<br>CPU benchmarks | All servers *(per-suite checks)* | Runs selectable CPU sub-suites (`--cpu-bench`): default `sysbench`, `7zip`, `unixbench`, `hpl`, `passmark`, and `geekbench`, plus opt-in `x86_64` `ycruncher` and `prime95` torture checks | [`docs/cpu.md`](docs/cpu.md) |
 
 ---
 
@@ -219,12 +229,18 @@ projects:
   topology rendering.
 - **Upstream benchmark tools & open data sources** —
   [`sysbench`](https://github.com/akopytov/sysbench) (Alexey Kopytov),
+  [`7-Zip`](https://www.7-zip.org/) (Igor Pavlov),
+  [`Byte-UnixBench`](https://github.com/kdlucas/byte-unixbench),
+  [`HPL`](https://www.netlib.org/benchmark/hpl/) & [`OpenBLAS`](https://www.openblas.net/),
+  [`PassMark PerformanceTest`](https://www.passmark.com/products/pt_linux/),
+  [`y-cruncher`](http://www.numberworld.org/y-cruncher/) (Alexander J. Yee),
+  [`Prime95 / GIMPS`](https://www.mersenne.org/),
+  [`Geekbench`](https://www.geekbench.com/) (Primate Labs),
   [`STREAM`](https://www.cs.virginia.edu/stream/) (John D. McCalpin),
   [`multichase`](https://github.com/google/multichase) (Google),
   [`smartmontools`](https://www.smartmontools.org/) (`smartctl`),
   [`fio`](https://github.com/axboe/fio) (Jens Axboe),
   [`iperf3`](https://github.com/esnet/iperf) (ESnet),
-  [`Geekbench`](https://www.geekbench.com/) (Primate Labs),
   [`RIPEstat`](https://stat.ripe.net/) (RIPE NCC),
   [`iperf3serverlist.net`](https://iperf3serverlist.net/), and
   [`PeeringDB`](https://www.peeringdb.com/).

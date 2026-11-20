@@ -129,8 +129,7 @@ pub fn sections<'a>(groups: &[&'a str]) -> Vec<(&'a str, &'a str)> {
 /// One plugin's block: what it left, then how it ended.
 fn plugin(out: &mut Out, run: &Run<Measured>, indent: &str, page: &Page) {
     match &run.result {
-        Some(Measured::CpuSysbench(report)) => cpu::sysbench(out, report, indent),
-        Some(Measured::CpuGeekbench(report)) => cpu::geekbench(out, report, indent),
+        Some(Measured::CpuBench(report)) => cpu::bench(out, report, indent),
         Some(Measured::MemorySysbench(report)) => memory::sysbench(out, report, indent),
         Some(Measured::MemoryStream(report)) => memory::stream(out, report, indent),
         Some(Measured::MemoryLatency(report)) => memory::latency(out, report, indent),

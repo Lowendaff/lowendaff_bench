@@ -43,6 +43,7 @@ use bench_host::storage::Disk;
 use bench_host::storage::Filesystem;
 use bench_host::storage::Space;
 use bench_host::storage::Use;
+use plugin_cpu::bench as cpu_bench;
 use plugin_cpu::sysbench;
 use plugin_cpu::sysbench::result::Rate;
 use plugin_disk::fio;
@@ -256,14 +257,19 @@ fn runs() -> Vec<Run<Measured>> {
             Some(health(vec![healthy("sda")])),
         ),
         run(
-            "cpu.sysbench",
+            "cpu.bench",
             Status::Completed,
             Some(41.2),
-            Some(Measured::CpuSysbench(Report {
-                output: Some(sysbench::Output {
-                    version: Some("1.0.20".to_owned()),
-                    single: sysbench_run(1, 859.0),
-                    multi: Some(sysbench_run(64, 44631.33)),
+            Some(Measured::cpu_bench(Report {
+                output: Some(cpu_bench::Output {
+                    sysbench: Some(cpu_bench::SuiteOutcome::Done {
+                        output: sysbench::Output {
+                            version: Some("1.0.20".to_owned()),
+                            single: sysbench_run(1, 859.0),
+                            multi: Some(sysbench_run(64, 44631.33)),
+                        },
+                    }),
+                    ..cpu_bench::Output::default()
                 }),
                 stop: None,
             })),
@@ -289,7 +295,7 @@ fn runs() -> Vec<Run<Measured>> {
             None,
             None,
         ),
-        run("cpu.geekbench", Status::Cancelled, None, None),
+        run("ip.media", Status::Cancelled, None, None),
         run(
             "test.own-skip",
             Status::Skipped(None),
@@ -350,7 +356,7 @@ fn a_run_with_one_plugin_per_section() {
             })),
         ),
         run(
-            "cpu.geekbench",
+            "cpu.bench",
             Status::Skipped(Some(Unmet::Network(Net::Ipv4))),
             None,
             None,
@@ -497,11 +503,11 @@ fn markdown_format_renders_gfm_headings_pipe_tables_and_escaped_masked_ips() {
     );
     assert!(
         md.contains(
-            "\n## CPU performance\n\n### CPU performance\n\nsysbench 1.0.20: prime limit 10000, \
+            "\n## CPU performance\n\nsysbench 1.0.20: prime limit 10000, \
              20 s each\n\n| Test | Threads | Events/s |\n| --- | ---: | ---: |\n\
              | Single thread | 1 | 859.00 |\n"
         ),
-        "numeric columns align right and multi-plugin lines are never indented 4 spaces: {md}"
+        "numeric columns align right: {md}"
     );
     assert!(
         !md.contains("\n#### 4K and 64K\n"),

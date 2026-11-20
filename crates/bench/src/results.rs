@@ -1,8 +1,7 @@
 //! What each plugin left after a run, for the reporter: one variant per plugin.
 
 use bench_api::Stop;
-use plugin_cpu::geekbench;
-use plugin_cpu::sysbench;
+use plugin_cpu::bench;
 use plugin_disk::fio;
 use plugin_disk::health;
 use plugin_ip::media;
@@ -27,10 +26,8 @@ pub struct Report<O, F> {
 /// does not compile.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Measured {
-    /// CPU performance (`cpu.sysbench`).
-    CpuSysbench(Report<sysbench::Output, sysbench::Failure>),
-    /// Geekbench 7 (`cpu.geekbench`).
-    CpuGeekbench(Report<geekbench::Output, geekbench::Failure>),
+    /// Unified CPU benchmark (`cpu.bench`).
+    CpuBench(Box<Report<bench::Output, bench::Failure>>),
     /// Memory sysbench (`memory.sysbench`).
     MemorySysbench(Report<plugin_memory::sysbench::Output, plugin_memory::sysbench::Failure>),
     /// Memory STREAM (`memory.stream`).
@@ -53,4 +50,12 @@ pub enum Measured {
     IpQuality(Report<quality::Output, quality::Failure>),
     /// Media unlock (`ip.media`).
     IpMedia(Report<media::Output, media::Failure>),
+}
+
+impl Measured {
+    /// Wraps a `cpu.bench` report in [`Self::CpuBench`].
+    #[must_use]
+    pub fn cpu_bench(report: Report<bench::Output, bench::Failure>) -> Self {
+        Self::CpuBench(Box::new(report))
+    }
 }

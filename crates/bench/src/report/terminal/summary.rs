@@ -55,14 +55,10 @@ pub(in crate::report) fn totals(page: &Page) -> Totals {
 /// The plugin's own reason, when it stopped short.
 pub(in crate::report) fn stop_reason(run: &Run<Measured>) -> Option<String> {
     match &run.result {
-        Some(Measured::CpuSysbench(report)) => report
+        Some(Measured::CpuBench(report)) => report
             .stop
             .as_ref()
-            .map(|stop| cpu::sysbench_failure(failure(stop))),
-        Some(Measured::CpuGeekbench(report)) => report
-            .stop
-            .as_ref()
-            .map(|stop| cpu::geekbench_failure(failure(stop))),
+            .map(|stop| cpu::bench_failure(report.output.as_ref(), failure(stop))),
         Some(Measured::MemorySysbench(report)) => report
             .stop
             .as_ref()

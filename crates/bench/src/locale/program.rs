@@ -25,6 +25,8 @@ pub trait ProgramWords {
     fn help_show_ip(&self) -> String;
     /// The help of `--download-connections`.
     fn help_download_connections(&self) -> String;
+    /// The help of `--cpu-bench`.
+    fn help_cpu_bench(&self) -> String;
     /// The help of `--countries`.
     fn help_countries(&self) -> String;
     /// The help of `--trace-groups`.

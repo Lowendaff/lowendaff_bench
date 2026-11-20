@@ -325,6 +325,7 @@ impl Plugin for UsesWorkDir {
 const FIO: ToolSpec = ToolSpec {
     name: "fio",
     version: "3.39",
+    all_arches: false,
     raw_sockets: false,
     form: ToolForm::Executable,
     assets: &[ToolAsset {
@@ -374,33 +375,38 @@ struct Good {
 }
 
 impl Plugin for Good {
-    type Output = geekbench::Output;
-    type Failure = geekbench::Failure;
+    type Output = plugin_cpu::bench::Output;
+    type Failure = plugin_cpu::bench::Failure;
     const DESCRIPTOR: Descriptor = descriptor("test.good", 10_000);
 
     async fn run(
         &self,
-        _ctx: &Context<geekbench::Output>,
-    ) -> Result<geekbench::Output, Stop<geekbench::Failure>> {
+        _ctx: &Context<plugin_cpu::bench::Output>,
+    ) -> Result<plugin_cpu::bench::Output, Stop<plugin_cpu::bench::Failure>> {
         Ok(scores(self.samples))
     }
 }
 
-/// A result of Geekbench 7's type with these scores.
-fn scores(score: u32) -> geekbench::Output {
-    geekbench::Output {
-        scores: Some(Scores {
-            version: None,
-            single: score,
-            multi: score,
-            url: None,
+/// A result of `cpu.bench`'s type holding Geekbench scores.
+fn scores(score: u32) -> plugin_cpu::bench::Output {
+    plugin_cpu::bench::Output {
+        geekbench: Some(plugin_cpu::bench::SuiteOutcome::Done {
+            output: geekbench::Output {
+                scores: Some(Scores {
+                    version: None,
+                    single: score,
+                    multi: score,
+                    url: None,
+                }),
+                ..geekbench::Output::default()
+            },
         }),
-        ..geekbench::Output::default()
+        ..plugin_cpu::bench::Output::default()
     }
 }
 
 fn plugins() -> Vec<Entry> {
-    vec![registry::entry::<Good>(Measured::CpuGeekbench)]
+    vec![registry::entry::<Good>(Measured::cpu_bench)]
 }
 
 // ---------------------------------------------------------------- harness
@@ -958,7 +964,7 @@ async fn a_plugin_is_built_from_its_table_in_the_config() {
     assert_eq!(runs[0].status, Status::Completed);
     assert_eq!(
         runs[0].result,
-        Some(Measured::CpuGeekbench(Report {
+        Some(Measured::cpu_bench(Report {
             output: Some(scores(2)),
             stop: None,
         }))

@@ -1,48 +1,90 @@
-//! The CPU section of the report, from constructed runs: for CPU performance the tool and its
-//! parameters, the runs, the ratio and the notes on retries; for Geekbench 7 its version, scores,
-//! link and notes; and each way a run ends. Compared with snapshots, and with the words that the
-//! items' own tests asserted before the reporter wrote them.
+//! The `[CPU performance]` section (`cpu.bench`), from constructed runs: single-suite and
+//! multi-suite layouts across all eight sub-engines (`sysbench`, `7zip`, `unixbench`, `hpl`,
+//! `passmark`, `ycruncher`, `prime95`, and `geekbench`), per-suite skips and partial failures,
+//! Markdown and JSON formats, and snapshot comparisons.
 
+use std::path::PathBuf;
 use std::time::Duration;
 
 use bench::orchestrator::Run;
 use bench::orchestrator::Status;
+use bench::orchestrator::Unmet;
 use bench::report;
+use bench::report::Format;
 use bench::report::terminal::Page;
 use bench::results::Measured;
 use bench::results::Report;
-use std::path::PathBuf;
-
-use bench::orchestrator::Unmet;
 use bench_api::Net;
 use bench_api::Stop;
 use bench_host::glibc::GlibcVersion;
 use bench_host::profile::HostProfile;
 use bench_tool::job;
 use bench_tool::job::Adjustment;
+use plugin_cpu::bench as cpu_bench;
+use plugin_cpu::bench::SuiteOutcome;
+use plugin_cpu::bench::SuiteSkip;
 use plugin_cpu::geekbench;
 use plugin_cpu::geekbench::result::Memory;
 use plugin_cpu::geekbench::result::NoSwap;
 use plugin_cpu::geekbench::result::Scores;
 use plugin_cpu::geekbench::result::SwapLeft;
+use plugin_cpu::hpl;
+use plugin_cpu::passmark;
+use plugin_cpu::prime95;
+use plugin_cpu::seven_zip;
 use plugin_cpu::sysbench;
 use plugin_cpu::sysbench::Fault;
 use plugin_cpu::sysbench::result::Rate;
+use plugin_cpu::unixbench;
+use plugin_cpu::ycruncher;
+
+fn bench_run(
+    status: Status,
+    elapsed_ms: u64,
+    output: Option<cpu_bench::Output>,
+    stop: Option<Stop<cpu_bench::Failure>>,
+) -> Run<Measured> {
+    Run {
+        id: "cpu.bench",
+        group: "cpu",
+        title: Some("CPU benchmark"),
+        started: Some(Duration::from_secs(1)),
+        elapsed: Some(Duration::from_millis(elapsed_ms)),
+        status,
+        result: Some(Measured::cpu_bench(Report { output, stop })),
+    }
+}
 
 fn sysbench_run(
     status: Status,
     output: Option<sysbench::Output>,
     stop: Option<Stop<sysbench::Failure>>,
 ) -> Run<Measured> {
-    Run {
-        id: "cpu.sysbench",
-        group: "cpu",
-        title: Some("CPU performance"),
-        started: Some(Duration::from_secs(1)),
-        elapsed: Some(Duration::from_millis(40_100)),
-        status,
-        result: Some(Measured::CpuSysbench(Report { output, stop })),
-    }
+    let (bench_out, bench_stop) = match (output, stop) {
+        (Some(out), None) => (
+            Some(cpu_bench::Output {
+                sysbench: Some(SuiteOutcome::Done { output: out }),
+                ..cpu_bench::Output::default()
+            }),
+            None,
+        ),
+        (partial, Some(Stop::Failed(failure))) => (
+            Some(cpu_bench::Output {
+                sysbench: Some(SuiteOutcome::Failed { partial, failure }),
+                ..cpu_bench::Output::default()
+            }),
+            Some(Stop::Failed(cpu_bench::Failure::AllFailed)),
+        ),
+        (None, None) => (None, None),
+        (partial, Some(Stop::Skipped(failure))) => (
+            Some(cpu_bench::Output {
+                sysbench: Some(SuiteOutcome::Failed { partial, failure }),
+                ..cpu_bench::Output::default()
+            }),
+            Some(Stop::Skipped(cpu_bench::Failure::AllSkipped)),
+        ),
+    };
+    bench_run(status, 40_100, bench_out, bench_stop)
 }
 
 /// The report of `runs` from its CPU section on, with the summary.
@@ -246,9 +288,7 @@ fn each_fault_of_a_tool_has_its_words() {
 }
 
 const GIB: u64 = 1 << 30;
-
 const MIB: u64 = 1 << 20;
-
 const UNREACHABLE: &str = "unable to resolve host browser.geekbench.com";
 
 fn geekbench_run(
@@ -256,15 +296,34 @@ fn geekbench_run(
     output: Option<geekbench::Output>,
     stop: Option<Stop<geekbench::Failure>>,
 ) -> Run<Measured> {
-    Run {
-        id: "cpu.geekbench",
-        group: "cpu",
-        title: Some("Geekbench 7"),
-        started: Some(Duration::from_secs(60)),
-        elapsed: Some(Duration::from_secs(300)),
-        status,
-        result: Some(Measured::CpuGeekbench(Report { output, stop })),
-    }
+    let (bench_out, bench_stop) = match (output, stop) {
+        (Some(out), None) => (
+            Some(cpu_bench::Output {
+                geekbench: Some(SuiteOutcome::Done { output: out }),
+                ..cpu_bench::Output::default()
+            }),
+            None,
+        ),
+        (partial, Some(Stop::Failed(failure))) => (
+            Some(cpu_bench::Output {
+                geekbench: Some(SuiteOutcome::Failed {
+                    partial: partial.filter(|p| *p != geekbench::Output::default()),
+                    failure,
+                }),
+                ..cpu_bench::Output::default()
+            }),
+            Some(Stop::Failed(cpu_bench::Failure::AllFailed)),
+        ),
+        (None, None) => (None, None),
+        (partial, Some(Stop::Skipped(failure))) => (
+            Some(cpu_bench::Output {
+                geekbench: Some(SuiteOutcome::Failed { partial, failure }),
+                ..cpu_bench::Output::default()
+            }),
+            Some(Stop::Skipped(cpu_bench::Failure::AllSkipped)),
+        ),
+    };
+    bench_run(status, 300_000, bench_out, bench_stop)
 }
 
 fn scores(url: Option<&str>) -> Scores {
@@ -537,4 +596,174 @@ fn each_note_on_memory_has_its_words() {
         ..geekbench::Output::default()
     };
     assert!(note(done).is_empty(), "nothing to say when it went first");
+}
+
+#[test]
+fn unified_cpu_bench_renders_all_eight_suites_and_skip_notes_in_text_md_and_json() {
+    let full = cpu_bench::Output {
+        suites: vec!["all".to_owned()],
+        sysbench: Some(SuiteOutcome::Done {
+            output: sysbench::Output {
+                version: Some("1.0.20".to_owned()),
+                single: run(1, "3200.00", Vec::new()),
+                multi: Some(run(4, "12400.00", Vec::new())),
+            },
+        }),
+        seven_zip: Some(SuiteOutcome::Done {
+            output: seven_zip::Output {
+                version: Some("26.06".to_owned()),
+                single: seven_zip::Run {
+                    threads: 1,
+                    compress_kib_s: 14_000,
+                    compress_mips: 9_100,
+                    decompress_kib_s: 70_000,
+                    decompress_mips: 8_500,
+                    usage_pct: 100,
+                    ru_mips: 8_800,
+                    total_mips: 8_800,
+                    retries: Vec::new(),
+                },
+                multi: Some(seven_zip::Run {
+                    threads: 4,
+                    compress_kib_s: 52_000,
+                    compress_mips: 34_200,
+                    decompress_kib_s: 270_000,
+                    decompress_mips: 33_000,
+                    usage_pct: 396,
+                    ru_mips: 8_480,
+                    total_mips: 33_600,
+                    retries: Vec::new(),
+                }),
+            },
+        }),
+        unixbench: Some(SuiteOutcome::Done {
+            output: unixbench::Output {
+                version: "6.0.1".to_owned(),
+                single: unixbench::IndexRun {
+                    copies: 1,
+                    index: 1842.5,
+                    items: vec![unixbench::IndexItem {
+                        id: "dhry2reg",
+                        rate: 62_000_000.0,
+                        unit: "lps",
+                        baseline: 116_700.0,
+                        index: 5312.8,
+                    }],
+                },
+                multi: Some(unixbench::IndexRun {
+                    copies: 4,
+                    index: 6210.4,
+                    items: vec![unixbench::IndexItem {
+                        id: "dhry2reg",
+                        rate: 240_000_000.0,
+                        unit: "lps",
+                        baseline: 116_700.0,
+                        index: 20565.6,
+                    }],
+                }),
+            },
+        }),
+        hpl: Some(SuiteOutcome::Done {
+            output: hpl::Output {
+                version: Some("2.3".to_owned()),
+                threads: 4,
+                n: 5760,
+                nb: 192,
+                seconds: 2.15,
+                gflops: 59.42,
+                residual: Some(3.12e-3),
+            },
+        }),
+        passmark: Some(SuiteOutcome::Done {
+            output: passmark::Output {
+                version: Some("11.0.1004".to_owned()),
+                cpu_mark: 10_413.8,
+                single_thread: 4_324.9,
+                integer_math: 51_407.4,
+                floating_math: 92_573.5,
+                prime: 109.3,
+                sorting: 41_247.0,
+                encryption: 2_175.2,
+                compression: 68_736.2,
+                physics: 2_029.5,
+                extended_instructions: 8_922.3,
+            },
+        }),
+        ycruncher: Some(SuiteOutcome::Done {
+            output: ycruncher::Output {
+                version: Some("0.8.7.9547".to_owned()),
+                digits: 25_000_000,
+                computation_secs: 3.153,
+                wall_secs: 3.342,
+                cpu_utilization_pct: Some(380.4),
+                multicore_efficiency_pct: Some(95.1),
+                tuning: Some("13-HSW ~ Airi".to_owned()),
+            },
+        }),
+        prime95: Some(SuiteOutcome::Done {
+            output: prime95::Output {
+                version: Some("30.19b20".to_owned()),
+                workers: 4,
+                duration_secs: 65,
+                fft_desc: Some("FMA3 FFT length 18K".to_owned()),
+                tests_completed: 8,
+                errors: 0,
+                warnings: 0,
+                passed: true,
+            },
+        }),
+        geekbench: Some(SuiteOutcome::Skipped {
+            reason: SuiteSkip::Ipv4Unavailable,
+        }),
+    };
+
+    let runs = [bench_run(Status::Completed, 420_000, Some(full), None)];
+    let host = HostProfile::default();
+    let page = Page {
+        version: "0.1.0",
+        host: &host,
+        show_ip: false,
+        not_applicable: &[],
+        runs: &runs,
+        total: Duration::from_secs(420),
+    };
+
+    let text = report::render(&page, Format::Text, None);
+    assert!(text.contains("  7-Zip\n    7-Zip 26.06: LZMA2"), "{text}");
+    assert!(
+        text.contains("  UnixBench\n    Byte-UnixBench 6.0.1"),
+        "{text}"
+    );
+    assert!(
+        text.contains("  HPL (Linpack)\n    HPL 2.3 (OpenBLAS)"),
+        "{text}"
+    );
+    assert!(
+        text.contains("  PassMark\n    PassMark PerformanceTest 11.0.1004"),
+        "{text}"
+    );
+    assert!(
+        text.contains("  y-cruncher\n    y-cruncher 0.8.7.9547: Pi to 25M"),
+        "{text}"
+    );
+    assert!(
+        text.contains("  Prime95\n    Prime95 30.19b20: Small-FFT torture"),
+        "{text}"
+    );
+    assert!(
+        text.contains("Geekbench 7: skipped (needs an IPv4 connection)"),
+        "{text}"
+    );
+
+    let md = report::render(&page, Format::Markdown, None);
+    assert!(md.contains("### 7-Zip\n"), "{md}");
+    assert!(md.contains("### UnixBench\n"), "{md}");
+    assert!(md.contains("### PassMark\n"), "{md}");
+
+    let json: serde_json::Value =
+        serde_json::from_str(&report::render(&page, Format::Json, None)).unwrap();
+    assert_eq!(json["runs"][0]["id"], "cpu.bench");
+    assert_eq!(json["runs"][0]["output"]["seven_zip"]["status"], "done");
+    assert_eq!(json["runs"][0]["output"]["hpl"]["status"], "done");
+    assert_eq!(json["runs"][0]["output"]["geekbench"]["status"], "skipped");
 }

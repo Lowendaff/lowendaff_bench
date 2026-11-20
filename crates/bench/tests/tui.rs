@@ -29,6 +29,7 @@ use crossterm::event::KeyEvent;
 use crossterm::event::KeyEventKind;
 use crossterm::event::KeyEventState;
 use crossterm::event::KeyModifiers;
+use plugin_cpu::bench as cpu_bench;
 use plugin_cpu::geekbench;
 use plugin_cpu::geekbench::result::Scores;
 use ratatui::Terminal;
@@ -95,21 +96,26 @@ fn sample_outcome(exit_code: u8) -> Outcome {
         ..HostProfile::default()
     };
     let run = Run {
-        id: "cpu.geekbench",
+        id: "cpu.bench",
         group: "cpu",
-        title: Some("Geekbench 7"),
+        title: Some("CPU benchmark"),
         started: Some(Duration::from_secs(0)),
         elapsed: Some(Duration::from_millis(1500)),
         status: Status::Completed,
-        result: Some(Measured::CpuGeekbench(Report {
-            output: Some(geekbench::Output {
-                scores: Some(Scores {
-                    version: Some("7.1.0".to_owned()),
-                    single: 2100,
-                    multi: 9400,
-                    url: None,
+        result: Some(Measured::cpu_bench(Report {
+            output: Some(cpu_bench::Output {
+                geekbench: Some(cpu_bench::SuiteOutcome::Done {
+                    output: geekbench::Output {
+                        scores: Some(Scores {
+                            version: Some("7.1.0".to_owned()),
+                            single: 2100,
+                            multi: 9400,
+                            url: None,
+                        }),
+                        ..geekbench::Output::default()
+                    },
                 }),
-                ..geekbench::Output::default()
+                ..cpu_bench::Output::default()
             }),
             stop: None,
         })),
@@ -138,7 +144,7 @@ fn release_events_and_stray_pastes_are_ignored_while_editor_supports_cursor_and_
 
     // Bracketed paste outside an open editor must not trigger single-key shortcuts like 'a' or 'q'.
     session.handle_paste("aqdr");
-    assert_eq!(session.config.enabled_count(), 13);
+    assert_eq!(session.config.enabled_count(), 12);
 
     // Open Global -> work_dir editor and exercise cursor movement, Delete, Backspace, and Paste.
     let _ = session.handle_key(press(KeyCode::End));
@@ -171,8 +177,8 @@ fn defaults_match_standard_cli_and_every_customized_plugin_builds_cleanly() {
     let all = registry::all();
     let mut cfg = TuiConfig::from_registry(&all);
 
-    assert_eq!(cfg.items.len(), 13);
-    assert_eq!(cfg.enabled_count(), 13);
+    assert_eq!(cfg.items.len(), 12);
+    assert_eq!(cfg.enabled_count(), 12);
     assert_eq!(cfg.customized_count(), 0);
     assert!(
         cfg.plugin_settings().is_empty(),
@@ -238,8 +244,22 @@ fn defaults_match_standard_cli_and_every_customized_plugin_builds_cleanly() {
         .unwrap();
     assert_eq!(cfg.activate_item_field(bgp_idx, 1), None); // upload -> false
 
-    assert_eq!(cfg.customized_count(), 5);
+    let cpu_idx = cfg
+        .items
+        .iter()
+        .position(|item| item.id == "cpu.bench")
+        .unwrap();
+    assert_eq!(cfg.activate_item_field(cpu_idx, 6), None); // ycruncher -> true
+    assert_eq!(cfg.activate_item_field(cpu_idx, 8), None); // geekbench -> false
+
+    assert_eq!(cfg.customized_count(), 6);
     let settings = cfg.plugin_settings();
+    assert_eq!(
+        settings["cpu.bench"],
+        serde_json::json!({
+            "suites": ["sysbench", "7zip", "unixbench", "hpl", "passmark", "ycruncher"],
+        })
+    );
     assert_eq!(
         settings["network.bgp"],
         serde_json::json!({
@@ -282,7 +302,13 @@ fn defaults_match_standard_cli_and_every_customized_plugin_builds_cleanly() {
     let planned = cfg
         .build_plan(&all)
         .expect("customized settings must build");
-    assert_eq!(planned.len(), 13);
+    assert_eq!(planned.len(), 12);
+
+    // Unchecking every sub-suite in cpu.bench while cpu.bench is enabled is rejected.
+    if let ItemParams::CpuBench { suites } = &mut cfg.items[cpu_idx].params {
+        *suites = [false; 8];
+    }
+    assert!(cfg.build_plan(&all).is_err());
 
     cfg.toggle_all();
     assert_eq!(cfg.enabled_count(), 0);
@@ -350,7 +376,7 @@ fn keyboard_navigation_drives_item_switches_groups_params_and_global_options() {
 
     let _ = session.handle_key(press(KeyCode::Home));
     let _ = session.handle_key(press(KeyCode::Char('d')));
-    assert_eq!(session.config.enabled_count(), 13);
+    assert_eq!(session.config.enabled_count(), 12);
     assert_eq!(
         session.config.global.download_connections,
         app::DOWNLOAD_CONNECTIONS
@@ -385,7 +411,7 @@ fn keyboard_navigation_drives_item_switches_groups_params_and_global_options() {
 
     let planned = session.config.build_plan(&all).unwrap();
     let ids: Vec<&str> = planned.iter().map(Planned::id).collect();
-    assert_eq!(ids.len(), 13);
+    assert_eq!(ids.len(), 12);
 }
 
 #[test]
@@ -399,25 +425,25 @@ fn ratatui_test_backend_renders_configure_running_and_results_across_sizes() {
     }
 
     session.begin_run(&[
-        ("cpu.sysbench", "CPU performance"),
-        ("cpu.geekbench", "Geekbench 7"),
+        ("memory.sysbench", "Memory sysbench"),
+        ("cpu.bench", "CPU benchmark"),
     ]);
     assert_eq!(session.screen, Screen::Running);
     session.set_elapsed(Duration::from_secs(42));
     session.set_host_summary("KVM, x86_64  |  IPv4: 198.51.*.*".to_owned());
-    session.on_item_start("cpu.sysbench");
-    session.on_item_step("cpu.sysbench", "single-thread test".to_owned());
+    session.on_item_start("memory.sysbench");
+    session.on_item_step("memory.sysbench", "single-thread read".to_owned());
     for idx in 0..30 {
-        session.push_log(format!("[00:00:{idx:02}] cpu.sysbench step {idx}"));
+        session.push_log(format!("[00:00:{idx:02}] memory.sysbench step {idx}"));
     }
-    session.on_item_finish("cpu.sysbench", "done in 20.1 s".to_owned(), false, false);
-    session.on_item_start("cpu.geekbench");
+    session.on_item_finish("memory.sysbench", "done in 20.1 s".to_owned(), false, false);
+    session.on_item_start("cpu.bench");
 
     let running_frame = render_text(&mut session, 100, 28);
     assert!(running_frame.contains("[00:00:42]"), "{running_frame}");
     assert!(running_frame.contains("1 / 2 completed"), "{running_frame}");
-    assert!(running_frame.contains("CPU performance"), "{running_frame}");
-    assert!(running_frame.contains("Geekbench 7"), "{running_frame}");
+    assert!(running_frame.contains("Memory sysbench"), "{running_frame}");
+    assert!(running_frame.contains("CPU benchmark"), "{running_frame}");
 
     let _ = session.handle_key(press(KeyCode::PageUp));
     assert!(!session.running.as_ref().unwrap().follow_log);
@@ -479,7 +505,7 @@ fn ratatui_test_backend_renders_configure_running_and_results_across_sizes() {
     match session.handle_key(press(KeyCode::Char('p'))) {
         Command::PrintAndQuit { report, exit_code } => {
             assert_eq!(exit_code, 0);
-            assert!(report.contains("\"cpu.geekbench\""));
+            assert!(report.contains("\"cpu.bench\""));
         }
         other => panic!("expected PrintAndQuit, got {other:?}"),
     }

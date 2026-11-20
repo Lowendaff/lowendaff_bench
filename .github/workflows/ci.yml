@@ -272,13 +272,14 @@ jobs:
       - name: Local BGP server
         if: steps.scope.outputs.run != 'false'
         run: scripts/smoke-bgp.sh "$RUNNER_TEMP/bgp" "$RUNNER_TEMP/iperf3/overrides.json"
-      # Geekbench would publish a result from every run and take minutes.
+      # Geekbench, PassMark, UnixBench, y-cruncher and Prime95 take minutes or publish online;
+      # smoke exercises unified cpu.bench with sysbench, 7-Zip and HPL.
       - name: Smoke
         if: steps.scope.outputs.run != 'false'
         run: |
           overrides=$(cat "$RUNNER_TEMP/iperf3/overrides.json")
-          scripts/smoke.sh "target/$TARGET/release/lowendaff-bench" --skip cpu.geekbench \
-            --internal-overrides "$overrides"
+          scripts/smoke.sh "target/$TARGET/release/lowendaff-bench" \
+            --cpu-bench sysbench,7zip,hpl --internal-overrides "$overrides"
       - name: Smoke mutants
         if: steps.scope.outputs.run != 'false'
         run: scripts/smoke-mutants.sh "$TARGET"

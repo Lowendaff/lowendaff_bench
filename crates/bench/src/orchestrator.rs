@@ -23,6 +23,7 @@ use bench_api::Requirements;
 use bench_api::Step;
 use bench_api::Stop;
 use bench_api::ToolRun;
+use bench_api::ToolSpec;
 use bench_host::glibc::GlibcVersion;
 use bench_host::glibc::Libc;
 use bench_host::profile::HostProfile;
@@ -96,7 +97,7 @@ pub enum Fault {
 pub struct Run<R> {
     /// The plugin's id.
     pub id: &'static str,
-    /// The id's first segment, such as `cpu` for `cpu.sysbench`.
+    /// The id's first segment, such as `cpu` for `cpu.bench`.
     pub group: &'static str,
     /// The reporter's name for the plugin; `None` when it has none.
     pub title: Option<&'static str>,
@@ -157,10 +158,28 @@ impl<R> Planned<R> {
         self.title
     }
 
-    /// What the plugin needs.
+    /// Static descriptor requirements of the plugin.
     #[must_use]
     pub fn requires(&self) -> &Requirements {
         &self.requires
+    }
+
+    /// Dynamic host preconditions of this configured plugin instance on `host`.
+    #[must_use]
+    pub fn host_requirements(&self, host: &HostProfile) -> Requirements {
+        self.runner.host_requirements(host)
+    }
+
+    /// Pinned tools needed by this configured plugin instance on `host`.
+    #[must_use]
+    pub fn tools_for(&self, host: &HostProfile) -> Vec<ToolSpec> {
+        self.runner.tools_for(host)
+    }
+
+    /// Whether the plugin runs when at least one tool in [`Self::tools_for`] is ready.
+    #[must_use]
+    pub fn partial_tools(&self) -> bool {
+        self.runner.partial_tools()
     }
 
     /// The files that the plugin asked for, as its configuration says.
@@ -249,7 +268,7 @@ pub fn for_host<R>(
 ) -> (Vec<Planned<R>>, Vec<&'static str>) {
     let (applicable, elsewhere): (Vec<Planned<R>>, Vec<Planned<R>>) = plan
         .into_iter()
-        .partition(|planned| planned.requires.applies_to(host));
+        .partition(|planned| planned.host_requirements(host).applies_to(host));
     let names = elsewhere
         .iter()
         .map(|planned| planned.title.unwrap_or(planned.id))
@@ -314,6 +333,37 @@ pub fn preflight(
     }
 }
 
+fn preflight_planned<R>(
+    planned: &Planned<R>,
+    host: &HostProfile,
+    tools: &BTreeMap<String, PathBuf>,
+    failed_tools: &BTreeMap<String, String>,
+) -> Result<(), Unmet> {
+    let requires = planned.host_requirements(host);
+    check_host(&requires, host)?;
+    let needed = planned.tools_for(host);
+    if needed.is_empty() {
+        return Ok(());
+    }
+    if planned.partial_tools() {
+        if needed.iter().any(|tool| tools.contains_key(tool.name)) {
+            return Ok(());
+        }
+        let first = &needed[0];
+        return Err(Unmet::Tool {
+            name: first.name,
+            why: failed_tools.get(first.name).cloned().unwrap_or_default(),
+        });
+    }
+    match needed.iter().find(|tool| !tools.contains_key(tool.name)) {
+        Some(tool) => Err(Unmet::Tool {
+            name: tool.name,
+            why: failed_tools.get(tool.name).cloned().unwrap_or_default(),
+        }),
+        None => Ok(()),
+    }
+}
+
 /// Whether the plugin has every file in `files` that is not optional, among those that `fetched`
 /// holds for it; `None` when none was fetched for it.
 pub fn files_ready(files: &[FileSpec], fetched: Option<&Provisioned>) -> Result<(), Unmet> {
@@ -337,6 +387,7 @@ pub async fn run_plan<R: Send + 'static>(
     settings: &Settings,
     observer: &mut dyn Observer<R>,
 ) -> Vec<Run<R>> {
+    let failed_arc = Arc::new(settings.failed_tools.clone());
     let mut runs = Vec::with_capacity(plan.len());
     for planned in plan {
         let mut run = Run {
@@ -350,8 +401,8 @@ pub async fn run_plan<R: Send + 'static>(
         };
         if !cancel.is_cancelled() {
             let fetched = settings.files.get(planned.id);
-            let ready = preflight(
-                &planned.requires,
+            let ready = preflight_planned(
+                &planned,
                 &settings.host,
                 &settings.tools,
                 &settings.failed_tools,
@@ -364,7 +415,7 @@ pub async fn run_plan<R: Send + 'static>(
                     let begun = Instant::now();
                     let files = fetched.map(plugin_files).unwrap_or_default();
                     let (status, result) =
-                        run_one(&planned, files, cancel, settings, observer).await;
+                        run_one(&planned, files, &failed_arc, cancel, settings, observer).await;
                     run.started = Some(begun.duration_since(settings.origin));
                     run.elapsed = Some(begun.elapsed());
                     run.status = status;
@@ -394,6 +445,7 @@ fn plugin_files(fetched: &Provisioned) -> Files {
 async fn run_one<R: Send + 'static>(
     planned: &Planned<R>,
     files: Files,
+    failed_tools: &Arc<BTreeMap<String, String>>,
     global: &CancellationToken,
     settings: &Settings,
     observer: &mut dyn Observer<R>,
@@ -409,6 +461,7 @@ async fn run_one<R: Send + 'static>(
         id: planned.id,
         host: Arc::clone(&settings.host),
         tools: Arc::clone(&settings.tools),
+        failed_tools: Arc::clone(failed_tools),
         files: Arc::new(files),
         http: settings.http.clone(),
         net: settings.net.clone(),
@@ -429,6 +482,7 @@ struct Launch<'a, R> {
     id: &'static str,
     host: Arc<HostProfile>,
     tools: Arc<BTreeMap<String, PathBuf>>,
+    failed_tools: Arc<BTreeMap<String, String>>,
     files: Arc<Files>,
     http: Option<Arc<dyn HttpClient>>,
     net: Option<Arc<dyn NetClient>>,
@@ -445,6 +499,9 @@ type Running<'a, R> = Pin<Box<dyn Future<Output = (Status, Option<R>)> + Send + 
 
 /// Runs one plugin to its end: completion, a stop, its deadline or the interrupt.
 trait Runner<R>: Send + Sync {
+    fn host_requirements(&self, host: &HostProfile) -> Requirements;
+    fn tools_for(&self, host: &HostProfile) -> Vec<ToolSpec>;
+    fn partial_tools(&self) -> bool;
     fn run<'a>(&'a self, launch: Launch<'a, R>) -> Running<'a, R>;
 }
 
@@ -461,6 +518,18 @@ struct PluginRunner<P: Plugin, R> {
 }
 
 impl<P: Plugin, R: Send + 'static> Runner<R> for PluginRunner<P, R> {
+    fn host_requirements(&self, host: &HostProfile) -> Requirements {
+        self.plugin.host_requirements(host)
+    }
+
+    fn tools_for(&self, host: &HostProfile) -> Vec<ToolSpec> {
+        self.plugin.tools_for(host)
+    }
+
+    fn partial_tools(&self) -> bool {
+        self.plugin.partial_tools()
+    }
+
     fn run<'a>(&'a self, launch: Launch<'a, R>) -> Running<'a, R> {
         Box::pin(async move {
             let (mut ctx, mut channels) = Context::<P::Output>::new(
@@ -471,6 +540,7 @@ impl<P: Plugin, R: Send + 'static> Runner<R> for PluginRunner<P, R> {
                 launch.work_dir,
                 launch.token.clone(),
             );
+            ctx = ctx.with_failed_tools(launch.failed_tools);
             if let Some(http) = launch.http {
                 ctx = ctx.with_http(http);
             }

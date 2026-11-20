@@ -122,6 +122,21 @@ impl TuiWords for English {
         "Enabled"
     }
 
+    fn tui_field_cpu_suite(&self, suite: &str) -> String {
+        let name = match suite {
+            "sysbench" => "sysbench (prime sieve)",
+            "7zip" => "7-Zip (LZMA2 MIPS)",
+            "unixbench" => "UnixBench (12-item index)",
+            "hpl" => "HPL (OpenBLAS GFLOPS)",
+            "passmark" => "PassMark (CPU Mark)",
+            "ycruncher" => "y-cruncher (Pi, x86_64)",
+            "prime95" => "Prime95 (Small FFT, x86_64)",
+            "geekbench" => "Geekbench 7",
+            other => other,
+        };
+        format!("Suite: {name}")
+    }
+
     fn tui_field_countries(&self) -> &'static str {
         "Countries (ISO / all)"
     }
@@ -210,6 +225,10 @@ impl TuiWords for English {
         "unlimited"
     }
 
+    fn tui_default_cpu_note(&self) -> &'static str {
+        "y-cruncher & Prime95 are opt-in (x86_64 only, auto-skipped on ARM64)."
+    }
+
     fn tui_default_trace_note(&self) -> &'static str {
         "Unchecked groups = caches + default carrier routes."
     }
@@ -244,6 +263,10 @@ impl TuiWords for English {
 
     fn tui_no_items_selected(&self) -> String {
         "Select at least one test item before starting".to_owned()
+    }
+
+    fn tui_no_cpu_suites_selected(&self) -> String {
+        "Select at least one CPU sub-suite in cpu.bench (or disable cpu.bench)".to_owned()
     }
 
     fn tui_invalid_number(&self, field: &str, min: u32, max: u32) -> String {

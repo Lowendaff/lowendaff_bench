@@ -48,6 +48,7 @@ const fn tool(name: &'static str, version: &'static str) -> ToolSpec {
     ToolSpec {
         name,
         version,
+        all_arches: false,
         form: ToolForm::Executable,
         raw_sockets: false,
         assets: &[ToolAsset {
@@ -109,7 +110,7 @@ fn plugins_are_logged_by_id_in_the_reports_words() {
         log.on_progress("memory.stream", Step::Test { threads: 1 });
         log.on_finish(&finished("memory.stream", Status::Completed, Some(21.3)));
         log.on_finish(&finished(
-            "cpu.geekbench",
+            "cpu.bench",
             Status::Skipped(Some(Unmet::Network(Net::Ipv4))),
             None,
         ));
@@ -120,7 +121,7 @@ fn plugins_are_logged_by_id_in_the_reports_words() {
             "memory.stream started",
             "memory.stream single-thread test",
             "memory.stream done in 21.3 s",
-            "cpu.geekbench skipped: needs an IPv4 connection",
+            "cpu.bench skipped: needs an IPv4 connection",
         ]
     );
 }
@@ -179,6 +180,22 @@ fn each_step_has_its_words() {
                 ipv6: true,
             },
             "probing Global over IPv6",
+        ),
+        (
+            Step::CpuSuite {
+                suite: "7zip",
+                stage: None,
+                threads: Some(4),
+            },
+            "7-Zip: multi-thread test (4 threads)",
+        ),
+        (
+            Step::CpuSuite {
+                suite: "unixbench",
+                stage: Some("dhry2reg"),
+                threads: Some(1),
+            },
+            "UnixBench: dhry2reg (1 copy)",
         ),
     ];
     let lines = logged(false, || {

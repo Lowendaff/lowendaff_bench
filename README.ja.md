@@ -6,9 +6,9 @@
 
 ### 主な特徴
 
-- **単一ファイルですぐ動く・事前インストールや設定ファイルは不要**：実行ファイルを 1 つダウンロードするだけで動作します（`x86_64` / `aarch64` 対応）。すべての機能はわかりやすいコマンド引数だけで指定できます。
-- **どの OS でも同じ基準で公平に比較可能**：測定に使う外部ツール（`sysbench`、`fio`、`iperf3`、`NextTrace`、`Geekbench 7` など）は、実行時に固定バージョンを自動取得・検証して動かします。サーバー側に入っている古いパッケージを使わないため、OS が違ってもスコアをそのまま比較できます。
-- **環境に合わせて自動調整・小メモリ VPS でも安心**：仮想環境での物理ディスク SMART 診断やシングル CPU での NUMA 測定など、非対応の項目は自動でスキップします。メモリテストは空きメモリの半分以下に抑え、Geekbench 7 実行時にメモリが足りない場合は一時的な Swap を自動作成してクラッシュを防ぎます。
+- **単一ファイルですぐ動く・事前インストールや設定ファイルは不要**：実行ファイルを 1 つダウンロードするだけで動作します（`x86_64` / `aarch64` 対応）。すべての機能はわかりやすいコマンド引数または `--tui` 対話画面で指定できます。
+- **どの OS でも同じ基準で公平に比較可能**：測定に使う外部ツール（`sysbench`、`7-Zip`、`UnixBench`、`HPL`、`PassMark`、`fio`、`iperf3`、`NextTrace`、`Geekbench 7` など）は、実行時に固定バージョンを自動取得し、サイズと SHA-256 を検証して動かします。サーバー側の古いパッケージを使わないため、OS が違ってもスコアをそのまま比較できます。
+- **環境に合わせて自動調整・小メモリ VPS でも安心**：仮想環境での物理ディスク SMART 診断、シングル CPU での NUMA 測定、ARM64 環境での `x86_64` 専用 CPU 負荷テストなど、非対応の項目やサブスイートは自動でスキップします。メモリや HPL の規模は空きメモリに応じて自動調整され、Geekbench 7 実行時にメモリが足りない場合は一時的な Swap を自動作成してクラッシュを防ぎます。
 - **個人情報を自動でマスク・そのまま共有できるレポート**：端末での表形式表示に加え、**Markdown** や **JSON** ファイルへの保存に対応しています。既定では自身のグローバル IP アドレスやホスト名、シリアル番号を自動で伏せ字にするため、手作業で隠さずにブログや掲示板へ貼り付けられます。
 
 各テストの詳しい計算方法や判定基準については [`docs/`（中国語解説）](docs/README.md) をご覧ください。
@@ -35,24 +35,24 @@ sudo ./lowendaff-bench-x86_64
 以下はバイナリ名を `lowendaff-bench` にした場合の実用例です。
 
 ```sh
-# 1. 利用できる全 13 項目のテスト一覧を確認する（root 権限不要）
+# 1. 利用できる全 12 項目のテスト一覧を確認する（root 権限不要）
 ./lowendaff-bench --list
 
 # 2. すべての項目をまとめて測定する（CPU・メモリ・ディスク・回線速度・経路・BGP・IP 品質・配信判定）
 sudo ./lowendaff-bench
 
-# 2b. 対話型 TUI モードを起動する（項目のオン/オフ・各パラメータ設定・進捗確認・レポート閲覧）
+# 2b. 対話型 TUI モードを起動する（項目や CPU サブスイートの選択・パラメータ設定・進捗確認・レポート閲覧）
 sudo ./lowendaff-bench --tui
 
-# 3. 手早くチェックする：時間がかかりスコアが公開される Geekbench 7 と経路追跡をスキップ
-sudo ./lowendaff-bench --skip cpu.geekbench,network.trace
+# 3. 手早くチェックする：軽量な CPU サブスイートのみ実行し（UnixBench と Geekbench 7 を省略）、経路追跡もスキップ
+sudo ./lowendaff-bench --cpu-bench sysbench,7zip,hpl,passmark --skip network.trace
 
 # 4. 契約直後の VPS で IP の評判・動画配信判定、または BGP 上流トポロジー図だけを確認する
 sudo ./lowendaff-bench --only ip
 sudo ./lowendaff-bench --only network.bgp
 
-# 5. 気になる項目だけを選んで実行する（カテゴリ名と個別 ID は自由に組み合わせ可能）
-sudo ./lowendaff-bench --only cpu.sysbench,memory.stream,disk.fio
+# 5. 気になる項目だけを選んで実行し、x86_64 向けの y-cruncher / Prime95 負荷テストも有効化する
+sudo ./lowendaff-bench --only cpu.bench,memory.stream,disk.fio --cpu-bench sysbench,7zip,ycruncher,prime95
 
 # 6. カテゴリ全体から特定の項目だけを除外する（例：IP 品質だけ調べて配信チェックは省く）
 sudo ./lowendaff-bench --only ip --skip ip.media
@@ -91,6 +91,7 @@ sudo ALL_PROXY=socks5h://127.0.0.1:1080 ./lowendaff-bench --download-connections
 | `-o, --output` | `<ファイル>` | 画面に表示 | 最終レポートを画面ではなく指定ファイルに保存します |
 | `-f, --format` | `<形式>` | `text` | 出力形式を選びます：`text`（テキスト表）、`markdown`（別名 `md`）、`json` |
 | `--work-dir` | `<ディレクトリ>` | カレント `.` | 一時ファイルの作成先（終了時に自動削除）。測定したいディスクのパスを指定します（`/tmp` は不可） |
+| `--cpu-bench` | `<スイート,...>` | 既定の 6 種 | `cpu.bench` で実行する CPU サブスイートを選びます（`sysbench`、`7zip`、`unixbench`、`hpl`、`passmark`、`ycruncher`、`prime95`、`geekbench`、または `all`） |
 | `--countries` | `<国コード,...>` | 既定の 5 拠点 | `network.iperf3` の測定先を 2 文字の国コード（`JP,US,SG` など）または `all` で絞り込みます |
 | `--trace-groups` | `<グループ,...>` | キャッシュ + 既定拠点 | `network.trace` で追跡する宛先グループを選びます |
 | `--media-groups` | `<地域,...>` | `all`（全地域） | `ip.media` でチェックする動画配信サービスの地域を選びます |
@@ -108,15 +109,24 @@ sudo ALL_PROXY=socks5h://127.0.0.1:1080 ./lowendaff-bench --download-connections
 
 | オプション | 指定できる値 | 内容 |
 |---|---|---|
-| `--only` / `--skip` *（カテゴリ）* | `cpu` | CPU テスト 2 項目：`cpu.sysbench`、`cpu.geekbench` |
+| `--only` / `--skip` *（カテゴリ）* | `cpu` | 統合 CPU ベンチマークスイート：`cpu.bench` |
 | | `memory` | メモリテスト 4 項目：`memory.sysbench`、`memory.stream`、`memory.latency`、`memory.numa` |
 | | `disk` | ディスクテスト 2 項目：`disk.health`、`disk.fio` |
 | | `network` | ネットワークテスト 3 項目：`network.iperf3`、`network.trace`、`network.bgp` |
 | | `ip` | IP テスト 2 項目：`ip.quality`、`ip.media` |
-| `--only` / `--skip` *（個別 ID）* | `disk.health`, `cpu.sysbench`, `memory.sysbench`, `memory.stream`, `memory.latency`, `memory.numa`, `disk.fio`, `network.iperf3`, `network.trace`, `network.bgp`, `ip.quality`, `ip.media`, `cpu.geekbench` | 個別のテスト項目をピンポイントで選択・除外します |
+| `--only` / `--skip` *（個別 ID）* | `disk.health`, `memory.sysbench`, `memory.stream`, `memory.latency`, `memory.numa`, `disk.fio`, `network.iperf3`, `network.trace`, `network.bgp`, `ip.quality`, `ip.media`, `cpu.bench` | 個別のテスト項目をピンポイントで選択・除外します |
 | `-f, --format` | `text` | ターミナルで読みやすい整形済みテキスト表 |
 | | `markdown` *（または `md`）* | ブログ・GitHub・掲示板にそのまま貼り付けられる Markdown 形式 |
 | | `json` | スクリプトでの自動集計や保存に便利な JSON 形式 |
+| `--cpu-bench` | `sysbench` | 1 スレッドおよび全スレッドでの 20 秒間素数計算 *（既定）* |
+| | `7zip` | 7-Zip LZMA2 圧縮・展開 MIPS（1 スレッド / 全スレッド）*（既定）* |
+| | `unixbench` | Byte-UnixBench 6.0.1 全 12 種システム総合指数（1 並列 / 全コア並列）*（既定）* |
+| | `hpl` | High-Performance Linpack（OpenBLAS 倍精度密行列 LU 分解）GFLOPS *（既定）* |
+| | `passmark` | PassMark PerformanceTest Linux CPU Mark 総スコアと 8 種の詳細スコア *（既定・`glibc >= 2.28`）* |
+| | `ycruncher` | y-cruncher マルチスレッド円周率 Pi 計算 *（任意有効化・`x86_64` 専用）* |
+| | `prime95` | Prime95 (`mprime`) 65 秒間 Small-FFT 安定性ストレステスト *（任意有効化・`x86_64` 専用）* |
+| | `geekbench` | 公式 Geekbench 7.1.0 シングル / マルチコアスコアと結果 URL *（既定・`glibc >= 2.35` + IPv4）* |
+| | `all` | 上記 8 種の CPU サブスイートすべて（非対応環境の項目は自動スキップ） |
 | `--trace-groups` | `services` | 最寄りの YouTube / Netflix キャッシュサーバーへの経路のみ |
 | | `china` | 中国本土の大手通信キャリア回線（163 / CN2 / 169 / 9929 / CMNET / CMIN2） |
 | | `international` | 国際 Tier-1 バックボーン、Telegram DC、AWS、Google Cloud 拠点 |
@@ -136,12 +146,11 @@ sudo ALL_PROXY=socks5h://127.0.0.1:1080 ./lowendaff-bench --download-connections
 
 テスト開始前に、まずサーバーの基本構成である **システム概要（`[System]`）** を自動で読み取ります。物理サーバー・VM・コンテナの判別、CPU 型番とキャッシュ容量、メモリと Swap、OS・カーネル・稼働時間・TCP 輻輳制御（BBR など）、ディスク構成、NIC リンク速度（PCIe 帯域低下の警告付き）、IPv4/IPv6 の疎通状況を確認でき、物理サーバーではメモリスロット情報、ECC エラー数、IPMI/BMC、ハードウェア RAID カードも一覧表示します（詳細：[`docs/system.md`](docs/system.md)）。
 
-続いて、以下の最大 13 項目を順番に測定します。
+続いて、以下の最大 12 項目を順番に測定します。
 
 | カテゴリ | 項目 ID・名前 | 対象環境 | このテストでわかること | 詳細解説 |
 |---|---|---|---|---|
 | `disk` | `disk.health`<br>ディスク健康診断 | 物理サーバーのみ | ハードウェア RAID 配下も含め SMART 情報を読み取り、使用時間・温度・SSD 摩耗度・総書込量・不良セクタの有無から中古ディスクの劣化や故障予兆を確認します | [`docs/disk.md`](docs/disk.md) |
-| `cpu` | `cpu.sysbench`<br>CPU 基本性能 | 全サーバー | シングルコアおよび全コアで 20 秒間の素数計算を行い、単体コアの速さとマルチコアの伸びを確認します | [`docs/cpu.md`](docs/cpu.md) |
 | `memory` | `memory.sysbench`<br>メモリ連続読み書き | 全サーバー | 1 スレッドおよび全スレッドでの連続的なメモリ読み書き速度を測定します | [`docs/memory.md`](docs/memory.md) |
 | `memory` | `memory.stream`<br>メモリ実効帯域幅 | 全サーバー | 定番の STREAM ベンチマークを用い、大量データ処理時の実質的なメモリ帯域幅を測定します | [`docs/memory.md`](docs/memory.md) |
 | `memory` | `memory.latency`<br>キャッシュ・メモリ遅延 | 全サーバー | CPU の L1 / L2 / L3 キャッシュとメインメモリのアクセス遅延（ナノ秒）を階層ごとに測定します | [`docs/memory.md`](docs/memory.md) |
@@ -152,7 +161,7 @@ sudo ALL_PROXY=socks5h://127.0.0.1:1080 ./lowendaff-bench --download-connections
 | `network` | `network.bgp`<br>BGP 経路トポロジー | グローバル IP 保有機 | 世界の BGP 収集拠点から広告プレフィックス・RPKI 状態・直接の上流キャリアを取得し、`text` 形式では限定公開の `imageupload.app` SVG トポロジー URL、Markdown では Mermaid 図、JSON ではスタンドアロン SVG コードを出力します | [`docs/network.md`](docs/network.md) |
 | `ip` | `ip.quality`<br>IP 品質・リスク診断 | グローバル IP 保有機 | 9 つの評価データベースを照合し、**ネイティブ IP / ブロードキャスト IP** の判別、データセンター / 家庭用回線の区分、不正リスク、公開ポート、25 種のブラックリスト、25 番メールポートの疎通を診断します | [`docs/ip.md`](docs/ip.md) |
 | `ip` | `ip.media`<br>動画配信サービス判定 | 通信可能な環境 | 世界 5 地域・計 68 の動画配信・オンラインサービス（Netflix、Disney+、YouTube、Abema、U-NEXT、TVer など）にどこまで対応しているかと判定地域を表示します | [`docs/ip.md`](docs/ip.md) |
-| `cpu` | `cpu.geekbench`<br>Geekbench 7 スコア | `glibc >= 2.35` + IPv4 | 公式の Geekbench 7.1.0 を実行し、他機種と比較しやすいシングル / マルチコアスコアと結果ページの URL を出力します | [`docs/cpu.md`](docs/cpu.md) |
+| `cpu` | `cpu.bench`<br>CPU 統合ベンチマーク | 全サーバー *（スイート別判定）* | 8 種の選択式 CPU サブスイート（`--cpu-bench`）を実行：既定の `sysbench`・`7zip`・`unixbench`・`hpl`・`passmark`・`geekbench` に加え、`x86_64` 向けの `ycruncher` や `prime95` 負荷テストにも対応します | [`docs/cpu.md`](docs/cpu.md) |
 
 ---
 
@@ -178,4 +187,4 @@ cargo build --release --locked --target x86_64-unknown-linux-musl --bin lowendaf
 - **[RegionRestrictionCheck (`lmc999/RegionRestrictionCheck`)](https://github.com/lmc999/RegionRestrictionCheck)** および **[MediaUnlockTest (`HsukqiLee/MediaUnlockTest`)](https://github.com/HsukqiLee/MediaUnlockTest)**：`ip.media` の地域別動画配信サービス判定の参考。
 - **[NextTrace (`nxtrace/NTrace-core`)](https://github.com/nxtrace/NTrace-core)**：`network.trace` で使用する高速な ICMP 経路追跡エンジンおよび位置情報サービス。
 - **[peer.as (`Archeb/peer.as`)](https://github.com/Archeb/peer.as)**：`network.bgp` における AS パスの階層レイアウト・Tier-1 切り詰め・Prepend 折りたたみおよび SVG 描画の参考。
-- **上流ベンチマークツール・公開データソース**：[`sysbench`](https://github.com/akopytov/sysbench)（Alexey Kopytov）、[`STREAM`](https://www.cs.virginia.edu/stream/)（John D. McCalpin）、[`multichase`](https://github.com/google/multichase)（Google）、[`smartmontools`](https://www.smartmontools.org/)（`smartctl`）、[`fio`](https://github.com/axboe/fio)（Jens Axboe）、[`iperf3`](https://github.com/esnet/iperf)（ESnet）、[`Geekbench`](https://www.geekbench.com/)（Primate Labs）、[`RIPEstat`](https://stat.ripe.net/)（RIPE NCC）、[`iperf3serverlist.net`](https://iperf3serverlist.net/)、[`PeeringDB`](https://www.peeringdb.com/)。
+- **上流ベンチマークツール・公開データソース**：[`sysbench`](https://github.com/akopytov/sysbench)（Alexey Kopytov）、[`7-Zip`](https://www.7-zip.org/)（Igor Pavlov）、[`Byte-UnixBench`](https://github.com/kdlucas/byte-unixbench）、[`HPL`](https://www.netlib.org/benchmark/hpl/) および [`OpenBLAS`](https://www.openblas.net/)、[`PassMark PerformanceTest`](https://www.passmark.com/products/pt_linux/)、[`y-cruncher`](http://www.numberworld.org/y-cruncher/)（Alexander J. Yee）、[`Prime95 / GIMPS`](https://www.mersenne.org/)、[`Geekbench`](https://www.geekbench.com/)（Primate Labs）、[`STREAM`](https://www.cs.virginia.edu/stream/)（John D. McCalpin）、[`multichase`](https://github.com/google/multichase)（Google）、[`smartmontools`](https://www.smartmontools.org/)（`smartctl`）、[`fio`](https://github.com/axboe/fio)（Jens Axboe）、[`iperf3`](https://github.com/esnet/iperf)（ESnet）、[`RIPEstat`](https://stat.ripe.net/)（RIPE NCC）、[`iperf3serverlist.net`](https://iperf3serverlist.net/)、[`PeeringDB`](https://www.peeringdb.com/)。

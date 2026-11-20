@@ -12,6 +12,7 @@ use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use bench_api::Context;
+use bench_api::Measurement;
 use bench_api::Step;
 use bench_tool::job;
 use bench_tool::job::Adjustment;
@@ -81,22 +82,49 @@ where
     F: Fn(Job) -> Fut,
     Fut: Future<Output = Ran>,
 {
-    // The plugin's future runs on any of the runtime's threads, so the runs share these by lock.
-    let output = Mutex::new(output);
+    measure_in(
+        ctx,
+        output,
+        program,
+        ctx.work_dir(),
+        &mut |partial| ctx.publish(partial),
+        run,
+    )
+    .await
+}
+
+/// Runs Geekbench in `work_dir` for any context `O`, calling `on_partial` when `first_to_go`
+/// records a non-trivial adjustment.
+pub async fn measure_in<O, F, Fut, P>(
+    ctx: &Context<O>,
+    output: Output,
+    program: &Path,
+    work_dir: &Path,
+    on_partial: &mut P,
+    run: F,
+) -> (Output, Result<(), Failure>)
+where
+    O: Measurement,
+    F: Fn(Job) -> Fut,
+    Fut: Future<Output = Ran>,
+    P: FnMut(&Output),
+{
+    let shared = Mutex::new((output, on_partial));
     let runs = AtomicUsize::new(0);
     let once = || async {
         let number = runs.fetch_add(1, Ordering::Relaxed) + 1;
         if number > 1 {
             ctx.progress(Step::RunAgain { run: number });
         }
-        let ran = run(attempt(program, ctx.work_dir())).await;
+        let ran = run(attempt(program, work_dir)).await;
         if let Some(adjustment) = &ran.outcome.adjustment
             && *adjustment != Adjustment::Done
         {
-            let mut output = output.lock().unwrap_or_else(PoisonError::into_inner);
-            if output.first_to_go.is_none() {
-                output.first_to_go = Some(adjustment.clone());
-                ctx.publish(&output);
+            let mut guard = shared.lock().unwrap_or_else(PoisonError::into_inner);
+            if guard.0.first_to_go.is_none() {
+                guard.0.first_to_go = Some(adjustment.clone());
+                let snapshot = guard.0.clone();
+                (guard.1)(&snapshot);
             }
         }
         scores(ran)
@@ -104,7 +132,7 @@ where
     let upload = |reason: &Try| matches!(reason, Try::Upload(_));
     let cancel = ctx.cancel_token();
     let retried = Retried::run(ATTEMPTS, RETRY_WAIT, &cancel, upload, once).await;
-    let mut output = output.into_inner().unwrap_or_else(PoisonError::into_inner);
+    let (mut output, _) = shared.into_inner().unwrap_or_else(PoisonError::into_inner);
     output.uploads = retried
         .failures
         .into_iter()

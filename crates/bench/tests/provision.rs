@@ -68,6 +68,7 @@ const fn asset(arch: &'static str, sha256: &'static str, size: u64) -> ToolAsset
 const FIO: ToolSpec = ToolSpec {
     name: "fio",
     version: "3.39",
+    all_arches: true,
     raw_sockets: false,
     form: ToolForm::Executable,
     assets: &[
@@ -157,6 +158,7 @@ async fn install_rejects_a_truncated_download() {
 const IPERF3_ARM_ONLY: ToolSpec = ToolSpec {
     name: "iperf3",
     version: "3.19",
+    all_arches: false,
     raw_sockets: false,
     form: ToolForm::Executable,
     assets: &[ToolAsset {
@@ -170,6 +172,7 @@ const IPERF3_ARM_ONLY: ToolSpec = ToolSpec {
 const SYSBENCH: ToolSpec = ToolSpec {
     name: "sysbench",
     version: "1.0.20",
+    all_arches: false,
     raw_sockets: false,
     form: ToolForm::Executable,
     assets: &[ToolAsset {
@@ -351,6 +354,7 @@ fn pinned_to(body: &[u8]) -> ToolSpec {
     ToolSpec {
         name: "big",
         version: "1.0",
+        all_arches: false,
         raw_sockets: false,
         form: ToolForm::Executable,
         assets,

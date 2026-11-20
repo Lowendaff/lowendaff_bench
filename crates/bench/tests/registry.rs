@@ -27,6 +27,7 @@ const SHA: &str = "4f2d1c0b9a8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a392817060
 const FIO: ToolSpec = ToolSpec {
     name: "fio",
     version: "3.39",
+    all_arches: true,
     raw_sockets: false,
     form: ToolForm::Executable,
     assets: &[
@@ -99,7 +100,7 @@ macro_rules! plugin {
 
 /// The result enum has no variant for the tests' plugins, which never run here.
 fn unused<O, F>(_report: Report<O, F>) -> Measured {
-    Measured::CpuGeekbench(Report {
+    Measured::cpu_bench(Report {
         output: None,
         stop: None,
     })
@@ -155,6 +156,7 @@ impl Plugin for Strict {
 const BROKEN_TOOL: ToolSpec = ToolSpec {
     name: "iperf3",
     version: "3.19",
+    all_arches: true,
     raw_sockets: false,
     form: ToolForm::Executable,
     assets: &[ToolAsset {

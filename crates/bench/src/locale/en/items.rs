@@ -36,6 +36,56 @@ fn version(version: Option<&str>) -> String {
 }
 
 impl CpuWords for English {
+    fn cpu_suite_step(&self, suite: &str, stage: Option<&str>, threads: Option<usize>) -> String {
+        let name = self.cpu_suite_title(suite);
+        match (stage, threads) {
+            (Some(stage), Some(1)) => format!("{name}: {stage} (1 copy)"),
+            (Some(stage), Some(n)) => format!("{name}: {stage} ({n} threads/copies)"),
+            (Some(stage), None) => format!("{name}: {stage}"),
+            (None, Some(1)) => format!("{name}: single-thread test"),
+            (None, Some(n)) => format!("{name}: multi-thread test ({n} threads)"),
+            (None, None) => format!("{name}: running"),
+        }
+    }
+
+    fn cpu_selected_suites(&self, suites: &[String]) -> String {
+        format!("Selected suites: {}", suites.join(", "))
+    }
+
+    fn cpu_suite_title(&self, suite: &str) -> &'static str {
+        match suite {
+            "sysbench" => "sysbench",
+            "7zip" => "7-Zip",
+            "unixbench" => "UnixBench",
+            "hpl" => "HPL (Linpack)",
+            "passmark" => "PassMark",
+            "ycruncher" => "y-cruncher",
+            "prime95" => "Prime95",
+            "geekbench" => "Geekbench 7",
+            _ => "CPU suite",
+        }
+    }
+
+    fn cpu_suite_skipped(&self, suite: &str, why: &str) -> String {
+        format!("{}: skipped ({why})", self.cpu_suite_title(suite))
+    }
+
+    fn cpu_suite_failed(&self, suite: &str, why: &str) -> String {
+        format!("{}: failed ({why})", self.cpu_suite_title(suite))
+    }
+
+    fn cpu_skip_arch(&self, arch: &str) -> String {
+        format!("x86_64 only; this host is {arch}")
+    }
+
+    fn cpu_missing_lib(&self, lib: &str) -> String {
+        format!("missing host shared library {lib}")
+    }
+
+    fn cpu_setup_failed(&self, reason: &str) -> String {
+        format!("cannot prepare work directory: {reason}")
+    }
+
     fn sysbench_parameters(&self, version: Option<&str>, max_prime: u64, seconds: u64) -> String {
         let version = version.map_or_else(String::new, |version| format!(" {version}"));
         format!("sysbench{version}: prime limit {max_prime}, {seconds} s each")
@@ -71,6 +121,198 @@ impl CpuWords for English {
 
     fn no_rate(&self) -> String {
         "sysbench printed no events per second".to_owned()
+    }
+
+    fn seven_zip_parameters(&self, version: Option<&str>) -> String {
+        let version = version.map_or_else(String::new, |version| format!(" {version}"));
+        format!("7-Zip{version}: LZMA2 integer compression & decompression")
+    }
+
+    fn seven_zip_headers(&self) -> [&'static str; 5] {
+        [
+            "Test",
+            "Threads",
+            "Compress (MIPS)",
+            "Decompress (MIPS)",
+            "Total (MIPS)",
+        ]
+    }
+
+    fn seven_zip_no_scores(&self) -> String {
+        "7-Zip printed no benchmark ratings".to_owned()
+    }
+
+    fn unixbench_parameters(&self, version: &str) -> String {
+        format!("Byte-UnixBench {version}: 12-item System Index (SPARCstation 20-61 = 10.0)")
+    }
+
+    fn unixbench_index_label(&self, copies: usize) -> String {
+        if copies <= 1 {
+            "Index (1 copy)".to_owned()
+        } else {
+            format!("Index ({copies} copies)")
+        }
+    }
+
+    fn unixbench_headers(&self, multi_copies: Option<usize>) -> Vec<String> {
+        match multi_copies {
+            Some(n) => vec![
+                "Test".to_owned(),
+                "1-copy".to_owned(),
+                format!("{n}-copy"),
+                "Unit".to_owned(),
+                "1-idx".to_owned(),
+                format!("{n}-idx"),
+            ],
+            None => vec![
+                "Test".to_owned(),
+                "1-copy".to_owned(),
+                "Unit".to_owned(),
+                "1-idx".to_owned(),
+            ],
+        }
+    }
+
+    fn unixbench_item_name(&self, id: &str) -> &'static str {
+        match id {
+            "dhry2reg" => "Dhrystone 2",
+            "whetstone-double" => "Double-Precision Whetstone",
+            "execl" => "Execl Throughput",
+            "fstime" => "File Copy (1024 B, 2000 blk)",
+            "fsbuffer" => "File Copy (256 B, 500 blk)",
+            "fsdisk" => "File Copy (4096 B, 8000 blk)",
+            "pipe" => "Pipe Throughput",
+            "context1" => "Pipe-based Context Switching",
+            "spawn" => "Process Creation",
+            "shell1" => "Shell Scripts (1 concurrent)",
+            "shell8" => "Shell Scripts (8 concurrent)",
+            "syscall" => "System Call Overhead",
+            _ => "UnixBench item",
+        }
+    }
+
+    fn unixbench_no_count(&self, item: &str) -> String {
+        format!("UnixBench {item} printed no COUNT reading")
+    }
+
+    fn hpl_parameters(&self, version: Option<&str>, n: u32, nb: u32, threads: usize) -> String {
+        let ver = version.map_or_else(String::new, |v| format!(" {v}"));
+        let th = count(threads, "thread", "threads");
+        format!("HPL{ver} (OpenBLAS): dense FP64 LU, N={n}, NB={nb}, {th}")
+    }
+
+    fn hpl_labels(&self) -> [&'static str; 3] {
+        ["Throughput", "Solve time", "Residual check"]
+    }
+
+    fn hpl_gflops(&self, gflops: f64) -> String {
+        format!("{gflops:.2} GFLOPS")
+    }
+
+    fn hpl_seconds(&self, seconds: f64) -> String {
+        format!("{seconds:.2} s")
+    }
+
+    fn hpl_residual_passed(&self, residual: Option<f64>) -> String {
+        match residual {
+            Some(res) => format!("passed ({res:.2e})"),
+            None => "passed".to_owned(),
+        }
+    }
+
+    fn hpl_residual_failed(&self) -> String {
+        "HPL scaled residual check failed".to_owned()
+    }
+
+    fn passmark_parameters(&self, version: Option<&str>) -> String {
+        let ver = version.map_or_else(String::new, |v| format!(" {v}"));
+        format!("PassMark PerformanceTest{ver}: Linux CPU suite")
+    }
+
+    fn passmark_summary_labels(&self) -> [&'static str; 2] {
+        ["CPU Mark", "Single-thread"]
+    }
+
+    fn passmark_headers(&self) -> [&'static str; 3] {
+        ["Subtest", "Score", "Unit"]
+    }
+
+    fn passmark_subtests(&self) -> [(&'static str, &'static str); 8] {
+        [
+            ("Integer Math", "MOps/s"),
+            ("Floating Point Math", "MOps/s"),
+            ("Prime Numbers", "MPrimes/s"),
+            ("Sorting", "KStrings/s"),
+            ("Encryption", "MB/s"),
+            ("Compression", "KB/s"),
+            ("Physics", "Frames/s"),
+            ("Extended Instructions", "MMatrices/s"),
+        ]
+    }
+
+    fn passmark_no_scores(&self) -> String {
+        "PassMark produced no CPU results".to_owned()
+    }
+
+    fn ycruncher_parameters(
+        &self,
+        version: Option<&str>,
+        digits: u64,
+        tuning: Option<&str>,
+    ) -> String {
+        let ver = version.map_or_else(String::new, |v| format!(" {v}"));
+        let millions = digits / 1_000_000;
+        let tune = tuning.map_or_else(String::new, |t| format!(" ({t})"));
+        format!("y-cruncher{ver}: Pi to {millions}M decimal digits{tune}")
+    }
+
+    fn ycruncher_labels(&self) -> [&'static str; 4] {
+        [
+            "Computation time",
+            "Wall time",
+            "CPU utilization",
+            "Multi-core eff.",
+        ]
+    }
+
+    fn ycruncher_validation_failed(&self) -> String {
+        "y-cruncher Pi digit spot check failed".to_owned()
+    }
+
+    fn prime95_parameters(
+        &self,
+        version: Option<&str>,
+        workers: usize,
+        duration_secs: u64,
+        fft: Option<&str>,
+    ) -> String {
+        let ver = version.map_or_else(String::new, |v| format!(" {v}"));
+        let w = count(workers, "worker", "workers");
+        let kernel = fft.map_or_else(String::new, |f| format!(", {f}"));
+        format!("Prime95{ver}: Small-FFT torture, {w}, {duration_secs} s{kernel}")
+    }
+
+    fn prime95_labels(&self) -> [&'static str; 2] {
+        ["Stability", "Completed tests"]
+    }
+
+    fn prime95_passed(&self, warnings: u64) -> String {
+        format!(
+            "passed (0 errors, {})",
+            count(
+                usize::try_from(warnings).unwrap_or(usize::MAX),
+                "warning",
+                "warnings"
+            )
+        )
+    }
+
+    fn prime95_hardware_error(&self, detail: &str) -> String {
+        format!("Prime95 detected a hardware/rounding error: {detail}")
+    }
+
+    fn prime95_no_summary(&self) -> String {
+        "Prime95 exited without worker torture summaries".to_owned()
     }
 
     fn geekbench_labels(&self) -> [&'static str; 3] {
@@ -140,6 +382,18 @@ impl CpuWords for English {
 
     fn out_of_memory(&self) -> String {
         "ended by the system for want of memory while running".to_owned()
+    }
+
+    fn cpu_no_suites_selected(&self) -> String {
+        "no CPU benchmark suite selected".to_owned()
+    }
+
+    fn cpu_all_skipped(&self) -> String {
+        "every selected CPU benchmark suite was skipped on this host".to_owned()
+    }
+
+    fn cpu_all_failed(&self) -> String {
+        "every runnable CPU benchmark suite failed".to_owned()
     }
 }
 

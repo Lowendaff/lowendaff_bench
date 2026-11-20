@@ -26,8 +26,24 @@ pub enum Probe {
     Latency,
 }
 
-/// The CPU chapters' words: CPU performance (sysbench) and Geekbench 7.
+/// The CPU chapters' words: unified `cpu.bench` and its eight sub-suites.
 pub trait CpuWords {
+    /// Progress log phrase for one `cpu.bench` sub-suite or stage.
+    fn cpu_suite_step(&self, suite: &str, stage: Option<&str>, threads: Option<usize>) -> String;
+    /// Line naming non-default `--cpu-bench` suites chosen by the user.
+    fn cpu_selected_suites(&self, suites: &[String]) -> String;
+    /// Subheading title of a sub-suite inside `[CPU performance]`.
+    fn cpu_suite_title(&self, suite: &str) -> &'static str;
+    /// Note or status line when one sub-suite inside `cpu.bench` was skipped.
+    fn cpu_suite_skipped(&self, suite: &str, why: &str) -> String;
+    /// Note or status line when one sub-suite inside `cpu.bench` failed.
+    fn cpu_suite_failed(&self, suite: &str, why: &str) -> String;
+    /// Reason when an `x86_64`-only sub-suite is skipped on `arch`.
+    fn cpu_skip_arch(&self, arch: &str) -> String;
+    /// Reason when a host lacks a shared runtime library such as `libstdc++.so.6`.
+    fn cpu_missing_lib(&self, lib: &str) -> String;
+    /// Reason when creating a sub-suite's work files failed.
+    fn cpu_setup_failed(&self, reason: &str) -> String;
     /// sysbench's line: its version when it printed one, the prime limit and the seconds of each
     /// test.
     fn sysbench_parameters(&self, version: Option<&str>, max_prime: u64, seconds: u64) -> String;
@@ -43,7 +59,75 @@ pub trait CpuWords {
     fn ratio(&self, ratio: f64) -> String;
     /// An attempt of sysbench that printed no rate.
     fn no_rate(&self) -> String;
-    /// Geekbench's labels: single-core, multi-core and the result link.
+    /// 7-Zip's method line.
+    fn seven_zip_parameters(&self, version: Option<&str>) -> String;
+    /// 7-Zip's table headers (`Test`, `Threads`, `Compress (MIPS)`, `Decompress (MIPS)`,
+    /// `Total (MIPS)`).
+    fn seven_zip_headers(&self) -> [&'static str; 5];
+    /// 7-Zip exited with 0 without printing MIPS ratings.
+    fn seven_zip_no_scores(&self) -> String;
+    /// UnixBench's method line.
+    fn unixbench_parameters(&self, version: &str) -> String;
+    /// UnixBench System Index field label for `copies` parallel copies.
+    fn unixbench_index_label(&self, copies: usize) -> String;
+    /// UnixBench 12-item table headers (`Test`, `1-copy`, optional `<N>-copy`, `Unit`, `1-idx`,
+    /// optional `<N>-idx`).
+    fn unixbench_headers(&self, multi_copies: Option<usize>) -> Vec<String>;
+    /// Human-readable name of a UnixBench System Index item.
+    fn unixbench_item_name(&self, id: &str) -> &'static str;
+    /// UnixBench sub-item exited with 0 without printing a `COUNT|` reading.
+    fn unixbench_no_count(&self, item: &str) -> String;
+    /// HPL's method line (`HPL 2.3 (OpenBLAS): N=..., NB=..., ... threads`).
+    fn hpl_parameters(&self, version: Option<&str>, n: u32, nb: u32, threads: usize) -> String;
+    /// HPL field labels (`Throughput`, `Solve time`, `Residual check`).
+    fn hpl_labels(&self) -> [&'static str; 3];
+    /// HPL throughput value (`123.45 GFLOPS`).
+    fn hpl_gflops(&self, gflops: f64) -> String;
+    /// HPL solve duration (`4.12 s`).
+    fn hpl_seconds(&self, seconds: f64) -> String;
+    /// HPL residual verification cell (`passed (...)`).
+    fn hpl_residual_passed(&self, residual: Option<f64>) -> String;
+    /// HPL failed its scaled residual check.
+    fn hpl_residual_failed(&self) -> String;
+    /// PassMark's method line.
+    fn passmark_parameters(&self, version: Option<&str>) -> String;
+    /// PassMark top-level labels (`CPU Mark`, `Single-thread`).
+    fn passmark_summary_labels(&self) -> [&'static str; 2];
+    /// PassMark sub-test breakdown headers (`Subtest`, `Score`, `Unit`).
+    fn passmark_headers(&self) -> [&'static str; 3];
+    /// PassMark's eight CPU subtest names and units.
+    fn passmark_subtests(&self) -> [(&'static str, &'static str); 8];
+    /// PassMark produced no `results_cpu.yml` scores.
+    fn passmark_no_scores(&self) -> String;
+    /// y-cruncher's method line.
+    fn ycruncher_parameters(
+        &self,
+        version: Option<&str>,
+        digits: u64,
+        tuning: Option<&str>,
+    ) -> String;
+    /// y-cruncher field labels (`Computation time`, `Wall time`, `CPU utilization`,
+    /// `Multi-core eff.`).
+    fn ycruncher_labels(&self) -> [&'static str; 4];
+    /// y-cruncher failed its Pi digit spot check.
+    fn ycruncher_validation_failed(&self) -> String;
+    /// Prime95's method line.
+    fn prime95_parameters(
+        &self,
+        version: Option<&str>,
+        workers: usize,
+        duration_secs: u64,
+        fft: Option<&str>,
+    ) -> String;
+    /// Prime95 field labels (`Stability`, `Completed tests`).
+    fn prime95_labels(&self) -> [&'static str; 2];
+    /// Prime95 passed value (`passed (0 errors, 0 warnings)`).
+    fn prime95_passed(&self, warnings: u64) -> String;
+    /// Prime95 detected a hardware or rounding failure.
+    fn prime95_hardware_error(&self, detail: &str) -> String;
+    /// Prime95 exited without printing worker torture summaries.
+    fn prime95_no_summary(&self) -> String;
+    ///Geekbench's labels: single-core, multi-core and the result link.
     fn geekbench_labels(&self) -> [&'static str; 3];
     /// Swap added for Geekbench: the memory it needs in GiB, what was available, and the GiB
     /// of swap added.
@@ -64,6 +148,12 @@ pub trait CpuWords {
     fn no_scores(&self) -> String;
     /// Geekbench ran out of memory and the kernel ended it.
     fn out_of_memory(&self) -> String;
+    /// Stop reason when no CPU sub-suite was enabled.
+    fn cpu_no_suites_selected(&self) -> String;
+    /// Stop reason when all selected CPU sub-suites were skipped.
+    fn cpu_all_skipped(&self) -> String;
+    /// Stop reason when all runnable CPU sub-suites failed.
+    fn cpu_all_failed(&self) -> String;
 }
 
 /// The memory chapters' words: sysbench, STREAM, latency and NUMA.

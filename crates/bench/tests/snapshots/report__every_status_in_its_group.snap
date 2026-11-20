@@ -34,15 +34,12 @@ Environment: KVM virtual machine
   IPv6                unavailable: this host has no IPv6 route
 
 [CPU performance]
-  CPU performance
-    sysbench 1.0.20: prime limit 10000, 20 s each
-    Test           Threads  Events/s
-    Single thread        1    859.00
-    Multi-thread        64  44631.33
-    Ratio               multi-thread is 51.96 times single-thread
-    done in 41.2 s
-  Geekbench 7
-    interrupted
+  sysbench 1.0.20: prime limit 10000, 20 s each
+  Test           Threads  Events/s
+  Single thread        1    859.00
+  Multi-thread        64  44631.33
+  Ratio               multi-thread is 51.96 times single-thread
+  done in 41.2 s
 
 [Memory performance]
   failed: single-thread test: STREAM printed no result (4 attempts)
@@ -56,6 +53,9 @@ Environment: KVM virtual machine
   Disk performance
     skipped: tool fio unavailable: download failed: HTTP 404
 
+[IP]
+  interrupted
+
 [test]
   test.own-skip
     skipped: the test directory is on a RAM disk, which would measure memory; run in a directory on a disk, or name one with --work-dir
@@ -64,10 +64,10 @@ Environment: KVM virtual machine
 
 [Summary]
   Disk health         timed out; the results until then are kept
-  CPU performance     done in 41.2 s
+  CPU benchmark       done in 41.2 s
   Memory STREAM       failed: single-thread test: STREAM printed no result (4 attempts)
   Disk performance    skipped: tool fio unavailable: download failed: HTTP 404
-  Geekbench 7         interrupted
+  Media unlock        interrupted
   test.own-skip       skipped: the test directory is on a RAM disk, which would measure memory; run in a directory on a disk, or name one with --work-dir
   test.panic          failed: the plugin crashed: index out of bounds
   Not applicable here: Memory NUMA

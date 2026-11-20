@@ -1,0 +1,25 @@
+7-Zip (z) 26.06 (arm64) : Copyright (c) 1999-2026 Igor Pavlov : 2026-11-06
+ 64-bit arm_v:8-A locale=C.UTF-8 Threads:10 OPEN_MAX:1048576
+
+ mt2 d18
+Compiler:  ver:14.2.0 GCC 14.2.0 : UNALIGNED
+Linux : 6.12.0-generic : #1 SMP PREEMPT UTC 2026 : aarch64
+PageSize:4KB HPS:2MB THPS:2MB THP:always hwcap:EFB3FFFF:CRC32:SHA1:SHA2:SHA3:SHA512:AES:ASIMD
+arm64
+ (LP)
+
+1T CPU Freq (MHz):  3547  4098  4143  4148  4028  4014  4126
+1T CPU Freq (MHz): 100% 4107   101% 4037
+2T CPU Freq (MHz): 201% 4030   200% 4302
+
+RAM size:    8192 MB (LP),  # CPU hardware threads:  10
+RAM usage:     14 MB (LP),  # Benchmark threads:      2
+
+                       Compressing  |                  Decompressing
+Dict     Speed Usage    R/U Rating  |      Speed Usage    R/U Rating
+         KiB/s     %   MIPS   MIPS  |      KiB/s     %   MIPS   MIPS
+
+18:      27858   146  17026  24818  |     139872   199   5681  11311
+----------------------------------  | ------------------------------
+Avr:     27858   146  17026  24818  |     139872   199   5681  11311
+Tot:             172  11353  18065
