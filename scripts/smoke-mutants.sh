@@ -57,7 +57,7 @@ smoke() {
     $as_root rm -rf "$scratch/run"
     mkdir "$scratch/run"
     (cd "$scratch/run" &&
-        "$repo/scripts/smoke.sh" "$bin" --skip cpu,memory,disk,network,media) 2>&1
+        "$repo/scripts/smoke.sh" "$bin" --skip cpu,memory,disk,network,ip,media) 2>&1
 }
 
 # mutant <text smoke.sh must print> <file> <perl substitution>

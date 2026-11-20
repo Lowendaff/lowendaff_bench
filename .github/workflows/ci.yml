@@ -249,6 +249,11 @@ jobs:
       - name: Local trace targets
         if: steps.scope.outputs.run != 'false'
         run: scripts/smoke-trace.sh "$RUNNER_TEMP/trace" "$RUNNER_TEMP/iperf3/config.toml"
+      # IP reputation probes local HTTP, DNSBL and SMTP responders on 127.0.0.1, so that a merge
+      # never waits on a third party.
+      - name: Local IP reputation servers
+        if: steps.scope.outputs.run != 'false'
+        run: scripts/smoke-ip.sh "$RUNNER_TEMP/ip" "$RUNNER_TEMP/iperf3/config.toml"
       # Streaming media unlock probes a local responder on 127.0.0.1, one service per regional
       # group, so that a merge never waits on a third party.
       - name: Local media server
