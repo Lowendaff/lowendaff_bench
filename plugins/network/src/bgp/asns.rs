@@ -14,13 +14,21 @@ pub fn is_tier1(asn: u32) -> bool {
 }
 
 /// Truncates an `AS_PATH` (ordered from collector side at index `0` to origin at the end) at the
-/// first Tier-1 backbone encountered from the collector side, keeping the Tier-1 hop and every
-/// downstream hop to the origin. When no hop is Tier-1, drops only the collector-peer hop when
-/// there is more than one ASN.
+/// first Tier-1 backbone reached from the origin side, keeping that Tier-1 hop and every
+/// downstream hop to the origin while stripping collector-side Tier-1-to-Tier-1 handoffs. When the
+/// origin itself is a Tier-1, keeps one upstream Tier-1 peer hop. When no hop is Tier-1, drops
+/// only the collector-peer hop when there is more than one ASN.
 #[must_use]
 pub fn trunc_to_tier1(asns: &[u32]) -> Vec<u32> {
-    if let Some(idx) = asns.iter().position(|asn| is_tier1(*asn)) {
+    if asns.len() > 1
+        && let Some(idx) = asns[..asns.len() - 1]
+            .iter()
+            .rposition(|asn| is_tier1(*asn))
+    {
         return asns[idx..].to_vec();
+    }
+    if is_tier1(*asns.last().unwrap_or(&0)) {
+        return asns.to_vec();
     }
     if asns.len() > 1 {
         asns[1..].to_vec()
@@ -60,7 +68,9 @@ pub fn known_name(asn: u32) -> Option<&'static str> {
         // Chinese mainland & HK carriers
         4134 => Some("ChinaNet 163"),
         4538 => Some("CERNET"),
+        4808 => Some("CU169 BJ"),
         4809 => Some("ChinaNet CN2"),
+        4811 => Some("ChinaNet SH"),
         4812 => Some("ChinaNet SH"),
         4837 => Some("CU169"),
         9269 => Some("HKBN"),
@@ -73,6 +83,7 @@ pub fn known_name(asn: u32) -> Option<&'static str> {
         23764 => Some("CTGNet"),
         4515 => Some("PCCW HK"),
         4760 => Some("HKT"),
+        56048 => Some("CM Beijing"),
         58453 => Some("CMI"),
         58807 => Some("CMIN2"),
         // Asia-Pacific carriers
@@ -116,6 +127,7 @@ pub fn known_name(asn: u32) -> Option<&'static str> {
         22773 => Some("Cox"),
         // Cloud, CDN & VPS hosting networks
         3204 => Some("xTom"),
+        3214 => Some("xTom"),
         3223 => Some("Voxility"),
         6233 => Some("xTom"),
         8075 => Some("Microsoft"),
@@ -138,18 +150,22 @@ pub fn known_name(asn: u32) -> Option<&'static str> {
         31898 => Some("Oracle"),
         36352 => Some("ColoCrossing"),
         37963 => Some("Alibaba"),
+        41378 => Some("Kirino"),
         45090 => Some("Tencent"),
         45102 => Some("Alibaba"),
         46562 => Some("Performive"),
         49544 => Some("i3D.net"),
         49981 => Some("WorldStream"),
         51167 => Some("Contabo"),
+        51847 => Some("Nearoute"),
         53667 => Some("FranTech"),
         54113 => Some("Fastly"),
         54574 => Some("DMIT"),
         59574 => Some("Misaka"),
         60068 => Some("Datacamp"),
         60781 => Some("Leaseweb"),
+        61112 => Some("AkileCloud"),
+        63150 => Some("BageVM"),
         63949 => Some("Akamai Linode"),
         132203 => Some("Tencent"),
         133618 => Some("DMIT"),

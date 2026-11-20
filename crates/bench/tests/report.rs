@@ -795,8 +795,10 @@ fn bgp_renders_terminal_diagram_mermaid_and_json_svg_with_ip_masking() {
     assert!(text.contains("203.0.*.*/24"), "masks announced prefix");
     assert!(!text.contains("203.0.113."), "leaks no raw IPv4 octets");
 
-    // Narrow TTY automatically falls back to compact indented tree without tearing boxes.
-    let narrow = report::render(&masked_page, Format::Text, Some(48));
+    // Medium-narrow TTY wraps 2D boxes into bridged bands; ultra-narrow TTY falls back to tree.
+    let banded = report::render(&masked_page, Format::Text, Some(48));
+    assert!(banded.contains("1 (cont.)"));
+    let narrow = report::render(&masked_page, Format::Text, Some(36));
     assert!(narrow.contains("AS64500 Example Cloud (origin)"));
     assert!(narrow.contains("══▸ AS4809 ChinaNet CN2"));
     assert!(!narrow.contains("╭──────────────╮"));

@@ -175,23 +175,30 @@ async fn query_family(
         });
     }
 
-    // Collect candidate ASNs appearing in origins, direct upstreams, and truncated graph paths.
-    let mut needed_asns = BTreeSet::new();
+    // Collect candidate ASNs in priority order: origins first, then top direct upstreams, then
+    // truncated graph hops ordered by peer share so high-numbered origin ASNs are never starved.
+    let mut seen_asns = BTreeSet::new();
+    let mut ordered_asns = Vec::new();
+    let mut push_asn = |asn: u32| {
+        if seen_asns.insert(asn) {
+            ordered_asns.push(asn);
+        }
+    };
     for origin in &parsed.origins {
-        needed_asns.insert(origin.asn);
+        push_asn(origin.asn);
     }
     for up in parsed.upstreams.iter().take(12) {
-        needed_asns.insert(up.asn);
+        push_asn(up.asn);
     }
     for path in &parsed.paths {
         for asn in asns::trunc_to_tier1(&path.asns) {
-            needed_asns.insert(asn);
+            push_asn(asn);
         }
     }
 
     let mut asn_names = BTreeMap::new();
     let mut unknown_asns = Vec::new();
-    for asn in needed_asns {
+    for asn in ordered_asns {
         if let Some(known) = asns::known_name(asn) {
             asn_names.insert(asn, known.to_owned());
         } else if unknown_asns.len() < MAX_ASN_LOOKUPS {

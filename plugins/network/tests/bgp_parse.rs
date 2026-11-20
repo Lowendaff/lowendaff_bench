@@ -67,6 +67,51 @@ fn rpki_and_holder_parsers_cover_expected_variants() {
     assert_eq!(asns::clean_holder("HETZNER-AS, DE"), "HETZNER-AS");
     assert_eq!(
         asns::trunc_to_tier1(&[65001, 3356, 174, 64500]),
-        vec![3356, 174, 64500]
+        vec![174, 64500]
+    );
+    assert_eq!(
+        asns::trunc_to_tier1(&[65001, 3356, 1299, 6939]),
+        vec![1299, 6939]
+    );
+}
+
+#[test]
+fn retains_rare_multi_layer_upstreams_when_primary_tier1_has_over_128_collector_peers() {
+    let mut routes = Vec::new();
+    // 150 distinct collector-side peers behind AS6939 (exceeding MAX_PATHS = 128 on their own).
+    for peer in 64700..64850 {
+        routes.push(format!(
+            "{{\"target_prefix\":\"2001:db8:f57d::/40\",\"path\":[{peer},6939,64500]}}"
+        ));
+    }
+    routes.push("{\"target_prefix\":\"2001:db8:f57d::/40\",\"path\":[6461,1299,64500]}".to_owned());
+    routes.push(
+        "{\"target_prefix\":\"2001:db8:f57d::/40\",\
+         \"path\":[3257,64520,64520,64500,64500,64500,64500]}"
+            .to_owned(),
+    );
+    routes.push(
+        "{\"target_prefix\":\"2001:db8:f57d::/40\",\
+         \"path\":[65200,174,64521,64520,64500,64500,64500,64500]}"
+            .to_owned(),
+    );
+    let joined = routes.join(",");
+    let body = format!(
+        "{{\"status\":\"ok\",\"data\":{{\"resource\":\"2001:db8:f57d::/40\",\
+         \"bgp_state\":[{joined}]}}}}"
+    );
+
+    let parsed = parse::parse_bgp_state(body.as_bytes()).expect("parses 153 routes");
+    assert_eq!(parsed.paths.len(), parse::MAX_PATHS);
+    assert!(
+        parsed.paths.iter().any(|p| p.asns == [3257, 64520, 64500]),
+        "retains 2-hop backup upstream path despite >128 AS6939 collector variants"
+    );
+    assert!(
+        parsed
+            .paths
+            .iter()
+            .any(|p| p.asns == [65200, 174, 64521, 64520, 64500]),
+        "retains 3-hop multi-layer backup chain despite >128 AS6939 collector variants"
     );
 }

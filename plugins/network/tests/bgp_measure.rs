@@ -171,3 +171,84 @@ async fn skips_when_offline_or_without_public_ip() {
     let res = Bgp::default().run(&ctx).await;
     assert_eq!(res, Err(Stop::Skipped(Failure::NoFamily)));
 }
+
+struct ManyAsnsHttp;
+
+impl HttpClient for ManyAsnsHttp {
+    fn send<'a>(&'a self, req: &'a HttpRequest) -> HttpFuture<'a> {
+        Box::pin(async move {
+            let body = if req.url.contains("/bgp-state/") {
+                let mut routes = Vec::new();
+                // 20 peers via top upstream AS399998 -> high-numbered origin AS399999.
+                for idx in 0..20 {
+                    routes.push(format!(
+                        "{{\"target_prefix\":\"198.51.100.0/24\",\
+                         \"source_id\":\"p{idx}\",\"path\":[3356,399998,399999]}}"
+                    ));
+                }
+                // 24 single-peer routes through low-numbered unknown ASNs (64601..64625) that
+                // would starve AS399998/AS399999 if lookups were ordered numerically by ASN.
+                for low_asn in 64601..=64624 {
+                    routes.push(format!(
+                        "{{\"target_prefix\":\"198.51.100.0/24\",\
+                         \"source_id\":\"m{low_asn}\",\"path\":[174,{low_asn},399999]}}"
+                    ));
+                }
+                let joined = routes.join(",");
+                format!(
+                    "{{\"status\":\"ok\",\"data\":{{\"resource\":\"198.51.100.0/24\",\
+                     \"bgp_state\":[{joined}]}}}}"
+                )
+            } else if req.url.contains("/rpki-validation/") {
+                r#"{"data":{"status":"valid"}}"#.to_owned()
+            } else if req.url.contains("/as-overview/") {
+                if req.url.contains("AS399999") {
+                    r#"{"data":{"holder":"HIGH-ORIGIN - High Origin Cloud, LLC"}}"#.to_owned()
+                } else if req.url.contains("AS399998") {
+                    r#"{"data":{"holder":"PRIMARY-UP - Primary Transit Corp."}}"#.to_owned()
+                } else {
+                    r#"{"data":{"holder":"MINOR-PEER - Minor Transit"}}"#.to_owned()
+                }
+            } else {
+                r"{}".to_owned()
+            };
+            Ok(HttpResponse {
+                status: 200,
+                final_url: req.url.clone(),
+                headers: Vec::new(),
+                body: body.into_bytes(),
+            })
+        })
+    }
+}
+
+#[tokio::test]
+async fn prioritizes_high_numbered_origin_and_top_upstreams_under_lookup_cap() {
+    let net = Network {
+        ipv4: Family {
+            targets: vec![("1.1.1.1:443".parse().unwrap(), Reach::Connected)],
+            address: Address::Found {
+                address: "198.51.100.7".parse().unwrap(),
+                source: "Cloudflare",
+            },
+        },
+        ipv6: Family::default(),
+    };
+    let ctx = make_ctx(host_with_network(net), Arc::new(ManyAsnsHttp));
+    let plugin = Bgp {
+        base_url: Some("http://127.0.0.1:18083".to_owned()),
+    };
+
+    let out = plugin.run(&ctx).await.expect("BGP succeeds");
+    let v4 = out.ipv4.expect("ipv4 report");
+    assert_eq!(
+        v4.asn_names.get(&399999).map(String::as_str),
+        Some("High Origin Cloud"),
+        "6-digit origin ASN must be enriched first despite 24 lower-numbered unknown ASNs"
+    );
+    assert_eq!(
+        v4.asn_names.get(&399998).map(String::as_str),
+        Some("Primary Transit"),
+        "dominant direct upstream must be enriched ahead of minor 1-peer transits"
+    );
+}

@@ -1073,9 +1073,7 @@ impl IpWords for English {
 
 impl BgpWords for English {
     fn bgp_method(&self, custom_endpoints: bool) -> String {
-        let mut line =
-            "Direct RIPEstat RIS lookup (no proxy): BGP route state, RPKI and AS-path topology"
-                .to_owned();
+        let mut line = "Direct RIPEstat RIS lookup: BGP state, RPKI and AS-path".to_owned();
         if custom_endpoints {
             line.push_str("; custom endpoints");
         }

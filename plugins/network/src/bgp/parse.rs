@@ -1,6 +1,7 @@
 //! Pure parsers for RIPEstat `bgp-state`, `rpki-validation`, and `as-overview` JSON payloads.
 
 use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 use std::net::IpAddr;
 
 use serde::Deserialize;
@@ -12,7 +13,7 @@ use super::result::OriginSummary;
 use super::result::RpkiStatus;
 use super::result::UpstreamShare;
 
-/// Maximum number of distinct `AS_PATH` entries retained per prefix, matching `peer.as`.
+/// Maximum number of distinct `AS_PATH` entries retained per prefix.
 pub const MAX_PATHS: usize = 128;
 
 /// Parsed BGP routing state for one prefix before RPKI and ASN-name enrichment.
@@ -235,7 +236,9 @@ pub fn parse_bgp_state(body: &[u8]) -> Result<ParsedBgpState, String> {
     if let Some(first) = paths.first_mut() {
         first.is_best = true;
     }
-    paths.truncate(MAX_PATHS);
+    if paths.len() > MAX_PATHS {
+        paths = retain_diverse_paths(paths, MAX_PATHS);
+    }
 
     let mut origins: Vec<OriginSummary> = origin_counts
         .into_iter()
@@ -262,6 +265,36 @@ pub fn parse_bgp_state(body: &[u8]) -> Result<ParsedBgpState, String> {
         upstreams,
         paths,
     })
+}
+
+/// Keeps up to `limit` paths while ensuring every distinct Tier-1-truncated upstream topology
+/// retains its highest-peer representative even when a single upstream (such as AS6939) has over
+/// `limit` distinct collector-side peers.
+fn retain_diverse_paths(paths: Vec<BgpPath>, limit: usize) -> Vec<BgpPath> {
+    let mut seen_subtrees = BTreeSet::new();
+    let mut primary = Vec::with_capacity(limit);
+    let mut overflow = Vec::new();
+    for path in paths {
+        let key = asns::trunc_to_tier1(&path.asns);
+        if primary.len() < limit && seen_subtrees.insert(key) {
+            primary.push(path);
+        } else {
+            overflow.push(path);
+        }
+    }
+    for path in overflow {
+        if primary.len() >= limit {
+            break;
+        }
+        primary.push(path);
+    }
+    primary.sort_by(|a, b| {
+        b.peers
+            .cmp(&a.peers)
+            .then_with(|| a.asns.len().cmp(&b.asns.len()))
+            .then_with(|| a.asns.cmp(&b.asns))
+    });
+    primary
 }
 
 /// Extracts non-zero 32-bit ASN numbers from a RIPEstat JSON `path` array, flattening any legacy
