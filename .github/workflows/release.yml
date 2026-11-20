@@ -1,0 +1,127 @@
+# Builds and publishes static Linux musl releases on version tags (v*). There is deliberately no
+# concurrency block: every pushed tag gets its own complete run (.github/zizmor.yml).
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions: {}
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  build:
+    name: build (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-24.04
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      ARCH: ${{ matrix.arch }}
+      TARGET: ${{ matrix.arch }}-unknown-linux-musl
+      RUSTFLAGS: -C link-arg=-fuse-ld=mold
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check release tag against Cargo.toml
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          if [[ ! $TAG =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "release: tag '$TAG' is not vMAJOR.MINOR.PATCH[-PRERELEASE]" >&2
+            exit 1
+          fi
+          version=$(awk '
+            /^\[workspace\.package\]$/ { section = 1; next }
+            /^\[/ { section = 0 }
+            section && $1 == "version" { gsub(/"/, "", $3); print $3; exit }
+          ' Cargo.toml)
+          if [[ "v$version" != "$TAG" ]]; then
+            echo "release: tag '$TAG' does not match Cargo.toml version '$version'" >&2
+            exit 1
+          fi
+      - name: Install the pinned toolchain and the musl target
+        run: |
+          rustup toolchain install
+          rustup target add "$TARGET"
+      - name: Install musl-gcc and mold
+        run: |
+          if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then
+            sudo find /etc/apt/sources.list.d -maxdepth 1 ! -name ubuntu.sources -type f -delete
+          fi
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends \
+            -o Dpkg::Options::=--path-exclude='/usr/share/man/*' \
+            musl-tools mold
+      - name: Static build
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          cargo build --release --locked --target "$TARGET" --bin lowendaff-bench
+          bin="target/$TARGET/release/lowendaff-bench"
+          ldd "$bin" 2>&1 | grep -Eq 'not a dynamic executable|statically linked'
+          [[ "$("$bin" --version)" == "lowendaff-bench ${TAG#v}" ]]
+          mkdir -p "$RUNNER_TEMP/out"
+          install -m 0755 "$bin" "$RUNNER_TEMP/out/lowendaff-bench-$ARCH"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-${{ matrix.arch }}
+          path: ${{ runner.temp }}/out/lowendaff-bench-${{ matrix.arch }}
+          retention-days: 1
+          if-no-files-found: error
+
+  release:
+    name: publish the release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write # creates the release and uploads its assets
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: ${{ runner.temp }}/assets
+          merge-multiple: true
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          [[ $TAG =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]
+          cd "$RUNNER_TEMP/assets"
+          chmod 0755 lowendaff-bench-x86_64 lowendaff-bench-aarch64
+          sha256sum lowendaff-bench-x86_64 lowendaff-bench-aarch64 > SHA256SUMS
+          cat SHA256SUMS
+          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          {
+            echo "Static Linux musl binaries for \`x86_64\` and \`aarch64\`, built by $run_url."
+            echo "Verify downloads with \`sha256sum -c SHA256SUMS\`."
+          } > "$RUNNER_TEMP/notes.md"
+          prerelease=false
+          latest=true
+          if [[ $TAG == *-* ]]; then
+            prerelease=true
+            latest=false
+          fi
+          # Create a draft first so every asset is uploaded before the release becomes public.
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --prerelease="$prerelease" \
+            --latest=false --target "$GITHUB_SHA" --title "lowendaff-bench $TAG" \
+            --notes-file "$RUNNER_TEMP/notes.md"
+          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" \
+            lowendaff-bench-x86_64 lowendaff-bench-aarch64 SHA256SUMS
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false \
+            --prerelease="$prerelease" --latest="$latest"

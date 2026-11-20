@@ -74,7 +74,8 @@ A new test item starts with a design document (below). Then:
 2. Add its variant to `Measured` in `crates/bench/src/results.rs`, and register it with that
    variant in `registry::all()`, where its place is its place in the run order.
 3. Name it in the catalog's `item_name`, and write its part of the report in
-   `crates/bench/src/report/terminal/<group>.rs`, with its words in the catalog; the registry's
+   `crates/bench/src/report/terminal/<group>.rs` (which drives both `text` and `markdown`) and
+   `crates/bench/src/report/json.rs`, with its words in the catalog; the registry's
    checks fail for a plugin without a name, and a variant without a report does not compile. A
    new group also gets its section in `SECTIONS`, which orders the report, and its title in the
    catalog's `group_title`.

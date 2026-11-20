@@ -4,8 +4,8 @@ A comprehensive test tool for Linux servers, virtual or dedicated, written in Ru
 
 - Each test item is a plugin compiled into one static binary.
 - An orchestrator selects the plugins, downloads the pinned tools they need and runs them in
-  order with timeouts. It logs its progress on stderr, and prints one report on stdout when every
-  plugin is done.
+  order with timeouts. It logs its progress on stderr, and writes one report on stdout (or to
+  `-o` / `--output`) in plain text, Markdown or JSON when every plugin is done.
 - It must run as root.
 
 The program prints in English. Every word it prints comes from one message catalog in
@@ -47,14 +47,16 @@ it starts, and every run fits in half of it.
 ## Usage
 
 ```sh
-lowendaff-bench --list                         # list the test items by group
-sudo lowendaff-bench                           # run all of them
-sudo lowendaff-bench --only cpu,disk.fio       # run a subset by group or id; --skip excludes
-sudo lowendaff-bench --config bench.toml       # per-item settings: [plugins."<id>"]
-sudo lowendaff-bench -v                        # log more detail: each download and each tool run
-sudo lowendaff-bench --show-ip                 # show the public addresses in full
-sudo lowendaff-bench --download-connections 8  # at most 8 connections per download (default 32)
-sudo lowendaff-bench --countries JP,DE         # the network test's servers in these countries
+lowendaff-bench --list                           # list the test items by group
+sudo lowendaff-bench                             # run all of them
+sudo lowendaff-bench --only cpu,disk.fio         # run a subset by group or id
+sudo lowendaff-bench --skip cpu.geekbench,ip.media  # skip specific items or whole groups
+sudo lowendaff-bench -o report.md -f markdown    # write text, markdown (md) or json to a file
+sudo lowendaff-bench --config bench.toml         # per-item settings: [plugins."<id>"]
+sudo lowendaff-bench -v                          # log more detail: each download and tool run
+sudo lowendaff-bench --show-ip                   # show the public addresses in full
+sudo lowendaff-bench --download-connections 8    # at most 8 connections per download (default 32)
+sudo lowendaff-bench --countries JP,DE           # the network test's servers in these countries
 ```
 
 - **Output.** The progress log on stderr has one line per event, after the time since the start:
@@ -62,9 +64,12 @@ sudo lowendaff-bench --countries JP,DE         # the network test's servers in t
   each download's address, its number of byte ranges and its retries, and each tool's command and
   exit code, with its last lines when it fails, except for Geekbench and smartctl, whose output
   holds a result's claim link or the disks' serial numbers, and iperf3, whose output names the
-  host's own address. The report follows on stdout once every item is done: the system
+  host's own address. The report follows on stdout (or in `-o` / `--output <file>`, opened before
+  anything runs and written without duplicating to stdout) once every item is done: the system
   information, a section for each group (CPU, memory, disks, network, IP) and a summary of how
-  each item ended. On a terminal, its tables wrap to the terminal's width. After Ctrl-C the report
+  each item ended. `-f` / `--format` chooses `text` (default), `markdown` (`md`) or `json`; all
+  three formats mask the host's public addresses unless `--show-ip` is given. On a terminal, `text`
+  tables wrap to the terminal's width; files, Markdown and JSON never wrap. After Ctrl-C the report
   holds what finished, and the rest is marked interrupted.
 - **Public addresses.** Each address family that reaches the Internet asks Cloudflare, ipify and
   icanhazip in turn, without a proxy, for the address they see; the first valid answer counts.
@@ -261,6 +266,10 @@ target, so the build needs `musl-gcc` (Debian/Ubuntu package `musl-tools`).
 rustup target add x86_64-unknown-linux-musl
 cargo build --release --locked --target x86_64-unknown-linux-musl --bin lowendaff-bench
 ```
+
+Pushing a version tag (`v*`, matching `[workspace.package] version` in `Cargo.toml`) triggers
+`.github/workflows/release.yml`, which builds `lowendaff-bench-x86_64` and `lowendaff-bench-aarch64`
+and publishes them with `SHA256SUMS` as a GitHub Release.
 
 ## Gates
 
