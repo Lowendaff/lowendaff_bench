@@ -21,6 +21,7 @@ use plugin_network::iperf3::Iperf3;
 use tokio::io::AsyncRead;
 
 use crate::locale;
+use crate::netprobe::NetProbers;
 use crate::orchestrator;
 use crate::orchestrator::Planned;
 use crate::orchestrator::Settings;
@@ -303,6 +304,7 @@ where
     }
 
     let probers = Arc::new(Probers::try_new()?);
+    let net_probers = Arc::new(NetProbers::new());
     let host = Arc::new(host);
     let settings = Settings {
         grace: GRACE,
@@ -312,6 +314,7 @@ where
         failed_tools,
         files,
         http: Some(probers),
+        net: Some(net_probers),
         host: Arc::clone(&host),
     };
     let runs = orchestrator::run_plan(planned, cancel, &settings, &mut Log).await;

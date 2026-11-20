@@ -41,6 +41,7 @@ impl LogWords for English {
     }
 
     fn item_progress(&self, id: &str, step: Step) -> String {
+        use crate::locale::IpWords;
         use crate::locale::MediaWords;
         use crate::locale::MemoryWords;
 
@@ -74,6 +75,9 @@ impl LogWords for English {
             Step::Media { group, ipv6 } => {
                 format!("probing {} over {}", self.media_group(group), family(ipv6))
             }
+            Step::IpQuality { stage, ipv6 } => {
+                format!("checking {} for {}", self.ip_stage(stage), family(ipv6))
+            }
         };
         format!("{id} {step}")
     }
@@ -102,6 +106,10 @@ impl LogWords for English {
 
     fn http_probe(&self, method: &str, host: &str, ipv6: bool, outcome: &str) -> String {
         format!("Probe {method} {host} over {}: {outcome}", family(ipv6))
+    }
+
+    fn smtp_probe(&self, host: &str, port: u16, ipv6: bool, outcome: &str) -> String {
+        format!("Probe SMTP {host}:{port} over {}: {outcome}", family(ipv6))
     }
 
     fn interrupt(&self) -> String {

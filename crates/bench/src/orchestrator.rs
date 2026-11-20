@@ -16,6 +16,7 @@ use bench_api::FileSpec;
 use bench_api::Files;
 use bench_api::HttpClient;
 use bench_api::Net;
+use bench_api::NetClient;
 use bench_api::Plugin;
 use bench_api::Progress;
 use bench_api::Requirements;
@@ -203,6 +204,8 @@ pub struct Settings {
     pub files: BTreeMap<&'static str, Provisioned>,
     /// Direct HTTP client over each IP family, when configured.
     pub http: Option<Arc<dyn HttpClient>>,
+    /// Direct DNS and SMTP socket prober, when configured.
+    pub net: Option<Arc<dyn NetClient>>,
     /// The host, as the run read it, for the plugins.
     pub host: Arc<HostProfile>,
 }
@@ -408,6 +411,7 @@ async fn run_one<R: Send + 'static>(
         tools: Arc::clone(&settings.tools),
         files: Arc::new(files),
         http: settings.http.clone(),
+        net: settings.net.clone(),
         deadline: Instant::now() + planned.timeout,
         work_dir: work.path().to_path_buf(),
         token: global.child_token(),
@@ -427,6 +431,7 @@ struct Launch<'a, R> {
     tools: Arc<BTreeMap<String, PathBuf>>,
     files: Arc<Files>,
     http: Option<Arc<dyn HttpClient>>,
+    net: Option<Arc<dyn NetClient>>,
     deadline: Instant,
     work_dir: PathBuf,
     /// The plugin's own token, a child of `global`.
@@ -468,6 +473,9 @@ impl<P: Plugin, R: Send + 'static> Runner<R> for PluginRunner<P, R> {
             );
             if let Some(http) = launch.http {
                 ctx = ctx.with_http(http);
+            }
+            if let Some(net) = launch.net {
+                ctx = ctx.with_net(net);
             }
             let plugin = self.plugin.clone();
             let mut task = tokio::spawn(async move { plugin.run(&ctx).await });

@@ -513,3 +513,102 @@ pub enum MediaCell {
     /// Unexpected status or response body.
     Error,
 }
+
+/// Non-default settings chosen for `ip.quality`.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct IpChoice {
+    /// Whether DNSBL blacklist checks ran.
+    pub dnsbl: bool,
+    /// Whether outbound TCP port 25 checks ran.
+    pub mail: bool,
+    /// Whether custom loopback or HTTPS endpoints were configured.
+    pub custom_endpoints: bool,
+}
+
+/// Summary row labels in `[IP reputation]`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IpField {
+    /// Public address (masked unless `--show-ip`).
+    Address,
+    /// Reverse DNS or observed hostname (shown only with `--show-ip`).
+    Hostname,
+    /// Autonomous System Number.
+    Asn,
+    /// Organization or ISP.
+    Organization,
+    /// Regional Internet Registry and registration country.
+    Registry,
+    /// Native vs broadcast origin.
+    Origin,
+    /// Network usage classification.
+    UsageType,
+    /// Operational GeoIP consensus.
+    GeoIp,
+}
+
+/// Subtable headings in `[IP reputation]`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IpTable {
+    /// Identity and origin summary.
+    Summary,
+    /// Per-source risk scores and reconnaissance telemetry.
+    Scores,
+    /// Aggregated risk factors.
+    Factors,
+    /// DNSBL blacklists and port-25 mail connectivity.
+    BlacklistsAndMail,
+}
+
+/// IP reputation's words: its method, subtable headings, cells, and failure reasons.
+pub trait IpWords {
+    /// Method line at the top of `[IP reputation]`.
+    fn ip_method(&self, choice: &IpChoice) -> String;
+    /// Progress log stage phrase (`intelligence`, `dnsbl`, `mail`).
+    fn ip_stage(&self, stage: &str) -> &'static str;
+    /// Heading of one subtable in `[IP reputation]`.
+    fn ip_table(&self, table: IpTable) -> &'static str;
+    /// Headers of one subtable (`[<first>, "IPv4", "IPv6"]`).
+    fn ip_headers(&self, table: IpTable) -> [&'static str; 3];
+    /// Label of a row in the summary subtable.
+    fn ip_field(&self, field: IpField) -> &'static str;
+    /// Native origin cell (`native (SG)`).
+    fn ip_native(&self, country: &str) -> String;
+    /// Broadcast origin cell (`broadcast (US -> SG)`).
+    fn ip_broadcast(&self, registered: &str, located: &str) -> String;
+    /// Usage classification word.
+    fn ip_usage(&self, code: &str) -> &'static str;
+    /// Qualitative risk level word (`low`, `medium`, `high`, `very high`).
+    fn ip_risk_level(&self, code: &str) -> &'static str;
+    /// Numeric score cell (`12/100 (low)`).
+    fn ip_numeric_score(&self, score: u8, max: u8, level: &str) -> String;
+    /// Ratio score cell (`0.0039 (low)`).
+    fn ip_ratio_score(&self, ratio: &str, level: &str) -> String;
+    /// GreyNoise cell.
+    fn ip_greynoise(&self, riot: bool, noise: bool, class: &str) -> &'static str;
+    /// Shodan InternetDB cell.
+    fn ip_shodan(&self, ports: usize, vulns: usize, flagged: bool) -> String;
+    /// Risk factor row label (`Proxy`, `VPN`, `Tor`, `Datacenter`, `Abuser`, `Robot`, `Bogon`).
+    fn ip_factor_name(&self, code: &str) -> &'static str;
+    /// Risk factor cell (`no (0/3)` or `yes (2/3: ipapi.is, Shodan)`).
+    fn ip_factor_cell(&self, checked: usize, flagged: &[&str]) -> String;
+    /// DNSBL row label (`DNSBL`).
+    fn ip_dnsbl_label(&self) -> &'static str;
+    /// DNSBL cell (`clean (0/24)`, `clean (0/23; 1 refused)`, `listed (1/23: SpamCop)`).
+    fn ip_dnsbl_cell(&self, checked: usize, refused: usize, listed: &[&str]) -> String;
+    /// Outbound port 25 summary row label (`Port 25`).
+    fn ip_port25_label(&self) -> &'static str;
+    /// Outbound port 25 summary cell (`open` or `blocked`).
+    fn ip_port25_cell(&self, open: bool) -> &'static str;
+    /// Mail provider deliverable cell (`yes (220)`).
+    fn ip_mail_yes(&self, code: u16) -> String;
+    /// Mail provider rejected cell (`rejected (554)`).
+    fn ip_mail_rejected(&self, code: u16) -> String;
+    /// Mail provider blocked cell (`blocked`).
+    fn ip_mail_blocked(&self) -> &'static str;
+    /// Note below the section when a provider returned an unexpected error.
+    fn ip_unexpected(&self, provider: &str, ipv6: bool, reason: &str) -> String;
+    /// Skip reason when reachable families had no discovered public IP address.
+    fn ip_no_public_address(&self) -> String;
+    /// Failure reason when an endpoint override is invalid.
+    fn ip_invalid_endpoint(&self, raw: &str) -> String;
+}

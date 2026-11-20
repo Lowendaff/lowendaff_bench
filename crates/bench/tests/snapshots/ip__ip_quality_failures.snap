@@ -1,0 +1,21 @@
+---
+source: crates/bench/tests/ip.rs
+expression: shown
+---
+[IP reputation]
+  IP reputation
+    skipped: the host reaches neither IPv4 nor IPv6
+  IP reputation
+    skipped: no public IP address was found for any reachable network family
+  IP reputation
+    failed: endpoint override must be https:// or a loopback address (127.0.0.1 / [::1]): 8.8.8.8:53
+  IP reputation
+    failed: interrupted
+
+[Summary]
+  IP reputation       skipped: the host reaches neither IPv4 nor IPv6
+  IP reputation       skipped: no public IP address was found for any reachable network family
+  IP reputation       failed: endpoint override must be https:// or a loopback address (127.0.0.1 / [::1]): 8.8.8.8:53
+  IP reputation       failed: interrupted
+
+4 items: 0 done, 2 skipped, 2 failed, 0 timed out, 0 interrupted. Total time 4.8 s

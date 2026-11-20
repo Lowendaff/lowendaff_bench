@@ -7,6 +7,10 @@ use super::count;
 use crate::locale::CpuWords;
 use crate::locale::DiskWords;
 use crate::locale::FioRow;
+use crate::locale::IpChoice;
+use crate::locale::IpField;
+use crate::locale::IpTable;
+use crate::locale::IpWords;
 use crate::locale::ListRule;
 use crate::locale::LookupProblem;
 use crate::locale::MediaCell;
@@ -869,5 +873,198 @@ impl MediaWords for English {
 
     fn no_media_family(&self) -> String {
         "the host reaches neither IPv4 nor IPv6".to_owned()
+    }
+}
+
+impl IpWords for English {
+    fn ip_method(&self, choice: &IpChoice) -> String {
+        let mut parts = vec!["9 intelligence sources"];
+        if choice.dnsbl {
+            parts.push("DNSBLs");
+        }
+        if choice.mail {
+            parts.push("port-25 mail");
+        }
+        let mut method = format!("Direct checks (no proxy): {}", parts.join(", "));
+        if choice.custom_endpoints {
+            method.push_str("; custom endpoints");
+        }
+        method
+    }
+
+    fn ip_stage(&self, stage: &str) -> &'static str {
+        match stage {
+            "intelligence" => "intelligence sources",
+            "dnsbl" => "DNSBL blacklists",
+            "mail" => "port-25 mail connectivity",
+            _ => "reputation",
+        }
+    }
+
+    fn ip_table(&self, table: IpTable) -> &'static str {
+        match table {
+            IpTable::Summary => "Summary",
+            IpTable::Scores => "Risk scores",
+            IpTable::Factors => "Risk factors",
+            IpTable::BlacklistsAndMail => "Blacklists & mail (port 25)",
+        }
+    }
+
+    fn ip_headers(&self, table: IpTable) -> [&'static str; 3] {
+        let first = match table {
+            IpTable::Summary => "Field",
+            IpTable::Scores => "Source",
+            IpTable::Factors => "Factor",
+            IpTable::BlacklistsAndMail => "Check",
+        };
+        [first, "IPv4", "IPv6"]
+    }
+
+    fn ip_field(&self, field: IpField) -> &'static str {
+        match field {
+            IpField::Address => "Address",
+            IpField::Hostname => "Hostname",
+            IpField::Asn => "ASN",
+            IpField::Organization => "Organization",
+            IpField::Registry => "Registry",
+            IpField::Origin => "Origin",
+            IpField::UsageType => "Usage type",
+            IpField::GeoIp => "GeoIP",
+        }
+    }
+
+    fn ip_native(&self, country: &str) -> String {
+        format!("native ({country})")
+    }
+
+    fn ip_broadcast(&self, registered: &str, located: &str) -> String {
+        format!("broadcast ({registered} -> {located})")
+    }
+
+    fn ip_usage(&self, code: &str) -> &'static str {
+        match code {
+            "residential" => "residential",
+            "hosting" => "hosting",
+            "business" => "business",
+            "mobile" => "mobile",
+            "education" => "education",
+            "government" => "government",
+            "cdn" => "CDN",
+            _ => "unknown",
+        }
+    }
+
+    fn ip_risk_level(&self, code: &str) -> &'static str {
+        match code {
+            "low" => "low",
+            "medium" => "medium",
+            "high" => "high",
+            "very_high" => "very high",
+            _ => "unknown",
+        }
+    }
+
+    fn ip_numeric_score(&self, score: u8, max: u8, level: &str) -> String {
+        format!("{score}/{max} ({})", self.ip_risk_level(level))
+    }
+
+    fn ip_ratio_score(&self, ratio: &str, level: &str) -> String {
+        format!("{ratio} ({})", self.ip_risk_level(level))
+    }
+
+    fn ip_greynoise(&self, riot: bool, noise: bool, class: &str) -> &'static str {
+        if riot {
+            return "benign service (RIOT)";
+        }
+        match class {
+            "not_observed" if !noise => "clean (not seen scanning)",
+            "benign" => "benign scanner",
+            "malicious" => "malicious scanner",
+            _ if noise => "observed scanning",
+            _ => "clean (not seen scanning)",
+        }
+    }
+
+    fn ip_shodan(&self, ports: usize, vulns: usize, flagged: bool) -> String {
+        let label = if flagged || vulns > 0 {
+            "flagged"
+        } else {
+            "clean"
+        };
+        let ports_text = count(ports, "port", "ports");
+        let vulns_text = count(vulns, "CVE", "CVEs");
+        format!("{label} ({ports_text}, {vulns_text})")
+    }
+
+    fn ip_factor_name(&self, code: &str) -> &'static str {
+        match code {
+            "proxy" => "Proxy",
+            "vpn" => "VPN",
+            "tor" => "Tor",
+            "datacenter" => "Datacenter",
+            "abuser" => "Abuser",
+            "robot" => "Robot",
+            "bogon" => "Bogon",
+            _ => "Other",
+        }
+    }
+
+    fn ip_factor_cell(&self, checked: usize, flagged: &[&str]) -> String {
+        if flagged.is_empty() {
+            format!("no (0/{checked})")
+        } else {
+            format!("yes ({}/{checked}: {})", flagged.len(), flagged.join(", "))
+        }
+    }
+
+    fn ip_dnsbl_label(&self) -> &'static str {
+        "DNSBL"
+    }
+
+    fn ip_dnsbl_cell(&self, checked: usize, refused: usize, listed: &[&str]) -> String {
+        if listed.is_empty() {
+            if refused > 0 {
+                format!("clean (0/{checked}; {refused} refused)")
+            } else {
+                format!("clean (0/{checked})")
+            }
+        } else {
+            format!("listed ({}/{checked}: {})", listed.len(), listed.join(", "))
+        }
+    }
+
+    fn ip_port25_label(&self) -> &'static str {
+        "Port 25"
+    }
+
+    fn ip_port25_cell(&self, open: bool) -> &'static str {
+        if open { "open" } else { "blocked" }
+    }
+
+    fn ip_mail_yes(&self, code: u16) -> String {
+        format!("yes ({code})")
+    }
+
+    fn ip_mail_rejected(&self, code: u16) -> String {
+        format!("rejected ({code})")
+    }
+
+    fn ip_mail_blocked(&self) -> &'static str {
+        "blocked"
+    }
+
+    fn ip_unexpected(&self, provider: &str, ipv6: bool, reason: &str) -> String {
+        let family = if ipv6 { "IPv6" } else { "IPv4" };
+        format!("{provider} over {family}: {reason}")
+    }
+
+    fn ip_no_public_address(&self) -> String {
+        "no public IP address was found for any reachable network family".to_owned()
+    }
+
+    fn ip_invalid_endpoint(&self, raw: &str) -> String {
+        format!(
+            "endpoint override must be https:// or a loopback address (127.0.0.1 / [::1]): {raw}"
+        )
     }
 }

@@ -9,6 +9,7 @@ use std::time::Duration;
 use bench_api::CancellationToken;
 use bench_api::Channels;
 use bench_api::Context;
+use bench_api::DnsAnswer;
 use bench_api::HttpClient;
 use bench_api::HttpError;
 use bench_api::HttpFuture;
@@ -17,8 +18,12 @@ use bench_api::HttpRequest;
 use bench_api::HttpResponse;
 use bench_api::IpFamily;
 use bench_api::Measurement;
+use bench_api::NetClient;
+use bench_api::NetError;
+use bench_api::NetFuture;
 use bench_api::Progress;
 use bench_api::RedirectPolicy;
+use bench_api::SmtpBanner;
 use bench_api::Step;
 use bench_api::ToolEnd;
 use bench_api::ToolRun;
@@ -205,4 +210,82 @@ async fn context_probe_uses_the_configured_http_client_and_stops_on_cancellation
     let ctx = ctx.with_http(Arc::new(PendingHttp));
     cancel.cancel();
     assert_eq!(ctx.probe(&get).await, Err(HttpError::Cancelled));
+}
+
+struct StubNet;
+
+impl NetClient for StubNet {
+    fn dns_a<'a>(
+        &'a self,
+        qname: &'a str,
+        _server: Option<std::net::SocketAddr>,
+        _timeout: Duration,
+    ) -> NetFuture<'a, DnsAnswer> {
+        Box::pin(async move {
+            if qname.starts_with("2.0.0.127.") {
+                Ok(DnsAnswer::Addresses(vec![std::net::Ipv4Addr::new(
+                    127, 0, 0, 2,
+                )]))
+            } else {
+                Ok(DnsAnswer::NotFound)
+            }
+        })
+    }
+
+    fn smtp_banner<'a>(
+        &'a self,
+        _family: IpFamily,
+        _host: &'a str,
+        _port: u16,
+        _timeout: Duration,
+    ) -> NetFuture<'a, SmtpBanner> {
+        Box::pin(async { Ok(SmtpBanner { code: 220 }) })
+    }
+}
+
+#[tokio::test]
+async fn context_net_uses_the_configured_client_and_stops_on_cancellation() {
+    let (default_ctx, _channels, _) = context();
+    let limit = Duration::from_secs(3);
+    assert!(matches!(
+        default_ctx
+            .dns_a("1.0.0.127.example.invalid", None, limit)
+            .await,
+        Err(NetError::Transport(_))
+    ));
+    assert!(matches!(
+        default_ctx
+            .smtp_banner(IpFamily::Ipv4, "mx.example.invalid", 25, limit)
+            .await,
+        Err(NetError::Transport(_))
+    ));
+
+    let (ctx, _channels, cancel) = context();
+    let ctx = ctx.with_net(Arc::new(StubNet));
+    assert_eq!(
+        ctx.dns_a("2.0.0.127.zen.example", None, limit).await,
+        Ok(DnsAnswer::Addresses(vec![std::net::Ipv4Addr::new(
+            127, 0, 0, 2
+        )]))
+    );
+    assert_eq!(
+        ctx.dns_a("1.0.0.127.zen.example", None, limit).await,
+        Ok(DnsAnswer::NotFound)
+    );
+    assert_eq!(
+        ctx.smtp_banner(IpFamily::Ipv4, "mx.example", 25, limit)
+            .await,
+        Ok(SmtpBanner { code: 220 })
+    );
+
+    cancel.cancel();
+    assert_eq!(
+        ctx.dns_a("2.0.0.127.zen.example", None, limit).await,
+        Err(NetError::Cancelled)
+    );
+    assert_eq!(
+        ctx.smtp_banner(IpFamily::Ipv4, "mx.example", 25, limit)
+            .await,
+        Err(NetError::Cancelled)
+    );
 }

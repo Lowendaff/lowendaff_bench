@@ -313,6 +313,7 @@ async fn a_plugin_runs_the_tool_it_was_provisioned_with() {
         failed_tools: BTreeMap::new(),
         files: BTreeMap::new(),
         http: None,
+        net: None,
         host: Arc::default(),
     };
 

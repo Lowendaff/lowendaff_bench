@@ -4,6 +4,7 @@
 pub mod app;
 pub mod fetcher;
 pub mod locale;
+pub mod netprobe;
 pub mod network;
 pub mod orchestrator;
 pub mod prober;

@@ -84,6 +84,7 @@ dependencies = [
  "insta",
  "plugin-cpu",
  "plugin-disk",
+ "plugin-ip",
  "plugin-media",
  "plugin-memory",
  "plugin-network",
@@ -921,6 +922,17 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "tokio",
+]
+
+[[package]]
+name = "plugin-ip"
+version = "0.1.0"
+dependencies = [
+ "bench-api",
+ "bench-host",
+ "serde",
+ "serde_json",
  "tokio",
 ]
 

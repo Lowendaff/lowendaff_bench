@@ -25,6 +25,10 @@ pub use host::NoModules;
 pub use items::CpuWords;
 pub use items::DiskWords;
 pub use items::FioRow;
+pub use items::IpChoice;
+pub use items::IpField;
+pub use items::IpTable;
+pub use items::IpWords;
 pub use items::ListRule;
 pub use items::LookupProblem;
 pub use items::MediaCell;
@@ -59,6 +63,7 @@ pub trait Words:
     + DiskWords
     + NetworkWords
     + TraceWords
+    + IpWords
     + MediaWords
     + Sync
 {
@@ -75,6 +80,7 @@ impl<T> Words for T where
         + DiskWords
         + NetworkWords
         + TraceWords
+        + IpWords
         + MediaWords
         + Sync
 {

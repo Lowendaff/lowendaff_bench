@@ -8,6 +8,8 @@
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::future::Future;
+use std::net::Ipv4Addr;
+use std::net::SocketAddr;
 use std::path::Path;
 use std::path::PathBuf;
 use std::pin::Pin;
@@ -304,6 +306,13 @@ pub enum Step {
         /// Whether the probes run over IPv6, else over IPv4.
         ipv6: bool,
     },
+    /// Running one stage of IP reputation checking.
+    IpQuality {
+        /// Stage code (`intelligence`, `dnsbl`, or `mail`).
+        stage: &'static str,
+        /// Whether the stage evaluates the host's IPv6 address, else IPv4.
+        ipv6: bool,
+    },
 }
 
 /// Default byte limit read from an HTTP probe response body (256 KiB).
@@ -491,6 +500,92 @@ impl HttpClient for NoHttpClient {
     }
 }
 
+/// Answer of a DNS `A` lookup used by DNSBL checks.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub enum DnsAnswer {
+    /// `NXDOMAIN` or `NODATA`: the queried name has no `A` record.
+    NotFound,
+    /// One or more IPv4 `A` records returned for the queried name.
+    Addresses(Vec<Ipv4Addr>),
+}
+
+/// Initial greeting reply returned by an SMTP server on port 25.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct SmtpBanner {
+    /// Three-digit SMTP reply code, such as `220`, `421` or `554`.
+    pub code: u16,
+}
+
+/// Why a DNS or SMTP socket probe failed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub enum NetError {
+    /// The target host has no address of the requested [`IpFamily`].
+    NoAddress,
+    /// The probe exceeded its timeout.
+    TimedOut,
+    /// No recursive DNS resolver was configured or readable on the host.
+    NoResolver,
+    /// Connection, DNS wire format or read failure.
+    Transport(String),
+    /// Cancelled via the plugin's [`CancellationToken`].
+    Cancelled,
+}
+
+/// Boxed future returned by [`NetClient`] methods.
+pub type NetFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T, NetError>> + Send + 'a>>;
+
+/// Direct DNS `A` and TCP port-25 SMTP banner probes implemented by `bench`.
+pub trait NetClient: Send + Sync {
+    /// Queries `A` records for `qname`, using `server` when set or the host's resolvers.
+    fn dns_a<'a>(
+        &'a self,
+        qname: &'a str,
+        server: Option<SocketAddr>,
+        timeout: Duration,
+    ) -> NetFuture<'a, DnsAnswer>;
+
+    /// Connects over `family` to `host:port`, reads the initial SMTP reply code, sends `QUIT`
+    /// and closes the connection without sending mail.
+    fn smtp_banner<'a>(
+        &'a self,
+        family: IpFamily,
+        host: &'a str,
+        port: u16,
+        timeout: Duration,
+    ) -> NetFuture<'a, SmtpBanner>;
+}
+
+struct NoNetClient;
+
+impl NetClient for NoNetClient {
+    fn dns_a<'a>(
+        &'a self,
+        _qname: &'a str,
+        _server: Option<SocketAddr>,
+        _timeout: Duration,
+    ) -> NetFuture<'a, DnsAnswer> {
+        Box::pin(async {
+            Err(NetError::Transport(
+                "no network client configured".to_owned(),
+            ))
+        })
+    }
+
+    fn smtp_banner<'a>(
+        &'a self,
+        _family: IpFamily,
+        _host: &'a str,
+        _port: u16,
+        _timeout: Duration,
+    ) -> NetFuture<'a, SmtpBanner> {
+        Box::pin(async {
+            Err(NetError::Transport(
+                "no network client configured".to_owned(),
+            ))
+        })
+    }
+}
+
 /// A tool that a plugin ran: its command, how it ended, and what it printed last when it did
 /// not exit with 0.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -553,6 +648,7 @@ pub struct Context<O> {
     tools: Arc<BTreeMap<String, PathBuf>>,
     files: Arc<Files>,
     http: Arc<dyn HttpClient>,
+    net: Arc<dyn NetClient>,
     cancel: CancellationToken,
     deadline: Instant,
     work_dir: PathBuf,
@@ -591,6 +687,7 @@ impl<O: Measurement> Context<O> {
             tools,
             files,
             http: Arc::new(NoHttpClient),
+            net: Arc::new(NoNetClient),
             cancel,
             deadline,
             work_dir,
@@ -675,6 +772,13 @@ impl<O: Measurement> Context<O> {
         self
     }
 
+    /// Attaches the DNS and SMTP socket client used by [`Self::dns_a`] and [`Self::smtp_banner`].
+    #[must_use]
+    pub fn with_net(mut self, net: Arc<dyn NetClient>) -> Self {
+        self.net = net;
+        self
+    }
+
     /// Sends `request` over its IP family, stopping early when [`Self::cancel_token`] fires.
     pub async fn probe(&self, request: &HttpRequest) -> Result<HttpResponse, HttpError> {
         if self.cancel.is_cancelled() {
@@ -684,6 +788,42 @@ impl<O: Measurement> Context<O> {
             biased;
             () = self.cancel.cancelled() => Err(HttpError::Cancelled),
             outcome = self.http.send(request) => outcome,
+        }
+    }
+
+    /// Queries `A` records for `qname`, stopping early when [`Self::cancel_token`] fires.
+    pub async fn dns_a(
+        &self,
+        qname: &str,
+        server: Option<SocketAddr>,
+        timeout: Duration,
+    ) -> Result<DnsAnswer, NetError> {
+        if self.cancel.is_cancelled() {
+            return Err(NetError::Cancelled);
+        }
+        tokio::select! {
+            biased;
+            () = self.cancel.cancelled() => Err(NetError::Cancelled),
+            outcome = self.net.dns_a(qname, server, timeout) => outcome,
+        }
+    }
+
+    /// Reads the initial SMTP reply code from `host:port` over `family`, stopping early when
+    /// [`Self::cancel_token`] fires.
+    pub async fn smtp_banner(
+        &self,
+        family: IpFamily,
+        host: &str,
+        port: u16,
+        timeout: Duration,
+    ) -> Result<SmtpBanner, NetError> {
+        if self.cancel.is_cancelled() {
+            return Err(NetError::Cancelled);
+        }
+        tokio::select! {
+            biased;
+            () = self.cancel.cancelled() => Err(NetError::Cancelled),
+            outcome = self.net.smtp_banner(family, host, port, timeout) => outcome,
         }
     }
 
