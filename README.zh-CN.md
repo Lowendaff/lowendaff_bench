@@ -2,159 +2,172 @@
 
 [English](README.md) | **简体中文** | [日本語](README.ja.md)
 
-使用 Rust 编写的零配置文件、单静态二进制 Linux 服务器综合基准测试与诊断工具（全面支持独立物理服务器、KVM/Xen 等虚拟机以及 Docker/LXC 等容器环境）：
+`lowendaff-bench` 是一款面向 Linux 服务器的一站式硬件跑分、网络测速与 IP 体检工具，支持独立物理机、常见云服务器/VPS（KVM、Xen 等）以及容器环境（Docker、LXC 等）。
 
-- **单静态二进制、内置 12 项插件、零本地配置文件**：发布产物为纯静态链接的 `musl` 二进制（支持 `x86_64` 与 `aarch64`），所有筛选项均通过类型安全的命令行枚举参数控制，开箱即用。
-- **外部工具版本与哈希强锁定**：需要调用外部评测程序（`sysbench`、`STREAM`、`multichase`、`smartctl`、`fio`、`iperf3`、`NextTrace`、`Geekbench 7`）时，主程序按需自动下载受控构建版本并强制校验文件大小与 `SHA-256` 摘要，**绝不调用宿主机已安装的同名程序**，确保任何发行版上测得的结果一致可比。
-- **平台自适应与内存安全**：自动根据硬件环境裁剪不适用项（如仅在独立物理机运行 SMART 检测、仅在双节点以上环境运行 NUMA 矩阵）；内存测试动态将单轮占用限制在可用内存的 `50%` 以内，同时保证工作集达到末级 CPU 缓存的 `4 倍` 以上。
-- **多格式报告输出与默认隐私脱敏**：实时进度输出至 `stderr`；完整报告支持终端对齐纯文本（`text`）、GitHub 风格 `Markdown`（`markdown` / `md`）与结构化 `JSON`（`json`），可直接写入 `-o` / `--output` 指定文件；未显式传入 `--show-ip` 时，所有格式均自动隐藏本机完整公网 IP 与反向解析主机名。
+### 为什么用它？
 
-各检测项的底层测试方法、公式与判定规则详见 [`docs/` 模块详解文档](docs/README.md)；代码结构与贡献规范详见 [`CONTRIBUTING.md`](CONTRIBUTING.md)。
+- **单文件即下即用，无需安装依赖，也不用写配置文件**：下载一个静态编译好的可执行文件就能直接运行，支持 `x86_64` 和 `aarch64`（ARM64）架构，所有功能都通过命令行参数控制。
+- **测试标准统一，不同机器分数可直接对比**：运行过程中需要用到的测试工具（如 `sysbench`、`fio`、`iperf3`、`NextTrace`、`Geekbench 7` 等）都会按需自动下载固定版本并校验完整性，不会调用系统里自带的旧版本软件，避免因系统环境不同导致跑分偏差。
+- **自动适配机器配置，照顾小内存机型**：自动跳过当前环境不支持的项目（例如虚拟机自动跳过物理阵列卡硬盘体检，单路 CPU 自动跳过多路 NUMA 测试）；内存测试最多只使用当前可用内存的一半，跑 Geekbench 7 时如果内存不足还会自动创建临时交换文件（Swap），防止小内存 VPS 卡死崩溃。
+- **默认给隐私信息打码，方便直接发帖分享**：支持在终端直接查看对齐表格，也支持一键导出 **Markdown** 或 **JSON** 文件。默认自动隐去本机真实公网 IP、主机名与硬件序列号，复制结果发帖晒单无需手动打码。
+
+如果想深入了解每一项测试背后的计算方法和判定逻辑，可以查阅 [`docs/` 测试原理说明](docs/README.md)。
 
 ---
 
-## 快速上手与常用案例
+## 三步快速开始
 
-从 [GitHub Releases](https://github.com/Lowendaff/lowendaff_bench/releases) 下载对应架构的静态二进制文件（`lowendaff-bench-x86_64` 或 `lowendaff-bench-aarch64`），核对 `SHA256SUMS` 后以 `root` 权限运行：
+前往 [GitHub Releases](https://github.com/Lowendaff/lowendaff_bench/releases) 下载对应架构的最新文件（常规服务器选 `lowendaff-bench-x86_64`，ARM 服务器选 `lowendaff-bench-aarch64`），赋予执行权限后用 `root` 运行即可：
 
 ```sh
-# 1. 查看全部 12 个检测项、所属分组名、适用平台及锁定的外部工具版本（无需 root）
+# 以 x86_64 服务器为例（ARM64 请将文件名换为 lowendaff-bench-aarch64）
+curl -fLO https://github.com/Lowendaff/lowendaff_bench/releases/latest/download/lowendaff-bench-x86_64
+chmod +x lowendaff-bench-x86_64
+sudo ./lowendaff-bench-x86_64
+```
+
+> 运行期间，实时进度会显示在屏幕上；所有选定项目跑完后，会统一输出排版整齐的完整报告。按一次 `Ctrl-C` 可随时中止，并保留已经跑完的部分结果。
+
+---
+
+## 常见使用场景示例
+
+下面演示实际买机器、验机时最常用的几种跑法（假设已将二进制重命名为 `lowendaff-bench`）：
+
+```sh
+# 1. 查看支持的所有测试项目列表（无需 root 权限）
 ./lowendaff-bench --list
 
-# 2. 执行全套综合评测（stderr 实时显示进度，全部完成后在 stdout 打印对齐报告）
+# 2. 跑全套完整体检（CPU + 内存 + 硬盘 + 全球测速 + 路由追踪 + IP 质量 + 流媒体解锁）
 sudo ./lowendaff-bench
 
-# 3. 日常快速体检：略过耗时长或会公开上传跑分的项目（支持逗号分隔或重复传参）
+# 3. 日常快速验机：跳过耗时较长、且会把跑分上传到官网公开页面的 Geekbench 7 和路由追踪
 sudo ./lowendaff-bench --skip cpu.geekbench,network.trace
 
-# 4. 仅运行指定分组或单个检测插件（分组名与插件 ID 可自由混用）
+# 4. 新开 VPS 只想快速看看 IP 干不干净、能不能看 Netflix / YouTube / ChatGPT 等
 sudo ./lowendaff-bench --only ip
+
+# 5. 只挑自己关心的几个单项组合测试（分类名和具体项目名可以自由混搭）
 sudo ./lowendaff-bench --only cpu.sysbench,memory.stream,disk.fio
 
-# 5. 运行某个分组但排除其中某一项（例如只测 IP 信誉度，跳过流媒体解锁）
+# 6. 跑整个大类，但剔除其中某一项（例如只测 IP 信誉度，不测流媒体解锁）
 sudo ./lowendaff-bench --only ip --skip ip.media
 
-# 6. 将报告以 Markdown 或 JSON 格式直接保存到文件（不重复输出到终端 stdout）
+# 7. 将测试报告保存为 Markdown（适合直接粘贴到论坛/博客）或 JSON（适合脚本处理）
 sudo ./lowendaff-bench -o report.md -f markdown
 sudo ./lowendaff-bench -o report.json -f json
 
-# 7. 指定数据盘目录执行磁盘 fio 测试（请勿使用可能挂载为内存盘或 noexec 的 /tmp）
+# 8. 测试挂载在其他目录的数据盘读写速度（注意不要指定 /tmp，很多系统里 /tmp 是内存盘）
 sudo ./lowendaff-bench --only disk.fio --work-dir /mnt/data
 
-# 8. 使用命令行枚举参数按国家/区域筛选测速节点、路由追踪分组与流媒体大洲
-sudo ./lowendaff-bench --only network.iperf3 --countries JP,DE
-sudo ./lowendaff-bench --only network.trace --trace-groups services,china
+# 9. 按地区筛选：只测日本和美国的带宽节点、只看三网回程/去程路由、只测全球与亚洲流媒体
+sudo ./lowendaff-bench --only network.iperf3 --countries JP,US
+sudo ./lowendaff-bench --only network.trace --trace-groups china
 sudo ./lowendaff-bench --only ip.media --media-groups global,asia
 
-# 9. 在封禁 25 端口或敏感风控的云主机上仅跳过邮局端口检测执行 IP 信誉度体检
+# 10. 在默认封禁 25 邮件端口的云服务器上，跳过邮局连通性检查跑 IP 质量体检
 sudo ./lowendaff-bench --only ip.quality --no-mail
 
-# 10. 通过代理加速工具下载，展示完整公网 IP 并开启详细调试日志
-#     （注意：环境变量需写在 sudo 之后；公网 IP、信誉度与流媒体探测仍强制本机直连）
-sudo ALL_PROXY=socks5h://127.0.0.1:1080 ./lowendaff-bench --download-connections 16 --show-ip -v
+# 11. 机器拉取 GitHub 文件较慢时，通过代理加速下载测试工具，并在报告中展示完整 IP
+#     （注：代理变量需放在 sudo 后面；公网 IP 识别、测速与流媒体检测依然会走本机直连）
+sudo ALL_PROXY=socks5h://127.0.0.1:1080 ./lowendaff-bench --download-connections 16 --show-ip
 ```
 
 ---
 
-## 命令行参数与枚举值详解
+## 命令行参数与可选值说明
 
-### 参数总表
+### 参数一览
 
-| 参数 | 取值语法 | 默认值 | 功能说明 |
+| 参数 | 写法 | 默认行为 | 通俗说明 |
 |---|---|---|---|
-| `--only` | `<ITEM,...>` | *全部检测项* | 仅运行指定的分组名或插件 ID（支持逗号分隔或多次传入） |
-| `--skip` | `<ITEM,...>` | *无* | 略过指定的分组名或单个插件 ID（在 `--only` 筛选结果基础上剔除） |
-| `-o, --output` | `<PATH>` | `stdout` | 在测试开始前创建 `<PATH>` 并将最终报告写入该文件（不再重复打印到 `stdout`；路径不可写时立即以退出码 `2` 报错） |
-| `-f, --format` | `<FORMAT>` | `text` | 报告输出格式（`text`、`markdown` / `md`、`json`）；写入文件或使用 `markdown`/`json` 时禁用终端列宽折行 |
-| `--work-dir` | `<DIR>` | `.` | 在 `<DIR>` 下创建临时运行目录并在退出时自动清理（请勿指定 `/tmp`，以免落入内存盘或 `noexec` 挂载） |
-| `--countries` | `<CODE,...>` | *列表默认节点* | 为 `network.iperf3` 按两位 ISO 3166 国家/地区代码（不区分大小写）或 `all` 筛选测速服务器 |
-| `--trace-groups` | `<GROUP,...>` | *缓存节点 + 默认目标* | 为 `network.trace` 指定路由追踪目标分组枚举（逗号分隔） |
-| `--media-groups` | `<GROUP,...>` | `all` | 为 `ip.media` 指定流媒体解锁检测区域枚举（逗号分隔） |
-| `--no-dnsbl` | *开关* | `false` | 在 `ip.quality` 中跳过 25 个公共 DNSBL 黑名单反查 |
-| `--no-mail` | *开关* | `false` | 在 `ip.quality` 中跳过出站 TCP 25 端口邮局 MX 连通性探测 |
-| `--download-connections` | `<1..=256>` | `32` | 单个大文件（`>= 2 MiB`）HTTP 分片并发下载的最大连接数（支持断点续传与 4 次重试） |
-| `--show-ip` | *开关* | `false` | 在报告中显示完整的本机公网 IPv4/IPv6 地址与反向解析主机名（默认打码脱敏） |
-| `-v, --verbose` | *开关* | `false` | 输出详细进度日志（含下载分片/重试及外部工具命令与退出码，自动隐去序列号、敏感链接与本机 IP） |
-| `--list` | *开关* | `false` | 按报告章节顺序列出所有注册插件、适用平台与锁定工具版本后退出（无需 `root`） |
-| `-h, --help` | *开关* | — | 打印命令行帮助信息并退出 |
-| `-V, --version` | *开关* | — | 打印程序版本号并退出 |
+| `--only` | `<名称,...>` | 测试全部项目 | 只运行你指定的分类或具体项目（多个名称用英文逗号隔开，也可重复写多次） |
+| `--skip` | `<名称,...>` | 不跳过任何项 | 跳过你指定的分类或具体项目（可与 `--only` 搭配做减法） |
+| `-o, --output` | `<文件路径>` | 直接打印到屏幕 | 把最终报告保存到指定文件，屏幕上只显示进度 |
+| `-f, --format` | `<格式>` | `text` | 报告格式：可选 `text`（纯文本表格）、`markdown`（或简写 `md`）、`json` |
+| `--work-dir` | `<目录路径>` | 当前目录 `.` | 存放临时测试文件的目录，跑完会自动清理。测哪块盘就指到哪块盘的挂载目录（请避开 `/tmp`） |
+| `--countries` | `<国家代码,...>` | 默认精选节点 | 限制 `network.iperf3` 只测指定国家/地区的节点（如 `JP,SG,US`），填 `all` 测全部节点 |
+| `--trace-groups` | `<分组,...>` | 缓存节点 + 默认线路 | 选择 `network.trace` 要追踪哪些方向的路由目标 |
+| `--media-groups` | `<区域,...>` | `all`（全部区域） | 选择 `ip.media` 要测试哪些地区的流媒体与在线服务 |
+| `--no-dnsbl` | 无需带值 | 关闭 | 在 `ip.quality` 中跳过 25 个邮件/垃圾信息黑名单（DNSBL）查询 |
+| `--no-mail` | 无需带值 | 关闭 | 在 `ip.quality` 中跳过 25 端口各大邮箱服务连通性测试 |
+| `--download-connections` | `<1..=256>` | `32` | 下载外部测试工具时的最大并发连接数，网络不稳定时可适当调小 |
+| `--show-ip` | 无需带值 | 关闭（默认打码） | 在最终报告里显示完整的本机公网 IPv4/IPv6 地址和反向解析域名 |
+| `-v, --verbose` | 无需带值 | 关闭 | 打印更详细的下载过程与子工具运行日志（方便排查卡住或报错原因） |
+| `--list` | 无需带值 | — | 列出所有支持的测试项目、适用条件与工具版本后直接退出（不需要 `root`） |
+| `-h, --help` | 无需带值 | — | 查看命令行帮助提示 |
+| `-V, --version` | 无需带值 | — | 查看当前程序版本号 |
 
-### 参数枚举值速查表
+### 各参数支持的可选值
 
-| 参数 | 可选枚举值 | 枚举含义说明 |
+| 参数 | 可填写的值 | 含义说明 |
 |---|---|---|
-| `--only` / `--skip` *（按分组）* | `cpu` | 包含全部 2 项 CPU 测试：`cpu.sysbench`、`cpu.geekbench` |
+| `--only` / `--skip` *（按大类）* | `cpu` | 包含全部 2 项 CPU 测试：`cpu.sysbench`、`cpu.geekbench` |
 | | `memory` | 包含全部 4 项内存测试：`memory.sysbench`、`memory.stream`、`memory.latency`、`memory.numa` |
-| | `disk` | 包含全部 2 项磁盘测试：`disk.health`、`disk.fio` |
+| | `disk` | 包含全部 2 项硬盘测试：`disk.health`、`disk.fio` |
 | | `network` | 包含全部 2 项网络测试：`network.iperf3`、`network.trace` |
 | | `ip` | 包含全部 2 项 IP 测试：`ip.quality`、`ip.media` |
-| `--only` / `--skip` *（按单插件 ID）* | `disk.health`、`cpu.sysbench`、`memory.sysbench`、`memory.stream`、`memory.latency`、`memory.numa`、`disk.fio`、`network.iperf3`、`network.trace`、`ip.quality`、`ip.media`、`cpu.geekbench` | 按精确插件 ID 选择或排除任意单项（保持默认执行顺序） |
-| `-f, --format` | `text` | 终端对齐纯文本格式（当标准输出为交互终端时自动按列宽折行） |
-| | `markdown` *（别名 `md`）* | GitHub 风格 Markdown（多级标题、列表、数值列右对齐管道表格，并自动转义掩码 IP 中的 `\*`） |
-| | `json` | 格式化结构化 JSON（包含 `version`、`environment`、`show_ip`、`system`、`runs`、`not_applicable`、`summary`） |
-| `--trace-groups` | `services` | 仅追踪距离当前主机最近的 YouTube 与 Netflix 边缘缓存服务器 |
-| | `china` | 中国大陆三网骨干与精品网目标（北上广电信 163 / CN2、联通 169 / 9929、移动 CMNET / CMIN2） |
-| | `international` | 国际 Tier-1 骨干网运营商、Telegram 数据中心、AWS 与 GCP 目标 |
-| | `all` | 同时追踪流媒体缓存节点（`services`）以及列表内的全部国内外目标（共 73 项） |
-| `--media-groups` | `global` | 全球跨国流媒体平台（Netflix、YouTube Premium、Disney+、Prime Video、Spotify、TikTok 等） |
-| | `asia` | 亚洲区域平台（Bilibili 港澳台、巴哈姆特动画疯、Abema、U-NEXT、TVer、Viu、Coupang Play 等） |
-| | `europe` | 欧洲区域平台（BBC iPlayer、ITVX、Channel 4、Canal+、ZDF、ARTE、RAI Play 等） |
-| | `americas` | 北美与拉美区域平台（Hulu、Max、Peacock、Paramount+、Starz、Crave、Globoplay 等） |
-| | `oceania` | 大洋洲澳大利亚与新西兰平台（Stan、9Now、7plus、ABC iview、TVNZ+、ThreeNow 等） |
-| | `all` | 检测全部五大区域共 68 个平台（未指定 `--media-groups` 时的默认行为） |
-| `--countries` | `<ISO-3166-1 两位代码>` *（如 `US`、`JP`、`DE`、`SG`、`GB`）* | 仅测试 `servers/iperf3.json` 中对应国家/地区的全部公共测速节点（不区分大小写） |
-| | `all` | 测试列表中的全部可用公共 `iperf3` 节点 |
-
-### 隐私保护与退出码
-
-- **隐私保护一致性**：无论选择 `text`、`markdown` 还是 `json` 格式，只要未传入 `--show-ip`，报告中的本机公网 IPv4（如 `203.0.*.*`）、IPv6（如 `2001:db8:*`）及路由追踪中的本机跳点均会自动打码，且 `ip.quality` 中的反向解析 `hostname` 会被隐藏（JSON 中为 `null`）。
-- **退出码约定**：
-  - `0`：整轮流程正常结束（单个插件的跳过或失败记录在报告内部）；
-  - `2`：命令行参数或枚举值非法、`--output` 无法创建，或未以 `root` 身份运行；
-  - `130`：收到 `Ctrl-C` 中断信号（已完成部分的测试结果仍会完整输出到报告；连续第二次 `Ctrl-C` 立即退出）。
+| `--only` / `--skip` *（按单项）* | `disk.health`、`cpu.sysbench`、`memory.sysbench`、`memory.stream`、`memory.latency`、`memory.numa`、`disk.fio`、`network.iperf3`、`network.trace`、`ip.quality`、`ip.media`、`cpu.geekbench` | 精确指定某一个测试项目（无论怎么填，都会按固定的合理顺序依次执行） |
+| `-f, --format` | `text` | 适合直接在 SSH 终端阅读的对齐纯文本表格 |
+| | `markdown` *（或 `md`）* | GitHub 风格 Markdown 文档，复制即可直接发到支持 Markdown 的社区或工单 |
+| | `json` | 结构化 JSON 数据，适合自动化汇总、监控脚本或二次开发读取 |
+| `--trace-groups` | `services` | 只测离当前机器最近的 YouTube 和 Netflix 视频缓存节点路由 |
+| | `china` | 中国大陆三网线路（北上广电信 163 / CN2、联通 169 / 9929、移动 CMNET / CMIN2） |
+| | `international` | 海外主流国际骨干网、Telegram 数据中心以及 AWS / GCP 云节点 |
+| | `all` | 以上全部目标一起测（共 73 个目标） |
+| `--media-groups` | `global` | 全球通用平台（Netflix、YouTube Premium、Disney+、Prime Video、Spotify、TikTok 等） |
+| | `asia` | 亚洲地区平台（Bilibili 港澳台、巴哈姆特动画疯、Abema、U-NEXT、TVer、Viu 等） |
+| | `europe` | 欧洲地区平台（BBC iPlayer、ITVX、Channel 4、Canal+、ZDF、ARTE、RAI Play 等） |
+| | `americas` | 美洲地区平台（Hulu、Max、Peacock、Paramount+、Starz、Crave、Globoplay 等） |
+| | `oceania` | 大洋洲地区平台（澳大利亚与新西兰的 Stan、9Now、7plus、ABC iview、TVNZ+ 等） |
+| | `all` | 一次测完五大区域共 68 个平台（默认） |
+| `--countries` | 两位国家/地区代码 *（如 `US`、`JP`、`DE`、`SG`、`GB`）* | 只连接对应国家/地区的公共 `iperf3` 测速节点（大小写均可） |
+| | `all` | 连接节点列表里的所有可用公共 `iperf3` 服务器 |
 
 ---
 
-## 检测项一览与原理索引
+## 每个检测项都在测什么？
 
-在任何插件启动前，程序会先在 30 秒预算内只读采集 **主机画像（`[System]`）**：自动识别独立物理机 / 虚拟机 / 容器环境、CPU 微架构（含 ARM 厂商与核心代码解码）与各级缓存、内存/Swap 与容器 cgroup 配额、发行版/内核/运行时间/负载/TCP 拥塞控制算法、物理磁盘与文件系统、网卡速率及 PCIe 槽位降速告警、双栈直连可达性与公网出口地址；在独立物理机上还会额外读取 DMI/SMBIOS 内存插槽明细、ECC/EDAC 纠错计数、BMC 带外管理芯片与硬件 RAID 阵列卡（详见 [`docs/system.md`](docs/system.md)）。
+在正式跑分前，程序会先快速读取 **系统概览（`[System]`）**：帮你看清这台机器是独立服务器、KVM 虚拟机还是容器，CPU 具体型号与缓存大小、真实内存与 Swap 容量、系统内核与 TCP 拥塞算法（如 BBR）、硬盘分区、网卡速率（含 PCIe 插槽是否降速提示）以及 IPv4/IPv6 联网状态；如果是独立物理服务器，还会列出每根内存条插槽信息、ECC 内存报错统计、IPMI 带外管理与硬件 RAID 卡型号（详见 [`docs/system.md`](docs/system.md)）。
 
-| 分组 | 插件 ID | 名称 | 适用范围 | 检测内容简介 | 详细测试逻辑 |
-|---|---|---|---|---|---|
-| `disk` | `disk.health` | 磁盘健康 | 仅独立物理机 | 使用 `smartctl` 只读扫描 NVMe/SATA/SAS 硬盘并穿透 MegaRAID / 3SNIC 阵列卡，汇总健康状态、通电时间、温度、磨损度、累计写入量、坏块与链路错误（绝不记录序列号与 WWN） | [`docs/disk.md`](docs/disk.md) |
-| `cpu` | `cpu.sysbench` | CPU 基础性能 | 全平台 | 运行 `sysbench` 素数筛查（上限 `10000`，单轮 20 秒），分别测试单线程与全部可用线程速率（events/s）及多核加速比 | [`docs/cpu.md`](docs/cpu.md) |
-| `memory` | `memory.sysbench` | 内存顺序读写 | 全平台 | 在穿透末级缓存（`>= 4x LLC`）且不超过可用内存一半的缓冲区上，测量单线程与满线程顺序读、顺序写吞吐率（`MiB/s`） | [`docs/memory.md`](docs/memory.md) |
-| `memory` | `memory.stream` | 内存 STREAM | 全平台 | 从预编译的 6 档双精度数组规模中自动匹配缓存与内存预算，测量 `Copy`、`Scale`、`Add`、`Triad` 四项持续内存带宽（`MB/s`） | [`docs/memory.md`](docs/memory.md) |
-| `memory` | `memory.latency` | 缓存与主存延迟 | 全平台 | 基于 `multichase` 随机指针追逐，逐级测量 `L1d`、`L2`、`L3` 缓存命中延迟与主存随机访问延迟（`ns`） | [`docs/memory.md`](docs/memory.md) |
-| `memory` | `memory.numa` | 内存 NUMA 矩阵 | `>= 2` 个可用 NUMA 节点 | 构建“CPU 节点 × 内存节点”二维矩阵，使用 `multiload` 与 `multichase` 测量本地与跨插槽互联的带宽及访问延迟 | [`docs/memory.md`](docs/memory.md) |
-| `disk` | `disk.fio` | 磁盘读写性能 | 全平台 | 严格对齐 YABS 参数（`libaio` + `O_DIRECT`、50/50 混合随机读写），在 `4K`、`64K`、`512K`、`1M` 四档块大小下测量吞吐速度与 IOPS（自动拒绝内存盘） | [`docs/disk.md`](docs/disk.md) |
-| `network` | `network.iperf3` | 公网带宽测速 | 全平台（需联网） | 对齐 YABS 的双向 8 并发流 × 10 秒 TCP 上传/下载带宽与最小 RTT 测速（默认覆盖美西、美东、东京、法兰克福 5 大节点，支持 IPv4/IPv6 双栈） | [`docs/network.md`](docs/network.md) |
-| `network` | `network.trace` | 去程路由追踪 | 全平台（需 `CAP_NET_RAW`） | 以最小权限（`cap_net_raw+ep` + `nobody`）调用 `NextTrace` 进行 ICMP 逐跳追踪，覆盖最近的 YouTube/Netflix 边缘节点与国内外 71 个骨干网目标，并识别 Netflix IX 交换中心 | [`docs/network.md`](docs/network.md) |
-| `ip` | `ip.quality` | IP 信誉度 | 全平台（需公网 IP） | 聚合 9 个免认证情报源（ASN、RIR **原生/广播**判定、用途分类、欺诈评分、Shodan 暴露端口/漏洞、7 类风险因子投票）、25 个 DNSBL 黑名单（过滤公共 DNS 策略拒绝）及 8 大邮局 25 端口连通性 | [`docs/ip.md`](docs/ip.md) |
-| `ip` | `ip.media` | 流媒体解锁 | 全平台（需联网） | 不经代理直连探测全球五大区域（全球/亚洲/欧洲/美洲/大洋洲）共 68 个流媒体与在线平台的 IPv4/IPv6 解锁状态、解锁地区码、仅自制剧或 WAF 拦截情况 | [`docs/ip.md`](docs/ip.md) |
-| `cpu` | `cpu.geekbench` | Geekbench 7 | `glibc >= 2.35` 且有 IPv4 | 运行官方 Geekbench 7.1.0 输出单核/多核跑分与公开结果链接；低内存机型自动按缺口创建临时 Swap（上限 8 GiB）并配置 OOM 保护 | [`docs/cpu.md`](docs/cpu.md) |
+随后按顺序运行以下 12 个测试项目：
+
+| 分类 | 项目名称 (`ID`) | 适用环境 | 这项测试能帮你看出什么？ | 原理详解 |
+|---|---|---|---|---|
+| `disk` | `disk.health`<br>硬盘健康体检 | 独立物理服务器 | 读取硬盘 SMART 信息（支持穿透常见硬件 RAID 卡），查看硬盘通电时长、温度、SSD 寿命磨损、累计写入量以及有没有坏道，快速识别二手老盘或故障隐患 | [`docs/disk.md`](docs/disk.md) |
+| `cpu` | `cpu.sysbench`<br>CPU 基础算力 | 所有服务器 | 分别用单核与全部核心进行 20 秒素数运算，快速检验 CPU 单核响应速度以及多核性能有没有被宿主机限制（超售限速） | [`docs/cpu.md`](docs/cpu.md) |
+| `memory` | `memory.sysbench`<br>内存连续读写 | 所有服务器 | 测量单线程与多线程连续读写内存的速度，直观反映内存通道配置是否正常 | [`docs/memory.md`](docs/memory.md) |
+| `memory` | `memory.stream`<br>内存持续带宽 | 所有服务器 | 采用业界标准的 STREAM 测试法，测量大块数据搬运与计算时的真实内存极限带宽 | [`docs/memory.md`](docs/memory.md) |
+| `memory` | `memory.latency`<br>缓存与内存延迟 | 所有服务器 | 逐级测量 CPU 一/二/三级缓存和主内存的随机访问延迟（纳秒级），能看出虚拟化开销或跨插槽延迟问题 | [`docs/memory.md`](docs/memory.md) |
+| `memory` | `memory.numa`<br>多路内存互通 | 双路/多 NUMA 节点机器 | 在多颗 CPU 或多 NUMA 节点的机器上，测试访问“本地内存”与“另一颗 CPU 旁边的内存”之间的速度和延迟差距 | [`docs/memory.md`](docs/memory.md) |
+| `disk` | `disk.fio`<br>硬盘随机读写 | 所有服务器 | 采用与 YABS 相同的测试标准（50% 读 + 50% 写），测试 `4K`、`64K`、`512K`、`1M` 四种块大小下的真实读写速度与 IOPS，建站跑数据库重点看 `4K`，大文件吞吐看 `512K`/`1M` | [`docs/disk.md`](docs/disk.md) |
+| `network` | `network.iperf3`<br>全球带宽测速 | 所有联网机器 | 默认连接美西、美东、东京、法兰克福 5 个公共节点，用多线程同时测 IPv4 和 IPv6 的上传、下载真实带宽与延迟 | [`docs/network.md`](docs/network.md) |
+| `network` | `network.trace`<br>去程路由追踪 | 支持原始套接字的机器 | 追踪本机到 YouTube/Netflix 节点、国内三网（163/CN2/9929/CMIN2）及国际骨干网的每一跳路径，看清线路是直连还是绕路 | [`docs/network.md`](docs/network.md) |
+| `ip` | `ip.quality`<br>IP 质量与纯净度 | 有公网 IP 的机器 | 汇总 9 家风控数据库结果，判断 IP 是**原生 IP** 还是**广播 IP**、属于机房还是家宽、欺诈风险高低、历史暴露端口、是否在 25 个黑名单里，以及 25 邮件端口是否开放 | [`docs/ip.md`](docs/ip.md) |
+| `ip` | `ip.media`<br>流媒体解锁检测 | 所有联网机器 | 实测全球五大区域共 68 个流媒体与在线平台（Netflix、Disney+、YouTube、B站港澳台、巴哈姆特、Abema 等）能否正常解锁及识别到的所在地区 | [`docs/ip.md`](docs/ip.md) |
+| `cpu` | `cpu.geekbench`<br>Geekbench 7 跑分 | `glibc >= 2.35` 且有 IPv4 | 运行官方 Geekbench 7.1.0 综合基准测试，给出大家最熟悉的单核、多核跑分和官方网页报告链接 | [`docs/cpu.md`](docs/cpu.md) |
 
 ---
 
-## 从源码构建与版本发布
+## 从源码自行编译
 
-项目工具链版本固定于 [`rust-toolchain.toml`](rust-toolchain.toml)。构建静态 `musl` 二进制需安装 `musl-tools`（提供编译 `ring` 所需的 `musl-gcc`）：
+普通用户直接前往 [Releases](https://github.com/Lowendaff/lowendaff_bench/releases) 下载现成的二进制即可。如果你想自己动手编译静态版本，只需安装好 Rust 工具链和 `musl-tools`（提供 `musl-gcc`）：
 
 ```sh
 rustup target add x86_64-unknown-linux-musl
 cargo build --release --locked --target x86_64-unknown-linux-musl --bin lowendaff-bench
 ```
 
-当向仓库推送符合语义化版本且与根 `Cargo.toml` 中 `[workspace.package] version` 一致的 `v*` 标签（如 `v0.1.0`）时，GitHub Actions 发布流水线（[`.github/workflows/release.yml`](.github/workflows/release.yml)）会自动构建 `lowendaff-bench-x86_64` 与 `lowendaff-bench-aarch64` 纯静态二进制，生成 `SHA256SUMS` 并发布至 GitHub Releases。完整的本地与 CI 门禁命令请参阅英文版 [`README.md` "Gates"](README.md#gates) 及 [`CONTRIBUTING.md`](CONTRIBUTING.md)。
+编译完成后，可执行文件位于 `target/x86_64-unknown-linux-musl/release/lowendaff-bench`。参与项目开发与提交代码的说明请参阅 [`CONTRIBUTING.md`](CONTRIBUTING.md)。
 
 ---
 
-## 致谢（Acknowledgments）
+## 致谢
 
-`lowendaff-bench` 在测试方法论、指标设计与工具链构建上参考并受益于以下优秀开源项目、基准套件与开放数据平台，特此致谢：
+`lowendaff-bench` 的设计思路、测试标准与底层能力离不开以下优秀的开源项目、跑分工具与公开数据平台，向所有原作者与维护者致以诚挚感谢：
 
-- **[YABS (Yet Another Bench Script)](https://github.com/masonr/yet-another-bench-script)**：`disk.fio` 四块大小混合随机读写参数、速率/IOPS 截断格式，以及 `network.iperf3` 双向多线程测速流程的核心参考。
-- **[IPQuality (`xykt/IPQuality`)](https://github.com/xykt/IPQuality)**：`ip.quality` 多源 IP 信誉度聚合、RIR 原生/广播来源比对、风险因子投票、DNSBL 扫描与 25 端口邮局连通性体检的设计参考。
-- **[RegionRestrictionCheck (`lmc999/RegionRestrictionCheck`)](https://github.com/lmc999/RegionRestrictionCheck)** 与 **[MediaUnlockTest (`HsukqiLee/MediaUnlockTest`)](https://github.com/HsukqiLee/MediaUnlockTest)**：`ip.media` 全球各区域流媒体平台版权地域解锁检测的重要参考。
-- **[NextTrace (`nxtrace/NTrace-core`)](https://github.com/nxtrace/NTrace-core)**：为 `network.trace` 提供底层 ICMP 路由追踪引擎与跳点 ASN / 地理位置查询服务。
-- **上游基准评测工具与开放数据源**：[`sysbench`](https://github.com/akopytov/sysbench)（Alexey Kopytov）、[`STREAM`](https://www.cs.virginia.edu/stream/)（John D. McCalpin）、[`multichase`](https://github.com/google/multichase)（Google）、[`smartmontools`](https://www.smartmontools.org/)（`smartctl`）、[`fio`](https://github.com/axboe/fio)（Jens Axboe）、[`iperf3`](https://github.com/esnet/iperf)（ESnet）、[`Geekbench`](https://www.geekbench.com/)（Primate Labs）、[`iperf3serverlist.net`](https://iperf3serverlist.net/) 以及 [`PeeringDB`](https://www.peeringdb.com/)。
+- **[YABS (Yet Another Bench Script)](https://github.com/masonr/yet-another-bench-script)**：`disk.fio` 四档块大小混合随机读写参数与速率展示格式，以及 `network.iperf3` 多线程上下行测速方案的重要参考。
+- **[IPQuality (`xykt/IPQuality`)](https://github.com/xykt/IPQuality)**：`ip.quality` 多数据源交叉比对、原生/广播 IP 识别、风险标签汇总、DNSBL 黑名单检查与 25 端口邮局测试的重要参考。
+- **[RegionRestrictionCheck (`lmc999/RegionRestrictionCheck`)](https://github.com/lmc999/RegionRestrictionCheck)** 与 **[MediaUnlockTest (`HsukqiLee/MediaUnlockTest`)](https://github.com/HsukqiLee/MediaUnlockTest)**：`ip.media` 各地区流媒体解锁检测的重要参考。
+- **[NextTrace (`nxtrace/NTrace-core`)](https://github.com/nxtrace/NTrace-core)**：为 `network.trace` 提供精准轻量的路由追踪引擎与节点归属地信息。
+- **上游测试程序与公开数据源**：[`sysbench`](https://github.com/akopytov/sysbench)（Alexey Kopytov）、[`STREAM`](https://www.cs.virginia.edu/stream/)（John D. McCalpin）、[`multichase`](https://github.com/google/multichase)（Google）、[`smartmontools`](https://www.smartmontools.org/)（`smartctl`）、[`fio`](https://github.com/axboe/fio)（Jens Axboe）、[`iperf3`](https://github.com/esnet/iperf)（ESnet）、[`Geekbench`](https://www.geekbench.com/)（Primate Labs）、[`iperf3serverlist.net`](https://iperf3serverlist.net/) 以及 [`PeeringDB`](https://www.peeringdb.com/)。
