@@ -1,0 +1,72 @@
+//! Unit tests for `network.bgp`'s pure RIPEstat JSON parsers and ASN utilities.
+
+use plugin_network::bgp::RpkiStatus;
+use plugin_network::bgp::asns;
+use plugin_network::bgp::parse;
+
+#[test]
+fn bgp_state_picks_most_specific_prefix_and_collapses_prepends() {
+    let raw = include_bytes!("fixtures/bgp/bgp_state_sample.json");
+    let parsed = parse::parse_bgp_state(raw).expect("sample bgp-state parses");
+
+    assert!(parsed.announced);
+    assert_eq!(parsed.prefix.as_deref(), Some("203.0.113.0/24"));
+    assert_eq!(parsed.prefix_len, Some(24));
+    assert_eq!(parsed.origin_asn, Some(64500));
+    assert_eq!(parsed.total_peers, 5);
+    assert_eq!(parsed.distinct_paths, 5);
+
+    // Direct upstreams before AS64500: AS4809 (3 peers), AS2914 (1 peer), AS9929 (1 peer).
+    assert_eq!(parsed.upstreams[0].asn, 4809);
+    assert_eq!(parsed.upstreams[0].peers, 3);
+
+    // Prepended path [1299, 9929, 9929, 64500] collapses to [1299, 9929, 64500] in `asns` while
+    // keeping `asns_raw` intact for dashed span rendering.
+    let prepended = parsed
+        .paths
+        .iter()
+        .find(|p| p.asns == [1299, 9929, 64500])
+        .expect("prepended path present");
+    assert_eq!(prepended.asns_raw, vec![1299, 9929, 9929, 64500]);
+    assert_eq!(prepended.peers, 1);
+
+    // AS_SET `[64500]` at the end of `[2914, [64500]]` flattens cleanly.
+    assert!(parsed.paths.iter().any(|p| p.asns == [2914, 64500]));
+    assert_eq!(parsed.paths.iter().filter(|p| p.is_best).count(), 1);
+}
+
+#[test]
+fn unannounced_prefix_returns_clean_empty_state() {
+    let body = br#"{"status":"ok","data":{"resource":"198.51.100.9","bgp_state":[]}}"#;
+    let parsed = parse::parse_bgp_state(body).expect("empty bgp_state parses");
+    assert!(!parsed.announced);
+    assert_eq!(parsed.total_peers, 0);
+    assert!(parsed.paths.is_empty());
+}
+
+#[test]
+fn rpki_and_holder_parsers_cover_expected_variants() {
+    assert_eq!(
+        parse::parse_rpki(br#"{"data":{"status":"valid"}}"#),
+        Some(RpkiStatus::Valid)
+    );
+    assert_eq!(
+        parse::parse_rpki(br#"{"data":{"status":"invalid_asn"}}"#),
+        Some(RpkiStatus::Invalid)
+    );
+    assert_eq!(
+        parse::parse_rpki(br#"{"data":{"status":"unknown"}}"#),
+        Some(RpkiStatus::NotFound)
+    );
+
+    assert_eq!(
+        parse::parse_as_overview(br#"{"data":{"holder":"CLOUDFLARENET - Cloudflare, Inc."}}"#)
+            .as_deref(),
+        Some("Cloudflare")
+    );
+    assert_eq!(asns::clean_holder("HETZNER-AS, DE"), "HETZNER-AS");
+    assert_eq!(
+        asns::trunc_to_tier1(&[65001, 3356, 174, 64500]),
+        vec![3356, 174, 64500]
+    );
+}

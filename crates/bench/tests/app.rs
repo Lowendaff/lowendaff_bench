@@ -1531,6 +1531,7 @@ fn the_list_keeps_each_group_together_in_the_reports_order() {
             "disk.fio",
             "network.iperf3",
             "network.trace",
+            "network.bgp",
             "ip.quality",
             "ip.media"
         ]
@@ -1580,7 +1581,8 @@ fn the_list_keeps_each_group_together_in_the_reports_order() {
         network,
         [
             "  network.iperf3  Network speed (tools: iperf3 3.22)",
-            "  network.trace  Route tracing (tools: nexttrace 1.7.6)"
+            "  network.trace  Route tracing (tools: nexttrace 1.7.6)",
+            "  network.bgp  BGP paths"
         ]
     );
     let ip: Vec<&str> = text
@@ -1659,5 +1661,5 @@ fn the_items_that_do_not_apply_here_are_named_as_the_report_names_them() {
     let (applicable, names) = orchestrator::for_host(planned, &vm);
 
     assert_eq!(names, ["Disk health", "Memory NUMA"]);
-    assert_eq!(applicable.len(), 10, "the others run");
+    assert_eq!(applicable.len(), 11, "the others run");
 }

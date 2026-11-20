@@ -53,7 +53,7 @@ then
         "non-en catalogs may"
 fi
 
-ids='D|P|S|DK|DH|CP|ME|R|H|NW|RT|NC|MU|IQ|OR|MD|CF'
+ids='D|P|S|DK|DH|CP|ME|R|H|NW|RT|NC|MU|IQ|OR|MD|CF|BG'
 references="(*UTF)docs/design|\\x{a7}|\\b($ids)-[0-9]{2}\\b|\\(design\\b"
 if grep_found -n -I -P "$references" -- . ':(exclude,glob)**/tests/fixtures/**' \
     ':(exclude)scripts/check-docs.sh' ':(exclude)scripts/check-docs-cases.sh' >&2 \

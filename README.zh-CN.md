@@ -44,8 +44,9 @@ sudo ./lowendaff-bench
 # 3. 日常快速验机：跳过耗时较长、且会把跑分上传到官网公开页面的 Geekbench 7 和路由追踪
 sudo ./lowendaff-bench --skip cpu.geekbench,network.trace
 
-# 4. 新开 VPS 只想快速看看 IP 干不干净、能不能看 Netflix / YouTube / ChatGPT 等
+# 4. 新开 VPS 只想快速看看 IP 干不干净、能不能看流媒体，或者单独画一张本机 BGP 上游拓扑图
 sudo ./lowendaff-bench --only ip
+sudo ./lowendaff-bench --only network.bgp
 
 # 5. 只挑自己关心的几个单项组合测试（分类名和具体项目名可以自由混搭）
 sudo ./lowendaff-bench --only cpu.sysbench,memory.stream,disk.fio
@@ -105,9 +106,9 @@ sudo ALL_PROXY=socks5h://127.0.0.1:1080 ./lowendaff-bench --download-connections
 | `--only` / `--skip` *（按大类）* | `cpu` | 包含全部 2 项 CPU 测试：`cpu.sysbench`、`cpu.geekbench` |
 | | `memory` | 包含全部 4 项内存测试：`memory.sysbench`、`memory.stream`、`memory.latency`、`memory.numa` |
 | | `disk` | 包含全部 2 项硬盘测试：`disk.health`、`disk.fio` |
-| | `network` | 包含全部 2 项网络测试：`network.iperf3`、`network.trace` |
+| | `network` | 包含全部 3 项网络测试：`network.iperf3`、`network.trace`、`network.bgp` |
 | | `ip` | 包含全部 2 项 IP 测试：`ip.quality`、`ip.media` |
-| `--only` / `--skip` *（按单项）* | `disk.health`、`cpu.sysbench`、`memory.sysbench`、`memory.stream`、`memory.latency`、`memory.numa`、`disk.fio`、`network.iperf3`、`network.trace`、`ip.quality`、`ip.media`、`cpu.geekbench` | 精确指定某一个测试项目（无论怎么填，都会按固定的合理顺序依次执行） |
+| `--only` / `--skip` *（按单项）* | `disk.health`、`cpu.sysbench`、`memory.sysbench`、`memory.stream`、`memory.latency`、`memory.numa`、`disk.fio`、`network.iperf3`、`network.trace`、`network.bgp`、`ip.quality`、`ip.media`、`cpu.geekbench` | 精确指定某一个测试项目（无论怎么填，都会按固定的合理顺序依次执行） |
 | `-f, --format` | `text` | 适合直接在 SSH 终端阅读的对齐纯文本表格 |
 | | `markdown` *（或 `md`）* | GitHub 风格 Markdown 文档，复制即可直接发到支持 Markdown 的社区或工单 |
 | | `json` | 结构化 JSON 数据，适合自动化汇总、监控脚本或二次开发读取 |
@@ -130,7 +131,7 @@ sudo ALL_PROXY=socks5h://127.0.0.1:1080 ./lowendaff-bench --download-connections
 
 在正式跑分前，程序会先快速读取 **系统概览（`[System]`）**：帮你看清这台机器是独立服务器、KVM 虚拟机还是容器，CPU 具体型号与缓存大小、真实内存与 Swap 容量、系统内核与 TCP 拥塞算法（如 BBR）、硬盘分区、网卡速率（含 PCIe 插槽是否降速提示）以及 IPv4/IPv6 联网状态；如果是独立物理服务器，还会列出每根内存条插槽信息、ECC 内存报错统计、IPMI 带外管理与硬件 RAID 卡型号（详见 [`docs/system.md`](docs/system.md)）。
 
-随后按顺序运行以下 12 个测试项目：
+随后按顺序运行以下 13 个测试项目：
 
 | 分类 | 项目名称 (`ID`) | 适用环境 | 这项测试能帮你看出什么？ | 原理详解 |
 |---|---|---|---|---|
@@ -143,6 +144,7 @@ sudo ALL_PROXY=socks5h://127.0.0.1:1080 ./lowendaff-bench --download-connections
 | `disk` | `disk.fio`<br>硬盘随机读写 | 所有服务器 | 采用与 YABS 相同的测试标准（50% 读 + 50% 写），测试 `4K`、`64K`、`512K`、`1M` 四种块大小下的真实读写速度与 IOPS，建站跑数据库重点看 `4K`，大文件吞吐看 `512K`/`1M` | [`docs/disk.md`](docs/disk.md) |
 | `network` | `network.iperf3`<br>全球带宽测速 | 所有联网机器 | 默认连接美西、美东、东京、法兰克福 5 个公共节点，用多线程同时测 IPv4 和 IPv6 的上传、下载真实带宽与延迟 | [`docs/network.md`](docs/network.md) |
 | `network` | `network.trace`<br>去程路由追踪 | 支持原始套接字的机器 | 追踪本机到 YouTube/Netflix 节点、国内三网（163/CN2/9929/CMIN2）及国际骨干网的每一跳路径，看清线路是直连还是绕路 | [`docs/network.md`](docs/network.md) |
+| `network` | `network.bgp`<br>BGP 上游拓扑图 | 有公网 IP 的机器 | 查询本机 IP 所在网段的 BGP 宣告前缀、RPKI 签名状态与直连上游占比，并在终端直接绘制自治域拓扑图（Markdown 模式自动生成 Mermaid 矢量图，JSON 模式内置独立 SVG 源码） | [`docs/network.md`](docs/network.md) |
 | `ip` | `ip.quality`<br>IP 质量与纯净度 | 有公网 IP 的机器 | 汇总 9 家风控数据库结果，判断 IP 是**原生 IP** 还是**广播 IP**、属于机房还是家宽、欺诈风险高低、历史暴露端口、是否在 25 个黑名单里，以及 25 邮件端口是否开放 | [`docs/ip.md`](docs/ip.md) |
 | `ip` | `ip.media`<br>流媒体解锁检测 | 所有联网机器 | 实测全球五大区域共 68 个流媒体与在线平台（Netflix、Disney+、YouTube、B站港澳台、巴哈姆特、Abema 等）能否正常解锁及识别到的所在地区 | [`docs/ip.md`](docs/ip.md) |
 | `cpu` | `cpu.geekbench`<br>Geekbench 7 跑分 | `glibc >= 2.35` 且有 IPv4 | 运行官方 Geekbench 7.1.0 综合基准测试，给出大家最熟悉的单核、多核跑分和官方网页报告链接 | [`docs/cpu.md`](docs/cpu.md) |
@@ -170,4 +172,5 @@ cargo build --release --locked --target x86_64-unknown-linux-musl --bin lowendaf
 - **[IPQuality (`xykt/IPQuality`)](https://github.com/xykt/IPQuality)**：`ip.quality` 多数据源交叉比对、原生/广播 IP 识别、风险标签汇总、DNSBL 黑名单检查与 25 端口邮局测试的重要参考。
 - **[RegionRestrictionCheck (`lmc999/RegionRestrictionCheck`)](https://github.com/lmc999/RegionRestrictionCheck)** 与 **[MediaUnlockTest (`HsukqiLee/MediaUnlockTest`)](https://github.com/HsukqiLee/MediaUnlockTest)**：`ip.media` 各地区流媒体解锁检测的重要参考。
 - **[NextTrace (`nxtrace/NTrace-core`)](https://github.com/nxtrace/NTrace-core)**：为 `network.trace` 提供精准轻量的路由追踪引擎与节点归属地信息。
-- **上游测试程序与公开数据源**：[`sysbench`](https://github.com/akopytov/sysbench)（Alexey Kopytov）、[`STREAM`](https://www.cs.virginia.edu/stream/)（John D. McCalpin）、[`multichase`](https://github.com/google/multichase)（Google）、[`smartmontools`](https://www.smartmontools.org/)（`smartctl`）、[`fio`](https://github.com/axboe/fio)（Jens Axboe）、[`iperf3`](https://github.com/esnet/iperf)（ESnet）、[`Geekbench`](https://www.geekbench.com/)（Primate Labs）、[`iperf3serverlist.net`](https://iperf3serverlist.net/) 以及 [`PeeringDB`](https://www.peeringdb.com/)。
+- **[peer.as (`Archeb/peer.as`)](https://github.com/Archeb/peer.as)**：`network.bgp` 自治域路径分层无交叉布局算法、Tier-1 截断、Prepend 折叠与 SVG 拓扑图绘制的重要参考。
+- **上游测试程序与公开数据源**：[`sysbench`](https://github.com/akopytov/sysbench)（Alexey Kopytov）、[`STREAM`](https://www.cs.virginia.edu/stream/)（John D. McCalpin）、[`multichase`](https://github.com/google/multichase)（Google）、[`smartmontools`](https://www.smartmontools.org/)（`smartctl`）、[`fio`](https://github.com/axboe/fio)（Jens Axboe）、[`iperf3`](https://github.com/esnet/iperf)（ESnet）、[`Geekbench`](https://www.geekbench.com/)（Primate Labs）、[`RIPEstat`](https://stat.ripe.net/)（RIPE NCC）、[`iperf3serverlist.net`](https://iperf3serverlist.net/) 以及 [`PeeringDB`](https://www.peeringdb.com/)。

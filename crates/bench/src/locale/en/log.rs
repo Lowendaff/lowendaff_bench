@@ -78,6 +78,7 @@ impl LogWords for English {
             Step::IpQuality { stage, ipv6 } => {
                 format!("checking {} for {}", self.ip_stage(stage), family(ipv6))
             }
+            Step::Bgp { ipv6 } => format!("querying BGP routes for {}", family(ipv6)),
         };
         format!("{id} {step}")
     }

@@ -35,17 +35,18 @@ sudo ./lowendaff-bench-x86_64
 以下はバイナリ名を `lowendaff-bench` にした場合の実用例です。
 
 ```sh
-# 1. 利用できる全 12 項目のテスト一覧を確認する（root 権限不要）
+# 1. 利用できる全 13 項目のテスト一覧を確認する（root 権限不要）
 ./lowendaff-bench --list
 
-# 2. すべての項目をまとめて測定する（CPU・メモリ・ディスク・回線速度・経路・IP 品質・配信判定）
+# 2. すべての項目をまとめて測定する（CPU・メモリ・ディスク・回線速度・経路・BGP・IP 品質・配信判定）
 sudo ./lowendaff-bench
 
 # 3. 手早くチェックする：時間がかかりスコアが公開される Geekbench 7 と経路追跡をスキップ
 sudo ./lowendaff-bench --skip cpu.geekbench,network.trace
 
-# 4. 契約直後の VPS で IP の評判と動画配信サービスの視聴可否だけを確認する
+# 4. 契約直後の VPS で IP の評判・動画配信判定、または BGP 上流トポロジー図だけを確認する
 sudo ./lowendaff-bench --only ip
+sudo ./lowendaff-bench --only network.bgp
 
 # 5. 気になる項目だけを選んで実行する（カテゴリ名と個別 ID は自由に組み合わせ可能）
 sudo ./lowendaff-bench --only cpu.sysbench,memory.stream,disk.fio
@@ -105,9 +106,9 @@ sudo ALL_PROXY=socks5h://127.0.0.1:1080 ./lowendaff-bench --download-connections
 | `--only` / `--skip` *（カテゴリ）* | `cpu` | CPU テスト 2 項目：`cpu.sysbench`、`cpu.geekbench` |
 | | `memory` | メモリテスト 4 項目：`memory.sysbench`、`memory.stream`、`memory.latency`、`memory.numa` |
 | | `disk` | ディスクテスト 2 項目：`disk.health`、`disk.fio` |
-| | `network` | ネットワークテスト 2 項目：`network.iperf3`、`network.trace` |
+| | `network` | ネットワークテスト 3 項目：`network.iperf3`、`network.trace`、`network.bgp` |
 | | `ip` | IP テスト 2 項目：`ip.quality`、`ip.media` |
-| `--only` / `--skip` *（個別 ID）* | `disk.health`, `cpu.sysbench`, `memory.sysbench`, `memory.stream`, `memory.latency`, `memory.numa`, `disk.fio`, `network.iperf3`, `network.trace`, `ip.quality`, `ip.media`, `cpu.geekbench` | 個別のテスト項目をピンポイントで選択・除外します |
+| `--only` / `--skip` *（個別 ID）* | `disk.health`, `cpu.sysbench`, `memory.sysbench`, `memory.stream`, `memory.latency`, `memory.numa`, `disk.fio`, `network.iperf3`, `network.trace`, `network.bgp`, `ip.quality`, `ip.media`, `cpu.geekbench` | 個別のテスト項目をピンポイントで選択・除外します |
 | `-f, --format` | `text` | ターミナルで読みやすい整形済みテキスト表 |
 | | `markdown` *（または `md`）* | ブログ・GitHub・掲示板にそのまま貼り付けられる Markdown 形式 |
 | | `json` | スクリプトでの自動集計や保存に便利な JSON 形式 |
@@ -130,7 +131,7 @@ sudo ALL_PROXY=socks5h://127.0.0.1:1080 ./lowendaff-bench --download-connections
 
 テスト開始前に、まずサーバーの基本構成である **システム概要（`[System]`）** を自動で読み取ります。物理サーバー・VM・コンテナの判別、CPU 型番とキャッシュ容量、メモリと Swap、OS・カーネル・稼働時間・TCP 輻輳制御（BBR など）、ディスク構成、NIC リンク速度（PCIe 帯域低下の警告付き）、IPv4/IPv6 の疎通状況を確認でき、物理サーバーではメモリスロット情報、ECC エラー数、IPMI/BMC、ハードウェア RAID カードも一覧表示します（詳細：[`docs/system.md`](docs/system.md)）。
 
-続いて、以下の最大 12 項目を順番に測定します。
+続いて、以下の最大 13 項目を順番に測定します。
 
 | カテゴリ | 項目 ID・名前 | 対象環境 | このテストでわかること | 詳細解説 |
 |---|---|---|---|---|
@@ -143,6 +144,7 @@ sudo ALL_PROXY=socks5h://127.0.0.1:1080 ./lowendaff-bench --download-connections
 | `disk` | `disk.fio`<br>ディスク読み書き速度 | 全サーバー | YABS 互換条件（ランダム読込 50% / 書込 50%）で `4K`・`64K`・`512K`・`1M` の速度と IOPS を測定します。DB 用途は `4K`、大容量転送は `512K`/`1M` が目安になります | [`docs/disk.md`](docs/disk.md) |
 | `network` | `network.iperf3`<br>グローバル回線速度 | 通信可能な環境 | 既定でロサンゼルス・ニューヨーク・バージニア・東京・フランクフルトの公開サーバーと接続し、IPv4 / IPv6 の上り・下り速度と遅延を測定します | [`docs/network.md`](docs/network.md) |
 | `network` | `network.trace`<br>ネットワーク経路追跡 | Raw ソケット対応環境 | YouTube / Netflix キャッシュや中国主要キャリア、海外バックボーンまでの経路を一跳びずつ追跡し、直通か迂回ルートかを可視化します | [`docs/network.md`](docs/network.md) |
+| `network` | `network.bgp`<br>BGP 経路トポロジー | グローバル IP 保有機 | 世界の BGP 収集拠点から広告プレフィックス・RPKI 状態・直接の上流キャリアを取得し、端末上での図示、Markdown での Mermaid 図、JSON でのスタンドアロン SVG コード出力を行います | [`docs/network.md`](docs/network.md) |
 | `ip` | `ip.quality`<br>IP 品質・リスク診断 | グローバル IP 保有機 | 9 つの評価データベースを照合し、**ネイティブ IP / ブロードキャスト IP** の判別、データセンター / 家庭用回線の区分、不正リスク、公開ポート、25 種のブラックリスト、25 番メールポートの疎通を診断します | [`docs/ip.md`](docs/ip.md) |
 | `ip` | `ip.media`<br>動画配信サービス判定 | 通信可能な環境 | 世界 5 地域・計 68 の動画配信・オンラインサービス（Netflix、Disney+、YouTube、Abema、U-NEXT、TVer など）にどこまで対応しているかと判定地域を表示します | [`docs/ip.md`](docs/ip.md) |
 | `cpu` | `cpu.geekbench`<br>Geekbench 7 スコア | `glibc >= 2.35` + IPv4 | 公式の Geekbench 7.1.0 を実行し、他機種と比較しやすいシングル / マルチコアスコアと結果ページの URL を出力します | [`docs/cpu.md`](docs/cpu.md) |
@@ -170,4 +172,5 @@ cargo build --release --locked --target x86_64-unknown-linux-musl --bin lowendaf
 - **[IPQuality (`xykt/IPQuality`)](https://github.com/xykt/IPQuality)**：`ip.quality` の複数ソース照合、ネイティブ / ブロードキャスト IP 判定、DNSBL 照会、25 番ポートメール疎通チェックの参考。
 - **[RegionRestrictionCheck (`lmc999/RegionRestrictionCheck`)](https://github.com/lmc999/RegionRestrictionCheck)** および **[MediaUnlockTest (`HsukqiLee/MediaUnlockTest`)](https://github.com/HsukqiLee/MediaUnlockTest)**：`ip.media` の地域別動画配信サービス判定の参考。
 - **[NextTrace (`nxtrace/NTrace-core`)](https://github.com/nxtrace/NTrace-core)**：`network.trace` で使用する高速な ICMP 経路追跡エンジンおよび位置情報サービス。
-- **上流ベンチマークツール・公開データソース**：[`sysbench`](https://github.com/akopytov/sysbench)（Alexey Kopytov）、[`STREAM`](https://www.cs.virginia.edu/stream/)（John D. McCalpin）、[`multichase`](https://github.com/google/multichase)（Google）、[`smartmontools`](https://www.smartmontools.org/)（`smartctl`）、[`fio`](https://github.com/axboe/fio)（Jens Axboe）、[`iperf3`](https://github.com/esnet/iperf)（ESnet）、[`Geekbench`](https://www.geekbench.com/)（Primate Labs）、[`iperf3serverlist.net`](https://iperf3serverlist.net/)、[`PeeringDB`](https://www.peeringdb.com/)。
+- **[peer.as (`Archeb/peer.as`)](https://github.com/Archeb/peer.as)**：`network.bgp` における AS パスの階層レイアウト・Tier-1 切り詰め・Prepend 折りたたみおよび SVG 描画の参考。
+- **上流ベンチマークツール・公開データソース**：[`sysbench`](https://github.com/akopytov/sysbench)（Alexey Kopytov）、[`STREAM`](https://www.cs.virginia.edu/stream/)（John D. McCalpin）、[`multichase`](https://github.com/google/multichase)（Google）、[`smartmontools`](https://www.smartmontools.org/)（`smartctl`）、[`fio`](https://github.com/axboe/fio)（Jens Axboe）、[`iperf3`](https://github.com/esnet/iperf)（ESnet）、[`Geekbench`](https://www.geekbench.com/)（Primate Labs）、[`RIPEstat`](https://stat.ripe.net/)（RIPE NCC）、[`iperf3serverlist.net`](https://iperf3serverlist.net/)、[`PeeringDB`](https://www.peeringdb.com/)。

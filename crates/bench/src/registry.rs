@@ -42,7 +42,10 @@ pub fn all() -> Vec<Entry> {
         // Route tracing: after network speed, so that its probes do not share the link with
         // iperf3's streams, and before Geekbench.
         entry::<plugin_network::trace::Trace>(Measured::NetworkTrace),
-        // IP reputation: lightweight intelligence, DNSBL and port-25 probes, after route tracing
+        // BGP paths: lightweight RIPEstat route-state and RPKI queries for the host's public
+        // prefixes, right after route tracing inside the Network chapter.
+        entry::<plugin_network::bgp::Bgp>(Measured::NetworkBgp),
+        // IP reputation: lightweight intelligence, DNSBL and port-25 probes, after network checks
         // and before streaming media unlock and Geekbench.
         entry::<plugin_ip::quality::Quality>(Measured::IpQuality),
         // Media unlock: lightweight direct HTTPS probes across global and regional OTT platforms,
@@ -243,6 +246,7 @@ mod tests {
                 "disk.fio",
                 "network.iperf3",
                 "network.trace",
+                "network.bgp",
                 "ip.quality",
                 "ip.media",
                 "cpu.geekbench",

@@ -22,6 +22,8 @@ pub use host::HostLabel;
 pub use host::HostWords;
 pub use host::NoEcc;
 pub use host::NoModules;
+pub use items::BgpField;
+pub use items::BgpWords;
 pub use items::CpuWords;
 pub use items::DiskWords;
 pub use items::FioRow;
@@ -63,6 +65,7 @@ pub trait Words:
     + DiskWords
     + NetworkWords
     + TraceWords
+    + BgpWords
     + IpWords
     + MediaWords
     + Sync
@@ -80,6 +83,7 @@ impl<T> Words for T where
         + DiskWords
         + NetworkWords
         + TraceWords
+        + BgpWords
         + IpWords
         + MediaWords
         + Sync

@@ -1,0 +1,173 @@
+//! End-to-end measurement tests for `network.bgp` using a mock `HttpClient`: dual-stack route
+//! collection, IPv6-to-IPv4 API transport fallback, RPKI and `as-overview` enrichment, and skip
+//! preconditions.
+
+use std::collections::BTreeMap;
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::Duration;
+
+use bench_api::CancellationToken;
+use bench_api::Context;
+use bench_api::HttpClient;
+use bench_api::HttpError;
+use bench_api::HttpFuture;
+use bench_api::HttpRequest;
+use bench_api::HttpResponse;
+use bench_api::IpFamily;
+use bench_api::Net;
+use bench_api::Plugin;
+use bench_api::Stop;
+use bench_host::network::Address;
+use bench_host::network::Family;
+use bench_host::network::Network;
+use bench_host::network::Reach;
+use bench_host::profile::HostProfile;
+use plugin_network::bgp;
+use plugin_network::bgp::Bgp;
+use plugin_network::bgp::Failure;
+use plugin_network::bgp::Output;
+use plugin_network::bgp::RpkiStatus;
+use tokio::time::Instant;
+
+struct MockRipeHttp;
+
+impl HttpClient for MockRipeHttp {
+    fn send<'a>(&'a self, req: &'a HttpRequest) -> HttpFuture<'a> {
+        Box::pin(async move {
+            // Simulate IPv6 transport lacking AAAA so `network.bgp` falls back to IPv4 transport.
+            if req.family == IpFamily::Ipv6 {
+                return Err(HttpError::NoAddress);
+            }
+            let body = if req.url.contains("/bgp-state/") {
+                if req.url.contains("2001:db8::9") {
+                    concat!(
+                        r#"{"status":"ok","data":{"resource":"2001:db8::/48","bgp_state":["#,
+                        r#"{"target_prefix":"2001:db8::/48","path":[6939,64501]}, "#,
+                        r#"{"target_prefix":"2001:db8::/48","path":[1299,64501]}"#,
+                        r#"]}}"#
+                    )
+                    .to_owned()
+                } else {
+                    include_str!("fixtures/bgp/bgp_state_sample.json").to_owned()
+                }
+            } else if req.url.contains("/rpki-validation/") {
+                if req.url.contains("2001:db8::/48") {
+                    r#"{"data":{"status":"unknown"}}"#.to_owned()
+                } else {
+                    r#"{"data":{"status":"valid"}}"#.to_owned()
+                }
+            } else if req.url.contains("/as-overview/") {
+                if req.url.contains("AS64500") {
+                    r#"{"data":{"holder":"EX-NET - Example Cloud, LLC"}}"#.to_owned()
+                } else {
+                    r#"{"data":{"holder":"EX6-NET - Example IPv6 Host, Inc."}}"#.to_owned()
+                }
+            } else {
+                return Ok(HttpResponse {
+                    status: 404,
+                    final_url: req.url.clone(),
+                    headers: Vec::new(),
+                    body: b"{}".to_vec(),
+                });
+            };
+            Ok(HttpResponse {
+                status: 200,
+                final_url: req.url.clone(),
+                headers: Vec::new(),
+                body: body.into_bytes(),
+            })
+        })
+    }
+}
+
+fn host_with_network(network: Network) -> HostProfile {
+    HostProfile {
+        network,
+        ..HostProfile::default()
+    }
+}
+
+fn make_ctx(host: HostProfile, http: Arc<dyn HttpClient>) -> Context<Output> {
+    let (ctx, _channels) = Context::new(
+        Arc::new(host),
+        Arc::new(BTreeMap::new()),
+        Arc::new(BTreeMap::new()),
+        Instant::now() + Duration::from_secs(30),
+        PathBuf::from("."),
+        CancellationToken::new(),
+    );
+    ctx.with_http(http)
+}
+
+#[tokio::test]
+async fn descriptor_and_base_url_validation_follow_contract() {
+    assert_eq!(Bgp::DESCRIPTOR.id, "network.bgp");
+    assert_eq!(Bgp::DESCRIPTOR.requires.net, Net::Any);
+    assert!(Bgp::DESCRIPTOR.requires.tools.is_empty());
+
+    assert_eq!(
+        bgp::validate_base_url("http://127.0.0.1:18083/"),
+        Ok("http://127.0.0.1:18083".to_owned())
+    );
+    assert!(bgp::validate_base_url("http://example.com/api").is_err());
+}
+
+#[tokio::test]
+async fn measures_dual_stack_bgp_with_ipv6_transport_fallback_and_holder_lookup() {
+    let net = Network {
+        ipv4: Family {
+            targets: vec![("1.1.1.1:443".parse().unwrap(), Reach::Connected)],
+            address: Address::Found {
+                address: "203.0.113.7".parse().unwrap(),
+                source: "Cloudflare",
+            },
+        },
+        ipv6: Family {
+            targets: vec![(
+                "[2606:4700:4700::1111]:443".parse().unwrap(),
+                Reach::Connected,
+            )],
+            address: Address::Found {
+                address: "2001:db8::9".parse().unwrap(),
+                source: "Cloudflare",
+            },
+        },
+    };
+    let ctx = make_ctx(host_with_network(net), Arc::new(MockRipeHttp));
+    let plugin = Bgp {
+        base_url: Some("http://127.0.0.1:18083".to_owned()),
+    };
+
+    let out = plugin.run(&ctx).await.expect("dual-stack BGP succeeds");
+    assert!(out.settings.custom_endpoints);
+
+    let v4 = out.ipv4.expect("ipv4 report");
+    assert!(v4.announced);
+    assert_eq!(v4.prefix.as_deref(), Some("203.0.113.0/24"));
+    assert_eq!(v4.origin_asn, Some(64500));
+    assert_eq!(v4.rpki, RpkiStatus::Valid);
+    assert_eq!(
+        v4.asn_names.get(&64500).map(String::as_str),
+        Some("Example Cloud")
+    );
+    assert_eq!(v4.asn_names.get(&3356).map(String::as_str), Some("Lumen"));
+
+    let v6 = out.ipv6.expect("ipv6 report via fallback");
+    assert!(v6.announced);
+    assert_eq!(v6.prefix.as_deref(), Some("2001:db8::/48"));
+    assert_eq!(v6.origin_asn, Some(64501));
+    assert_eq!(v6.rpki, RpkiStatus::NotFound);
+    assert_eq!(
+        v6.asn_names.get(&64501).map(String::as_str),
+        Some("Example IPv6 Host")
+    );
+}
+
+#[tokio::test]
+async fn skips_when_offline_or_without_public_ip() {
+    let offline = Network::default();
+    let ctx = make_ctx(host_with_network(offline), Arc::new(MockRipeHttp));
+    let res = Bgp::default().run(&ctx).await;
+    assert_eq!(res, Err(Stop::Skipped(Failure::NoFamily)));
+}

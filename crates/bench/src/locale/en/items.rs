@@ -4,6 +4,8 @@ use std::path::Path;
 
 use super::English;
 use super::count;
+use crate::locale::BgpField;
+use crate::locale::BgpWords;
 use crate::locale::CpuWords;
 use crate::locale::DiskWords;
 use crate::locale::FioRow;
@@ -1066,5 +1068,99 @@ impl IpWords for English {
         format!(
             "endpoint override must be https:// or a loopback address (127.0.0.1 / [::1]): {raw}"
         )
+    }
+}
+
+impl BgpWords for English {
+    fn bgp_method(&self, custom_endpoints: bool) -> String {
+        let mut line =
+            "Direct RIPEstat RIS lookup (no proxy): BGP route state, RPKI and AS-path topology"
+                .to_owned();
+        if custom_endpoints {
+            line.push_str("; custom endpoints");
+        }
+        line
+    }
+
+    fn bgp_summary_title(&self) -> &'static str {
+        "Summary"
+    }
+
+    fn bgp_summary_headers(&self) -> [&'static str; 3] {
+        ["Field", "IPv4", "IPv6"]
+    }
+
+    fn bgp_field(&self, field: BgpField) -> &'static str {
+        match field {
+            BgpField::Address => "Address",
+            BgpField::Prefix => "Announced prefix",
+            BgpField::OriginAsn => "Origin ASN",
+            BgpField::Rpki => "RPKI status",
+            BgpField::Visibility => "RIS visibility",
+            BgpField::Upstreams => "Direct upstreams",
+        }
+    }
+
+    fn bgp_not_announced(&self) -> &'static str {
+        "not announced"
+    }
+
+    fn bgp_origin_cell(&self, asn: u32, name: Option<&str>, total_origins: usize) -> String {
+        let mut cell = match name.filter(|s| !s.is_empty()) {
+            Some(label) => format!("AS{asn} ({label})"),
+            None => format!("AS{asn}"),
+        };
+        if total_origins > 1 {
+            cell.push_str(&format!(" (+{} MOAS)", total_origins - 1));
+        }
+        cell
+    }
+
+    fn bgp_rpki_cell(&self, code: &str) -> &'static str {
+        match code {
+            "valid" => "valid",
+            "invalid" => "invalid",
+            "not_found" => "not found (no ROA)",
+            _ => "unknown",
+        }
+    }
+
+    fn bgp_visibility_cell(&self, peers: u32, distinct_paths: usize) -> String {
+        let peers_text = count(peers as usize, "peer", "peers");
+        let paths_text = count(distinct_paths, "distinct path", "distinct paths");
+        format!("{peers_text}, {paths_text}")
+    }
+
+    fn bgp_direct_peering(&self) -> &'static str {
+        "direct collector peering"
+    }
+
+    fn bgp_topology_title(&self, ipv6: bool) -> &'static str {
+        if ipv6 {
+            "IPv6 topology"
+        } else {
+            "IPv4 topology"
+        }
+    }
+
+    fn bgp_paths_title(&self, ipv6: bool) -> &'static str {
+        if ipv6 {
+            "IPv6 observed paths"
+        } else {
+            "IPv4 observed paths"
+        }
+    }
+
+    fn bgp_paths_headers(&self) -> [&'static str; 3] {
+        ["Peers", "Hops", "AS_PATH"]
+    }
+
+    fn bgp_family_failed(&self, ipv6: bool, reason: &str) -> String {
+        let fam = if ipv6 { "IPv6" } else { "IPv4" };
+        format!("{fam} BGP lookup failed: {reason}")
+    }
+
+    fn bgp_query_failed(&self, reason: &str) -> String {
+        format!("BGP route-state lookup failed: {reason}")
     }
 }

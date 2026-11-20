@@ -1,8 +1,8 @@
-# 网络吞吐与路由追踪（`network.iperf3`、`network.trace`）
+# 网络吞吐、路由追踪与 BGP 拓扑（`network.iperf3`、`network.trace`、`network.bgp`）
 
 [返回文档目录](README.md) | [简体中文首页](../README.zh-CN.md)
 
-网络章节包含两项测试：**`network.iperf3`** 测量本机与全球公网节点之间的双向多线程 TCP 吞吐带宽及往返延迟；**`network.trace`** 执行逐跳 ICMP 路由追踪，识别去程骨干网线路、运营商 AS（如 163 / CN2 / 9929 / CMIN2）、流媒体边缘缓存服务器与互联网交换中心（IX）。
+网络章节包含三项测试：**`network.iperf3`** 测量本机与全球公网节点之间的双向多线程 TCP 吞吐带宽及往返延迟；**`network.trace`** 执行逐跳 ICMP 路由追踪，识别去程骨干网线路、运营商 AS（如 163 / CN2 / 9929 / CMIN2）、流媒体边缘缓存服务器与互联网交换中心（IX）；**`network.bgp`** 通过全球全表采集点查询本机公网前缀的控制面 BGP `AS_PATH` 传播路径、直连上游占比与 RPKI 路由签名状态，并直接绘制自治域拓扑图。
 
 ---
 
@@ -72,4 +72,39 @@ sudo ./lowendaff-bench --only network.iperf3 --countries all
 ```sh
 # 仅追踪流媒体边缘缓存节点与中国大陆三网目标
 sudo ./lowendaff-bench --only network.trace --trace-groups services,china
+```
+
+---
+
+## 3. BGP 自治域路径拓扑：`network.bgp`
+
+| 属性 | 说明 |
+|---|---|
+| 插件 ID | `network.bgp`（所属分组：`network`） |
+| 适用平台 | 全平台（需具备公网 IPv4 或 IPv6 地址） |
+| 数据来源 | RIPE NCC 公开免认证接口 RIPEstat Data API（`bgp-state`、`rpki-validation`、`as-overview`） |
+| 超时上限 | `2 分钟` |
+
+### 测试与绘图逻辑
+1. **全球全表采集点路由聚合（`bgp-state`）**：
+   - 针对本机公网 IPv4 与 IPv6 地址直连请求 RIPEstat `bgp-state`，汇总全球数十个 RIPE RIS（`rrc00..rrc26`）全表采集点对端观测到的真实路由表。
+   - 若同一地址同时被大段超网与更具体子网覆盖，自动选取**掩码最长（最具体）**的宣告前缀统计其 Origin ASN（支持识别多源宣告 MOAS）、直连上游占比（紧邻 Origin 前一跳的自治域）与全部去重 `AS_PATH`。
+2. **RPKI 路由起源签名校验与 ASN 简称补齐**：
+   - 调用 `rpki-validation` 验证 `(Origin ASN, 宣告前缀)` 是否具备合法的 ROA 签名（区分 `valid`、`invalid`、`not found`）；
+   - 内置 23 个全球 Tier-1 骨干网（如 `3356` Lumen、`1299` Arelion、`174` Cogent、`2914` NTT 等）与常见国内外运营商简称表，并对图中其余未知 ASN 并发查询 `as-overview` 提取机构简称。
+3. **对齐 `peer.as` 的两阶段无交叉布局算法**：
+   - **Tier-1 截断与 Prepend 折叠**：优先筛选经过 Tier-1 骨干网的路径并在外侧首跳 Tier-1 处截断收集器边缘节点；连续重复的同一 ASN（AS-PATH Prepend）折叠为单框，跨列连线以虚线及 `×N` 标注；
+   - **主干居中树序 DFS + 稀疏列优先整行量化**：以第 `0` 列（`origin`）为起点向右展开上游树，将子树规模最大的主干排在纵向中心、细碎分支分列上下两侧，再按列节点密度由稀到密分配整数行号并预留跨列通道，确保连线清晰无杂乱交叉。
+4. **三种报告格式的拓扑图输出**：
+   - **`text` 终端模式**：在二维 Unicode 字符画布上绘制圆角节点框（`╭─╮│╰─╯`）与正交连线（主路径双线 `═▸`、普通路径细线 `─▸`、Prepend 跨列 `┄×N▸`）；若终端窗口过窄装不下多列方框，自动降级为缩进树状分支图防止折行错位；
+   - **`markdown` 模式**：输出原生 ```` ```mermaid ````（`flowchart LR`）代码块，在 GitHub、GitLab、Obsidian 等平台无需外部图片文件即可直接渲染为矢量图；
+   - **`json` 模式**：在 `ipv4.svg` / `ipv6.svg` 字段中直接内嵌完整自包含的三次贝塞尔曲线 `<svg>` 矢量图源码（内联配色与样式，可直接保存为 `.svg` 查看）。
+   - **默认隐私脱敏**：未传入 `--show-ip` 时，宣告前缀自动打码保留掩码长度（如 `203.0.*.*/24`、`2001:db8:*/48`），拓扑图内部不携带原始 IP。
+
+```sh
+# 单独查看本机 BGP 路由拓扑图（终端直接画图）
+sudo ./lowendaff-bench --only network.bgp
+
+# 导出包含独立 SVG 源码的 JSON 文件
+sudo ./lowendaff-bench --only network.bgp -f json -o bgp.json
 ```

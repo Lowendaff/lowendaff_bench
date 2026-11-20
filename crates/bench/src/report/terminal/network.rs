@@ -6,6 +6,11 @@ use std::net::IpAddr;
 
 use bench_tool::NEXTTRACE;
 use bench_tool::job;
+use plugin_network::bgp;
+use plugin_network::bgp::BgpPath;
+use plugin_network::bgp::FamilyBgp;
+use plugin_network::bgp::RpkiStatus;
+use plugin_network::bgp::asns;
 use plugin_network::iperf3;
 use plugin_network::iperf3::result::Tested;
 use plugin_network::iperf3::result::Way;
@@ -25,9 +30,11 @@ use plugin_network::trace::result::TraceError;
 use plugin_network::trace::result::Unavailable;
 use plugin_network::trace::targets;
 
+use super::super::bgp_graph;
 use super::Out;
 use super::tool;
 use crate::locale;
+use crate::locale::BgpField;
 use crate::locale::ListRule;
 use crate::locale::LookupProblem;
 use crate::locale::TraceChoice;
@@ -406,4 +413,220 @@ fn trace_list_problem(list: TraceList, error: &lists::ListError) -> String {
         lists::ListError::Duplicate(key) => TraceListProblem::Duplicate(key),
     };
     locale::words().trace_list_problem(list, problem)
+}
+
+/// Maximum observed paths listed in the per-family `AS_PATH` table.
+const SHOWN_BGP_PATHS: usize = 8;
+
+/// Maximum direct upstreams listed in the summary table cell.
+const SHOWN_UPSTREAMS: usize = 4;
+
+/// BGP paths (`network.bgp`): summary table across IPv4 and IPv6, per-family topology diagram
+/// (Unicode box-and-wire in `text` mode, `mermaid` `flowchart LR` in `markdown` mode), and top
+/// observed `AS_PATH` rows.
+pub(super) fn bgp(
+    out: &mut Out,
+    report: &Report<bgp::Output, bgp::Failure>,
+    indent: &str,
+    show_ip: bool,
+) {
+    let words = locale::words();
+    let Some(output) = &report.output else {
+        return;
+    };
+    if output.ipv4.is_none() && output.ipv6.is_none() {
+        return;
+    }
+
+    out.line(&format!(
+        "{indent}{}",
+        words.bgp_method(output.settings.custom_endpoints)
+    ));
+
+    let sub = format!("{indent}  ");
+    let v4 = output.ipv4.as_deref();
+    let v6 = output.ipv6.as_deref();
+
+    // 1. Side-by-side IPv4 / IPv6 BGP summary table.
+    out.heading(indent, words.bgp_summary_title());
+    let summary_headers = words.bgp_summary_headers().map(str::to_owned);
+    let summary_rows = build_bgp_summary_rows(v4, v6, show_ip);
+    out.table_left(&sub, &summary_headers, &summary_rows);
+
+    // 2. Per-family topology graph and top observed AS_PATHs.
+    for (ipv6, maybe_rep) in [(false, v4), (true, v6)] {
+        let Some(rep) = maybe_rep else {
+            continue;
+        };
+        if !rep.announced || rep.paths.is_empty() {
+            continue;
+        }
+        if let Some(graph) = bgp_graph::layout(rep, Some(bgp_graph::COMPACT_MAX_PATHS)) {
+            out.heading(indent, words.bgp_topology_title(ipv6));
+            if out.is_markdown() {
+                out.code_block("mermaid", &bgp_graph::render_mermaid(&graph));
+            } else {
+                let lines = bgp_graph::render_terminal(&graph, &sub, out.terminal_width());
+                out.raw_lines(&lines);
+            }
+        }
+
+        out.heading(indent, words.bgp_paths_title(ipv6));
+        let path_headers = words.bgp_paths_headers().map(str::to_owned);
+        let path_rows: Vec<Vec<String>> = rep
+            .paths
+            .iter()
+            .take(SHOWN_BGP_PATHS)
+            .map(|p| format_bgp_path_row(rep, p))
+            .collect();
+        out.table(&sub, &path_headers, &path_rows);
+    }
+
+    for (ipv6, reason) in &output.notes {
+        out.field(&sub, &words.note(), &words.bgp_family_failed(*ipv6, reason));
+    }
+}
+
+fn build_bgp_summary_rows(
+    v4: Option<&FamilyBgp>,
+    v6: Option<&FamilyBgp>,
+    show_ip: bool,
+) -> Vec<Vec<String>> {
+    let words = locale::words();
+    let pair = |field: BgpField, f: &dyn Fn(&FamilyBgp) -> String| -> Vec<String> {
+        vec![
+            words.bgp_field(field).to_owned(),
+            v4.map_or_else(|| MISSING.to_owned(), f),
+            v6.map_or_else(|| MISSING.to_owned(), f),
+        ]
+    };
+
+    vec![
+        pair(BgpField::Address, &|rep| {
+            if show_ip {
+                rep.address.to_string()
+            } else {
+                network::mask(rep.address)
+            }
+        }),
+        pair(BgpField::Prefix, &|rep| {
+            if !rep.announced {
+                return words.bgp_not_announced().to_owned();
+            }
+            if show_ip {
+                rep.prefix.clone().unwrap_or_else(|| MISSING.to_owned())
+            } else if let (Some(base), Some(plen)) = (rep.prefix_base, rep.prefix_len) {
+                format!("{}/{plen}", network::mask(base))
+            } else {
+                MISSING.to_owned()
+            }
+        }),
+        pair(BgpField::OriginAsn, &|rep| {
+            if !rep.announced {
+                return MISSING.to_owned();
+            }
+            let Some(asn) = rep.origin_asn else {
+                return MISSING.to_owned();
+            };
+            let name = asn_label(rep, asn);
+            words.bgp_origin_cell(asn, name, rep.origins.len())
+        }),
+        pair(BgpField::Rpki, &|rep| {
+            if !rep.announced {
+                return MISSING.to_owned();
+            }
+            let code = match rep.rpki {
+                RpkiStatus::Valid => "valid",
+                RpkiStatus::Invalid => "invalid",
+                RpkiStatus::NotFound => "not_found",
+                RpkiStatus::Unknown => "unknown",
+            };
+            words.bgp_rpki_cell(code).to_owned()
+        }),
+        pair(BgpField::Visibility, &|rep| {
+            if !rep.announced {
+                return MISSING.to_owned();
+            }
+            words.bgp_visibility_cell(rep.total_peers, rep.distinct_paths)
+        }),
+        pair(BgpField::Upstreams, &|rep| {
+            if !rep.announced {
+                return MISSING.to_owned();
+            }
+            if rep.upstreams.is_empty() {
+                return words.bgp_direct_peering().to_owned();
+            }
+            let total = rep.total_peers.max(1);
+            let mut items = Vec::new();
+            for up in rep.upstreams.iter().take(SHOWN_UPSTREAMS) {
+                let pct = ((f64::from(up.peers) * 100.0) / f64::from(total)).round() as u32;
+                let item = match asn_label(rep, up.asn) {
+                    Some(name) => format!("AS{} {name} ({pct}%)", up.asn),
+                    None => format!("AS{} ({pct}%)", up.asn),
+                };
+                items.push(item);
+            }
+            if rep.upstreams.len() > SHOWN_UPSTREAMS {
+                items.push(format!("+{}", rep.upstreams.len() - SHOWN_UPSTREAMS));
+            }
+            items.join(", ")
+        }),
+    ]
+}
+
+fn format_bgp_path_row(rep: &FamilyBgp, path: &BgpPath) -> Vec<String> {
+    let raw = if path.asns_raw.is_empty() {
+        &path.asns
+    } else {
+        &path.asns_raw
+    };
+    let mut collapsed: Vec<(u32, usize)> = Vec::new();
+    for &asn in raw {
+        if let Some(last) = collapsed.last_mut()
+            && last.0 == asn
+        {
+            last.1 += 1;
+            continue;
+        }
+        collapsed.push((asn, 1));
+    }
+    let mut hops = Vec::with_capacity(collapsed.len());
+    for (asn, rep_count) in collapsed {
+        let star = if asns::is_tier1(asn) { " ★" } else { "" };
+        let mult = if rep_count > 1 {
+            format!(" ×{rep_count}")
+        } else {
+            String::new()
+        };
+        let label = match asn_label(rep, asn) {
+            Some(name) => format!("AS{asn}{star}{mult} ({name})"),
+            None => format!("AS{asn}{star}{mult}"),
+        };
+        hops.push(label);
+    }
+    let prefix_mark = if path.is_best { "★ " } else { "" };
+    vec![
+        path.peers.to_string(),
+        path.asns.len().to_string(),
+        format!("{prefix_mark}{}", hops.join(" -> ")),
+    ]
+}
+
+fn asn_label(rep: &FamilyBgp, asn: u32) -> Option<&str> {
+    rep.asn_names
+        .get(&asn)
+        .map(String::as_str)
+        .or_else(|| asns::known_name(asn))
+}
+
+/// Why `network.bgp` stopped short.
+pub(super) fn bgp_failure(failure: &bgp::Failure) -> String {
+    let words = locale::words();
+    match failure {
+        bgp::Failure::InvalidEndpoint(raw) => words.ip_invalid_endpoint(raw),
+        bgp::Failure::NoFamily => words.no_family(),
+        bgp::Failure::NoPublicAddress => words.ip_no_public_address(),
+        bgp::Failure::QueryFailed(reason) => words.bgp_query_failed(reason),
+        bgp::Failure::Cancelled => words.interrupted(),
+    }
 }

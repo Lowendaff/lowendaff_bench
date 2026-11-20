@@ -18,6 +18,7 @@ body:
       options:
         - "ip.media — Streaming & AI Unlock (流媒体与 AI 平台解锁检测)"
         - "ip.quality — IP Reputation, Risk & Native/Broadcast Origin (IP 质量与原生/广播判定)"
+        - "network.bgp — BGP Prefix, RPKI or AS-Path Topology (BGP 前缀、RPKI 或自治域路径)"
         - "[System] — Virtualization, RAID or Hardware Probe (虚拟化或硬件特征误判)"
     validations:
       required: true

@@ -142,6 +142,7 @@ fn plugin(out: &mut Out, run: &Run<Measured>, indent: &str, page: &Page) {
             let own = own_addresses(page.host);
             network::trace(out, report, indent, &own, page.show_ip);
         }
+        Some(Measured::NetworkBgp(report)) => network::bgp(out, report, indent, page.show_ip),
         Some(Measured::IpQuality(report)) => ip::quality(out, report, indent, page.show_ip),
         Some(Measured::IpMedia(report)) => ip::media(out, report, indent),
         None => {}
@@ -363,6 +364,43 @@ impl Out {
                 }
                 *last = Block::Table;
             }
+        }
+    }
+
+    /// Whether the target syntax is Markdown rather than plain terminal text.
+    fn is_markdown(&self) -> bool {
+        matches!(self.mode, Mode::Markdown { .. })
+    }
+
+    /// Terminal wrap width when rendering plain text on a TTY, or `None` otherwise.
+    fn terminal_width(&self) -> Option<u16> {
+        match self.mode {
+            Mode::Terminal { width } => width,
+            Mode::Markdown { .. } => None,
+        }
+    }
+
+    /// Pre-formatted lines (such as a terminal Unicode topology diagram), written verbatim in
+    /// terminal mode without Markdown escaping or `comfy-table` wrapping.
+    fn raw_lines(&mut self, lines: &[String]) {
+        if let Mode::Terminal { .. } = &mut self.mode {
+            for line in lines {
+                let _ = writeln!(self.text, "{line}");
+            }
+        }
+    }
+
+    /// Fenced code block (` ```<lang> `) in Markdown mode, unescaped so diagram languages such as
+    /// `mermaid` preserve their operators and line breaks.
+    fn code_block(&mut self, lang: &str, content: &str) {
+        if let Mode::Markdown { last, .. } = &mut self.mode {
+            if !self.text.is_empty() {
+                self.text.push('\n');
+            }
+            let _ = writeln!(self.text, "```{lang}");
+            let _ = writeln!(self.text, "{content}");
+            let _ = writeln!(self.text, "```");
+            *last = Block::Table;
         }
     }
 }

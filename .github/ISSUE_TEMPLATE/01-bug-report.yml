@@ -21,7 +21,7 @@ body:
         - "cpu.* (cpu.sysbench / cpu.geekbench)"
         - "memory.* (sysbench / stream / latency / numa)"
         - "disk.* (disk.health / disk.fio)"
-        - "network.* (network.iperf3 / network.trace)"
+        - "network.* (network.iperf3 / network.trace / network.bgp)"
         - "ip.* (ip.quality / ip.media)"
         - "Report Formatting (text / markdown / json) / 报告输出与格式渲染"
         - "Tool Download or Static Binary / 外部工具下载校验或静态二进制"

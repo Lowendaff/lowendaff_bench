@@ -313,6 +313,11 @@ pub enum Step {
         /// Whether the stage evaluates the host's IPv6 address, else IPv4.
         ipv6: bool,
     },
+    /// Querying global BGP route state and RPKI status for an address family.
+    Bgp {
+        /// Whether the query evaluates the host's IPv6 address, else IPv4.
+        ipv6: bool,
+    },
 }
 
 /// Default byte limit read from an HTTP probe response body (256 KiB).

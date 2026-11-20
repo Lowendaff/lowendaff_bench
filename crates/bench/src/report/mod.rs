@@ -1,6 +1,7 @@
 //! Reporters: each reads the runs and writes them in the requested format (`text`, `markdown`, or
 //! `json`), with the catalog's words where human text is shown.
 
+pub mod bgp_graph;
 pub mod json;
 pub mod markdown;
 pub mod terminal;

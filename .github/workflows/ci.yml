@@ -267,6 +267,11 @@ jobs:
       - name: Local media server
         if: steps.scope.outputs.run != 'false'
         run: scripts/smoke-media.sh "$RUNNER_TEMP/media" "$RUNNER_TEMP/iperf3/overrides.json"
+      # BGP path topology probes a local RIPEstat responder on 127.0.0.1, so that a merge never
+      # waits on a third party.
+      - name: Local BGP server
+        if: steps.scope.outputs.run != 'false'
+        run: scripts/smoke-bgp.sh "$RUNNER_TEMP/bgp" "$RUNNER_TEMP/iperf3/overrides.json"
       # Geekbench would publish a result from every run and take minutes.
       - name: Smoke
         if: steps.scope.outputs.run != 'false'

@@ -2,6 +2,7 @@
 //! status, numbers aligned right, wrapping to a terminal's width, and the summary. Whole reports
 //! are compared with snapshots in `tests/snapshots/`; each group's words have tests of their own.
 
+use std::collections::BTreeMap;
 use std::time::Duration;
 
 use bench::orchestrator;
@@ -57,6 +58,12 @@ use plugin_ip::quality;
 use plugin_ip::quality::FamilyReport;
 use plugin_ip::quality::Origin;
 use plugin_memory::stream;
+use plugin_network::bgp;
+use plugin_network::bgp::BgpPath;
+use plugin_network::bgp::FamilyBgp;
+use plugin_network::bgp::OriginSummary;
+use plugin_network::bgp::RpkiStatus;
+use plugin_network::bgp::UpstreamShare;
 use plugin_network::trace;
 use plugin_network::trace::result::Answer;
 use plugin_network::trace::result::ExchangeList;
@@ -698,5 +705,132 @@ fn json_format_is_structured_and_respects_show_ip_across_host_trace_and_ip_quali
     assert_eq!(
         full["runs"][1]["output"]["ipv4"][0]["route"]["Traced"]["hops"][0]["answers"][0]["address"],
         "203.0.113.7"
+    );
+}
+
+#[test]
+fn bgp_renders_terminal_diagram_mermaid_and_json_svg_with_ip_masking() {
+    let mut asn_names = BTreeMap::new();
+    asn_names.insert(64500, "Example Cloud".to_owned());
+    asn_names.insert(4809, "ChinaNet CN2".to_owned());
+    asn_names.insert(9929, "CUII 9929".to_owned());
+    asn_names.insert(3356, "Lumen".to_owned());
+    asn_names.insert(1299, "Arelion".to_owned());
+
+    let v4_bgp = FamilyBgp {
+        address: "203.0.113.7".parse().expect("ipv4"),
+        announced: true,
+        prefix: Some("203.0.113.0/24".to_owned()),
+        prefix_base: Some("203.0.113.0".parse().expect("prefix base")),
+        prefix_len: Some(24),
+        origin_asn: Some(64500),
+        origins: vec![OriginSummary {
+            asn: 64500,
+            peers: 4,
+        }],
+        rpki: RpkiStatus::Valid,
+        total_peers: 4,
+        distinct_paths: 2,
+        upstreams: vec![
+            UpstreamShare {
+                asn: 4809,
+                peers: 3,
+            },
+            UpstreamShare {
+                asn: 9929,
+                peers: 1,
+            },
+        ],
+        paths: vec![
+            BgpPath {
+                asns: vec![3356, 4809, 64500],
+                asns_raw: vec![3356, 4809, 64500],
+                peers: 3,
+                is_best: true,
+            },
+            BgpPath {
+                asns: vec![1299, 9929, 64500],
+                asns_raw: vec![1299, 9929, 9929, 64500],
+                peers: 1,
+                is_best: false,
+            },
+        ],
+        asn_names,
+    };
+
+    let bgp_run = run(
+        "network.bgp",
+        Status::Completed,
+        Some(1.2),
+        Some(Measured::NetworkBgp(Report {
+            output: Some(bgp::Output {
+                settings: bgp::Settings::default(),
+                ipv4_reachable: true,
+                ipv6_reachable: false,
+                ipv4: Some(Box::new(v4_bgp)),
+                ipv6: None,
+                notes: Vec::new(),
+            }),
+            stop: None,
+        })),
+    );
+
+    let host_profile = host();
+    let runs = [bgp_run];
+    let masked_page = Page {
+        version: "0.1.0",
+        host: &host_profile,
+        show_ip: false,
+        not_applicable: &[],
+        runs: &runs,
+        total: Duration::from_millis(1200),
+    };
+
+    // 1. Wide terminal text: 2D rounded-box diagram + masked prefix, zero raw IP leak.
+    let text = report::render(&masked_page, Format::Text, None);
+    assert!(text.contains("╭──────────────╮"), "draws rounded ASN boxes");
+    assert!(text.contains("═"), "highlights main path with double wire");
+    assert!(text.contains("×2"), "marks collapsed prepend span");
+    assert!(text.contains("AS3356 ★"), "marks Tier-1 backbone");
+    assert!(text.contains("203.0.*.*/24"), "masks announced prefix");
+    assert!(!text.contains("203.0.113."), "leaks no raw IPv4 octets");
+
+    // Narrow TTY automatically falls back to compact indented tree without tearing boxes.
+    let narrow = report::render(&masked_page, Format::Text, Some(48));
+    assert!(narrow.contains("AS64500 Example Cloud (origin)"));
+    assert!(narrow.contains("══▸ AS4809 ChinaNet CN2"));
+    assert!(!narrow.contains("╭──────────────╮"));
+
+    // 2. Markdown: native Mermaid `flowchart LR` block + escaped `\*` masked prefix.
+    let md = report::render(&masked_page, Format::Markdown, None);
+    assert!(md.contains("```mermaid\nflowchart LR\n"));
+    assert!(md.contains("==>"));
+    assert!(md.contains("-. \"×2\" .->"));
+    assert!(md.contains("203.0.\\*.\\*/24"));
+    assert!(!md.contains("203.0.113."));
+
+    // 3. JSON: standalone inline-styled SVG string + masked address/prefix, unmasked with show_ip.
+    let json_raw = report::render(&masked_page, Format::Json, None);
+    assert!(!json_raw.contains("203.0.113."));
+    let json: serde_json::Value = serde_json::from_str(&json_raw).expect("valid JSON");
+    assert_eq!(json["runs"][0]["output"]["ipv4"]["address"], "203.0.*.*");
+    assert_eq!(json["runs"][0]["output"]["ipv4"]["prefix"], "203.0.*.*/24");
+    let svg = json["runs"][0]["output"]["ipv4"]["svg"]
+        .as_str()
+        .expect("JSON includes SVG string");
+    assert!(svg.starts_with("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<svg"));
+    assert!(svg.contains("<path d=\"M"));
+    assert!(svg.contains("AS3356 &#x2605;"));
+    assert!(svg.contains("&#xD7;2"));
+
+    let full_page = Page {
+        show_ip: true,
+        ..masked_page
+    };
+    let full_json: serde_json::Value =
+        serde_json::from_str(&report::render(&full_page, Format::Json, None)).expect("valid JSON");
+    assert_eq!(
+        full_json["runs"][0]["output"]["ipv4"]["prefix"],
+        "203.0.113.0/24"
     );
 }

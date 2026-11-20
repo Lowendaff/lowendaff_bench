@@ -41,6 +41,7 @@ use bench_host::storage::Use;
 use serde::Serialize;
 use serde_json::Value;
 
+use super::bgp_graph;
 use super::terminal;
 use super::terminal::Page;
 use crate::locale;
@@ -168,6 +169,11 @@ fn serialize_measured(measured: &Measured, own: &[IpAddr], show_ip: bool) -> Opt
             }
             val
         }),
+        Measured::NetworkBgp(r) => r.output.as_ref().map(|out| {
+            let mut val = to_value(out);
+            enrich_and_mask_bgp(&mut val, out, show_ip);
+            val
+        }),
         Measured::IpQuality(r) => r.output.as_ref().map(|out| {
             let mut val = to_value(out);
             if !show_ip {
@@ -192,6 +198,33 @@ fn mask_quality_family(root: &mut Value, key: &str, address: IpAddr) {
     if let Some(family) = root.get_mut(key).and_then(Value::as_object_mut) {
         family.insert("address".to_owned(), Value::String(network::mask(address)));
         family.insert("hostname".to_owned(), Value::Null);
+    }
+}
+
+fn enrich_and_mask_bgp(root: &mut Value, out: &plugin_network::bgp::Output, show_ip: bool) {
+    for (key, maybe_rep) in [("ipv4", out.ipv4.as_deref()), ("ipv6", out.ipv6.as_deref())] {
+        let Some(rep) = maybe_rep else {
+            continue;
+        };
+        let Some(family) = root.get_mut(key).and_then(Value::as_object_mut) else {
+            continue;
+        };
+        if !show_ip {
+            family.insert(
+                "address".to_owned(),
+                Value::String(network::mask(rep.address)),
+            );
+            if let (Some(base), Some(plen)) = (rep.prefix_base, rep.prefix_len) {
+                family.insert(
+                    "prefix".to_owned(),
+                    Value::String(format!("{}/{plen}", network::mask(base))),
+                );
+            }
+        }
+        let svg = bgp_graph::layout(rep, None)
+            .map(|graph| Value::String(bgp_graph::render_svg(&graph)))
+            .unwrap_or(Value::Null);
+        family.insert("svg".to_owned(), svg);
     }
 }
 

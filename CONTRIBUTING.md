@@ -41,7 +41,7 @@ plugins/
   cpu/         cpu.sysbench, cpu.geekbench
   memory/      memory.sysbench, memory.stream, memory.latency, memory.numa
   disk/        disk.health, disk.fio
-  network/     network.iperf3, network.trace
+  network/     network.iperf3, network.trace, network.bgp
   ip/          ip.quality, ip.media
 docs/          detailed module-by-module guides explaining how each test item measures and judges
 servers/       the lists that the network items download at run time: network speed's servers,
@@ -257,7 +257,7 @@ ones before pushing:
 - `ast-grep test`, `ast-grep scan`, `scripts/check-docs-cases.sh` and `scripts/check-docs.sh`
 - `scripts/{iperf3-servers,traceroute-targets,netflix-ix}{-cases,}.sh` (`check` subcommand)
 - On Linux (`x86_64` and `aarch64`): static `musl` release build, `swap-file` roundtrip example,
-  `scripts/smoke.sh` with local loopback responders (`smoke-{iperf3,trace,ip,media}.sh`),
+  `scripts/smoke.sh` with local loopback responders (`smoke-{iperf3,trace,ip,media,bgp}.sh`),
   `scripts/smoke-mutants.sh`, `scripts/distros.sh`, and non-blocking `scripts/network-check.sh`.
 
 CI pins `cargo-nextest` `0.9.151`, `cargo-deny` `0.20.2`, `zizmor` `1.32.0`, `ast-grep` `0.51.1`,

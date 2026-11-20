@@ -612,3 +612,52 @@ pub trait IpWords {
     /// Failure reason when an endpoint override is invalid.
     fn ip_invalid_endpoint(&self, raw: &str) -> String;
 }
+
+/// Summary row labels in `[BGP paths]` (`network.bgp`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BgpField {
+    /// Public address (masked unless `--show-ip`).
+    Address,
+    /// Announced CIDR prefix (masked unless `--show-ip`).
+    Prefix,
+    /// Primary origin Autonomous System (and MOAS count when > 1).
+    OriginAsn,
+    /// RPKI Route Origin Authorization validity.
+    Rpki,
+    /// Collector peer count and distinct path count.
+    Visibility,
+    /// Top direct upstream ASNs immediately before the origin.
+    Upstreams,
+}
+
+/// BGP path topology words (`network.bgp`).
+pub trait BgpWords {
+    /// Method line at the top of `[BGP paths]`.
+    fn bgp_method(&self, custom_endpoints: bool) -> String;
+    /// Summary subtable heading.
+    fn bgp_summary_title(&self) -> &'static str;
+    /// Summary subtable headers (`["Field", "IPv4", "IPv6"]`).
+    fn bgp_summary_headers(&self) -> [&'static str; 3];
+    /// Row label in the summary subtable.
+    fn bgp_field(&self, field: BgpField) -> &'static str;
+    /// Cell when an IP address is not announced in global BGP tables.
+    fn bgp_not_announced(&self) -> &'static str;
+    /// Origin ASN cell (`AS13335 (Cloudflare)` or `AS13335 (Cloudflare) +1 MOAS`).
+    fn bgp_origin_cell(&self, asn: u32, name: Option<&str>, total_origins: usize) -> String;
+    /// RPKI status cell (`valid`, `invalid`, `not found`, `unknown`).
+    fn bgp_rpki_cell(&self, code: &str) -> &'static str;
+    /// Visibility cell (`180 peers, 14 paths`).
+    fn bgp_visibility_cell(&self, peers: u32, distinct_paths: usize) -> String;
+    /// Direct collector-only peering cell when all paths have length 1.
+    fn bgp_direct_peering(&self) -> &'static str;
+    /// Heading above a family's topology diagram (`IPv4 topology` / `IPv6 topology`).
+    fn bgp_topology_title(&self, ipv6: bool) -> &'static str;
+    /// Heading above a family's top observed paths table (`IPv4 observed paths` / `IPv6 observed paths`).
+    fn bgp_paths_title(&self, ipv6: bool) -> &'static str;
+    /// Headers of the observed paths table (`["Peers", "Hops", "AS_PATH"]`).
+    fn bgp_paths_headers(&self) -> [&'static str; 3];
+    /// Per-family note when one family's BGP lookup failed.
+    fn bgp_family_failed(&self, ipv6: bool, reason: &str) -> String;
+    /// Failure reason when every attempted `bgp-state` lookup failed.
+    fn bgp_query_failed(&self, reason: &str) -> String;
+}

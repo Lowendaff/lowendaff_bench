@@ -95,6 +95,10 @@ pub(in crate::report) fn stop_reason(run: &Run<Measured>) -> Option<String> {
             .stop
             .as_ref()
             .map(|stop| network::trace_failure(failure(stop))),
+        Some(Measured::NetworkBgp(report)) => report
+            .stop
+            .as_ref()
+            .map(|stop| network::bgp_failure(failure(stop))),
         Some(Measured::IpQuality(report)) => report
             .stop
             .as_ref()
