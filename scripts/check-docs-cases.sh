@@ -128,12 +128,12 @@ write scripts/build.sh '# The flags follow docs/design/cpu.md.'
 check reject 'a path to the design documents' 'scripts/build.sh:1:'
 write crates/bench/src/lib.rs 'pub const DONE: &str = "done"; // (§5.3)'
 check reject 'a section sign' 'crates/bench/src/lib.rs:1:'
-for id in D-16 P-11 S-22 DK-02 DH-08 CP-07 ME-09 R-19 H-01 NW-07 RT-07 NC-04; do
+for id in D-16 P-11 S-22 DK-02 DH-08 CP-07 ME-09 R-19 H-01 NW-07 RT-07 NC-04 MU-05; do
     write README.md "Because of $id, it runs last."
     check reject "the decision id $id" 'README.md:1:'
 done
 write README.md 'A Xeon D-1541, the P-256 curve, SHA-256, x86-64, HDD-12,
-S-1, S-123, CP-1, ME-1, NW-1, RT-1 and NC-1.'
+S-1, S-123, CP-1, ME-1, NW-1, RT-1, NC-1 and MU-1.'
 check accept 'text that only looks like a decision id'
 write .github/workflows/ci.yml '# Smoke skips it (design cpu, 9.3).'
 check reject 'a parenthetical that starts with design' '.github/workflows/ci.yml:1:'
