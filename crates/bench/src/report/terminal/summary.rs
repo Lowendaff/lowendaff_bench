@@ -21,7 +21,7 @@ use crate::results::Measured;
 /// each status with the run's total time.
 pub(super) fn section(out: &mut Out, page: &Page) {
     let words = locale::words();
-    out.line(&format!("\n{}", words.section(&words.summary_title())));
+    out.section(&words.summary_title());
     for run in page.runs {
         out.field("  ", run.title.unwrap_or(run.id), &run_status(run));
     }
@@ -33,9 +33,15 @@ pub(super) fn section(out: &mut Out, page: &Page) {
             .collect();
         out.line(&format!("  {}", words.not_applicable(&names)));
     }
+    let totals = totals(page);
+    out.line(&format!("\n{}", words.totals(&totals)));
+}
+
+/// Counts of each status and total elapsed time for `page`.
+pub(in crate::report) fn totals(page: &Page) -> Totals {
     let count =
         |pick: fn(&Status) -> bool| page.runs.iter().filter(|run| pick(&run.status)).count();
-    let totals = Totals {
+    Totals {
         items: page.runs.len(),
         completed: count(|status| matches!(status, Status::Completed)),
         skipped: count(|status| matches!(status, Status::Skipped(_))),
@@ -43,12 +49,11 @@ pub(super) fn section(out: &mut Out, page: &Page) {
         timed_out: count(|status| matches!(status, Status::TimedOut)),
         interrupted: count(|status| matches!(status, Status::Cancelled)),
         seconds: page.total.as_secs_f64(),
-    };
-    out.line(&format!("\n{}", words.totals(&totals)));
+    }
 }
 
 /// The plugin's own reason, when it stopped short.
-fn reason(run: &Run<Measured>) -> Option<String> {
+pub(in crate::report) fn stop_reason(run: &Run<Measured>) -> Option<String> {
     match &run.result {
         Some(Measured::CpuSysbench(report)) => report
             .stop
@@ -112,7 +117,7 @@ fn failure<F>(stop: &Stop<F>) -> &F {
 /// How a plugin ended, with its own reason when it stopped short.
 #[must_use]
 pub fn run_status(run: &Run<Measured>) -> String {
-    status_text(run, reason(run).as_deref())
+    status_text(run, stop_reason(run).as_deref())
 }
 
 /// How a plugin ended; `reason` is the plugin's own when it stopped short.

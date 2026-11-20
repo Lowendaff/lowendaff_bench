@@ -16,7 +16,16 @@ impl ProgramWords for English {
     }
 
     fn help_skip(&self) -> String {
-        "Skip these test items: comma-separated ids or groups".to_owned()
+        "Skip these test items: comma-separated ids or groups, such as cpu.geekbench,ip.media"
+            .to_owned()
+    }
+
+    fn help_output(&self) -> String {
+        "Write the report to this file instead of standard output".to_owned()
+    }
+
+    fn help_format(&self) -> String {
+        "Report format: text, markdown (or md), or json".to_owned()
     }
 
     fn help_config(&self) -> String {
@@ -92,6 +101,10 @@ impl ProgramWords for English {
 
     fn config_unreadable(&self, path: &Path, error: &dyn Display) -> String {
         format!("cannot read the config file {}: {error}", path.display())
+    }
+
+    fn output_unwritable(&self, path: &Path, error: &dyn Display) -> String {
+        format!("cannot write the report to {}: {error}", path.display())
     }
 
     fn config_unparsable(&self, path: &Path, error: &dyn Display) -> String {

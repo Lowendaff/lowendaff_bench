@@ -233,7 +233,7 @@ pub(super) fn fio(out: &mut Out, report: &Report<fio::Output, fio::Failure>, ind
         }
         let [first, second] = pair;
         let title = words.block_sizes(&label(first), &label(second));
-        out.line(&format!("{indent}{title}"));
+        out.heading(indent, &title);
         let headers = [
             words.block_size_header().to_owned(),
             label(first),

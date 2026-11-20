@@ -21,6 +21,7 @@ use bench::provision::MIN_RANGE;
 use bench::provision::Part;
 use bench::registry;
 use bench::registry::Entry;
+use bench::report::Format;
 use bench::results::Measured;
 use bench_api::CancellationToken;
 use bench_api::Context;
@@ -234,6 +235,7 @@ async fn run(
     progress::network(&host.network);
     let report = ReportOptions {
         out: &mut out,
+        format: Format::Text,
         width,
         show_ip,
     };
@@ -291,6 +293,7 @@ async fn a_work_directory_given_with_dots_leaves_none_in_the_paths_under_it() {
     let mut out = Vec::new();
     let report = ReportOptions {
         out: &mut out,
+        format: Format::Text,
         width: None,
         show_ip: false,
     };
@@ -612,6 +615,103 @@ fn ids_are_comma_separated_and_work_dir_defaults_to_cwd() {
     assert_eq!(cli.only, ["test.good", "test.other"]);
     assert_eq!(cli.skip, ["test.other"]);
     assert_eq!(cli.work_dir, PathBuf::from("."));
+    assert_eq!(cli.output, None);
+    assert_eq!(cli.format, Format::Text);
+}
+
+#[test]
+fn output_and_format_flags_accept_short_and_long_forms_and_md_alias() {
+    use clap::Parser;
+
+    let parsed = cli(&["-o", "report.md", "-f", "md"]);
+    assert_eq!(parsed.output, Some(PathBuf::from("report.md")));
+    assert_eq!(parsed.format, Format::Markdown);
+
+    let parsed = cli(&["--output", "out.json", "--format", "json"]);
+    assert_eq!(parsed.output, Some(PathBuf::from("out.json")));
+    assert_eq!(parsed.format, Format::Json);
+
+    assert_eq!(cli(&["--format", "markdown"]).format, Format::Markdown);
+    assert_eq!(cli(&["--format", "text"]).format, Format::Text);
+    assert!(Cli::try_parse_from(["lowendaff-bench", "--format", "xml"]).is_err());
+}
+
+#[test]
+fn skip_leaves_out_single_plugins_or_groups_in_the_real_registry() {
+    let all = registry::all();
+    let planned = app::prepare(&cli(&["--skip", "cpu.geekbench,ip.media"]), &all).unwrap();
+    let kept: Vec<&str> = planned.iter().map(Planned::id).collect();
+    assert!(!kept.contains(&"cpu.geekbench"), "{kept:?}");
+    assert!(!kept.contains(&"ip.media"), "{kept:?}");
+    assert!(kept.contains(&"cpu.sysbench"), "sibling stays: {kept:?}");
+    assert!(kept.contains(&"ip.quality"), "sibling stays: {kept:?}");
+    assert_eq!(kept.len(), all.len() - 2);
+
+    let repeated = app::prepare(
+        &cli(&[
+            "--only",
+            "ip,cpu",
+            "--skip",
+            "cpu.geekbench",
+            "--skip",
+            "ip.media",
+        ]),
+        &all,
+    )
+    .unwrap();
+    let kept: Vec<&str> = repeated.iter().map(Planned::id).collect();
+    assert_eq!(kept, ["cpu.sysbench", "ip.quality"]);
+}
+
+#[tokio::test]
+async fn execute_writes_markdown_or_json_to_an_output_file_and_rejects_missing_dirs() {
+    let dir = tempfile::tempdir().expect("a temp directory");
+    let missing = dir.path().join("no-such-dir").join("report.md");
+    let err = app::create_output(&missing).expect_err("missing parent directory must fail");
+    assert!(
+        err.starts_with("cannot write the report to "),
+        "unexpected error: {err}"
+    );
+
+    for (name, format) in [
+        ("report.md", Format::Markdown),
+        ("report.json", Format::Json),
+    ] {
+        let out_path = dir.path().join(name);
+        let file = app::create_output(&out_path).expect("output file opens");
+        let work = tempfile::tempdir().expect("a work directory");
+        let downloads = Downloads::default();
+        let (_log, capturing) = Captured::start(false);
+        let planned = app::prepare(&cli(&["--only", "test.good"]), &plugins()).unwrap();
+        let code = app::execute(
+            planned,
+            HostProfile::default(),
+            work.path(),
+            &CancellationToken::new(),
+            |family, url, range| downloads.open(family, url, range),
+            1,
+            ReportOptions {
+                out: file,
+                format,
+                width: None,
+                show_ip: false,
+            },
+        )
+        .await
+        .expect("run finishes");
+        drop(capturing);
+        assert_eq!(code, 0);
+        let written = std::fs::read_to_string(&out_path).expect("report was written");
+        match format {
+            Format::Markdown => assert!(written.starts_with("# lowendaff-bench "), "{written}"),
+            Format::Json => {
+                let parsed: serde_json::Value =
+                    serde_json::from_str(&written).expect("valid JSON report");
+                assert_eq!(parsed["summary"]["items"], 1);
+            }
+            Format::Text => unreachable!(),
+        }
+    }
 }
 
 #[test]

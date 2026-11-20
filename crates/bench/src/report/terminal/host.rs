@@ -57,7 +57,7 @@ fn unavailable() -> String {
 /// The section, with full addresses when `show_ip` is set.
 pub(super) fn section(out: &mut Out, host: &HostProfile, show_ip: bool) {
     let words = locale::words();
-    out.line(&format!("\n{}", words.section(&words.system_title())));
+    out.section(&words.system_title());
     let kind = host.platform.kind();
     match &host.hardware {
         Some(Read::Done(hardware)) => machine(out, hardware),
@@ -340,7 +340,7 @@ fn cards(out: &mut Out, cards: &[NetworkCard], container: bool) {
 
 fn table(out: &mut Out, title: HostLabel, headers: &[HostHeader], rows: &[Vec<String>]) {
     let words = locale::words();
-    out.line(&format!("{INDENT}{}", label(title)));
+    out.heading(INDENT, label(title));
     let headers: Vec<String> = headers
         .iter()
         .map(|header| words.host_header(*header).to_owned())

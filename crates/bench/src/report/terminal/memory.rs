@@ -66,7 +66,7 @@ pub(super) fn sysbench(
             cells
         })
         .collect();
-    out.line(&format!("{indent}{}", words.results("sysbench")));
+    out.heading(indent, &words.results("sysbench"));
     out.table(indent, &headers, &rows);
     if let Some(four) = output.small {
         notes.push(words.sysbench_small(&size(four)));
@@ -145,7 +145,7 @@ pub(super) fn stream(
             cells
         })
         .collect();
-    out.line(&format!("{indent}{}", words.results("STREAM")));
+    out.heading(indent, &words.results("STREAM"));
     out.table(indent, &headers, &rows);
     if output.below_rule {
         notes.push(words.stream_rule());
@@ -208,7 +208,7 @@ pub(super) fn latency(
             ]
         })
         .collect();
-    out.line(&format!("{indent}{}", words.results(words.latency_label())));
+    out.heading(indent, &words.results(words.latency_label()));
     out.table(indent, &headers, &rows);
     if !output.missing.is_empty() {
         let names: Vec<&str> = output.missing.iter().map(|&each| level(each)).collect();
@@ -280,7 +280,7 @@ pub(super) fn numa(out: &mut Out, report: &Report<numa::Output, numa::Failure>, 
                 line
             })
             .collect();
-        out.line(&format!("{indent}{}", words.numa_title(probe(kind))));
+        out.heading(indent, words.numa_title(probe(kind)));
         out.table(indent, &headers, &rows);
     }
     for (row, cells) in output.rows.iter().zip(&output.cells) {

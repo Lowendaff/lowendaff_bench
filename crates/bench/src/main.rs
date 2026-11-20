@@ -12,6 +12,7 @@ use bench::locale;
 use bench::network;
 use bench::progress;
 use bench::registry;
+use bench::report::Format;
 use bench_api::CancellationToken;
 use bench_host::profile::HostProfile;
 use tokio::runtime;
@@ -37,6 +38,21 @@ fn main() -> ExitCode {
             }
             return ExitCode::from(app::EXIT_USAGE);
         }
+    };
+    let output: Box<dyn io::Write + Send> = match &cli.output {
+        Some(path) => match app::create_output(path) {
+            Ok(file) => Box::new(file),
+            Err(error) => {
+                eprintln!("{error}");
+                return ExitCode::from(app::EXIT_USAGE);
+            }
+        },
+        None => Box::new(io::stdout()),
+    };
+    let report_width = if cli.output.is_none() && cli.format == Format::Text {
+        width()
+    } else {
+        None
     };
     // At least two workers, so a plugin that blocks a thread cannot stall the timeouts.
     let workers = thread::available_parallelism().map_or(2, |count| count.get().max(2));
@@ -67,8 +83,9 @@ fn main() -> ExitCode {
         progress::network(&host.network);
         let fetchers = Fetchers::try_new()?;
         let report = ReportOptions {
-            out: io::stdout(),
-            width: width(),
+            out: output,
+            format: cli.format,
+            width: report_width,
             show_ip: cli.show_ip,
         };
         app::execute(

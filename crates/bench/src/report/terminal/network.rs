@@ -74,7 +74,7 @@ pub(super) fn iperf3(
         if tested.is_empty() {
             continue;
         }
-        out.line(&format!("{indent}{}", words.family_title(ipv6)));
+        out.heading(indent, words.family_title(ipv6));
         let headers = words.network_headers().map(str::to_owned);
         let rows: Vec<Vec<String>> = tested.iter().map(row).collect();
         out.table(indent, &headers, &rows);
@@ -243,7 +243,7 @@ pub(super) fn trace(
         if traced.is_empty() {
             continue;
         }
-        out.line(&format!("{indent}{}", words.family_title(ipv6)));
+        out.heading(indent, words.family_title(ipv6));
         for target in traced {
             let outcome = match &target.route {
                 Route::Traced(trace) if trace.reached => words.reached(trace.hops.len()),

@@ -69,29 +69,26 @@ pub(super) fn quality(
     let v6 = output.ipv6.as_deref();
 
     // 1. Summary table.
-    out.line(&format!("{indent}{}", words.ip_table(IpTable::Summary)));
+    out.heading(indent, words.ip_table(IpTable::Summary));
     let summary_headers = words.ip_headers(IpTable::Summary).map(str::to_owned);
     let summary_rows = build_summary_rows(v4, v6, show_ip);
     out.table_left(&sub, &summary_headers, &summary_rows);
 
     // 2. Risk scores table.
-    out.line(&format!("{indent}{}", words.ip_table(IpTable::Scores)));
+    out.heading(indent, words.ip_table(IpTable::Scores));
     let score_headers = words.ip_headers(IpTable::Scores).map(str::to_owned);
     let score_rows = build_score_rows(v4, v6);
     out.table_left(&sub, &score_headers, &score_rows);
 
     // 3. Risk factors table.
-    out.line(&format!("{indent}{}", words.ip_table(IpTable::Factors)));
+    out.heading(indent, words.ip_table(IpTable::Factors));
     let factor_headers = words.ip_headers(IpTable::Factors).map(str::to_owned);
     let factor_rows = build_factor_rows(v4, v6);
     out.table_left(&sub, &factor_headers, &factor_rows);
 
     // 4. Blacklists & mail (port 25) table.
     if output.settings.dnsbl || output.settings.mail {
-        out.line(&format!(
-            "{indent}{}",
-            words.ip_table(IpTable::BlacklistsAndMail)
-        ));
+        out.heading(indent, words.ip_table(IpTable::BlacklistsAndMail));
         let bm_headers = words
             .ip_headers(IpTable::BlacklistsAndMail)
             .map(str::to_owned);
@@ -447,7 +444,7 @@ pub(super) fn media(out: &mut Out, report: &Report<media::Output, media::Failure
         if members.is_empty() {
             continue;
         }
-        out.line(&format!("{indent}{}", words.media_group(group.code())));
+        out.heading(indent, words.media_group(group.code()));
         let sub = format!("{indent}  ");
         let rows: Vec<Vec<String>> = members
             .iter()

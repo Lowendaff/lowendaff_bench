@@ -12,6 +12,10 @@ pub trait ProgramWords {
     fn help_only(&self) -> String;
     /// The help of `--skip`.
     fn help_skip(&self) -> String;
+    /// The help of `-o` / `--output`.
+    fn help_output(&self) -> String;
+    /// The help of `-f` / `--format`.
+    fn help_format(&self) -> String;
     /// The help of `--config`.
     fn help_config(&self) -> String;
     /// The help of `--work-dir`.
@@ -47,6 +51,8 @@ pub trait ProgramWords {
     fn unknown_selection(&self, name: &str) -> String;
     /// A config file that cannot be read.
     fn config_unreadable(&self, path: &Path, error: &dyn Display) -> String;
+    /// An `--output` file that cannot be created for writing.
+    fn output_unwritable(&self, path: &Path, error: &dyn Display) -> String;
     /// A config file that is no valid TOML.
     fn config_unparsable(&self, path: &Path, error: &dyn Display) -> String;
     /// A top-level key of a config file other than `plugins`.

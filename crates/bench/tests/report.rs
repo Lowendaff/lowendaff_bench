@@ -10,6 +10,7 @@ use bench::orchestrator::Run;
 use bench::orchestrator::Status;
 use bench::orchestrator::Unmet;
 use bench::report;
+use bench::report::Format;
 use bench::report::terminal::Page;
 use bench::results::Measured;
 use bench::results::Report;
@@ -52,7 +53,18 @@ use plugin_disk::health::location::Location;
 use plugin_disk::health::result::Disk as HealthDisk;
 use plugin_disk::health::result::Health;
 use plugin_disk::health::result::Values;
+use plugin_ip::quality;
+use plugin_ip::quality::FamilyReport;
+use plugin_ip::quality::Origin;
 use plugin_memory::stream;
+use plugin_network::trace;
+use plugin_network::trace::result::Answer;
+use plugin_network::trace::result::ExchangeList;
+use plugin_network::trace::result::Hop;
+use plugin_network::trace::result::Route;
+use plugin_network::trace::result::Target;
+use plugin_network::trace::result::Trace;
+use plugin_network::trace::result::Traced;
 
 /// A small virtual machine, as the report starts with it: its IPv4 address is a documentation
 /// address, and it has no IPv6.
@@ -446,5 +458,245 @@ fn requirements_and_faults_have_their_words() {
     assert_eq!(
         report::terminal::fault_text(&Fault::Aborted("task was cancelled".into())),
         "the task ended abnormally: task was cancelled"
+    );
+}
+
+#[test]
+fn markdown_format_renders_gfm_headings_pipe_tables_and_escaped_masked_ips() {
+    let runs = runs();
+    let host = host();
+    let page = Page {
+        version: "0.1.0",
+        host: &host,
+        show_ip: false,
+        not_applicable: &["Memory NUMA"],
+        runs: &runs,
+        total: Duration::from_secs_f64(137.8),
+    };
+    let md = report::render(&page, Format::Markdown, Some(40));
+    assert!(md.starts_with("# lowendaff-bench 0.1.0\n\nEnvironment: KVM virtual machine\n"));
+    assert!(md.contains("\n## System\n"), "{md}");
+    assert!(
+        md.contains("- **IPv4:** available; public address 203.0.\\*.\\* (from Cloudflare)\n"),
+        "masked IPv4 asterisks must be escaped so CommonMark does not italicize them: {md}"
+    );
+    assert!(
+        !md.contains("203.0.113.7"),
+        "raw IPv4 must stay masked: {md}"
+    );
+    assert!(
+        md.contains("\n### Disks\n\n| Device | Interface | Size | Model | Use |\n"),
+        "{md}"
+    );
+    assert!(
+        md.contains(
+            "\n## CPU performance\n\n### CPU performance\n\nsysbench 1.0.20: prime limit 10000, \
+             20 s each\n\n| Test | Threads | Events/s |\n| --- | ---: | ---: |\n\
+             | Single thread | 1 | 859.00 |\n"
+        ),
+        "numeric columns align right and multi-plugin lines are never indented 4 spaces: {md}"
+    );
+    assert!(
+        !md.contains("\n#### 4K and 64K\n"),
+        "no fio result in this page: {md}"
+    );
+    assert!(md.contains("\n## Summary\n"), "{md}");
+    assert!(md.contains("\nNot applicable here: Memory NUMA\n"), "{md}");
+
+    let single = vec![run(
+        "disk.fio",
+        Status::Completed,
+        Some(0.2),
+        Some(Measured::DiskFio(Report {
+            output: Some(fio::Output {
+                version: Some("3.43".to_owned()),
+                size: 2 << 30,
+                zfs_needed: None,
+                tests: vec![Test {
+                    block_size: "4k",
+                    outcome: Outcome::Done(Rates {
+                        read_kib: 95_045,
+                        read_iops: 23_761,
+                        write_kib: 95_294,
+                        write_iops: 23_823,
+                    }),
+                }],
+            }),
+            stop: None,
+        })),
+    )];
+    let single_page = Page {
+        runs: &single,
+        ..page
+    };
+    let single_md = report::render(&single_page, Format::Markdown, None);
+    assert!(
+        single_md.contains("\n## Disks\n\nfio 3.43\n") && single_md.contains("\n### 4K and 64K\n"),
+        "single-plugin section uses h3 for table subheadings without skipping levels: {single_md}"
+    );
+}
+
+#[test]
+fn json_format_is_structured_and_respects_show_ip_across_host_trace_and_ip_quality() {
+    let mut host = host();
+    host.network.ipv6 = Family {
+        targets: vec![(
+            "[2606:4700:4700::1111]:443".parse().expect("target"),
+            Reach::Connected,
+        )],
+        address: Address::Found {
+            address: "2001:db8::7".parse().expect("ipv6"),
+            source: "ipify",
+        },
+    };
+    let v4_rep = FamilyReport {
+        address: "203.0.113.7".parse().expect("ipv4"),
+        asn: Some(13335),
+        org: Some("Cloudflare".to_owned()),
+        hostname: Some("host-203-0-113-7.example.net".to_owned()),
+        rir: Some("APNIC".to_owned()),
+        registered_country: Some("AU".to_owned()),
+        geo_country: Some("AU".to_owned()),
+        geo_votes: Vec::new(),
+        geo_total: 0,
+        origin: Origin::Native {
+            country: "AU".to_owned(),
+        },
+        usage: None,
+        scores: Vec::new(),
+        factors: Vec::new(),
+        dnsbl: None,
+        mail: Vec::new(),
+        notes: Vec::new(),
+    };
+    let v6_rep = FamilyReport {
+        address: "2001:db8::7".parse().expect("ipv6"),
+        hostname: Some("v6.example.net".to_owned()),
+        ..v4_rep.clone()
+    };
+    let quality_run = run(
+        "ip.quality",
+        Status::Completed,
+        Some(1.5),
+        Some(Measured::IpQuality(Report {
+            output: Some(quality::Output {
+                settings: quality::Settings::default(),
+                ipv4_reachable: true,
+                ipv6_reachable: true,
+                ipv4: Some(Box::new(v4_rep)),
+                ipv6: Some(Box::new(v6_rep)),
+            }),
+            stop: None,
+        })),
+    );
+    let trace_run = run(
+        "network.trace",
+        Status::Completed,
+        Some(2.0),
+        Some(Measured::NetworkTrace(Report {
+            output: Some(trace::Output {
+                settings: trace::result::Settings {
+                    groups: Vec::new(),
+                    targets: Vec::new(),
+                    list: false,
+                    geo: true,
+                },
+                unknown: Vec::new(),
+                exchanges: ExchangeList::Read(0),
+                ipv4: vec![Traced {
+                    target: Target::YouTube,
+                    host: Some("r1.googlevideo.com".to_owned()),
+                    route: Route::Traced(Trace {
+                        reached: true,
+                        hops: vec![
+                            Hop {
+                                answers: vec![Answer {
+                                    address: "203.0.113.7".parse().expect("own hop"),
+                                    network: None,
+                                    exchange: None,
+                                    place: None,
+                                    latency: 500,
+                                }],
+                            },
+                            Hop {
+                                answers: vec![Answer {
+                                    address: "198.51.100.1".parse().expect("router hop"),
+                                    network: Some("AS64496 Example".to_owned()),
+                                    exchange: None,
+                                    place: None,
+                                    latency: 1500,
+                                }],
+                            },
+                        ],
+                    }),
+                }],
+                ipv6: Vec::new(),
+            }),
+            stop: None,
+        })),
+    );
+    let runs = vec![quality_run, trace_run];
+
+    let masked_page = Page {
+        version: "0.1.0",
+        host: &host,
+        show_ip: false,
+        not_applicable: &["Disk health"],
+        runs: &runs,
+        total: Duration::from_secs_f64(3.5),
+    };
+    let masked_raw = report::render(&masked_page, Format::Json, None);
+    for secret in [
+        "203.0.113.7",
+        "2001:db8::7",
+        "host-203-0-113-7.example.net",
+        "v6.example.net",
+    ] {
+        assert!(
+            !masked_raw.contains(secret),
+            "JSON without --show-ip leaked {secret}: {masked_raw}"
+        );
+    }
+    let masked: serde_json::Value = serde_json::from_str(&masked_raw).expect("valid JSON");
+    assert_eq!(masked["show_ip"], false);
+    assert_eq!(
+        masked["system"]["network"]["ipv4"]["public_address"],
+        "203.0.*.*"
+    );
+    assert_eq!(
+        masked["system"]["network"]["ipv6"]["public_address"],
+        "2001:db8:*"
+    );
+    assert_eq!(masked["runs"][0]["output"]["ipv4"]["address"], "203.0.*.*");
+    assert!(masked["runs"][0]["output"]["ipv4"]["hostname"].is_null());
+    assert_eq!(masked["runs"][0]["output"]["ipv6"]["address"], "2001:db8:*");
+    assert!(masked["runs"][0]["output"]["ipv6"]["hostname"].is_null());
+    let hops = &masked["runs"][1]["output"]["ipv4"][0]["route"]["Traced"]["hops"];
+    assert_eq!(hops[0]["answers"][0]["address"], "203.0.*.*");
+    assert_eq!(
+        hops[1]["answers"][0]["address"], "198.51.100.1",
+        "third-party router hops remain unmasked"
+    );
+    assert_eq!(masked["summary"]["completed"], 2);
+
+    let full_page = Page {
+        show_ip: true,
+        ..masked_page
+    };
+    let full: serde_json::Value =
+        serde_json::from_str(&report::render(&full_page, Format::Json, None)).expect("valid JSON");
+    assert_eq!(full["show_ip"], true);
+    assert_eq!(
+        full["system"]["network"]["ipv4"]["public_address"],
+        "203.0.113.7"
+    );
+    assert_eq!(full["runs"][0]["output"]["ipv4"]["address"], "203.0.113.7");
+    assert_eq!(
+        full["runs"][0]["output"]["ipv4"]["hostname"],
+        "host-203-0-113-7.example.net"
+    );
+    assert_eq!(
+        full["runs"][1]["output"]["ipv4"][0]["route"]["Traced"]["hops"][0]["answers"][0]["address"],
+        "203.0.113.7"
     );
 }

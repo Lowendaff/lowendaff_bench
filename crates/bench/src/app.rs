@@ -32,6 +32,7 @@ use crate::provision::DownloadError;
 use crate::provision::Part;
 use crate::registry::Entry;
 use crate::report;
+use crate::report::Format;
 use crate::report::terminal::Page;
 use crate::results::Measured;
 
@@ -57,6 +58,20 @@ pub struct Cli {
     // The test items to leave out: ids or groups.
     #[arg(long, value_delimiter = ',', help = locale::words().help_skip())]
     pub skip: Vec<String>,
+
+    // Where to write the report instead of stdout.
+    #[arg(short, long, help = locale::words().help_output())]
+    pub output: Option<PathBuf>,
+
+    // Which format the report takes.
+    #[arg(
+        short,
+        long,
+        value_enum,
+        default_value_t = Format::Text,
+        help = locale::words().help_format()
+    )]
+    pub format: Format,
 
     // A TOML file with a table of settings for each test item.
     #[arg(long, help = locale::words().help_config())]
@@ -217,12 +232,19 @@ pub fn load_config(path: Option<&Path>) -> Result<BTreeMap<String, serde_json::V
     Ok(config)
 }
 
+/// Opens `--output` before the run starts, so an unwritable path fails at once.
+pub fn create_output(path: &Path) -> Result<fs::File, String> {
+    fs::File::create(path).map_err(|err| locale::words().output_unwritable(path, &err))
+}
+
 /// How the report is written.
 pub struct ReportOptions<W> {
     /// Where the report goes.
     pub out: W,
-    /// The terminal's width, to which the report's tables wrap; `None` when they must not wrap,
-    /// as in a file.
+    /// Which format the report takes.
+    pub format: Format,
+    /// The terminal's width, to which a text report's tables wrap; `None` when they must not wrap,
+    /// as in a file or in Markdown or JSON.
     pub width: Option<u16>,
     /// Whether the public addresses show in full.
     pub show_ip: bool,
@@ -320,6 +342,7 @@ where
     let runs = orchestrator::run_plan(planned, cancel, &settings, &mut Log).await;
     let ReportOptions {
         mut out,
+        format,
         width,
         show_ip,
     } = report;
@@ -332,7 +355,8 @@ where
         total: started.elapsed(),
     };
     // Output is best effort: a closed stdout must not change the exit code.
-    let _ = out.write_all(report::terminal::render(&page, width).as_bytes());
+    let _ = out.write_all(report::render(&page, format, width).as_bytes());
+    let _ = out.flush();
     drop(run_dir);
     Ok(if cancel.is_cancelled() {
         EXIT_INTERRUPTED
