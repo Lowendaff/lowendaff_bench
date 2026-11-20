@@ -578,15 +578,12 @@ mod tests {
                 .as_deref(),
             Some("https://ghfast.top/https://github.com/stilleshan/dockerfiles")
         );
-        let raw_list = concat!(
-            "https://raw.githubusercontent.com/Lowendaff/lowendaff_bench/",
-            "main/servers/iperf3.json"
-        );
+        let raw_file = "https://raw.githubusercontent.com/stilleshan/dockerfiles/main/README.md";
         assert_eq!(
-            gh_slash.rewrite(raw_list).as_deref(),
+            gh_slash.rewrite(raw_file).as_deref(),
             Some(concat!(
-                "https://ghfast.top/https://raw.githubusercontent.com/",
-                "Lowendaff/lowendaff_bench/main/servers/iperf3.json"
+                "https://ghfast.top/",
+                "https://raw.githubusercontent.com/stilleshan/dockerfiles/main/README.md"
             ))
         );
         assert_eq!(
