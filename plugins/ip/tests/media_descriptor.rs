@@ -1,5 +1,5 @@
 //! Descriptor, continent roster invariants, continent orchestration planning, and `base_url`
-//! validation tests for `media.unlock`.
+//! validation tests for `ip.media`.
 
 use std::collections::BTreeSet;
 
@@ -9,18 +9,18 @@ use bench_host::platform::ContainerKind;
 use bench_host::platform::Hypervisor;
 use bench_host::platform::Platform;
 use bench_host::profile::HostProfile;
-use plugin_media::unlock;
-use plugin_media::unlock::Choice;
-use plugin_media::unlock::Failure;
-use plugin_media::unlock::Group;
-use plugin_media::unlock::Unlock;
-use plugin_media::unlock::measure;
-use plugin_media::unlock::platforms;
+use plugin_ip::media;
+use plugin_ip::media::Choice;
+use plugin_ip::media::Failure;
+use plugin_ip::media::Group;
+use plugin_ip::media::Media;
+use plugin_ip::media::measure;
+use plugin_ip::media::platforms;
 
 #[test]
 fn descriptor_applies_to_every_platform_needs_any_network_and_uses_no_external_tools() {
-    let desc = Unlock::DESCRIPTOR;
-    assert_eq!(desc.id, "media.unlock");
+    let desc = Media::DESCRIPTOR;
+    assert_eq!(desc.id, "ip.media");
     assert!(desc.requires.tools.is_empty(), "uses direct Rust probes");
     assert_eq!(desc.requires.net, Net::Any);
     assert!(!desc.timeout.is_zero());
@@ -36,7 +36,7 @@ fn descriptor_applies_to_every_platform_needs_any_network_and_uses_no_external_t
         };
         assert!(
             desc.requires.applies_to(&host),
-            "media.unlock must apply to {platform:?}"
+            "ip.media must apply to {platform:?}"
         );
     }
 }
@@ -116,15 +116,15 @@ fn plan_orchestrates_by_continent_lets_services_win_and_tracks_unknown_ids() {
 #[test]
 fn validate_base_url_accepts_https_and_loopback_http_only() {
     assert_eq!(
-        unlock::validate_base_url("https://mock.example/api/"),
+        media::validate_base_url("https://mock.example/api/"),
         Ok("https://mock.example/api".to_owned())
     );
     assert_eq!(
-        unlock::validate_base_url("http://127.0.0.1:18080/"),
+        media::validate_base_url("http://127.0.0.1:18080/"),
         Ok("http://127.0.0.1:18080".to_owned())
     );
     assert_eq!(
-        unlock::validate_base_url("http://[::1]:18080"),
+        media::validate_base_url("http://[::1]:18080"),
         Ok("http://[::1]:18080".to_owned())
     );
 
@@ -137,7 +137,7 @@ fn validate_base_url_accepts_https_and_loopback_http_only() {
         "ftp://127.0.0.1",
     ] {
         assert_eq!(
-            unlock::validate_base_url(bad),
+            media::validate_base_url(bad),
             Err(Failure::InvalidBaseUrl(bad.to_owned())),
             "{bad} must be rejected"
         );

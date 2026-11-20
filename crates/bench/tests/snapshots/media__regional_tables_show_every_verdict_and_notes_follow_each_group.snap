@@ -2,7 +2,7 @@
 source: crates/bench/tests/media.rs
 expression: shown
 ---
-[Streaming media]
+[IP]
   HTTPS probes, direct (no proxy); groups global, asia
   Note                no streaming service in the catalog for mystery-tv
   Global

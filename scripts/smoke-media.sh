@@ -1,12 +1,12 @@
 #!/bin/sh
 # A local HTTP server on 127.0.0.1 for the smoke test, answering the probes of one streaming
 # service per regional group, and its table in the config file. The smoke run then exercises
-# media.unlock end to end without contacting any external streaming platform. CI runs it before
-# smoke, after scripts/smoke-trace.sh.
+# ip.media end to end without contacting any external streaming platform. CI runs it before
+# smoke, after scripts/smoke-ip.sh.
 #
 # Usage: scripts/smoke-media.sh <directory> <config file>
 # Starts the server on 127.0.0.1:18080, writes server.pid into the directory, and appends
-# [plugins."media.unlock"] to the config file.
+# [plugins."ip.media"] to the config file.
 set -eu
 
 fail() {
@@ -76,7 +76,7 @@ while ! curl --fail --silent "http://127.0.0.1:$port/abema/check" >/dev/null 2>&
 done
 
 cat >> "$config" <<CONFIG
-[plugins."media.unlock"]
+[plugins."ip.media"]
 services = ["netflix", "abema", "bbc-iplayer", "starz", "stan"]
 base_url = "http://127.0.0.1:$port"
 CONFIG

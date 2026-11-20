@@ -2,7 +2,7 @@
 source: crates/bench/tests/ip.rs
 expression: full
 ---
-[IP reputation]
+[IP]
   Direct checks (no proxy): 9 intelligence sources, DNSBLs, port-25 mail
   Summary
     Field         IPv4                            IPv6

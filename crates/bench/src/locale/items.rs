@@ -480,7 +480,7 @@ pub trait MediaWords {
     fn no_media_family(&self) -> String;
 }
 
-/// Non-default settings chosen for `media.unlock`.
+/// Non-default settings chosen for `ip.media`.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct MediaChoice {
     /// Regional groups requested, such as `global` or `asia`.

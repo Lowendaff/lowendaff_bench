@@ -44,7 +44,7 @@ impl Group {
     }
 }
 
-/// Group selection in `[plugins."media.unlock"]`.
+/// Group selection in `[plugins."ip.media"]`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Choice {
@@ -180,7 +180,7 @@ pub struct Settings {
     pub custom_base: bool,
 }
 
-/// Complete or partial measurement of `media.unlock`.
+/// Complete or partial measurement of `ip.media`.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize)]
 pub struct Output {
     /// Effective settings of the run.
@@ -201,7 +201,7 @@ impl Measurement for Output {
     }
 }
 
-/// Why `media.unlock` skipped or failed as a whole.
+/// Why `ip.media` skipped or failed as a whole.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub enum Failure {
     /// `base_url` is neither an `https://` URL nor a loopback `http://` URL.

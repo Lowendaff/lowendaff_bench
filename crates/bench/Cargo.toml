@@ -17,7 +17,6 @@ bench-tool.workspace = true
 plugin-cpu.workspace = true
 plugin-disk.workspace = true
 plugin-ip.workspace = true
-plugin-media.workspace = true
 plugin-memory.workspace = true
 plugin-network.workspace = true
 clap = { version = "4", features = ["derive"] }

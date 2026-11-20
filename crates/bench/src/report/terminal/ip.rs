@@ -1,7 +1,13 @@
-//! The IP reputation section (`[IP reputation]`): side-by-side IPv4 and IPv6 tables for network
-//! identity and native/broadcast origin, multi-source risk scores, risk factors, and DNSBL
-//! blacklists plus TCP port-25 mail connectivity.
+//! The IP group's chapter (`[IP]`): IP reputation (`ip.quality`), with side-by-side IPv4 and IPv6
+//! tables for network identity, risk scores, risk factors, DNSBL blacklists and port-25 mail;
+//! streaming media unlock (`ip.media`), with regional OTT availability tables; and why either item
+//! stopped short.
 
+use plugin_ip::media;
+use plugin_ip::media::Group;
+use plugin_ip::media::Restriction;
+use plugin_ip::media::ServiceResult;
+use plugin_ip::media::Verdict;
 use plugin_ip::quality;
 use plugin_ip::quality::DnsblSummary;
 use plugin_ip::quality::FactorSummary;
@@ -21,6 +27,7 @@ use crate::locale::IpChoice;
 use crate::locale::IpField;
 use crate::locale::IpTable;
 use crate::locale::MediaCell;
+use crate::locale::MediaChoice;
 use crate::network;
 use crate::results::Report;
 
@@ -403,5 +410,107 @@ pub(super) fn quality_failure(failure: &quality::Failure) -> String {
         quality::Failure::NoPublicAddress => words.ip_no_public_address(),
         quality::Failure::InvalidEndpoint(raw) => words.ip_invalid_endpoint(raw),
         quality::Failure::Cancelled => words.interrupted(),
+    }
+}
+
+/// Renders `ip.media`'s block inside `[IP]`.
+pub(super) fn media(out: &mut Out, report: &Report<media::Output, media::Failure>, indent: &str) {
+    let words = locale::words();
+    let Some(output) = &report.output else {
+        return;
+    };
+    let choice = MediaChoice {
+        groups: output
+            .settings
+            .groups
+            .iter()
+            .map(|item| item.code().to_owned())
+            .collect(),
+        services: output.settings.services.clone(),
+        custom_base: output.settings.custom_base,
+    };
+    out.line(&format!("{indent}{}", words.media_method(&choice)));
+    if !output.unknown.is_empty() {
+        out.field(
+            indent,
+            &words.note(),
+            &words.unknown_services(&output.unknown),
+        );
+    }
+    let headers = words.media_headers().map(str::to_owned);
+    for group in Group::ALL {
+        let members: Vec<&ServiceResult> = output
+            .results
+            .iter()
+            .filter(|service| service.group == group)
+            .collect();
+        if members.is_empty() {
+            continue;
+        }
+        out.line(&format!("{indent}{}", words.media_group(group.code())));
+        let sub = format!("{indent}  ");
+        let rows: Vec<Vec<String>> = members
+            .iter()
+            .map(|service| media_row(service, output.ipv4_reachable, output.ipv6_reachable))
+            .collect();
+        out.table_left(&sub, &headers, &rows);
+        for service in &members {
+            for (ipv6, verdict) in [(false, &service.ipv4), (true, &service.ipv6)] {
+                if let Some(Verdict::Unexpected(reason)) = verdict {
+                    out.field(
+                        &sub,
+                        &words.note(),
+                        &words.media_unexpected(service.name, ipv6, reason),
+                    );
+                }
+            }
+        }
+    }
+}
+
+fn media_row(service: &ServiceResult, ipv4_reachable: bool, ipv6_reachable: bool) -> Vec<String> {
+    vec![
+        service.name.to_owned(),
+        media_cell(service.ipv4.as_ref(), ipv4_reachable, false),
+        media_cell(service.ipv6.as_ref(), ipv6_reachable, true),
+    ]
+}
+
+fn media_cell(verdict: Option<&Verdict>, reachable: bool, ipv6: bool) -> String {
+    if !reachable {
+        return MISSING.to_owned();
+    }
+    let Some(verdict) = verdict else {
+        return MISSING.to_owned();
+    };
+    let words = locale::words();
+    match verdict {
+        Verdict::Yes { region } => words.media_yes(region.as_deref()),
+        Verdict::OriginalsOnly { region } => words.media_originals(region.as_deref()),
+        Verdict::No { restriction } => {
+            let kind = match restriction {
+                None => MediaCell::No,
+                Some(Restriction::ChinaMainland) => MediaCell::NoChina,
+                Some(Restriction::ComingSoon) => MediaCell::ComingSoon,
+                Some(Restriction::ProxyDetected) => MediaCell::ProxyDetected,
+            };
+            words.media_cell(kind, ipv6).to_owned()
+        }
+        Verdict::BlockedWaf => words.media_cell(MediaCell::BlockedWaf, ipv6).to_owned(),
+        Verdict::RateLimited => words.media_cell(MediaCell::RateLimited, ipv6).to_owned(),
+        Verdict::NoAddress => words.media_cell(MediaCell::NoAddress, ipv6).to_owned(),
+        Verdict::TimedOut => words.media_cell(MediaCell::TimedOut, ipv6).to_owned(),
+        Verdict::Unexpected(_) => words.media_cell(MediaCell::Error, ipv6).to_owned(),
+    }
+}
+
+/// Formats `ip.media`'s stop reason.
+pub(super) fn media_failure(failure: &media::Failure) -> String {
+    let words = locale::words();
+    match failure {
+        media::Failure::InvalidBaseUrl(url) => words.invalid_base_url(url),
+        media::Failure::NoService(unknown) => words.no_service(unknown),
+        media::Failure::NoFamily => words.no_media_family(),
+        media::Failure::Cancelled => words.interrupted(),
     }
 }

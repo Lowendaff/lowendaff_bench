@@ -38,7 +38,7 @@ for image in $images; do
     expected=$(docker run --rm --entrypoint sh "$image" -c '. /etc/os-release && printf %s "$PRETTY_NAME"') ||
         fail "$name: cannot read os-release"
     output=$(docker run --rm -v "$bin:/usr/local/bin/lowendaff-bench:ro" -w /root "$image" \
-        lowendaff-bench --skip cpu,memory,disk,network,ip,media 2>&1) || fail "$name: exited with $?: $output"
+        lowendaff-bench --skip cpu,memory,disk,network,ip 2>&1) || fail "$name: exited with $?: $output"
     printf '%s\n' "$output" | grep -qx 'Environment: Docker container' ||
         fail "$name: the platform was not detected as Docker: $output"
     reported=$(printf '%s\n' "$output" | sed -n 's/^  OS  *//p')

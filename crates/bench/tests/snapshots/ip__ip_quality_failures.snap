@@ -2,7 +2,7 @@
 source: crates/bench/tests/ip.rs
 expression: shown
 ---
-[IP reputation]
+[IP]
   IP reputation
     skipped: the host reaches neither IPv4 nor IPv6
   IP reputation

@@ -7,7 +7,6 @@ use super::Page;
 use super::cpu;
 use super::disk;
 use super::ip;
-use super::media;
 use super::memory;
 use super::network;
 use crate::locale;
@@ -95,10 +94,10 @@ fn reason(run: &Run<Measured>) -> Option<String> {
             .stop
             .as_ref()
             .map(|stop| ip::quality_failure(failure(stop))),
-        Some(Measured::MediaUnlock(report)) => report
+        Some(Measured::IpMedia(report)) => report
             .stop
             .as_ref()
-            .map(|stop| media::unlock_failure(failure(stop))),
+            .map(|stop| ip::media_failure(failure(stop))),
         None => None,
     }
 }

@@ -1393,8 +1393,7 @@ fn the_list_keeps_each_group_together_in_the_reports_order() {
             "[Memory performance] (group: memory)",
             "[Disks] (group: disk)",
             "[Network] (group: network)",
-            "[IP reputation] (group: ip)",
-            "[Streaming media] (group: media)"
+            "[IP] (group: ip)"
         ]
     );
     let ids: Vec<&str> = text
@@ -1416,7 +1415,7 @@ fn the_list_keeps_each_group_together_in_the_reports_order() {
             "network.iperf3",
             "network.trace",
             "ip.quality",
-            "media.unlock"
+            "ip.media"
         ]
     );
     let cpu: Vec<&str> = text
@@ -1471,16 +1470,26 @@ fn the_list_keeps_each_group_together_in_the_reports_order() {
         .lines()
         .filter(|line| line.starts_with("  ip."))
         .collect();
-    assert_eq!(ip, ["  ip.quality  IP reputation"]);
-    let media: Vec<&str> = text
-        .lines()
-        .filter(|line| line.starts_with("  media."))
-        .collect();
-    assert_eq!(media, ["  media.unlock  Media unlock"]);
+    assert_eq!(
+        ip,
+        ["  ip.quality  IP reputation", "  ip.media  Media unlock"]
+    );
 }
 
 #[test]
 fn the_plan_keeps_the_reporters_names() {
+    let planned = app::prepare(&cli(&["--only", "ip"]), &registry::all()).unwrap();
+    let names: Vec<(&str, Option<&str>)> = planned
+        .iter()
+        .map(|planned| (planned.id(), planned.title()))
+        .collect();
+    assert_eq!(
+        names,
+        [
+            ("ip.quality", Some("IP reputation")),
+            ("ip.media", Some("Media unlock"))
+        ]
+    );
     let planned = app::prepare(&cli(&["--only", "cpu"]), &registry::all()).unwrap();
     let names: Vec<(&str, Option<&str>)> = planned
         .iter()

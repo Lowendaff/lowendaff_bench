@@ -1,4 +1,4 @@
-//! Streaming media unlock (`media.unlock`): probes individual OTT platforms arranged by continent
+//! Streaming media unlock (`ip.media`): probes individual OTT platforms arranged by continent
 //! over IPv4 and IPv6 directly from the host, without proxies or anti-bot bypasses.
 
 pub mod measure;
@@ -25,10 +25,10 @@ pub use result::ServiceResult;
 pub use result::Settings;
 pub use result::Verdict;
 
-/// Streaming media unlock plugin, configured from `[plugins."media.unlock"]`.
+/// Streaming media unlock plugin, configured from `[plugins."ip.media"]`.
 #[derive(Debug, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-pub struct Unlock {
+pub struct Media {
     /// Continent groups to probe (`global`, `asia`, `europe`, `americas`, `oceania`, `all`).
     pub groups: Vec<Choice>,
     /// Specific service ids to probe; wins over `groups` when non-empty.
@@ -38,12 +38,12 @@ pub struct Unlock {
     pub base_url: Option<String>,
 }
 
-impl Plugin for Unlock {
+impl Plugin for Media {
     type Output = Output;
     type Failure = Failure;
 
     const DESCRIPTOR: Descriptor = Descriptor {
-        id: "media.unlock",
+        id: "ip.media",
         requires: Requirements {
             tools: &[],
             net: Net::Any,

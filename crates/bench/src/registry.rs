@@ -46,8 +46,8 @@ pub fn all() -> Vec<Entry> {
         // and before streaming media unlock and Geekbench.
         entry::<plugin_ip::quality::Quality>(Measured::IpQuality),
         // Media unlock: lightweight direct HTTPS probes across global and regional OTT platforms,
-        // after network speed and route tracing and before Geekbench.
-        entry::<plugin_media::unlock::Unlock>(Measured::MediaUnlock),
+        // after IP reputation and before Geekbench.
+        entry::<plugin_ip::media::Media>(Measured::IpMedia),
         // Geekbench 7: last, being the longest, with a download, an upload and perhaps swap that
         // must not disturb the disk test.
         entry::<plugin_cpu::geekbench::Geekbench>(Measured::CpuGeekbench),
@@ -244,7 +244,7 @@ mod tests {
                 "network.iperf3",
                 "network.trace",
                 "ip.quality",
-                "media.unlock",
+                "ip.media",
                 "cpu.geekbench",
             ]
         );

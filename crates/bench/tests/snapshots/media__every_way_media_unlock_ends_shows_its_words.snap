@@ -2,7 +2,7 @@
 source: crates/bench/tests/media.rs
 expression: shown
 ---
-[Streaming media]
+[IP]
   Media unlock
     skipped: the host reaches neither IPv4 nor IPv6
   Media unlock

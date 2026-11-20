@@ -1,6 +1,6 @@
-//! IP reputation's part of the report (`[IP reputation]`): default IP and PTR masking versus
-//! `--show-ip`, native and broadcast origin, risk scores, risk factors, DNSBLs, port-25 mail, and
-//! every failure/skip reason.
+//! IP reputation's part of the report (`[IP]`): default IP and PTR masking versus `--show-ip`,
+//! native and broadcast origin, risk scores, risk factors, DNSBLs, port-25 mail, both `ip.quality`
+//! and `ip.media` sharing `[IP]`, and every failure/skip reason.
 
 use std::time::Duration;
 
@@ -80,9 +80,7 @@ fn section(runs: &[Run<Measured>], show_ip: bool) -> String {
         total: Duration::from_secs_f64(4.8),
     };
     let text = report::terminal::render(&page, None);
-    let start = text
-        .find("[IP reputation]")
-        .expect("an IP reputation section");
+    let start = text.find("[IP]").expect("an IP section");
     text[start..].to_owned()
 }
 
@@ -325,4 +323,47 @@ fn every_way_ip_quality_ends_shows_its_words() {
         );
     }
     insta::assert_snapshot!("ip_quality_failures", shown);
+}
+
+#[test]
+fn ip_quality_and_ip_media_share_one_ip_section() {
+    use plugin_ip::media;
+    use plugin_ip::media::Group;
+    use plugin_ip::media::ServiceResult;
+    use plugin_ip::media::Verdict;
+
+    let media_run = Run {
+        id: "ip.media",
+        group: "ip",
+        title: Some("Media unlock"),
+        started: Some(Duration::from_secs(5)),
+        elapsed: Some(Duration::from_secs_f64(2.1)),
+        status: Status::Completed,
+        result: Some(Measured::IpMedia(Report {
+            output: Some(media::Output {
+                settings: media::Settings::default(),
+                unknown: Vec::new(),
+                ipv4_reachable: true,
+                ipv6_reachable: true,
+                results: vec![ServiceResult {
+                    id: "netflix",
+                    name: "Netflix",
+                    group: Group::Global,
+                    ipv4: Some(Verdict::yes_in("SG")),
+                    ipv6: Some(Verdict::yes_in("SG")),
+                }],
+            }),
+            stop: None,
+        })),
+    };
+    let shown = section(
+        &[
+            run(Status::Completed, Some(sample_output()), None),
+            media_run,
+        ],
+        false,
+    );
+    assert_eq!(shown.matches("[IP]\n").count(), 1);
+    assert!(shown.contains("  IP reputation\n    Direct checks (no proxy):"));
+    assert!(shown.contains("  Media unlock\n    HTTPS probes, direct (no proxy)"));
 }

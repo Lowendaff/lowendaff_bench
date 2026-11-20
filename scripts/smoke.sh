@@ -82,7 +82,7 @@ fi
 # The public address never comes through a proxy, which would report its own: with proxy
 # variables that point nowhere, the IPv4 line still shows one.
 proxied=$($as_root env HTTPS_PROXY=http://127.0.0.1:9 ALL_PROXY=http://127.0.0.1:9 \
-    "$bin" --work-dir "$work" --skip cpu,memory,disk,network,ip,media 2>/dev/null) ||
+    "$bin" --work-dir "$work" --skip cpu,memory,disk,network,ip 2>/dev/null) ||
     fail "the run with a proxy set failed"
 printf '%s\n' "$proxied" |
     grep -Eq "^  IPv4 +available; public address $masked \(from ($sources)\)\$" ||

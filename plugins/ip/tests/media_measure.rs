@@ -1,4 +1,4 @@
-//! End-to-end measurement tests for `media.unlock` with a recorded mock `HttpClient`.
+//! End-to-end measurement tests for `ip.media` with a recorded mock `HttpClient`.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -23,10 +23,10 @@ use bench_host::network::Family;
 use bench_host::network::Network;
 use bench_host::network::Reach;
 use bench_host::profile::HostProfile;
-use plugin_media::unlock::Failure;
-use plugin_media::unlock::Output;
-use plugin_media::unlock::Unlock;
-use plugin_media::unlock::Verdict;
+use plugin_ip::media::Failure;
+use plugin_ip::media::Media;
+use plugin_ip::media::Output;
+use plugin_ip::media::Verdict;
 use tokio::time::Instant;
 
 struct RecordedHttp {
@@ -133,7 +133,7 @@ fn make_context(
 async fn unlock_probes_both_families_rewrites_base_url_and_reports_progress() {
     let http = Arc::new(RecordedHttp::new());
     let (ctx, mut channels, _) = make_context(true, true, Arc::clone(&http) as Arc<dyn HttpClient>);
-    let plugin = Unlock {
+    let plugin = Media {
         groups: Vec::new(),
         services: vec![
             "netflix".to_owned(),
@@ -211,12 +211,12 @@ async fn unlock_skips_without_network_or_matching_services_and_rejects_bad_base_
 
     let (offline_ctx, _, _) = make_context(false, false, Arc::clone(&http));
     assert_eq!(
-        Unlock::default().run(&offline_ctx).await,
+        Media::default().run(&offline_ctx).await,
         Err(Stop::Skipped(Failure::NoFamily))
     );
 
     let (ctx, _, _) = make_context(true, false, Arc::clone(&http));
-    let none = Unlock {
+    let none = Media {
         groups: Vec::new(),
         services: vec!["not-a-service".to_owned()],
         base_url: None,
@@ -228,7 +228,7 @@ async fn unlock_skips_without_network_or_matching_services_and_rejects_bad_base_
         ])))
     );
 
-    let bad_base = Unlock {
+    let bad_base = Media {
         groups: Vec::new(),
         services: Vec::new(),
         base_url: Some("http://example.com".to_owned()),

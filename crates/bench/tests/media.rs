@@ -15,24 +15,24 @@ use bench_host::network::Family;
 use bench_host::network::Network;
 use bench_host::network::Reach;
 use bench_host::profile::HostProfile;
-use plugin_media::unlock::Choice;
-use plugin_media::unlock::Failure;
-use plugin_media::unlock::Group;
-use plugin_media::unlock::Output;
-use plugin_media::unlock::Restriction;
-use plugin_media::unlock::ServiceResult;
-use plugin_media::unlock::Settings;
-use plugin_media::unlock::Verdict;
+use plugin_ip::media::Choice;
+use plugin_ip::media::Failure;
+use plugin_ip::media::Group;
+use plugin_ip::media::Output;
+use plugin_ip::media::Restriction;
+use plugin_ip::media::ServiceResult;
+use plugin_ip::media::Settings;
+use plugin_ip::media::Verdict;
 
 fn run(status: Status, output: Option<Output>, stop: Option<Stop<Failure>>) -> Run<Measured> {
     Run {
-        id: "media.unlock",
-        group: "media",
+        id: "ip.media",
+        group: "ip",
         title: Some("Media unlock"),
         started: Some(Duration::from_secs(1)),
         elapsed: Some(Duration::from_secs_f64(6.4)),
         status,
-        result: Some(Measured::MediaUnlock(Report { output, stop })),
+        result: Some(Measured::IpMedia(Report { output, stop })),
     }
 }
 
@@ -63,9 +63,7 @@ fn section(runs: &[Run<Measured>]) -> String {
         total: Duration::from_secs_f64(7.4),
     };
     let text = report::terminal::render(&page, None);
-    let start = text
-        .find("[Streaming media]")
-        .expect("a streaming media section");
+    let start = text.find("[IP]").expect("an IP section");
     text[start..].to_owned()
 }
 
