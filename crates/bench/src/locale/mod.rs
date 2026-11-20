@@ -10,6 +10,7 @@ mod items;
 mod log;
 mod program;
 mod report;
+mod tui;
 
 use std::sync::OnceLock;
 
@@ -52,6 +53,7 @@ pub use program::ProgramWords;
 pub use report::ReportWords;
 pub use report::Totals;
 pub use report::Unit;
+pub use tui::TuiWords;
 
 /// The texts of one language: every trait of the catalog.
 pub trait Words:
@@ -68,6 +70,7 @@ pub trait Words:
     + BgpWords
     + IpWords
     + MediaWords
+    + TuiWords
     + Sync
 {
 }
@@ -86,6 +89,7 @@ impl<T> Words for T where
         + BgpWords
         + IpWords
         + MediaWords
+        + TuiWords
         + Sync
 {
 }

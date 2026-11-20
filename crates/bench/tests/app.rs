@@ -1663,3 +1663,73 @@ fn the_items_that_do_not_apply_here_are_named_as_the_report_names_them() {
     assert_eq!(names, ["Disk health", "Memory NUMA"]);
     assert_eq!(applicable.len(), 11, "the others run");
 }
+
+#[test]
+fn tui_is_off_by_default_and_mutually_exclusive_with_every_other_flag() {
+    use clap::CommandFactory;
+    use clap::Parser;
+
+    assert!(!cli(&[]).tui, "zero arguments must keep standard CLI mode");
+    assert!(cli(&["--tui"]).tui, "--tui alone must enable TUI mode");
+
+    let incompatible: &[&[&str]] = &[
+        &["--tui", "--only", "cpu"],
+        &["--tui", "--skip", "cpu.geekbench"],
+        &["--tui", "-o", "report.txt"],
+        &["--tui", "--output", "report.md"],
+        &["--tui", "-f", "text"],
+        &["--tui", "--format", "json"],
+        &["--tui", "--work-dir", "."],
+        &["--tui", "--list"],
+        &["--tui", "-v"],
+        &["--tui", "--verbose"],
+        &["--tui", "--show-ip"],
+        &["--tui", "--download-connections", "32"],
+        &["--tui", "--countries", "US"],
+        &["--tui", "--trace-groups", "china"],
+        &["--tui", "--media-groups", "asia"],
+        &["--tui", "--no-dnsbl"],
+        &["--tui", "--no-mail"],
+        &["--tui", "--internal-overrides", "{}"],
+    ];
+    for args in incompatible {
+        let full: Vec<&str> = std::iter::once("lowendaff-bench")
+            .chain(args.iter().copied())
+            .collect();
+        assert!(
+            Cli::try_parse_from(&full).is_err(),
+            "--tui must reject accompanying arguments: {args:?}"
+        );
+    }
+
+    // Every non-built-in argument declared on Cli must be covered by --tui's conflict list.
+    let cmd = Cli::command();
+    for arg in cmd.get_arguments() {
+        let id = arg.get_id().as_str();
+        if matches!(id, "tui" | "help" | "version") {
+            continue;
+        }
+        let long = arg
+            .get_long()
+            .expect("every bench CLI argument declares a long flag");
+        let flag = format!("--{long}");
+        let takes_vals = arg.get_num_args().is_some_and(|range| range.takes_values());
+        let parsed = if takes_vals {
+            let sample = match id {
+                "format" => "text",
+                "download_connections" => "32",
+                "trace_groups" => "all",
+                "media_groups" => "all",
+                "internal_overrides" => "{}",
+                _ => "cpu",
+            };
+            Cli::try_parse_from(["lowendaff-bench", "--tui", &flag, sample])
+        } else {
+            Cli::try_parse_from(["lowendaff-bench", "--tui", &flag])
+        };
+        assert!(
+            parsed.is_err(),
+            "--tui must conflict with --{long} (arg id `{id}`)"
+        );
+    }
+}
