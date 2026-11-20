@@ -97,7 +97,7 @@ sudo ./lowendaff-bench --only network.trace --trace-groups services,china
    - **起源侧首跳 Tier-1 截断与去重跳数分列**：优先筛选经过 Tier-1 骨干网的路径，并在自 Origin 向外到达的**首个** Tier-1 骨干网处截断（剔除采集点侧冗余的 Tier-1 互联跳数，同时保证高扇出上游如 `AS6939` 不会挤占多层级备份上游路径）；按去重后的真实 AS 跳数（`origin, 1, 2, ...`）划分纵向列，连续重复的同一 ASN（AS-PATH Prepend）折叠为单框并在连线上以虚线与 `×N` 标注；
    - **主干居中 DFS + 重心法（Barycenter）降交叉 + 邻接对齐行分配**：先将子树规模最大的主干排在纵向中心，再经多轮正反向重心扫掠最小化多上游网状交叉，最后以最密列为锚点向两侧做邻接吸附单调行号投影，消除同列重叠与悬空绕线。
 4. **三种报告格式的拓扑图输出**：
-   - **`text` 终端模式**：输出 IPv4 / IPv6 双栈路由摘要表与主要观测 `AS_PATH` 列表，并将生成的匿名 SVG 矢量拓扑图以 `unlisted`（不公开收录）方式上传至 `imageupload.app`，直接在终端展示不折行的可点击图床链接（如 `https://imageupload.app/i/<key>`）；若图床上传超时或限流，仅追加一行 `Note` 说明而不会影响测试成功状态，也可通过 `--no-bgp-upload`（或 `--tui` 中的 `Upload topology image` 开关）关闭上传；
+   - **`text` 终端模式**：输出 IPv4 / IPv6 双栈路由摘要表与主要观测 `AS_PATH` 列表，并将生成的匿名 SVG 矢量拓扑图以 `unlisted`（不公开收录）方式上传至 `imageupload.app`，直接在终端展示不折行的可点击图床链接（如 `https://imageupload.app/i/<key>`）；若图床上传超时或限流，仅追加一行 `Note` 说明而不会影响测试成功状态，也可通过 `--no-bgp-upload`（或交互式 TUI 中的 `Upload topology image` 开关）关闭上传；
    - **`markdown` 模式**：输出原生 ```` ```mermaid ````（`flowchart LR`）代码块（不触发外部图床上传），在 GitHub、GitLab、Obsidian 等平台可直接渲染为矢量图；
    - **`json` 模式**：在 `ipv4.svg` / `ipv6.svg` 字段中直接内嵌完整自包含的三次贝塞尔曲线 `<svg>` 矢量图源码（内联配色与样式，不触发外部图床上传，可直接保存为 `.svg` 查看）。
    - **默认隐私脱敏**：未传入 `--show-ip` 时，宣告前缀自动打码保留掩码长度（如 `203.0.*.*/24`、`2001:db8:*/48`）；上传与内嵌的 SVG 拓扑图内部仅包含自治域号（ASN）、运营商简称、节点权重与 Prepend 倍数，**绝不包含本机公网 IP 或前缀**。

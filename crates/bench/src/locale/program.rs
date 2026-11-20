@@ -7,6 +7,8 @@ use std::path::Path;
 pub trait ProgramWords {
     /// What the program is, at the top of its help.
     fn about(&self) -> String;
+    /// The help of `--all` / `-a`.
+    fn help_all(&self) -> String;
     /// The help of `--only`.
     fn help_only(&self) -> String;
     /// The help of `--skip`.
@@ -39,9 +41,7 @@ pub trait ProgramWords {
     fn help_no_mail(&self) -> String;
     /// The help of `--no-bgp-upload`.
     fn help_no_bgp_upload(&self) -> String;
-    /// The help of `--tui`.
-    fn help_tui(&self) -> String;
-    /// `--tui` started without an interactive terminal.
+    /// Interactive mode started without an interactive terminal.
     fn tui_not_a_tty(&self) -> String;
     /// Items written as one list, as in "sysbench 1.0.20, fio 3.43".
     fn list(&self, items: &[String]) -> String;

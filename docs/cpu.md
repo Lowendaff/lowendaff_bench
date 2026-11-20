@@ -12,8 +12,8 @@ CPU 章节由统一插件 **`cpu.bench`** 驱动，按固定顺序调度 **8 项
 |---|---|
 | 插件 ID | `cpu.bench`（所属分组：`cpu`） |
 | 适用平台 | 独立服务器、虚拟机、容器（各子套件在运行前独立判定架构、`glibc` 与网络前置条件） |
-| 命令行参数 | `--cpu-bench <SUITE,...>`（可逗号分隔或重复传入，支持 `all`；与 `--tui` 互斥） |
-| TUI 配置 | 在 `--tui` 界面选中 `cpu.bench` 后，可逐一勾选/取消任意子套件 |
+| 命令行参数 | `--cpu-bench <SUITE,...>`（可逗号分隔或重复传入，支持 `all`） |
+| TUI 配置 | 无参数进入交互式 TUI 后选中 `cpu.bench`，可逐一勾选子套件（子套件与总开关双向联动） |
 | 默认启用（6 项） | `sysbench`、`7zip`、`unixbench`、`hpl`、`passmark`、`geekbench` |
 | 按需启用（2 项） | `ycruncher`、`prime95`（均为 `x86_64` 专属高负载测试；在 `aarch64` 上即使显式勾选或传入 `all` 也会平滑标记为跳过，不会中断其余子套件） |
 | 超时上限 | `320 分钟`（覆盖全部子套件顺序运行及 Geekbench 上传重试的最坏耗时） |
@@ -103,7 +103,7 @@ CPU 章节由统一插件 **`cpu.bench`** 驱动，按固定顺序调度 **8 项
 
 | 属性 | 说明 |
 |---|---|
-| 子套件代码 | `ycruncher`（默认关闭，通过 `--cpu-bench ycruncher` / `all` 或 `--tui` 勾选启用） |
+| 子套件代码 | `ycruncher`（默认关闭，通过 `--cpu-bench ycruncher` / `all` 或交互式 TUI 勾选启用） |
 | 依赖工具 | 官方静态版 `y-cruncher 0.8.7 Build 9547`（仅 `x86_64`） |
 | 环境要求 | `x86_64` 架构（`aarch64` 主机自动跳过） |
 
@@ -116,7 +116,7 @@ CPU 章节由统一插件 **`cpu.bench`** 驱动，按固定顺序调度 **8 项
 
 | 属性 | 说明 |
 |---|---|
-| 子套件代码 | `prime95`（默认关闭，通过 `--cpu-bench prime95` / `all` 或 `--tui` 勾选启用） |
+| 子套件代码 | `prime95`（默认关闭，通过 `--cpu-bench prime95` / `all` 或交互式 TUI 勾选启用） |
 | 依赖工具 | 官方 `Prime95 / mprime 30.19 Build 20`（仅 `x86_64`） |
 | 环境要求 | `x86_64` 架构且 `glibc >= 2.18`（`aarch64` 或纯 `musl` 主机自动跳过） |
 

@@ -15,6 +15,7 @@ use crate::orchestrator::Planned;
 use crate::registry::Entry;
 use crate::report;
 use crate::report::Format;
+use crate::report_path;
 use crate::results::Measured;
 
 /// CPU sub-suite codes in UI display and execution order.
@@ -81,7 +82,7 @@ pub enum ItemParams {
 }
 
 impl ItemParams {
-    /// Default parameter set for plugin `id`.
+    /// Default parameter set when plugin `id` is enabled.
     #[must_use]
     pub fn default_for(id: &str) -> Self {
         match id {
@@ -113,7 +114,37 @@ impl ItemParams {
         }
     }
 
-    /// Whether every parameter of this item matches its program default.
+    /// Cleared parameter set shown when plugin `id` is disabled.
+    #[must_use]
+    pub fn cleared_for(id: &str) -> Self {
+        match id {
+            "cpu.bench" => Self::CpuBench { suites: [false; 8] },
+            "network.iperf3" => Self::Iperf3 {
+                countries: String::new(),
+                servers: String::new(),
+                seconds: IperfSettings::YABS.seconds,
+                streams: IperfSettings::YABS.streams,
+                rate: None,
+            },
+            "network.trace" => Self::Trace {
+                groups: [false; 4],
+                targets: String::new(),
+                geo: false,
+            },
+            "network.bgp" => Self::Bgp { upload: false },
+            "ip.quality" => Self::IpQuality {
+                dnsbl: false,
+                mail: false,
+            },
+            "ip.media" => Self::IpMedia {
+                groups: [false; 6],
+                services: String::new(),
+            },
+            _ => Self::Fixed,
+        }
+    }
+
+    /// Whether every parameter of this item matches its enabled program default.
     #[must_use]
     pub fn is_default(&self) -> bool {
         match self {
@@ -190,12 +221,16 @@ impl ItemParams {
                 targets,
                 geo,
             } => {
-                let chosen: Vec<String> = TRACE_GROUPS
-                    .iter()
-                    .zip(groups.iter())
-                    .filter(|(_, on)| **on)
-                    .map(|(code, _)| (*code).to_owned())
-                    .collect();
+                let chosen: Vec<String> = if groups[3] {
+                    vec!["all".to_owned()]
+                } else {
+                    TRACE_GROUPS[..3]
+                        .iter()
+                        .zip(groups[..3].iter())
+                        .filter(|(_, on)| **on)
+                        .map(|(code, _)| (*code).to_owned())
+                        .collect()
+                };
                 if !chosen.is_empty() {
                     map.insert("groups".to_owned(), string_array(&chosen));
                 }
@@ -221,12 +256,16 @@ impl ItemParams {
                 }
             }
             Self::IpMedia { groups, services } => {
-                let chosen: Vec<String> = MEDIA_GROUPS
-                    .iter()
-                    .zip(groups.iter())
-                    .filter(|(_, on)| **on)
-                    .map(|(code, _)| (*code).to_owned())
-                    .collect();
+                let chosen: Vec<String> = if groups[5] {
+                    vec!["all".to_owned()]
+                } else {
+                    MEDIA_GROUPS[..5]
+                        .iter()
+                        .zip(groups[..5].iter())
+                        .filter(|(_, on)| **on)
+                        .map(|(code, _)| (*code).to_owned())
+                        .collect()
+                };
                 if !chosen.is_empty() {
                     map.insert("groups".to_owned(), string_array(&chosen));
                 }
@@ -262,6 +301,31 @@ pub struct ItemConfig {
 }
 
 impl ItemConfig {
+    /// Sets `enabled`, clearing sub-selections when disabled and restoring defaults when enabled.
+    pub fn set_enabled(&mut self, enabled: bool) {
+        if self.enabled == enabled {
+            return;
+        }
+        self.enabled = enabled;
+        self.params = if enabled {
+            ItemParams::default_for(self.id)
+        } else {
+            ItemParams::cleared_for(self.id)
+        };
+    }
+
+    /// Flips `enabled`, clearing sub-selections on disable and restoring defaults on enable.
+    pub fn toggle_enabled(&mut self) {
+        let next = !self.enabled;
+        self.set_enabled(next);
+    }
+
+    /// Whether this item is enabled and carries non-default parameters.
+    #[must_use]
+    pub fn is_customized(&self) -> bool {
+        self.enabled && !self.params.is_default()
+    }
+
     /// Resets `enabled` and `params` to defaults.
     pub fn reset(&mut self) {
         self.enabled = true;
@@ -269,12 +333,12 @@ impl ItemConfig {
     }
 }
 
-/// Global run and report options configured inside `--tui`.
+/// Global run and report options configured inside the interactive TUI.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GlobalConfig {
     /// Report format (`text`, `markdown`, or `json`).
     pub format: Format,
-    /// Optional file path where the report is also saved when the run finishes.
+    /// Custom file path where the report is saved; empty archives to `/tmp` automatically.
     pub output: String,
     /// Directory under which the temporary run directory is created.
     pub work_dir: String,
@@ -316,6 +380,8 @@ pub struct FieldRow {
     pub value: String,
     /// Whether the value differs from its default.
     pub customized: bool,
+    /// Whether the row belongs to a currently disabled parent item.
+    pub dimmed: bool,
     /// Raw text for inline editing when `Enter` is pressed (`None` for pure toggles/choices).
     pub edit_raw: Option<String>,
 }
@@ -364,12 +430,12 @@ impl TuiConfig {
         self.items.iter().filter(|item| item.enabled).count()
     }
 
-    /// Number of items with customized parameters.
+    /// Number of enabled items with customized parameters.
     #[must_use]
     pub fn customized_count(&self) -> usize {
         self.items
             .iter()
-            .filter(|item| !item.params.is_default())
+            .filter(|item| item.is_customized())
             .count()
     }
 
@@ -383,12 +449,14 @@ impl TuiConfig {
             .collect()
     }
 
-    /// Serializes per-plugin parameter overrides for `orchestrator::plan`.
+    /// Serializes per-plugin parameter overrides for enabled items for `orchestrator::plan`.
     #[must_use]
     pub fn plugin_settings(&self) -> BTreeMap<String, serde_json::Value> {
         let mut out = BTreeMap::new();
         for item in &self.items {
-            if let Some(value) = item.params.to_json() {
+            if item.enabled
+                && let Some(value) = item.params.to_json()
+            {
                 out.insert(item.id.to_owned(), value);
             }
         }
@@ -416,11 +484,12 @@ impl TuiConfig {
         orchestrator::plan(registry, &ids, &settings)
     }
 
-    /// Toggles all items: disables all if all are enabled; enables all otherwise.
+    /// Toggles all items: disables all (clearing sub-options) if all are enabled; enables all
+    /// with defaults otherwise.
     pub fn toggle_all(&mut self) {
         let target = self.enabled_count() < self.items.len();
         for item in &mut self.items {
-            item.enabled = target;
+            item.set_enabled(target);
         }
     }
 
@@ -434,7 +503,7 @@ impl TuiConfig {
         let target = !all_on;
         for item in &mut self.items {
             if item.group == group {
-                item.enabled = target;
+                item.set_enabled(target);
             }
         }
     }
@@ -447,6 +516,7 @@ impl TuiConfig {
             return Vec::new();
         };
         let mut rows = vec![bool_row(words.tui_field_enabled(), item.enabled, true)];
+        let inactive = !item.enabled;
         match &item.params {
             ItemParams::Fixed => {}
             ItemParams::CpuBench { suites } => {
@@ -455,7 +525,10 @@ impl TuiConfig {
                     .zip(suites.iter())
                     .zip(DEFAULT_SUITES.iter())
                 {
-                    rows.push(bool_row(&words.tui_field_cpu_suite(code), *on, *def_on));
+                    rows.push(sub_row(
+                        bool_row(&words.tui_field_cpu_suite(code), *on, *def_on),
+                        inactive,
+                    ));
                 }
             }
             ItemParams::Iperf3 {
@@ -465,38 +538,52 @@ impl TuiConfig {
                 streams,
                 rate,
             } => {
-                rows.push(text_row(
-                    words.tui_field_countries(),
-                    countries,
-                    words.tui_default_locations(),
+                rows.push(sub_row(
+                    text_row(
+                        words.tui_field_countries(),
+                        countries,
+                        words.tui_default_locations(),
+                    ),
+                    inactive,
                 ));
-                rows.push(text_row(
-                    words.tui_field_servers(),
-                    servers,
-                    words.tui_default_none(),
+                rows.push(sub_row(
+                    text_row(words.tui_field_servers(), servers, words.tui_default_none()),
+                    inactive,
                 ));
-                rows.push(FieldRow {
-                    label: words.tui_field_seconds().to_owned(),
-                    value: seconds.to_string(),
-                    customized: *seconds != IperfSettings::YABS.seconds,
-                    edit_raw: Some(seconds.to_string()),
-                });
-                rows.push(FieldRow {
-                    label: words.tui_field_streams().to_owned(),
-                    value: streams.to_string(),
-                    customized: *streams != IperfSettings::YABS.streams,
-                    edit_raw: Some(streams.to_string()),
-                });
+                rows.push(sub_row(
+                    FieldRow {
+                        label: words.tui_field_seconds().to_owned(),
+                        value: seconds.to_string(),
+                        customized: *seconds != IperfSettings::YABS.seconds,
+                        dimmed: false,
+                        edit_raw: Some(seconds.to_string()),
+                    },
+                    inactive,
+                ));
+                rows.push(sub_row(
+                    FieldRow {
+                        label: words.tui_field_streams().to_owned(),
+                        value: streams.to_string(),
+                        customized: *streams != IperfSettings::YABS.streams,
+                        dimmed: false,
+                        edit_raw: Some(streams.to_string()),
+                    },
+                    inactive,
+                ));
                 let rate_val = rate.map_or_else(
                     || words.tui_unlimited().to_owned(),
                     |val| format!("{val} Mbit/s"),
                 );
-                rows.push(FieldRow {
-                    label: words.tui_field_rate().to_owned(),
-                    value: rate_val,
-                    customized: rate.is_some(),
-                    edit_raw: Some(rate.map_or_else(String::new, |val| val.to_string())),
-                });
+                rows.push(sub_row(
+                    FieldRow {
+                        label: words.tui_field_rate().to_owned(),
+                        value: rate_val,
+                        customized: rate.is_some(),
+                        dimmed: false,
+                        edit_raw: Some(rate.map_or_else(String::new, |val| val.to_string())),
+                    },
+                    inactive,
+                ));
             }
             ItemParams::Trace {
                 groups,
@@ -504,30 +591,50 @@ impl TuiConfig {
                 geo,
             } => {
                 for (code, on) in TRACE_GROUPS.iter().zip(groups.iter()) {
-                    rows.push(bool_row(&words.tui_field_trace_group(code), *on, false));
+                    rows.push(sub_row(
+                        bool_row(&words.tui_field_trace_group(code), *on, false),
+                        inactive,
+                    ));
                 }
-                rows.push(text_row(
-                    words.tui_field_targets(),
-                    targets,
-                    words.tui_default_none(),
+                rows.push(sub_row(
+                    text_row(words.tui_field_targets(), targets, words.tui_default_none()),
+                    inactive,
                 ));
-                rows.push(bool_row(words.tui_field_geo(), *geo, true));
+                rows.push(sub_row(
+                    bool_row(words.tui_field_geo(), *geo, true),
+                    inactive,
+                ));
             }
             ItemParams::Bgp { upload } => {
-                rows.push(bool_row(words.tui_field_bgp_upload(), *upload, true));
+                rows.push(sub_row(
+                    bool_row(words.tui_field_bgp_upload(), *upload, true),
+                    inactive,
+                ));
             }
             ItemParams::IpQuality { dnsbl, mail } => {
-                rows.push(bool_row(words.tui_field_dnsbl(), *dnsbl, true));
-                rows.push(bool_row(words.tui_field_mail(), *mail, true));
+                rows.push(sub_row(
+                    bool_row(words.tui_field_dnsbl(), *dnsbl, true),
+                    inactive,
+                ));
+                rows.push(sub_row(
+                    bool_row(words.tui_field_mail(), *mail, true),
+                    inactive,
+                ));
             }
             ItemParams::IpMedia { groups, services } => {
                 for (code, on) in MEDIA_GROUPS.iter().zip(groups.iter()) {
-                    rows.push(bool_row(&words.tui_field_media_group(code), *on, false));
+                    rows.push(sub_row(
+                        bool_row(&words.tui_field_media_group(code), *on, false),
+                        inactive,
+                    ));
                 }
-                rows.push(text_row(
-                    words.tui_field_services(),
-                    services,
-                    words.tui_default_none(),
+                rows.push(sub_row(
+                    text_row(
+                        words.tui_field_services(),
+                        services,
+                        words.tui_default_none(),
+                    ),
+                    inactive,
                 ));
             }
         }
@@ -539,18 +646,38 @@ impl TuiConfig {
     pub fn fields_for_global(&self) -> Vec<FieldRow> {
         let words = locale::words();
         let g = &self.global;
+        let out_trimmed = g.output.trim();
+        let output_row = if out_trimmed.is_empty() {
+            FieldRow {
+                label: words.tui_field_output().to_owned(),
+                value: report_path::auto_label(g.format),
+                customized: false,
+                dimmed: false,
+                edit_raw: Some(report_path::default_path(g.format).display().to_string()),
+            }
+        } else {
+            FieldRow {
+                label: words.tui_field_output().to_owned(),
+                value: out_trimmed.to_owned(),
+                customized: true,
+                dimmed: false,
+                edit_raw: Some(out_trimmed.to_owned()),
+            }
+        };
         vec![
             FieldRow {
                 label: words.tui_field_format().to_owned(),
                 value: format_name(g.format).to_owned(),
                 customized: g.format != Format::Text,
+                dimmed: false,
                 edit_raw: None,
             },
-            text_row(words.tui_field_output(), &g.output, words.tui_viewer_only()),
+            output_row,
             FieldRow {
                 label: words.tui_field_work_dir().to_owned(),
                 value: g.work_dir.clone(),
                 customized: g.work_dir != ".",
+                dimmed: false,
                 edit_raw: Some(g.work_dir.clone()),
             },
             FieldRow {
@@ -561,12 +688,14 @@ impl TuiConfig {
                     words.tui_masked().to_owned()
                 },
                 customized: g.show_ip,
+                dimmed: false,
                 edit_raw: None,
             },
             FieldRow {
                 label: words.tui_field_connections().to_owned(),
                 value: g.download_connections.to_string(),
                 customized: g.download_connections != app::DOWNLOAD_CONNECTIONS,
+                dimmed: false,
                 edit_raw: Some(g.download_connections.to_string()),
             },
             bool_row(words.tui_field_verbose(), g.verbose, false),
@@ -574,7 +703,8 @@ impl TuiConfig {
     }
 
     /// Activates `field_idx` on `items[item_idx]` (`Space` or `Enter`). Toggles booleans in place
-    /// and returns `Some((label, initial_text))` when an inline text/number editor should open.
+    /// (with bi-directional master-switch linkage) and returns `Some((label, initial_text))` when
+    /// an inline text/number editor should open.
     pub fn activate_item_field(
         &mut self,
         item_idx: usize,
@@ -585,39 +715,7 @@ impl TuiConfig {
         if let Some(raw) = &row.edit_raw {
             return Some((row.label.clone(), raw.clone()));
         }
-        let item = self.items.get_mut(item_idx)?;
-        if field_idx == 0 {
-            item.enabled = !item.enabled;
-            return None;
-        }
-        match &mut item.params {
-            ItemParams::Fixed | ItemParams::Iperf3 { .. } => {}
-            ItemParams::CpuBench { suites } => {
-                if (1..=8).contains(&field_idx) {
-                    suites[field_idx - 1] = !suites[field_idx - 1];
-                }
-            }
-            ItemParams::Trace { groups, geo, .. } => match field_idx {
-                1..=4 => groups[field_idx - 1] = !groups[field_idx - 1],
-                6 => *geo = !*geo,
-                _ => {}
-            },
-            ItemParams::Bgp { upload } => {
-                if field_idx == 1 {
-                    *upload = !*upload;
-                }
-            }
-            ItemParams::IpQuality { dnsbl, mail } => match field_idx {
-                1 => *dnsbl = !*dnsbl,
-                2 => *mail = !*mail,
-                _ => {}
-            },
-            ItemParams::IpMedia { groups, .. } => {
-                if (1..=6).contains(&field_idx) {
-                    groups[field_idx - 1] = !groups[field_idx - 1];
-                }
-            }
-        }
+        self.toggle_item_boolean(item_idx, field_idx);
         None
     }
 
@@ -626,49 +724,116 @@ impl TuiConfig {
         let Some(item) = self.items.get_mut(item_idx) else {
             return;
         };
-        if field_idx == 0 {
-            item.enabled = !item.enabled;
-            return;
-        }
-        match &mut item.params {
-            ItemParams::Fixed => {}
-            ItemParams::CpuBench { suites } => {
-                if (1..=8).contains(&field_idx) {
-                    suites[field_idx - 1] = !suites[field_idx - 1];
+        if let ItemParams::Iperf3 {
+            seconds,
+            streams,
+            rate,
+            ..
+        } = &mut item.params
+        {
+            match field_idx {
+                3 => {
+                    *seconds = step_u16(*seconds, delta, 1, 3600);
+                    item.enabled = true;
+                    return;
                 }
-            }
-            ItemParams::Iperf3 {
-                seconds,
-                streams,
-                rate,
-                ..
-            } => match field_idx {
-                3 => *seconds = step_u16(*seconds, delta, 1, 3600),
-                4 => *streams = step_u8(*streams, delta, 1, 128),
+                4 => {
+                    *streams = step_u8(*streams, delta, 1, 128);
+                    item.enabled = true;
+                    return;
+                }
                 5 => {
                     let next = i64::from(rate.unwrap_or(0)) + i64::from(delta) * 50;
                     *rate = (next > 0).then(|| u32::try_from(next.min(1_000_000)).unwrap_or(1));
+                    if rate.is_some() {
+                        item.enabled = true;
+                    }
+                    return;
                 }
                 _ => {}
-            },
-            ItemParams::Trace { groups, geo, .. } => match field_idx {
-                1..=4 => groups[field_idx - 1] = !groups[field_idx - 1],
-                6 => *geo = !*geo,
+            }
+        }
+        self.toggle_item_boolean(item_idx, field_idx);
+    }
+
+    fn toggle_item_boolean(&mut self, item_idx: usize, field_idx: usize) {
+        let Some(item) = self.items.get_mut(item_idx) else {
+            return;
+        };
+        if field_idx == 0 {
+            item.toggle_enabled();
+            return;
+        }
+        let was_disabled = !item.enabled;
+        match &mut item.params {
+            ItemParams::Fixed | ItemParams::Iperf3 { .. } => {}
+            ItemParams::CpuBench { suites } => {
+                if (1..=8).contains(&field_idx) {
+                    suites[field_idx - 1] = !suites[field_idx - 1];
+                    item.enabled = suites.iter().any(|on| *on);
+                }
+            }
+            ItemParams::Trace {
+                groups,
+                targets,
+                geo,
+            } => match field_idx {
+                1..=4 => {
+                    if was_disabled {
+                        item.enabled = true;
+                        *geo = true;
+                    }
+                    toggle_trace_group(groups, field_idx - 1);
+                    if groups.iter().any(|on| *on) {
+                        targets.clear();
+                    }
+                }
+                6 => {
+                    if was_disabled {
+                        item.enabled = true;
+                        *geo = true;
+                    } else {
+                        *geo = !*geo;
+                    }
+                }
                 _ => {}
             },
             ItemParams::Bgp { upload } => {
                 if field_idx == 1 {
-                    *upload = !*upload;
+                    if was_disabled {
+                        item.enabled = true;
+                        *upload = true;
+                    } else {
+                        *upload = !*upload;
+                    }
                 }
             }
             ItemParams::IpQuality { dnsbl, mail } => match field_idx {
-                1 => *dnsbl = !*dnsbl,
-                2 => *mail = !*mail,
+                1 => {
+                    if was_disabled {
+                        item.enabled = true;
+                        *dnsbl = true;
+                    } else {
+                        *dnsbl = !*dnsbl;
+                    }
+                }
+                2 => {
+                    if was_disabled {
+                        item.enabled = true;
+                        *mail = true;
+                    } else {
+                        *mail = !*mail;
+                    }
+                }
                 _ => {}
             },
-            ItemParams::IpMedia { groups, .. } => {
+            ItemParams::IpMedia { groups, services } => {
                 if (1..=6).contains(&field_idx) {
-                    groups[field_idx - 1] = !groups[field_idx - 1];
+                    item.enabled = true;
+                    toggle_media_group(groups, field_idx - 1);
+                    if groups.iter().any(|on| *on) {
+                        services.clear();
+                    }
                 }
             }
         }
@@ -685,6 +850,7 @@ impl TuiConfig {
         let Some(item) = self.items.get_mut(item_idx) else {
             return Ok(());
         };
+        let was_disabled = !item.enabled;
         let trimmed = input.trim();
         match &mut item.params {
             ItemParams::Fixed
@@ -698,8 +864,22 @@ impl TuiConfig {
                 streams,
                 rate,
             } => match field_idx {
-                1 => *countries = normalize_csv(trimmed),
-                2 => *servers = normalize_csv(trimmed),
+                1 => {
+                    let norm = normalize_csv(trimmed);
+                    if !norm.is_empty() {
+                        item.enabled = true;
+                        servers.clear();
+                    }
+                    *countries = norm;
+                }
+                2 => {
+                    let norm = normalize_csv(trimmed);
+                    if !norm.is_empty() {
+                        item.enabled = true;
+                        countries.clear();
+                    }
+                    *servers = norm;
+                }
                 3 => {
                     if trimmed.is_empty() {
                         *seconds = IperfSettings::YABS.seconds;
@@ -708,6 +888,7 @@ impl TuiConfig {
                             words.tui_invalid_number(words.tui_field_seconds(), 1, 3600)
                         })?;
                         *seconds = u16::try_from(val).unwrap_or(IperfSettings::YABS.seconds);
+                        item.enabled = true;
                     }
                 }
                 4 => {
@@ -718,6 +899,7 @@ impl TuiConfig {
                             words.tui_invalid_number(words.tui_field_streams(), 1, 128)
                         })?;
                         *streams = u8::try_from(val).unwrap_or(IperfSettings::YABS.streams);
+                        item.enabled = true;
                     }
                 }
                 5 => {
@@ -728,18 +910,36 @@ impl TuiConfig {
                             words.tui_invalid_number(words.tui_field_rate(), 1, 1_000_000)
                         })?;
                         *rate = Some(val);
+                        item.enabled = true;
                     }
                 }
                 _ => {}
             },
-            ItemParams::Trace { targets, .. } => {
+            ItemParams::Trace {
+                groups,
+                targets,
+                geo,
+            } => {
                 if field_idx == 5 {
-                    *targets = normalize_csv(trimmed);
+                    let norm = normalize_csv(trimmed);
+                    if !norm.is_empty() {
+                        if was_disabled {
+                            item.enabled = true;
+                            *geo = true;
+                        }
+                        *groups = [false; 4];
+                    }
+                    *targets = norm;
                 }
             }
-            ItemParams::IpMedia { services, .. } => {
+            ItemParams::IpMedia { groups, services } => {
                 if field_idx == 7 {
-                    *services = normalize_csv(trimmed);
+                    let norm = normalize_csv(trimmed);
+                    if !norm.is_empty() {
+                        item.enabled = true;
+                        *groups = [false; 6];
+                    }
+                    *services = norm;
                 }
             }
         }
@@ -804,6 +1004,34 @@ impl TuiConfig {
         }
         Ok(())
     }
+}
+
+fn toggle_trace_group(groups: &mut [bool; 4], idx: usize) {
+    if idx == 3 {
+        let next = !groups[3];
+        *groups = [next; 4];
+    } else if idx < 3 {
+        groups[idx] = !groups[idx];
+        groups[3] = groups[0] && groups[1] && groups[2];
+    }
+}
+
+fn toggle_media_group(groups: &mut [bool; 6], idx: usize) {
+    if idx == 5 {
+        let next = !groups[5];
+        *groups = [next; 6];
+    } else if idx < 5 {
+        groups[idx] = !groups[idx];
+        groups[5] = groups[..5].iter().all(|on| *on);
+    }
+}
+
+fn sub_row(mut row: FieldRow, inactive: bool) -> FieldRow {
+    if inactive {
+        row.customized = false;
+        row.dimmed = true;
+    }
+    row
 }
 
 /// Canonical lowercase name of a [`Format`].
@@ -878,6 +1106,7 @@ fn bool_row(label: &str, value: bool, default_val: bool) -> FieldRow {
         label: label.to_owned(),
         value: format!("{mark} {text}"),
         customized: value != default_val,
+        dimmed: false,
         edit_raw: None,
     }
 }
@@ -892,6 +1121,7 @@ fn text_row(label: &str, raw: &str, placeholder: &str) -> FieldRow {
             trimmed.to_owned()
         },
         customized: !trimmed.is_empty(),
+        dimmed: false,
         edit_raw: Some(trimmed.to_owned()),
     }
 }

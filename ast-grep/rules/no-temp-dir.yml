@@ -8,6 +8,9 @@ note: >-
 files:
   - crates/*/src/**/*.rs
   - plugins/*/src/**/*.rs
+ignores:
+  # Benchmark working files and tools stay off /tmp; finished report copies save under /tmp.
+  - crates/bench/src/report_path.rs
 rule:
   any:
     - kind: string_literal

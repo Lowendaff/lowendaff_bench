@@ -1,4 +1,4 @@
-//! End-to-end `ratatui::backend::TestBackend` and `crossterm::event` tests for `--tui`.
+//! End-to-end `ratatui::backend::TestBackend` and `crossterm::event` tests for the interactive TUI.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -197,7 +197,6 @@ fn defaults_match_standard_cli_and_every_customized_plugin_builds_cleanly() {
         .position(|item| item.id == "network.iperf3")
         .unwrap();
     cfg.apply_item_edit(iperf_idx, 1, " US , JP ").unwrap();
-    cfg.apply_item_edit(iperf_idx, 2, "tokyo-1").unwrap();
     cfg.apply_item_edit(iperf_idx, 3, "15").unwrap();
     cfg.apply_item_edit(iperf_idx, 4, "4").unwrap();
     cfg.apply_item_edit(iperf_idx, 5, "500").unwrap();
@@ -217,7 +216,6 @@ fn defaults_match_standard_cli_and_every_customized_plugin_builds_cleanly() {
         .unwrap();
     assert_eq!(cfg.activate_item_field(trace_idx, 2), None); // china
     assert_eq!(cfg.activate_item_field(trace_idx, 6), None); // geo -> false
-    cfg.apply_item_edit(trace_idx, 5, "youtube,ct-sh").unwrap();
 
     let quality_idx = cfg
         .items
@@ -234,8 +232,6 @@ fn defaults_match_standard_cli_and_every_customized_plugin_builds_cleanly() {
         .unwrap();
     assert_eq!(cfg.activate_item_field(media_idx, 1), None); // global
     assert_eq!(cfg.activate_item_field(media_idx, 2), None); // asia
-    cfg.apply_item_edit(media_idx, 7, "netflix,youtube")
-        .unwrap();
 
     let bgp_idx = cfg
         .items
@@ -270,7 +266,6 @@ fn defaults_match_standard_cli_and_every_customized_plugin_builds_cleanly() {
         settings["network.iperf3"],
         serde_json::json!({
             "countries": ["US", "JP"],
-            "servers": ["tokyo-1"],
             "seconds": 15,
             "streams": 4,
             "rate": 500,
@@ -280,7 +275,6 @@ fn defaults_match_standard_cli_and_every_customized_plugin_builds_cleanly() {
         settings["network.trace"],
         serde_json::json!({
             "groups": ["china"],
-            "targets": ["youtube", "ct-sh"],
             "geo": false,
         })
     );
@@ -295,7 +289,6 @@ fn defaults_match_standard_cli_and_every_customized_plugin_builds_cleanly() {
         settings["ip.media"],
         serde_json::json!({
             "groups": ["global", "asia"],
-            "services": ["netflix", "youtube"],
         })
     );
 
@@ -495,7 +488,11 @@ fn ratatui_test_backend_renders_configure_running_and_results_across_sizes() {
     assert!(session.editor.is_some());
     match session.handle_key(press(KeyCode::Enter)) {
         Command::SaveReport { path, contents } => {
-            assert_eq!(path.to_str(), Some("report.json"));
+            let path_str = path.to_str().unwrap();
+            assert!(
+                path_str.starts_with("/tmp/lowendaff-bench-") && path_str.ends_with(".json"),
+                "default save path must be under /tmp: {path_str}"
+            );
             let parsed: serde_json::Value = serde_json::from_str(&contents).unwrap();
             assert_eq!(parsed["summary"]["completed"], 1);
         }
@@ -512,4 +509,147 @@ fn ratatui_test_backend_renders_configure_running_and_results_across_sizes() {
 
     assert_eq!(session.handle_key(press(KeyCode::Char('n'))), Command::None);
     assert_eq!(session.screen, Screen::Configure);
+}
+
+#[test]
+fn disabling_items_clears_sub_selections_and_editing_sub_options_re_enables_bidirectionally() {
+    let all = registry::all();
+    let mut cfg = TuiConfig::from_registry(&all);
+
+    let trace_idx = cfg
+        .items
+        .iter()
+        .position(|item| item.id == "network.trace")
+        .unwrap();
+    // 1. network.trace is enabled -> select china -> switch to disabled -> selections clear!
+    cfg.activate_item_field(trace_idx, 2); // china -> true
+    assert!(cfg.items[trace_idx].is_customized());
+    cfg.activate_item_field(trace_idx, 0); // Enabled -> false
+    assert!(!cfg.items[trace_idx].enabled);
+    assert!(!cfg.items[trace_idx].is_customized());
+    assert!(!cfg.plugin_settings().contains_key("network.trace"));
+    assert_eq!(
+        cfg.items[trace_idx].params,
+        ItemParams::Trace {
+            groups: [false; 4],
+            targets: String::new(),
+            geo: false,
+        }
+    );
+    assert!(
+        cfg.fields_for_item(trace_idx)[1..]
+            .iter()
+            .all(|row| row.dimmed && !row.customized),
+        "sub-rows of a disabled item must be dimmed and unstarred"
+    );
+
+    // 2. Toggling a sub-group while disabled automatically re-enables network.trace with geo=true.
+    cfg.activate_item_field(trace_idx, 2); // china -> true
+    assert!(cfg.items[trace_idx].enabled);
+    assert_eq!(
+        cfg.items[trace_idx].params,
+        ItemParams::Trace {
+            groups: [false, true, false, false],
+            targets: String::new(),
+            geo: true,
+        }
+    );
+
+    // 3. `all` checkbox syncs bidirectionally with individual groups, and overrides clear groups.
+    cfg.activate_item_field(trace_idx, 1); // services -> true
+    cfg.activate_item_field(trace_idx, 3); // international -> true -> all auto-checks!
+    assert_eq!(
+        cfg.items[trace_idx].params,
+        ItemParams::Trace {
+            groups: [true; 4],
+            targets: String::new(),
+            geo: true,
+        }
+    );
+    assert_eq!(
+        cfg.plugin_settings()["network.trace"],
+        serde_json::json!({ "groups": ["all"] })
+    );
+    cfg.activate_item_field(trace_idx, 2); // uncheck china -> all auto-unchecks!
+    assert_eq!(
+        cfg.items[trace_idx].params,
+        ItemParams::Trace {
+            groups: [true, false, true, false],
+            targets: String::new(),
+            geo: true,
+        }
+    );
+    cfg.apply_item_edit(trace_idx, 5, "youtube").unwrap();
+    assert_eq!(
+        cfg.items[trace_idx].params,
+        ItemParams::Trace {
+            groups: [false; 4],
+            targets: "youtube".to_owned(),
+            geo: true,
+        },
+        "entering target override clears group checkboxes"
+    );
+    cfg.activate_item_field(trace_idx, 4); // check `all` -> clears target override!
+    assert_eq!(
+        cfg.items[trace_idx].params,
+        ItemParams::Trace {
+            groups: [true; 4],
+            targets: String::new(),
+            geo: true,
+        }
+    );
+
+    // 4. cpu.bench: unchecking all 8 suites auto-disables; master re-enable restores 6 defaults;
+    //    checking one suite while disabled enables cpu.bench with only that suite.
+    let cpu_idx = cfg
+        .items
+        .iter()
+        .position(|item| item.id == "cpu.bench")
+        .unwrap();
+    for field in [1_usize, 2, 3, 4, 5, 8] {
+        cfg.activate_item_field(cpu_idx, field);
+    }
+    assert!(
+        !cfg.items[cpu_idx].enabled,
+        "unchecking all CPU suites must auto-disable cpu.bench"
+    );
+    cfg.activate_item_field(cpu_idx, 0); // master re-enable
+    assert!(cfg.items[cpu_idx].enabled);
+    assert_eq!(
+        cfg.items[cpu_idx].params,
+        ItemParams::default_for("cpu.bench")
+    );
+    cfg.activate_item_field(cpu_idx, 0); // master disable -> all [false; 8]
+    assert_eq!(
+        cfg.items[cpu_idx].params,
+        ItemParams::CpuBench { suites: [false; 8] }
+    );
+    cfg.activate_item_field(cpu_idx, 2); // check 7zip while disabled
+    assert!(cfg.items[cpu_idx].enabled);
+    assert_eq!(
+        cfg.plugin_settings()["cpu.bench"],
+        serde_json::json!({ "suites": ["7zip"] })
+    );
+
+    // 5. Mutual override clearing on network.iperf3 and ip.media.
+    let iperf_idx = cfg
+        .items
+        .iter()
+        .position(|item| item.id == "network.iperf3")
+        .unwrap();
+    cfg.apply_item_edit(iperf_idx, 1, "JP").unwrap();
+    cfg.apply_item_edit(iperf_idx, 2, "tokyo-1").unwrap();
+    assert_eq!(
+        cfg.plugin_settings()["network.iperf3"],
+        serde_json::json!({ "servers": ["tokyo-1"] })
+    );
+    cfg.toggle_group("network");
+    assert!(!cfg.items[iperf_idx].enabled);
+    assert!(!cfg.plugin_settings().contains_key("network.iperf3"));
+    cfg.step_item_field(iperf_idx, 3, 5); // stepping duration re-enables network.iperf3
+    assert!(cfg.items[iperf_idx].enabled);
+    assert_eq!(
+        cfg.plugin_settings()["network.iperf3"],
+        serde_json::json!({ "seconds": 15 })
+    );
 }

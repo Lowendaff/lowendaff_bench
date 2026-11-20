@@ -1,4 +1,4 @@
-//! Every text shown by the interactive `--tui` terminal interface.
+//! Every text shown by the interactive terminal interface.
 
 use std::path::Path;
 
@@ -114,8 +114,6 @@ pub trait TuiWords {
     fn tui_default_bgp_note(&self) -> &'static str;
     /// Placeholder value when media groups test all regions by default.
     fn tui_default_media_note(&self) -> &'static str;
-    /// Placeholder value when no output file is set (viewer only).
-    fn tui_viewer_only(&self) -> &'static str;
     /// Value text when public IPs are masked.
     fn tui_masked(&self) -> &'static str;
     /// Value text when public IPs are shown in full.

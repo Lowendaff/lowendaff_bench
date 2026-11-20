@@ -63,11 +63,12 @@ Its tests are `plugins/<group>/tests/<name>_*.rs`, with the tool's recorded outp
 memory plugins' working-set plan. Every plugin calls its types `Output` and `Failure`, written
 with the module, as in `stream::Output`.
 
-A run goes this way: the program reads its command-line arguments and checks for root, builds the
-selected plugins in the registry's order, reads the host profile, leaves out the plugins
-that do not apply to the host, downloads the tools of the others, runs each plugin with its time
-limit while its progress goes to stderr, and writes the report to stdout (or `--output`) once
-every plugin is done.
+A run goes this way: the program reads its command-line arguments, checks for root, and enters
+the interactive TUI when invoked with no options. Otherwise it builds the selected plugins in the
+registry's order, reads the host profile, leaves out the plugins that do not apply to the host,
+downloads the tools of the others, runs each plugin with its time limit while its progress goes
+to stderr, and writes the report to stdout (plus an archive copy in `/tmp`, or to `--output`
+alone) once every plugin is done.
 
 ## Adding a test item
 
@@ -138,8 +139,8 @@ used), with these rules of this repository:
 - Lines are at most 100 columns; a CJK character counts as two.
 - Library crates and plugins never print (rule `no-print-in-plugins`); they report through the
   plugin context.
-- No system temp directory in `src/` (rule `no-temp-dir`): Debian keeps `/tmp` in memory, and
-  hardened hosts mount it `noexec`.
+- No system temp directory in `src/` (rule `no-temp-dir`, except `crates/bench/src/report_path.rs`
+  for finished report copies): Debian keeps `/tmp` in memory, and hardened hosts mount it `noexec`.
 - No program from the host (rule `no-host-tools`): external tools are pinned builds, so that
   results do not depend on what a server has installed. Reading the host's files, such as
   `/proc`, is fine.

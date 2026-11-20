@@ -1,4 +1,4 @@
-//! English texts for the interactive `--tui` terminal interface.
+//! English texts for the interactive terminal interface.
 
 use std::path::Path;
 
@@ -239,10 +239,6 @@ impl TuiWords for English {
 
     fn tui_default_media_note(&self) -> &'static str {
         "Unchecked regions = all 5 world regions."
-    }
-
-    fn tui_viewer_only(&self) -> &'static str {
-        "none (viewer only)"
     }
 
     fn tui_masked(&self) -> &'static str {
