@@ -96,6 +96,7 @@ sudo ALL_PROXY=socks5h://127.0.0.1:1080 ./lowendaff-bench --download-connections
 | `--media-groups` | `<地域,...>` | `all`（全地域） | `ip.media` でチェックする動画配信サービスの地域を選びます |
 | `--no-dnsbl` | 値なし | オフ | `ip.quality` 内の 25 カ所のブラックリスト（DNSBL）照会を省略します |
 | `--no-mail` | 値なし | オフ | `ip.quality` 内の 25 番メールポート接続テストを省略します |
+| `--no-bgp-upload` | 値なし | オフ | `text` 形式での `network.bgp` トポロジー SVG の `imageupload.app` へのアップロードを省略します |
 | `--download-connections` | `<1..=256>` | `32` | 測定ツールをダウンロードする際の最大同時接続数 |
 | `--show-ip` | 値なし | オフ（伏せ字） | レポート内のグローバル IP アドレスや逆引きホスト名を隠さず表示します |
 | `-v, --verbose` | 値なし | オフ | ダウンロード状況や実行コマンドの詳細ログを表示します（トラブル調査用） |
@@ -148,7 +149,7 @@ sudo ALL_PROXY=socks5h://127.0.0.1:1080 ./lowendaff-bench --download-connections
 | `disk` | `disk.fio`<br>ディスク読み書き速度 | 全サーバー | YABS 互換条件（ランダム読込 50% / 書込 50%）で `4K`・`64K`・`512K`・`1M` の速度と IOPS を測定します。DB 用途は `4K`、大容量転送は `512K`/`1M` が目安になります | [`docs/disk.md`](docs/disk.md) |
 | `network` | `network.iperf3`<br>グローバル回線速度 | 通信可能な環境 | 既定でロサンゼルス・ニューヨーク・バージニア・東京・フランクフルトの公開サーバーと接続し、IPv4 / IPv6 の上り・下り速度と遅延を測定します | [`docs/network.md`](docs/network.md) |
 | `network` | `network.trace`<br>ネットワーク経路追跡 | Raw ソケット対応環境 | YouTube / Netflix キャッシュや中国主要キャリア、海外バックボーンまでの経路を一跳びずつ追跡し、直通か迂回ルートかを可視化します | [`docs/network.md`](docs/network.md) |
-| `network` | `network.bgp`<br>BGP 経路トポロジー | グローバル IP 保有機 | 世界の BGP 収集拠点から広告プレフィックス・RPKI 状態・直接の上流キャリアを取得し、端末上での図示、Markdown での Mermaid 図、JSON でのスタンドアロン SVG コード出力を行います | [`docs/network.md`](docs/network.md) |
+| `network` | `network.bgp`<br>BGP 経路トポロジー | グローバル IP 保有機 | 世界の BGP 収集拠点から広告プレフィックス・RPKI 状態・直接の上流キャリアを取得し、`text` 形式では限定公開の `imageupload.app` SVG トポロジー URL、Markdown では Mermaid 図、JSON ではスタンドアロン SVG コードを出力します | [`docs/network.md`](docs/network.md) |
 | `ip` | `ip.quality`<br>IP 品質・リスク診断 | グローバル IP 保有機 | 9 つの評価データベースを照合し、**ネイティブ IP / ブロードキャスト IP** の判別、データセンター / 家庭用回線の区分、不正リスク、公開ポート、25 種のブラックリスト、25 番メールポートの疎通を診断します | [`docs/ip.md`](docs/ip.md) |
 | `ip` | `ip.media`<br>動画配信サービス判定 | 通信可能な環境 | 世界 5 地域・計 68 の動画配信・オンラインサービス（Netflix、Disney+、YouTube、Abema、U-NEXT、TVer など）にどこまで対応しているかと判定地域を表示します | [`docs/ip.md`](docs/ip.md) |
 | `cpu` | `cpu.geekbench`<br>Geekbench 7 スコア | `glibc >= 2.35` + IPv4 | 公式の Geekbench 7.1.0 を実行し、他機種と比較しやすいシングル / マルチコアスコアと結果ページの URL を出力します | [`docs/cpu.md`](docs/cpu.md) |

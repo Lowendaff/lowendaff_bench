@@ -264,6 +264,7 @@ fn draw_config_right(frame: &mut Frame<'_>, session: &Session, area: Rect) {
             let note = match &item.params {
                 ItemParams::Fixed => Some(words.tui_fixed_params_note()),
                 ItemParams::Trace { .. } => Some(words.tui_default_trace_note()),
+                ItemParams::Bgp { .. } => Some(words.tui_default_bgp_note()),
                 ItemParams::IpMedia { .. } => Some(words.tui_default_media_note()),
                 _ => None,
             };

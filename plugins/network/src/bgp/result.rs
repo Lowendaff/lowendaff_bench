@@ -9,10 +9,25 @@ use bench_api::ToolVersion;
 use serde::Serialize;
 
 /// Runtime settings recorded in [`Output`].
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Settings {
-    /// Whether `base_url` was overridden (for local loopback smoke runs).
+    /// Whether `base_url` or `upload_url` was overridden (for local loopback smoke runs).
     pub custom_endpoints: bool,
+    /// Whether topology SVG upload is enabled for `text` reports.
+    pub upload: bool,
+    /// Validated upload endpoint override, omitted from serialized JSON reports.
+    #[serde(skip)]
+    pub upload_url: Option<String>,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            custom_endpoints: false,
+            upload: true,
+            upload_url: None,
+        }
+    }
 }
 
 /// RPKI Route Origin Authorization (ROA) status for a prefix and origin ASN.
@@ -90,6 +105,9 @@ pub struct FamilyBgp {
     pub paths: Vec<BgpPath>,
     /// Concise display names keyed by ASN for nodes appearing in `origins`, `upstreams` or `paths`.
     pub asn_names: BTreeMap<u32, String>,
+    /// Hosted topology diagram URL (`https://imageupload.app/i/<key>`) populated in `text` mode.
+    #[serde(skip)]
+    pub diagram_url: Option<String>,
 }
 
 /// Complete output of `network.bgp`.
@@ -107,6 +125,9 @@ pub struct Output {
     pub ipv6: Option<Box<FamilyBgp>>,
     /// Per-family notes `(ipv6, reason)` when one family's lookup failed while the other succeeded.
     pub notes: Vec<(bool, String)>,
+    /// Per-family notes `(ipv6, reason)` when topology image upload failed in `text` mode.
+    #[serde(skip)]
+    pub upload_notes: Vec<(bool, String)>,
 }
 
 impl Measurement for Output {

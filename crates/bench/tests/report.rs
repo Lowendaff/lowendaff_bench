@@ -709,7 +709,7 @@ fn json_format_is_structured_and_respects_show_ip_across_host_trace_and_ip_quali
 }
 
 #[test]
-fn bgp_renders_terminal_diagram_mermaid_and_json_svg_with_ip_masking() {
+fn bgp_renders_text_imageupload_url_mermaid_and_json_svg_with_ip_masking() {
     let mut asn_names = BTreeMap::new();
     asn_names.insert(64500, "Example Cloud".to_owned());
     asn_names.insert(4809, "ChinaNet CN2".to_owned());
@@ -756,6 +756,7 @@ fn bgp_renders_terminal_diagram_mermaid_and_json_svg_with_ip_masking() {
             },
         ],
         asn_names,
+        diagram_url: Some("https://imageupload.app/i/9d0e951d4f615260d67a".to_owned()),
     };
 
     let bgp_run = run(
@@ -767,9 +768,10 @@ fn bgp_renders_terminal_diagram_mermaid_and_json_svg_with_ip_masking() {
                 settings: bgp::Settings::default(),
                 ipv4_reachable: true,
                 ipv6_reachable: false,
-                ipv4: Some(Box::new(v4_bgp)),
+                ipv4: Some(Box::new(v4_bgp.clone())),
                 ipv6: None,
                 notes: Vec::new(),
+                upload_notes: vec![(true, "HTTP status 429".to_owned())],
             }),
             stop: None,
         })),
@@ -786,37 +788,76 @@ fn bgp_renders_terminal_diagram_mermaid_and_json_svg_with_ip_masking() {
         total: Duration::from_millis(1200),
     };
 
-    // 1. Wide terminal text: 2D rounded-box diagram + masked prefix, zero raw IP leak.
-    let text = report::render(&masked_page, Format::Text, None);
-    assert!(text.contains("╭──────────────╮"), "draws rounded ASN boxes");
-    assert!(text.contains("═"), "highlights main path with double wire");
-    assert!(text.contains("×2"), "marks collapsed prepend span");
-    assert!(text.contains("AS3356 ★"), "marks Tier-1 backbone");
+    // 1. Terminal text: hosted imageupload.app link + observed AS_PATH table + upload note,
+    //    no Unicode box diagram, and zero raw IP leak.
+    let text = report::render(&masked_page, Format::Text, Some(80));
+    assert!(
+        text.contains("  IPv4 topology       https://imageupload.app/i/9d0e951d4f615260d67a\n"),
+        "prints full clickable imageupload.app link without mid-URL wrapping:\n{text}"
+    );
+    assert!(!text.contains("╭"), "retires Unicode box-and-wire diagram");
+    assert!(text.contains("AS3356 ★ (Lumen)"), "keeps AS_PATH table");
+    assert!(text.contains("×2"), "marks collapsed prepend span in table");
+    assert!(
+        text.contains("IPv6 topology image upload failed: HTTP status 429"),
+        "surfaces non-fatal upload note:\n{text}"
+    );
     assert!(text.contains("203.0.*.*/24"), "masks announced prefix");
     assert!(!text.contains("203.0.113."), "leaks no raw IPv4 octets");
 
-    // Medium-narrow TTY wraps 2D boxes into bridged bands; ultra-narrow TTY falls back to tree.
-    let banded = report::render(&masked_page, Format::Text, Some(48));
-    assert!(banded.contains("1 (cont.)"));
-    let narrow = report::render(&masked_page, Format::Text, Some(36));
-    assert!(narrow.contains("AS64500 Example Cloud (origin)"));
-    assert!(narrow.contains("══▸ AS4809 ChinaNet CN2"));
-    assert!(!narrow.contains("╭──────────────╮"));
+    // When `--no-bgp-upload` disables upload, method line notes it and no topology link prints.
+    let no_upload_run = run(
+        "network.bgp",
+        Status::Completed,
+        Some(1.0),
+        Some(Measured::NetworkBgp(Report {
+            output: Some(bgp::Output {
+                settings: bgp::Settings {
+                    upload: false,
+                    ..bgp::Settings::default()
+                },
+                ipv4_reachable: true,
+                ipv6_reachable: false,
+                ipv4: Some(Box::new(FamilyBgp {
+                    diagram_url: None,
+                    ..v4_bgp
+                })),
+                ipv6: None,
+                notes: Vec::new(),
+                upload_notes: Vec::new(),
+            }),
+            stop: None,
+        })),
+    );
+    let no_upload_runs = [no_upload_run];
+    let no_upload_text = report::render(
+        &Page {
+            runs: &no_upload_runs,
+            ..masked_page
+        },
+        Format::Text,
+        None,
+    );
+    assert!(no_upload_text.contains("; without topology image upload"));
+    assert!(!no_upload_text.contains("IPv4 topology"));
 
-    // 2. Markdown: native Mermaid `flowchart LR` block + escaped `\*` masked prefix.
+    // 2. Markdown: native Mermaid `flowchart LR` block (no imageupload.app link or upload note).
     let md = report::render(&masked_page, Format::Markdown, None);
     assert!(md.contains("```mermaid\nflowchart LR\n"));
     assert!(md.contains("==>"));
     assert!(md.contains("-. \"×2\" .->"));
+    assert!(!md.contains("imageupload.app"));
     assert!(md.contains("203.0.\\*.\\*/24"));
     assert!(!md.contains("203.0.113."));
 
-    // 3. JSON: standalone inline-styled SVG string + masked address/prefix, unmasked with show_ip.
+    // 3. JSON: standalone inline-styled SVG string (no `diagram_url` or `upload_notes` field).
     let json_raw = report::render(&masked_page, Format::Json, None);
     assert!(!json_raw.contains("203.0.113."));
+    assert!(!json_raw.contains("imageupload.app"));
     let json: serde_json::Value = serde_json::from_str(&json_raw).expect("valid JSON");
     assert_eq!(json["runs"][0]["output"]["ipv4"]["address"], "203.0.*.*");
     assert_eq!(json["runs"][0]["output"]["ipv4"]["prefix"], "203.0.*.*/24");
+    assert!(json["runs"][0]["output"]["ipv4"]["diagram_url"].is_null());
     let svg = json["runs"][0]["output"]["ipv4"]["svg"]
         .as_str()
         .expect("JSON includes SVG string");

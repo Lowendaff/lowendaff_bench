@@ -137,10 +137,12 @@ async fn measures_dual_stack_bgp_with_ipv6_transport_fallback_and_holder_lookup(
     let ctx = make_ctx(host_with_network(net), Arc::new(MockRipeHttp));
     let plugin = Bgp {
         base_url: Some("http://127.0.0.1:18083".to_owned()),
+        ..Bgp::default()
     };
 
     let out = plugin.run(&ctx).await.expect("dual-stack BGP succeeds");
     assert!(out.settings.custom_endpoints);
+    assert!(out.settings.upload);
 
     let v4 = out.ipv4.expect("ipv4 report");
     assert!(v4.announced);
@@ -236,10 +238,17 @@ async fn prioritizes_high_numbered_origin_and_top_upstreams_under_lookup_cap() {
     };
     let ctx = make_ctx(host_with_network(net), Arc::new(ManyAsnsHttp));
     let plugin = Bgp {
+        upload: false,
         base_url: Some("http://127.0.0.1:18083".to_owned()),
+        upload_url: Some("http://127.0.0.1:18083/api/upload/".to_owned()),
     };
 
     let out = plugin.run(&ctx).await.expect("BGP succeeds");
+    assert!(!out.settings.upload);
+    assert_eq!(
+        out.settings.upload_url.as_deref(),
+        Some("http://127.0.0.1:18083/api/upload")
+    );
     let v4 = out.ipv4.expect("ipv4 report");
     assert_eq!(
         v4.asn_names.get(&399999).map(String::as_str),

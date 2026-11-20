@@ -1073,8 +1073,11 @@ impl IpWords for English {
 }
 
 impl BgpWords for English {
-    fn bgp_method(&self, custom_endpoints: bool) -> String {
+    fn bgp_method(&self, custom_endpoints: bool, upload: bool) -> String {
         let mut line = "Direct RIPEstat RIS lookup: BGP state, RPKI and AS-path".to_owned();
+        if !upload {
+            line.push_str("; without topology image upload");
+        }
         if custom_endpoints {
             line.push_str("; custom endpoints");
         }
@@ -1152,6 +1155,11 @@ impl BgpWords for English {
 
     fn bgp_paths_headers(&self) -> [&'static str; 3] {
         ["Peers", "Hops", "AS_PATH"]
+    }
+
+    fn bgp_upload_failed(&self, ipv6: bool, reason: &str) -> String {
+        let fam = if ipv6 { "IPv6" } else { "IPv4" };
+        format!("{fam} topology image upload failed: {reason}")
     }
 
     fn bgp_family_failed(&self, ipv6: bool, reason: &str) -> String {

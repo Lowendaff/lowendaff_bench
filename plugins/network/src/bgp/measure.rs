@@ -80,6 +80,7 @@ pub async fn measure(
         ipv4: None,
         ipv6: None,
         notes: Vec::new(),
+        upload_notes: Vec::new(),
     };
     ctx.publish(&output);
 
@@ -172,6 +173,7 @@ async fn query_family(
             upstreams: Vec::new(),
             paths: Vec::new(),
             asn_names: BTreeMap::new(),
+            diagram_url: None,
         });
     }
 
@@ -272,6 +274,7 @@ async fn query_family(
         upstreams: parsed.upstreams,
         paths: parsed.paths,
         asn_names,
+        diagram_url: None,
     })
 }
 

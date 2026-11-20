@@ -2,6 +2,7 @@
 //! order and prints the results.
 
 pub mod app;
+pub mod bgp_upload;
 pub mod fetcher;
 pub mod locale;
 pub mod netprobe;

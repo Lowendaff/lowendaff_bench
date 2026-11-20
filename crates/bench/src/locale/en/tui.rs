@@ -154,6 +154,10 @@ impl TuiWords for English {
         "Hop ASN & geolocation"
     }
 
+    fn tui_field_bgp_upload(&self) -> &'static str {
+        "Upload topology image"
+    }
+
     fn tui_field_dnsbl(&self) -> &'static str {
         "DNSBL blacklists (25)"
     }
@@ -208,6 +212,10 @@ impl TuiWords for English {
 
     fn tui_default_trace_note(&self) -> &'static str {
         "Unchecked groups = caches + default carrier routes."
+    }
+
+    fn tui_default_bgp_note(&self) -> &'static str {
+        "Uploads anonymized AS-path SVG to imageupload.app (unlisted) for text links."
     }
 
     fn tui_default_media_note(&self) -> &'static str {

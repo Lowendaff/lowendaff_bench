@@ -19,10 +19,12 @@ use bench_api::Plugin;
 use bench_host::profile::HostProfile;
 use plugin_ip::media::Media;
 use plugin_ip::quality::Quality;
+use plugin_network::bgp::Bgp;
 use plugin_network::iperf3::Iperf3;
 use plugin_network::trace::Trace;
 use tokio::io::AsyncRead;
 
+use crate::bgp_upload;
 use crate::locale;
 use crate::netprobe::NetProbers;
 use crate::orchestrator;
@@ -188,6 +190,10 @@ pub struct Cli {
     #[arg(long, help = locale::words().help_no_mail())]
     pub no_mail: bool,
 
+    // Skips uploading BGP topology SVG diagrams to imageupload.app in text mode.
+    #[arg(long, help = locale::words().help_no_bgp_upload())]
+    pub no_bgp_upload: bool,
+
     // Starts the interactive terminal interface; incompatible with all other options.
     #[arg(
         long,
@@ -206,6 +212,7 @@ pub struct Cli {
             "media_groups",
             "no_dnsbl",
             "no_mail",
+            "no_bgp_upload",
             "internal_overrides",
         ],
         help = locale::words().help_tui()
@@ -276,6 +283,9 @@ pub fn prepare(cli: &Cli, registry: &[Entry]) -> Result<Vec<Planned<Measured>>, 
     }
     if cli.no_dnsbl || cli.no_mail {
         ip_quality(&mut settings, !cli.no_dnsbl, !cli.no_mail);
+    }
+    if cli.no_bgp_upload {
+        bgp_settings(&mut settings, false);
     }
     let ids = select(registry, &cli.only, &cli.skip)?;
     orchestrator::plan(registry, &ids, &settings)
@@ -355,6 +365,14 @@ pub fn ip_quality(settings: &mut BTreeMap<String, serde_json::Value>, dnsbl: boo
         if !mail {
             table.insert("mail".to_owned(), serde_json::Value::Bool(false));
         }
+    }
+}
+
+/// Sets `--no-bgp-upload` in `network.bgp`'s table.
+pub fn bgp_settings(settings: &mut BTreeMap<String, serde_json::Value>, upload: bool) {
+    let table = plugin_table(settings, Bgp::DESCRIPTOR.id);
+    if let Some(table) = table.as_object_mut() {
+        table.insert("upload".to_owned(), serde_json::Value::Bool(upload));
     }
 }
 
@@ -444,7 +462,7 @@ where
     R: AsyncRead + Unpin,
     W: Write,
 {
-    let outcome = execute_with_observer(
+    let mut outcome = execute_with_observer(
         planned,
         host,
         work_dir,
@@ -460,6 +478,14 @@ where
         width,
         show_ip,
     } = report;
+    if format == Format::Text {
+        let upload_started = Instant::now();
+        bgp_upload::populate_runs(&mut outcome.runs, cancel).await;
+        outcome.total += upload_started.elapsed();
+        if cancel.is_cancelled() {
+            outcome.exit_code = EXIT_INTERRUPTED;
+        }
+    }
     // Output is best effort: a closed stdout must not change the exit code.
     let _ = out.write_all(outcome.render(format, width, show_ip).as_bytes());
     let _ = out.flush();

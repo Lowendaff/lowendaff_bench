@@ -35,6 +35,8 @@ pub trait ProgramWords {
     fn help_no_dnsbl(&self) -> String;
     /// The help of `--no-mail`.
     fn help_no_mail(&self) -> String;
+    /// The help of `--no-bgp-upload`.
+    fn help_no_bgp_upload(&self) -> String;
     /// The help of `--tui`.
     fn help_tui(&self) -> String;
     /// `--tui` started without an interactive terminal.

@@ -421,9 +421,9 @@ const SHOWN_BGP_PATHS: usize = 8;
 /// Maximum direct upstreams listed in the summary table cell.
 const SHOWN_UPSTREAMS: usize = 4;
 
-/// BGP paths (`network.bgp`): summary table across IPv4 and IPv6, per-family topology diagram
-/// (Unicode box-and-wire in `text` mode, `mermaid` `flowchart LR` in `markdown` mode), and top
-/// observed `AS_PATH` rows.
+/// BGP paths (`network.bgp`): summary table across IPv4 and IPv6, per-family topology link
+/// (`imageupload.app` SVG link in `text` mode, `mermaid` `flowchart LR` in `markdown` mode), and
+/// top observed `AS_PATH` rows.
 pub(super) fn bgp(
     out: &mut Out,
     report: &Report<bgp::Output, bgp::Failure>,
@@ -440,7 +440,7 @@ pub(super) fn bgp(
 
     out.line(&format!(
         "{indent}{}",
-        words.bgp_method(output.settings.custom_endpoints)
+        words.bgp_method(output.settings.custom_endpoints, output.settings.upload)
     ));
 
     let sub = format!("{indent}  ");
@@ -453,7 +453,7 @@ pub(super) fn bgp(
     let summary_rows = build_bgp_summary_rows(v4, v6, show_ip);
     out.table_left(&sub, &summary_headers, &summary_rows);
 
-    // 2. Per-family topology graph and top observed AS_PATHs.
+    // 2. Per-family topology link / Mermaid diagram and top observed AS_PATHs.
     for (ipv6, maybe_rep) in [(false, v4), (true, v6)] {
         let Some(rep) = maybe_rep else {
             continue;
@@ -461,14 +461,13 @@ pub(super) fn bgp(
         if !rep.announced || rep.paths.is_empty() {
             continue;
         }
-        if let Some(graph) = bgp_graph::layout(rep, Some(bgp_graph::COMPACT_MAX_PATHS)) {
-            out.heading(indent, words.bgp_topology_title(ipv6));
-            if out.is_markdown() {
+        if out.is_markdown() {
+            if let Some(graph) = bgp_graph::layout(rep, Some(bgp_graph::COMPACT_MAX_PATHS)) {
+                out.heading(indent, words.bgp_topology_title(ipv6));
                 out.code_block("mermaid", &bgp_graph::render_mermaid(&graph));
-            } else {
-                let lines = bgp_graph::render_terminal(&graph, &sub, out.terminal_width());
-                out.raw_lines(&lines);
             }
+        } else if let Some(url) = &rep.diagram_url {
+            out.field(indent, words.bgp_topology_title(ipv6), url);
         }
 
         out.heading(indent, words.bgp_paths_title(ipv6));
@@ -482,6 +481,11 @@ pub(super) fn bgp(
         out.table(&sub, &path_headers, &path_rows);
     }
 
+    if !out.is_markdown() {
+        for (ipv6, reason) in &output.upload_notes {
+            out.field(&sub, &words.note(), &words.bgp_upload_failed(*ipv6, reason));
+        }
+    }
     for (ipv6, reason) in &output.notes {
         out.field(&sub, &words.note(), &words.bgp_family_failed(*ipv6, reason));
     }

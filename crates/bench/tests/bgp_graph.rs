@@ -1,7 +1,7 @@
-//! Stress and regression tests for `bench::report::bgp_graph`: dense multi-upstream × multi-Tier-1
-//! meshes (two-port wire isolation without phantom row welds), heavy `AS_PATH` prepending (`×9`
-//! clean-hop column compression and non-overlapping badges), CJK wide-glyph alignment, compact-box
-//! scaling on 80-column terminals, and `(↑)` shared-subtree markers in narrow-TTY tree fallback.
+//! Layout and vector-renderer regression tests for `bench::report::bgp_graph`: dense
+//! multi-upstream × multi-Tier-1 meshes (unique `(col, row)` placement and main-path ordering),
+//! heavy `AS_PATH` prepending (`×9` clean-hop column compression and dashed SVG/Mermaid spans),
+//! CJK carrier-name escaping in SVG and Mermaid, and 7-layer deep hierarchy layout preservation.
 
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
@@ -13,7 +13,6 @@ use plugin_network::bgp::OriginSummary;
 use plugin_network::bgp::RpkiStatus;
 use plugin_network::bgp::UpstreamShare;
 use plugin_network::bgp::parse;
-use unicode_width::UnicodeWidthStr;
 
 fn path(raw: &[u32], peers: u32, is_best: bool) -> BgpPath {
     BgpPath {
@@ -25,7 +24,7 @@ fn path(raw: &[u32], peers: u32, is_best: bool) -> BgpPath {
 }
 
 #[test]
-fn crisscrossing_mesh_has_unique_cells_and_no_phantom_row_connections() {
+fn crisscrossing_mesh_has_unique_cells_and_clean_svg_and_mermaid_edges() {
     let mut names = BTreeMap::new();
     names.insert(64500, "Origin VPS".to_owned());
     names.insert(50001, "Up-Alpha".to_owned());
@@ -72,15 +71,14 @@ fn crisscrossing_mesh_has_unique_cells_and_no_phantom_row_connections() {
             path(&[2914, 50002, 64500], 12, false),
             path(&[1299, 50003, 64500], 12, false),
             path(&[3356, 50003, 64500], 8, false),
-            // AS50004 connects ONLY to AS174 and AS1299, never to AS2914 or AS3356.
             path(&[174, 50004, 64500], 10, false),
             path(&[1299, 50004, 64500], 5, false),
         ],
         asn_names: names,
+        diagram_url: None,
     };
 
-    let g = report::bgp_graph::layout(&fam, Some(report::bgp_graph::COMPACT_MAX_PATHS))
-        .expect("layout");
+    let g = report::bgp_graph::layout(&fam, None).expect("layout");
     let mut occupied = BTreeSet::new();
     for b in &g.boxes {
         assert!(
@@ -91,44 +89,20 @@ fn crisscrossing_mesh_has_unique_cells_and_no_phantom_row_connections() {
         );
     }
 
-    let lines = report::bgp_graph::render_terminal(&g, "    ", Some(80));
-    let joined = lines.join("\n");
-    assert!(
-        joined.contains("╭──────────────╮"),
-        "fits standard 2D boxes in 80 columns"
-    );
-    for line in &lines {
-        assert!(
-            line.width() <= 80,
-            "line exceeded 80 columns ({}): {line}",
-            line.width()
-        );
-    }
+    let svg = report::bgp_graph::render_svg(&g);
+    assert!(svg.starts_with("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<svg"));
+    assert!(svg.contains("AS64500</text>"));
+    assert!(svg.contains("AS3356 &#x2605;</text>"));
+    assert!(!svg.contains("198.51.100."));
 
-    // Locate the box row where AS50004 sits in col 1 and verify that if an unconnected Tier-1 sits
-    // on the same row in col 2, no straight horizontal arrow `▸` enters line 1 (`y0 + 1`) of that
-    // col-2 box.
-    let delta = g
-        .boxes
-        .iter()
-        .find(|b| b.asn == 50004 && b.col == 1)
-        .expect("AS50004 box");
-    if let Some(same_row_t1) = g.boxes.iter().find(|b| b.col == 2 && b.row == delta.row)
-        && same_row_t1.asn != 174
-        && same_row_t1.asn != 1299
-    {
-        let y_out_line = &lines[2 + delta.row * 4];
-        let needle = format!("▸│ AS{}", same_row_t1.asn);
-        assert!(
-            !y_out_line.contains(&needle),
-            "phantom straight connection into unconnected AS{}: {y_out_line}",
-            same_row_t1.asn
-        );
-    }
+    let mermaid = report::bgp_graph::render_mermaid(&g);
+    assert!(mermaid.starts_with("flowchart LR\n"));
+    assert!(mermaid.contains("n_64500_0 ==> n_50001_1"));
+    assert!(mermaid.contains("n_50001_1 ==> n_3356_2"));
 }
 
 #[test]
-fn heavy_prepending_uses_clean_hop_columns_and_keeps_all_badges_intact() {
+fn heavy_prepending_uses_clean_hop_columns_and_renders_all_badges() {
     let mut names = BTreeMap::new();
     names.insert(64510, "Example Host".to_owned());
 
@@ -165,38 +139,32 @@ fn heavy_prepending_uses_clean_hop_columns_and_keeps_all_badges_intact() {
             path(&[6830, 64520, 64520, 64520, 64510], 5, false),
         ],
         asn_names: names,
+        diagram_url: None,
     };
 
-    let g = report::bgp_graph::layout(&fam, Some(report::bgp_graph::COMPACT_MAX_PATHS))
-        .expect("layout");
+    let g = report::bgp_graph::layout(&fam, None).expect("layout");
     assert_eq!(
         g.max_col, 2,
         "×9 prepending must not inflate clean-hop column count beyond 2"
     );
 
-    let lines = report::bgp_graph::render_terminal(&g, "      ", Some(80));
-    let joined = lines.join("\n");
-    assert!(
-        joined.contains("╭──────────────╮"),
-        "renders full 2D boxes even on 80-col terminal despite ×9 prepending"
-    );
-    for badge in ["×3", "×4", "×5", "×9"] {
-        assert!(
-            joined.contains(badge),
-            "missing prepend badge {badge}:\n{joined}"
-        );
+    let svg = report::bgp_graph::render_svg(&g);
+    for mult in [3, 4, 5, 9] {
+        let entity = format!("&#xD7;{mult}</text>");
+        assert!(svg.contains(&entity), "missing SVG badge {entity}:\n{svg}");
     }
-    for line in &lines {
-        assert!(line.width() <= 80, "line exceeded 80 cols: {line}");
+
+    let mermaid = report::bgp_graph::render_mermaid(&g);
+    for mult in [3, 4, 5, 9] {
+        let edge = format!("-. \"×{mult}\" .->");
+        assert!(mermaid.contains(&edge), "missing Mermaid badge {edge}");
     }
 }
 
 #[test]
-fn four_column_wide_glyph_dag_scales_to_compact_boxes_at_80_cols_and_marks_shared_tree_nodes() {
-    // Use `\u{...}` escapes so source stays ASCII-clean while exercising 2-column East Asian width
-    // alignment inside 16-column and 13-column rounded boxes.
-    let origin_label = "\u{8d77}\u{6e90}\u{8282}\u{70b9}";
-    let transit_label = "\u{6c47}\u{805a}\u{4e2d}\u{8f6c}";
+fn four_column_wide_glyph_dag_escapes_xml_and_mermaid_labels_cleanly() {
+    let origin_label = "\u{8d77}\u{6e90} & <Cloud>";
+    let transit_label = "\u{6c47}\u{805a} \"Transit\"";
     let mut names = BTreeMap::new();
     names.insert(64500, origin_label.to_owned());
     names.insert(4809, "\u{4e2d}\u{56fd}\u{7535}\u{4fe1} CN2".to_owned());
@@ -228,45 +196,29 @@ fn four_column_wide_glyph_dag_scales_to_compact_boxes_at_80_cols_and_marks_share
             },
         ],
         paths: vec![
-            // Both AS4809 and AS9929 converge into transit AS50010 at col 2, which fans out to
-            // AS3356 and AS1299 at col 3 (a 4-column diamond DAG).
             path(&[3356, 50010, 4809, 64500], 20, true),
             path(&[1299, 50010, 4809, 64500], 10, false),
             path(&[3356, 50010, 9929, 64500], 12, false),
             path(&[1299, 50010, 9929, 64500], 8, false),
         ],
         asn_names: names,
+        diagram_url: None,
     };
 
     let g = report::bgp_graph::layout(&fam, Some(report::bgp_graph::COMPACT_MAX_PATHS))
         .expect("layout");
     assert_eq!(g.max_col, 3);
 
-    // At 100 columns: standard 16-column boxes (`╭──────────────╮`).
-    let wide = report::bgp_graph::render_terminal(&g, "    ", Some(100));
-    assert!(wide.iter().any(|l| l.contains("╭──────────────╮")));
-    assert!(wide.iter().all(|l| l.width() <= 100));
+    let svg = report::bgp_graph::render_svg(&g);
+    assert!(svg.contains("&amp; &lt;Cloud&gt;"));
+    assert!(svg.contains("&quot;Transit&quot;"));
 
-    // At 80 columns: auto-scales to 13-column compact boxes (`╭───────────╮`) with CJK intact.
-    let compact = report::bgp_graph::render_terminal(&g, "    ", Some(80));
-    assert!(
-        compact.iter().any(|l| l.contains("╭───────────╮")),
-        "auto-scales to compact 2D boxes at 80 cols"
-    );
-    assert!(compact.iter().all(|l| l.width() <= 80));
-
-    // At 34 columns (too narrow for two boxes side-by-side): falls back to Unicode tree and marks
-    // the second visit to shared transit AS50010 with `(↑)`.
-    let narrow = report::bgp_graph::render_terminal(&g, "    ", Some(34)).join("\n");
-    assert!(narrow.contains(&format!("AS64500 {origin_label} (origin)")));
-    assert!(
-        narrow.contains(&format!("AS50010 {transit_label} (↑)")),
-        "marks shared DAG node in tree fallback:\n{narrow}"
-    );
+    let mermaid = report::bgp_graph::render_mermaid(&g);
+    assert!(mermaid.contains("'Transit'"));
 }
 
 #[test]
-fn deep_seven_layer_hierarchy_wraps_into_continuation_bands_on_80_col_terminal() {
+fn deep_seven_layer_hierarchy_preserves_every_clean_hop_layer_in_svg() {
     let mut names = BTreeMap::new();
     names.insert(400100, "Leaf Origin".to_owned());
     names.insert(400200, "VM Host".to_owned());
@@ -300,31 +252,14 @@ fn deep_seven_layer_hierarchy_wraps_into_continuation_bands_on_80_col_terminal()
             path(&[174, 51847, 51847, 400200, 400100], 15, false),
         ],
         asn_names: names,
+        diagram_url: None,
     };
 
-    let g = report::bgp_graph::layout(&fam, Some(report::bgp_graph::COMPACT_MAX_PATHS))
-        .expect("layout");
+    let g = report::bgp_graph::layout(&fam, None).expect("layout");
     assert_eq!(g.max_col, 6, "preserves all 7 clean hop layers (0..=6)");
 
-    let lines = report::bgp_graph::render_terminal(&g, "    ", Some(80));
-    let joined = lines.join("\n");
-    assert!(
-        joined.contains("╭──────────────╮"),
-        "keeps 2D rounded boxes across wrapped bands instead of collapsing to a flat list"
-    );
-    assert!(
-        joined.contains("2 (cont.)") && joined.contains("4 (cont.)"),
-        "emits bridge-column continuation headers:\n{joined}"
-    );
-    assert!(
-        joined.contains("│══▸"),
-        "marks continuing boundary boxes with right-hand continuation stubs:\n{joined}"
-    );
-    for line in &lines {
-        assert!(
-            line.width() <= 80,
-            "wrapped band line exceeded 80 columns ({}): {line}",
-            line.width()
-        );
-    }
+    let svg = report::bgp_graph::render_svg(&g);
+    assert!(svg.contains(">origin</text>"));
+    assert!(svg.contains(">6</text>"));
+    assert!(!svg.contains("2001:db8:dead"));
 }
