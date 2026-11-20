@@ -72,6 +72,12 @@ pub trait TuiWords {
     fn tui_field_streams(&self) -> &'static str;
     /// `network.iperf3` field: per-stream bandwidth cap in Mbit/s.
     fn tui_field_rate(&self) -> &'static str;
+    /// `network.taier` field: carrier toggle.
+    fn tui_field_taier_operator(&self, operator: &str) -> String;
+    /// `network.taier` field: city/province filter or `all`.
+    fn tui_field_taier_cities(&self) -> &'static str;
+    /// `network.taier` field: `64 B` and `1400 B` packet probes toggle.
+    fn tui_field_taier_probes(&self) -> &'static str;
     /// `network.trace` field: target group toggle.
     fn tui_field_trace_group(&self, group: &str) -> String;
     /// `network.trace` field: specific target IDs.
@@ -106,12 +112,16 @@ pub trait TuiWords {
     fn tui_field_verbose(&self) -> &'static str;
     /// Placeholder value for default curated iperf3 locations.
     fn tui_default_locations(&self) -> &'static str;
+    /// Placeholder value for default Taier cities.
+    fn tui_default_taier_cities(&self) -> &'static str;
     /// Placeholder value when an override list is unset.
     fn tui_default_none(&self) -> &'static str;
     /// Placeholder value when rate limit is unset.
     fn tui_unlimited(&self) -> &'static str;
     /// Note explaining `cpu.bench` default and opt-in sub-suites.
     fn tui_default_cpu_note(&self) -> &'static str;
+    /// Note explaining `network.taier` default cities and carriers.
+    fn tui_default_taier_note(&self) -> &'static str;
     /// Placeholder value when trace groups use default cache + carrier list.
     fn tui_default_trace_note(&self) -> &'static str;
     /// Note explaining `network.bgp` topology SVG upload in `text` mode.
@@ -130,6 +140,8 @@ pub trait TuiWords {
     fn tui_no_items_selected(&self) -> String;
     /// Validation error when `cpu.bench` is enabled with all sub-suites unchecked.
     fn tui_no_cpu_suites_selected(&self) -> String;
+    /// Validation error when `network.taier` is enabled with all carriers unchecked.
+    fn tui_no_taier_operators_selected(&self) -> String;
     /// Validation error for an integer field outside `min..=max`.
     fn tui_invalid_number(&self, field: &str, min: u32, max: u32) -> String;
     /// Validation error when `work_dir` is empty.

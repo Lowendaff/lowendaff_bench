@@ -48,6 +48,7 @@ impl ReportWords for English {
             "disk.health" => Some("Disk health"),
             "disk.fio" => Some("Disk performance"),
             "network.iperf3" => Some("Network speed"),
+            "network.taier" => Some("China carrier speed"),
             "network.trace" => Some("Route tracing"),
             "network.bgp" => Some("BGP paths"),
             "ip.quality" => Some("IP reputation"),

@@ -1,0 +1,1 @@
+{"version": 1, "locations": [{"id": "beijing", "province": "Beijing", "city": "Beijing", "default": true, "nodes": [{"operator": "telecom", "ip": "2001:db8::1", "port": 65499}]}]}

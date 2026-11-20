@@ -157,6 +157,28 @@ impl TuiWords for English {
         "Stream cap (Mbit/s)"
     }
 
+    fn tui_field_taier_operator(&self, operator: &str) -> String {
+        let name = match operator {
+            "telecom" => "China Telecom",
+            "unicom" => "China Unicom",
+            "mobile" => "China Mobile",
+            "cernet" => "CERNET (Education)",
+            "cbn" => "China Broadnet (CBN)",
+            "other" => "Other / Overseas",
+            "all" => "all carriers",
+            other => other,
+        };
+        format!("Carrier: {name}")
+    }
+
+    fn tui_field_taier_cities(&self) -> &'static str {
+        "Cities / provinces"
+    }
+
+    fn tui_field_taier_probes(&self) -> &'static str {
+        "64B & 1400B packet probes"
+    }
+
     fn tui_field_trace_group(&self, group: &str) -> String {
         format!("Group: {group}")
     }
@@ -225,6 +247,10 @@ impl TuiWords for English {
         "default (5 locations)"
     }
 
+    fn tui_default_taier_cities(&self) -> &'static str {
+        "default (Beijing, Shanghai, Guangzhou)"
+    }
+
     fn tui_default_none(&self) -> &'static str {
         "none"
     }
@@ -235,6 +261,10 @@ impl TuiWords for English {
 
     fn tui_default_cpu_note(&self) -> &'static str {
         "y-cruncher & Prime95 are opt-in (x86_64 only, auto-skipped on ARM64)."
+    }
+
+    fn tui_default_taier_note(&self) -> &'static str {
+        "Defaults to Beijing, Shanghai & Guangzhou across Telecom, Unicom & Mobile."
     }
 
     fn tui_default_trace_note(&self) -> &'static str {
@@ -271,6 +301,10 @@ impl TuiWords for English {
 
     fn tui_no_cpu_suites_selected(&self) -> String {
         "Select at least one CPU sub-suite in cpu.bench (or disable cpu.bench)".to_owned()
+    }
+
+    fn tui_no_taier_operators_selected(&self) -> String {
+        "Select at least one carrier in network.taier (or disable network.taier)".to_owned()
     }
 
     fn tui_invalid_number(&self, field: &str, min: u32, max: u32) -> String {

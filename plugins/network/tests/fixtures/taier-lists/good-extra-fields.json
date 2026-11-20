@@ -1,0 +1,1 @@
+{"version": 1, "extra_root": true, "locations": [{"id": "shanghai", "province": "Shanghai", "city": "Shanghai", "note": "ignored", "nodes": [{"operator": "telecom", "ip": "192.0.2.1", "port": 65499, "extra": 1}]}]}

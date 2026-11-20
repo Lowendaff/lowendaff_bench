@@ -15,6 +15,7 @@ use bench::app::CpuSuite;
 use bench::app::EXIT_INTERRUPTED;
 use bench::app::MediaGroup;
 use bench::app::ReportOptions;
+use bench::app::TaierOperator;
 use bench::app::TraceGroup;
 use bench::orchestrator;
 use bench::orchestrator::Planned;
@@ -803,12 +804,18 @@ fn config_flag_is_rejected_and_enum_parameters_configure_plugins() {
         "--config local config file launching must not exist"
     );
     assert!(Cli::try_parse_from(["lowendaff-bench", "--cpu-bench", "pts"]).is_err());
+    assert!(Cli::try_parse_from(["lowendaff-bench", "--taier-operators", "starlink"]).is_err());
     assert!(Cli::try_parse_from(["lowendaff-bench", "--trace-groups", "mars"]).is_err());
     assert!(Cli::try_parse_from(["lowendaff-bench", "--media-groups", "antarctica"]).is_err());
 
     let parsed = cli(&[
         "--cpu-bench",
         "sysbench,7zip,hpl",
+        "--taier-cities",
+        "Beijing,Jiangsu",
+        "--taier-operators",
+        "telecom,unicom",
+        "--no-taier-probes",
         "--trace-groups",
         "services,china",
         "--media-groups",
@@ -821,6 +828,12 @@ fn config_flag_is_rejected_and_enum_parameters_configure_plugins() {
         parsed.cpu_bench,
         [CpuSuite::Sysbench, CpuSuite::SevenZip, CpuSuite::Hpl]
     );
+    assert_eq!(parsed.taier_cities, ["Beijing", "Jiangsu"]);
+    assert_eq!(
+        parsed.taier_operators,
+        [TaierOperator::Telecom, TaierOperator::Unicom]
+    );
+    assert!(parsed.no_taier_probes);
     assert_eq!(
         parsed.trace_groups,
         [TraceGroup::Services, TraceGroup::China]
@@ -1594,6 +1607,7 @@ fn the_list_keeps_each_group_together_in_the_reports_order() {
             "disk.health",
             "disk.fio",
             "network.iperf3",
+            "network.taier",
             "network.trace",
             "network.bgp",
             "ip.quality",
@@ -1646,6 +1660,7 @@ fn the_list_keeps_each_group_together_in_the_reports_order() {
         network,
         [
             "  network.iperf3  Network speed (tools: iperf3 3.22)",
+            "  network.taier  China carrier speed",
             "  network.trace  Route tracing (tools: nexttrace 1.7.6)",
             "  network.bgp  BGP paths"
         ]
@@ -1720,7 +1735,7 @@ fn the_items_that_do_not_apply_here_are_named_as_the_report_names_them() {
     let (applicable, names) = orchestrator::for_host(planned, &vm);
 
     assert_eq!(names, ["Disk health", "Memory NUMA"]);
-    assert_eq!(applicable.len(), 10, "the others run");
+    assert_eq!(applicable.len(), 11, "the others run");
 }
 
 #[test]
@@ -1739,14 +1754,14 @@ fn zero_args_selects_tui_flag_is_gone_and_all_runs_full_cli_suite() {
     assert!(via_flag.all);
     let all = registry::all();
     let planned_flag = app::prepare(&via_flag, &all).unwrap();
-    assert_eq!(planned_flag.len(), 12);
+    assert_eq!(planned_flag.len(), 13);
 
     let planned_short = app::prepare(&cli(&["-a", "--skip", "network.trace"]), &all).unwrap();
-    assert_eq!(planned_short.len(), 11);
+    assert_eq!(planned_short.len(), 12);
 
     let planned_only_all =
         app::prepare(&cli(&["--only", "all", "--skip", "ip.media"]), &all).unwrap();
-    assert_eq!(planned_only_all.len(), 11);
+    assert_eq!(planned_only_all.len(), 12);
 
     let planned_skip_all = app::prepare(&cli(&["--skip", "all"]), &all).unwrap();
     assert!(planned_skip_all.is_empty());

@@ -56,7 +56,7 @@ sudo ./lowendaff-bench-x86_64        # Opens interactive TUI (or add --all for n
 Assuming the binary is named `lowendaff-bench`:
 
 ```sh
-# 1. See all 12 available test items and what they require (no root needed)
+# 1. See all 13 available test items and what they require (no root needed)
 ./lowendaff-bench --list
 
 # 2. Launch the interactive TUI (default when run with no options: toggle items, edit params, view report)
@@ -85,8 +85,9 @@ sudo ./lowendaff-bench -o report.json -f json
 # 8. Test disk speed on another mounted drive (avoid /tmp, which is often a RAM disk)
 sudo ./lowendaff-bench --only disk.fio --work-dir /mnt/data
 
-# 9. Filter by region: test only Japan & US speed servers, China routes, or Asian streaming apps
+# 9. Filter by region: test only Japan & US speed servers, Chinese carrier nodes, China routes, or Asian streaming apps
 sudo ./lowendaff-bench --only network.iperf3 --countries JP,US
+sudo ./lowendaff-bench --only network.taier --taier-cities Beijing,Shanghai,Jiangsu --taier-operators telecom,unicom
 sudo ./lowendaff-bench --only network.trace --trace-groups china
 sudo ./lowendaff-bench --only ip.media --media-groups global,asia
 
@@ -116,6 +117,9 @@ sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-
 | `--work-dir` | `<DIR>` | `.` | Directory used for temporary test files, cleaned up on exit (point this at the disk you want to test; avoid `/tmp`) |
 | `--cpu-bench` | `<SUITE,...>` | 6 default suites | Choose which sub-suites `cpu.bench` runs (`sysbench`, `7zip`, `unixbench`, `hpl`, `passmark`, `ycruncher`, `prime95`, `geekbench`, or `all`) |
 | `--countries` | `<CODE,...>` | Default locations | Limit `network.iperf3` to two-letter country codes (such as `JP,US,DE`) or `all` |
+| `--taier-cities` | `<CITY,...>` | Beijing, Shanghai, Guangzhou | Limit `network.taier` to cities, provinces, location IDs (such as `Beijing,Jiangsu`), or `all` |
+| `--taier-operators` | `<ISP,...>` | `telecom,unicom,mobile` | Choose which carriers `network.taier` tests (`telecom`, `unicom`, `mobile`, `cernet`, `cbn`, `other`, or `all`) |
+| `--no-taier-probes` | *(flag)* | Off | Skip `64B` and `1400B` TCP RTT/jitter/loss probes inside `network.taier` |
 | `--trace-groups` | `<GROUP,...>` | Caches + defaults | Choose which target groups `network.trace` traces routes to |
 | `--media-groups` | `<GROUP,...>` | `all` | Choose which regional groups `ip.media` checks for streaming availability |
 | `--no-dnsbl` | *(flag)* | Off | Skip the 25 spam/abuse blacklist (DNSBL) lookups inside `ip.quality` |
@@ -137,9 +141,9 @@ sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-
 | `--only` / `--skip` *(categories)* | `cpu` | Unified CPU benchmark suite: `cpu.bench` |
 | | `memory` | All 4 memory tests: `memory.sysbench`, `memory.stream`, `memory.latency`, `memory.numa` |
 | | `disk` | Both disk tests: `disk.health`, `disk.fio` |
-| | `network` | All 3 network tests: `network.iperf3`, `network.trace`, `network.bgp` |
+| | `network` | All 4 network tests: `network.iperf3`, `network.taier`, `network.trace`, `network.bgp` |
 | | `ip` | Both IP tests: `ip.quality`, `ip.media` |
-| `--only` / `--skip` *(single items)* | `disk.health`, `memory.sysbench`, `memory.stream`, `memory.latency`, `memory.numa`, `disk.fio`, `network.iperf3`, `network.trace`, `network.bgp`, `ip.quality`, `ip.media`, `cpu.bench` | Include or exclude any individual test item |
+| `--only` / `--skip` *(single items)* | `disk.health`, `memory.sysbench`, `memory.stream`, `memory.latency`, `memory.numa`, `disk.fio`, `network.iperf3`, `network.taier`, `network.trace`, `network.bgp`, `ip.quality`, `ip.media`, `cpu.bench` | Include or exclude any individual test item |
 | `-f, --format` | `text` | Aligned plain-text tables formatted for terminal viewing |
 | | `markdown` *(or `md`)* | GitHub-Flavored Markdown ready to paste into posts, wikis, or issues |
 | | `json` | Structured JSON output for scripts, dashboards, or automated archiving |
@@ -164,6 +168,9 @@ sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-
 | | `all` | All 68 platforms across all five regions (default) |
 | `--countries` | Two-letter country code *(e.g. `US`, `JP`, `DE`, `SG`, `GB`)* | Test all public `iperf3` servers in the selected countries (case-insensitive) |
 | | `all` | Test every public server in the server list |
+| `--taier-cities` | City, province, or ID *(e.g. `Beijing`, `Jiangsu`, `guangdong-shenzhen`)* | Test all matching CAICT GlobalSpeed locations in mainland China (case-insensitive) |
+| | `all` | Test every location in `servers/taier.json` |
+| `--taier-operators` | `telecom`, `unicom`, `mobile`, `cernet`, `cbn`, `other`, or `all` | Filter CAICT GlobalSpeed carrier nodes (default: `telecom,unicom,mobile`) |
 | `--socks5-proxy` | `socks5://[user:pass@]host[:port]` | Resolve download hostnames locally on this machine, then connect through the SOCKS5 proxy |
 | | `socks5h://[user:pass@]host[:port]` | Resolve download hostnames remotely on the SOCKS5 proxy server |
 | `--github-proxy` | `https://<mirror>/` *(or `http://<mirror>/`)* | Prefix mirror for GitHub tool and list downloads (for example `https://ghfast.top/` requests `https://ghfast.top/https://github.com/...` directly; can be combined with `--socks5-proxy`) |
@@ -179,7 +186,7 @@ PCIe slots), and IPv4/IPv6 connectivity. On dedicated servers, it also lists pop
 ECC memory error counts, IPMI/BMC controllers, and hardware RAID cards (see
 [`docs/system.md`](docs/system.md)).
 
-Then it runs up to 12 test items in order:
+Then it runs up to 13 test items in order:
 
 | Category | Item ID & Name | Where it runs | What it tells you | Deep dive |
 |---|---|---|---|---|
@@ -190,6 +197,7 @@ Then it runs up to 12 test items in order:
 | `memory` | `memory.numa`<br>Multi-socket NUMA | Multi-NUMA servers | On dual-socket or multi-node machines, measures bandwidth and latency between local RAM and cross-socket RAM | [`docs/memory.md`](docs/memory.md) |
 | `disk` | `disk.fio`<br>Disk read/write | All servers | Runs YABS-compatible 50/50 random read/write tests at `4K`, `64K`, `512K`, and `1M` block sizes to show both database IOPS (`4K`) and large-file throughput (`512K`/`1M`) | [`docs/disk.md`](docs/disk.md) |
 | `network` | `network.iperf3`<br>Network speed | Servers with internet | Tests upload, download, and latency over IPv4 and IPv6 against public servers (default: Los Angeles, New York, Virginia, Tokyo, Frankfurt) | [`docs/network.md`](docs/network.md) |
+| `network` | `network.taier`<br>China carrier speed | Servers with IPv4 | Pure-Rust multi-stream HTTP/1.1 download and upload speed test plus `64B` and `1400B` TCP RTT/jitter/loss probes against CAICT GlobalSpeed carrier nodes (default: Beijing, Shanghai, Guangzhou across Telecom, Unicom, Mobile) | [`docs/network.md`](docs/network.md) |
 | `network` | `network.trace`<br>Route tracing | Servers with raw sockets | Traces hop-by-hop network paths to nearest YouTube/Netflix caches, Chinese carriers, and global backbones so you can spot direct vs detoured routing | [`docs/network.md`](docs/network.md) |
 | `network` | `network.bgp`<br>BGP paths | Servers with a public IP | Queries global RIS route collectors for your announced prefix, RPKI status, and upstream carriers, providing an unlisted `imageupload.app` SVG topology link in `text` mode, a Mermaid flowchart in Markdown, and standalone SVG markup in JSON | [`docs/network.md`](docs/network.md) |
 | `ip` | `ip.quality`<br>IP reputation | Servers with a public IP | Cross-checks 9 IP databases to show whether your IP is **native** or **broadcast**, datacenter vs residential, fraud/risk indicators, open ports, 25 spam blacklists, and port-25 mail reachability | [`docs/ip.md`](docs/ip.md) |
@@ -235,6 +243,9 @@ projects:
 - **[peer.as (`Archeb/peer.as`)](https://github.com/Archeb/peer.as)** — Reference for
   `network.bgp` crossing-free layered AS-path layout, Tier-1 truncation, prepend folding, and SVG
   topology rendering.
+- **[speedtaier (`transflo/speedtaier`)](https://github.com/transflo/speedtaier)** — Reference for
+  `network.taier` CAICT GlobalSpeed (`dovalid`) handshake, multi-stream HTTP/1.1 throughput, and
+  mainland China carrier node catalog.
 - **Upstream benchmark tools & open data sources** —
   [`sysbench`](https://github.com/akopytov/sysbench) (Alexey Kopytov),
   [`7-Zip`](https://www.7-zip.org/) (Igor Pavlov),

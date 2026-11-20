@@ -15,4 +15,5 @@ pub mod registry;
 pub mod report;
 pub mod report_path;
 pub mod results;
+pub mod taier_probe;
 pub mod tui;

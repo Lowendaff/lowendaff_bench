@@ -4,6 +4,7 @@
 
 use std::net::IpAddr;
 
+use bench_api::TaierPacketStats;
 use bench_tool::NEXTTRACE;
 use bench_tool::job;
 use plugin_network::bgp;
@@ -17,6 +18,10 @@ use plugin_network::iperf3::result::Way;
 use plugin_network::iperf3::servers;
 use plugin_network::iperf3::servers::ListError;
 use plugin_network::iperf3::servers::Rule;
+use plugin_network::taier;
+use plugin_network::taier::NodeOutcome;
+use plugin_network::taier::Operator;
+use plugin_network::taier::TestedNode;
 use plugin_network::trace;
 use plugin_network::trace::Choice;
 use plugin_network::trace::exchanges;
@@ -37,6 +42,10 @@ use crate::locale;
 use crate::locale::BgpField;
 use crate::locale::ListRule;
 use crate::locale::LookupProblem;
+use crate::locale::TaierCell;
+use crate::locale::TaierChoice;
+use crate::locale::TaierListProblem;
+use crate::locale::TaierRule;
 use crate::locale::TraceChoice;
 use crate::locale::TraceList;
 use crate::locale::TraceListProblem;
@@ -205,6 +214,159 @@ fn list_error(error: &ListError) -> String {
         }
         ListError::Duplicate(id) => words.list_duplicate(id),
     }
+}
+
+/// China carrier speed (`network.taier`): method line, optional unknown-city note, results table,
+/// and per-slot fallback or failure notes.
+pub(super) fn taier(out: &mut Out, report: &Report<taier::Output, taier::Failure>, indent: &str) {
+    let words = locale::words();
+    let Some(output) = &report.output else {
+        return;
+    };
+    let settings = &output.settings;
+    let non_default_ops = if settings.operators == Operator::DEFAULTS {
+        Vec::new()
+    } else {
+        settings
+            .operators
+            .iter()
+            .map(|op| op.code().to_owned())
+            .collect()
+    };
+    let choice = TaierChoice {
+        streams: settings.streams,
+        seconds: settings.seconds,
+        probes: settings.probes,
+        cities: settings.cities.clone(),
+        operators: non_default_ops,
+        custom_list: settings.custom_list,
+    };
+    out.line(&format!("{indent}{}", words.taier_method(&choice)));
+    if !output.unknown.is_empty() {
+        out.field(
+            indent,
+            &words.note(),
+            &words.taier_unknown_cities(&output.unknown),
+        );
+    }
+    if output.results.is_empty() {
+        return;
+    }
+    let headers: Vec<String> = words
+        .taier_headers(settings.probes)
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
+    let rows: Vec<Vec<String>> = output
+        .results
+        .iter()
+        .map(|node| taier_row(node, settings.probes))
+        .collect();
+    out.table_left(indent, &headers, &rows);
+    for node in &output.results {
+        let place = words.taier_place(&node.city, &node.province);
+        let op = words.taier_operator(node.operator.code());
+        match &node.outcome {
+            NodeOutcome::Measured(_) if node.tried_nodes > 1 => {
+                out.field(
+                    indent,
+                    &words.note(),
+                    &words.taier_fallback(&place, op, node.tried_nodes),
+                );
+            }
+            NodeOutcome::Failed(reason) => {
+                out.field(
+                    indent,
+                    &words.note(),
+                    &words.taier_node_failed(&place, op, reason),
+                );
+            }
+            _ => {}
+        }
+    }
+}
+
+fn taier_row(node: &TestedNode, show_probes: bool) -> Vec<String> {
+    let words = locale::words();
+    let place = words.taier_place(&node.city, &node.province);
+    let operator = words.taier_operator(node.operator.code()).to_owned();
+    let (down, up, small, large) = match &node.outcome {
+        NodeOutcome::Measured(measured) => (
+            bits(measured.download_bps),
+            bits(measured.upload_bps),
+            format_taier_probe(measured.small_probe.as_ref()),
+            format_taier_probe(measured.large_probe.as_ref()),
+        ),
+        other => {
+            let kind = match other {
+                NodeOutcome::Busy => TaierCell::Busy,
+                NodeOutcome::Unreachable => TaierCell::Unreachable,
+                NodeOutcome::AuthRejected => TaierCell::AuthRejected,
+                NodeOutcome::TimedOut => TaierCell::TimedOut,
+                NodeOutcome::Failed(_) => TaierCell::Error,
+                NodeOutcome::Measured(_) => unreachable!(),
+            };
+            let text = words.taier_cell(kind).to_owned();
+            (text.clone(), text, MISSING.to_owned(), MISSING.to_owned())
+        }
+    };
+    if show_probes {
+        vec![place, operator, down, up, small, large]
+    } else {
+        vec![place, operator, down, up]
+    }
+}
+
+fn format_taier_probe(stats: Option<&TaierPacketStats>) -> String {
+    let Some(stats) = stats else {
+        return MISSING.to_owned();
+    };
+    let rtt = stats.avg_micros.map(|us| digits(us as f64 / 1000.0));
+    let jitter = stats.jitter_micros.map(|us| digits(us as f64 / 1000.0));
+    locale::words().taier_probe_cell(rtt.as_deref(), jitter.as_deref(), stats.lost, stats.sent)
+}
+
+/// Why `network.taier` stopped short.
+pub(super) fn taier_failure(failure: &taier::Failure) -> String {
+    let words = locale::words();
+    match failure {
+        taier::Failure::Unreadable(reason) => {
+            words.taier_list_problem(TaierListProblem::Unreadable(reason))
+        }
+        taier::Failure::List(error) => taier_list_error(error),
+        taier::Failure::NoNode(unknown) => words.taier_no_node(unknown),
+        taier::Failure::NoResult => words.taier_no_result(),
+        taier::Failure::Cancelled => words.interrupted(),
+    }
+}
+
+fn taier_list_error(error: &taier::nodes::ListError) -> String {
+    use taier::nodes::ListError as E;
+    use taier::nodes::Rule as R;
+
+    let problem = match error {
+        E::TooLarge => TaierListProblem::TooLarge(taier::nodes::LIMIT),
+        E::Format(reason) => TaierListProblem::Format(reason),
+        E::Newer(version) => TaierListProblem::Newer(*version),
+        E::Version(version) => TaierListProblem::Version(*version),
+        E::Empty => TaierListProblem::Empty,
+        E::TooMany(count) => TaierListProblem::TooMany(*count, taier::nodes::MOST_LOCATIONS),
+        E::Location(position, rule) => {
+            let rule = match rule {
+                R::Id => TaierRule::Id,
+                R::Province => TaierRule::Province,
+                R::City => TaierRule::City,
+                R::Nodes => TaierRule::Nodes,
+                R::Operator => TaierRule::Operator,
+                R::Ip => TaierRule::Ip,
+                R::Port => TaierRule::Port,
+                R::DuplicateEndpoint => TaierRule::DuplicateEndpoint,
+            };
+            TaierListProblem::Rule(*position, rule)
+        }
+        E::Duplicate(id) => TaierListProblem::Duplicate(id),
+    };
+    locale::words().taier_list_problem(problem)
 }
 
 /// Route tracing: NextTrace's method, the notes on the ids that no target has and on the exchange

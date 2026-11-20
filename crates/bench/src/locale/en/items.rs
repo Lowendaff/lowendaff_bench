@@ -22,6 +22,11 @@ use crate::locale::MemoryWords;
 use crate::locale::NetworkWords;
 use crate::locale::NoSwapWhy;
 use crate::locale::Probe;
+use crate::locale::TaierCell;
+use crate::locale::TaierChoice;
+use crate::locale::TaierListProblem;
+use crate::locale::TaierRule;
+use crate::locale::TaierWords;
 use crate::locale::TraceChoice;
 use crate::locale::TraceList;
 use crate::locale::TraceListProblem;
@@ -1423,5 +1428,175 @@ impl BgpWords for English {
 
     fn bgp_query_failed(&self, reason: &str) -> String {
         format!("BGP route-state lookup failed: {reason}")
+    }
+}
+
+impl TaierWords for English {
+    fn taier_method(&self, choice: &TaierChoice) -> String {
+        let streams = count(usize::from(choice.streams), "stream", "streams");
+        let mut method = format!(
+            "CAICT GlobalSpeed (Taier): {streams}, {} s each way, HTTP/1.1",
+            choice.seconds
+        );
+        if choice.probes {
+            method.push_str(", 64B & 1400B TCP probes");
+        } else {
+            method.push_str("; without packet probes");
+        }
+        if !choice.cities.is_empty() {
+            method.push_str(&format!("; cities {}", choice.cities.join(", ")));
+        }
+        if !choice.operators.is_empty() {
+            method.push_str(&format!("; carriers {}", choice.operators.join(", ")));
+        }
+        if choice.custom_list {
+            method.push_str("; custom server list");
+        }
+        method
+    }
+
+    fn taier_unknown_cities(&self, names: &[String]) -> String {
+        format!("no location in the Taier list for {}", names.join(", "))
+    }
+
+    fn taier_headers(&self, probes: bool) -> Vec<&'static str> {
+        if probes {
+            vec![
+                "Location",
+                "Carrier",
+                "Download",
+                "Upload",
+                "64B RTT / Loss",
+                "1400B RTT / Loss",
+            ]
+        } else {
+            vec!["Location", "Carrier", "Download", "Upload"]
+        }
+    }
+
+    fn taier_place(&self, city: &str, province: &str) -> String {
+        if city.eq_ignore_ascii_case(province) {
+            city.to_owned()
+        } else {
+            format!("{city}, {province}")
+        }
+    }
+
+    fn taier_operator(&self, code: &str) -> &'static str {
+        match code {
+            "telecom" => "Telecom",
+            "unicom" => "Unicom",
+            "mobile" => "Mobile",
+            "cernet" => "CERNET",
+            "cbn" => "Broadnet",
+            _ => "Other",
+        }
+    }
+
+    fn taier_cell(&self, cell: TaierCell) -> &'static str {
+        match cell {
+            TaierCell::Busy => "busy",
+            TaierCell::Unreachable => "unreachable",
+            TaierCell::AuthRejected => "auth rejected",
+            TaierCell::TimedOut => "timed out",
+            TaierCell::Error => "error",
+        }
+    }
+
+    fn taier_probe_cell(
+        &self,
+        rtt_digits: Option<&str>,
+        jitter_digits: Option<&str>,
+        lost: u8,
+        sent: u8,
+    ) -> String {
+        if sent == 0 {
+            return "—".to_owned();
+        }
+        let Some(rtt) = rtt_digits else {
+            return "100% loss".to_owned();
+        };
+        let loss = if lost == 0 {
+            "0%".to_owned()
+        } else if (u16::from(lost) * 100) % u16::from(sent) == 0 {
+            format!("{}%", (u16::from(lost) * 100) / u16::from(sent))
+        } else {
+            format!("{:.1}%", (f64::from(lost) * 100.0) / f64::from(sent))
+        };
+        match jitter_digits {
+            Some(jitter) => format!("{rtt} ± {jitter} ms / {loss}"),
+            None => format!("{rtt} ms / {loss}"),
+        }
+    }
+
+    fn taier_fallback(&self, place: &str, operator: &str, tried: u8) -> String {
+        format!("{place} ({operator}): connected on candidate {tried} after busy/unreachable nodes")
+    }
+
+    fn taier_node_failed(&self, place: &str, operator: &str, reason: &str) -> String {
+        format!("{place} ({operator}): failed: {reason}")
+    }
+
+    fn taier_list_problem(&self, problem: TaierListProblem<'_>) -> String {
+        match problem {
+            TaierListProblem::Unreadable(reason) => {
+                format!("cannot read the Taier server list: {reason}")
+            }
+            TaierListProblem::TooLarge(limit) => {
+                format!("the Taier server list is larger than {limit} bytes")
+            }
+            TaierListProblem::Format(reason) => {
+                format!("the Taier server list is not in its format: {reason}")
+            }
+            TaierListProblem::Newer(version) => {
+                format!("the Taier server list needs a newer lowendaff-bench (format {version})")
+            }
+            TaierListProblem::Version(version) => {
+                format!("the Taier server list names a format that does not exist: {version}")
+            }
+            TaierListProblem::Empty => "the Taier server list has no locations".to_owned(),
+            TaierListProblem::TooMany(count, most) => {
+                format!("the Taier server list has {count} locations, more than {most}")
+            }
+            TaierListProblem::Rule(position, rule) => {
+                let detail = match rule {
+                    TaierRule::Id => {
+                        "its id must be 1 to 40 characters of a to z, digits and - (not all)"
+                    }
+                    TaierRule::Province => {
+                        "its province must be 1 to 40 printable ASCII characters"
+                    }
+                    TaierRule::City => "its city must be 1 to 40 printable ASCII characters",
+                    TaierRule::Nodes => "its nodes must hold 1 to 32 entries",
+                    TaierRule::Operator => {
+                        "a node's operator must be telecom, unicom, mobile, cernet, cbn or other"
+                    }
+                    TaierRule::Ip => "a node's ip must be a canonical IPv4 address",
+                    TaierRule::Port => "a node's port must be from 1024 to 65535",
+                    TaierRule::DuplicateEndpoint => {
+                        "two nodes in the location share the same ip and port"
+                    }
+                };
+                format!("location {position} of the Taier server list breaks a rule: {detail}")
+            }
+            TaierListProblem::Duplicate(id) => {
+                format!("two locations of the Taier server list have the id {id}")
+            }
+        }
+    }
+
+    fn taier_no_node(&self, unknown: &[String]) -> String {
+        if unknown.is_empty() {
+            "no carrier node in the Taier list matches the selection".to_owned()
+        } else {
+            format!(
+                "no carrier node in the Taier list for {}",
+                unknown.join(", ")
+            )
+        }
+    }
+
+    fn taier_no_result(&self) -> String {
+        "no China carrier node gave a speed result".to_owned()
     }
 }

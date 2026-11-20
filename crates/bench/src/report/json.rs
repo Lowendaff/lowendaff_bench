@@ -161,6 +161,7 @@ fn serialize_measured(measured: &Measured, own: &[IpAddr], show_ip: bool) -> Opt
         Measured::DiskHealth(r) => r.output.as_ref().map(to_value),
         Measured::DiskFio(r) => r.output.as_ref().map(to_value),
         Measured::NetworkIperf3(r) => r.output.as_ref().map(to_value),
+        Measured::NetworkTaier(r) => r.output.as_ref().map(to_value),
         Measured::NetworkTrace(r) => r.output.as_ref().map(|out| {
             let mut val = to_value(out);
             if !show_ip && !own.is_empty() {

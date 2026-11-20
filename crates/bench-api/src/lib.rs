@@ -351,6 +351,15 @@ pub enum Step {
         /// Optional thread or parallel copy count when positive.
         threads: Option<usize>,
     },
+    /// Measuring a China carrier node in `network.taier`.
+    Taier {
+        /// Location display name (e.g. `Beijing` or `Nanjing, Jiangsu`).
+        location: &'static str,
+        /// Carrier code (`telecom`, `unicom`, `mobile`, `cernet`, `cbn`, or `other`).
+        operator: &'static str,
+        /// Phase code (`download`, `upload`, or `probes`).
+        stage: &'static str,
+    },
 }
 
 /// Default byte limit read from an HTTP probe response body (256 KiB).
@@ -554,6 +563,66 @@ pub struct SmtpBanner {
     pub code: u16,
 }
 
+/// Answer of a CAICT GlobalSpeed (`dovalid`) queue admission handshake.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub enum TaierAdmission {
+    /// Admitted into the node's queue with this lease key (`uuid`).
+    Admitted(String),
+    /// Node queue is full or busy (`dovalid: -1`).
+    Busy,
+    /// Token or authentication rejected (`dovalid: 0`).
+    AuthRejected,
+    /// Invalid parameters or version mismatch (`dovalid: 2`).
+    InvalidParams,
+    /// Unexpected `dovalid` response body.
+    Unexpected(String),
+}
+
+/// Parameters for a multi-stream HTTP/1.1 download or upload phase against a Taier node.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TaierStreamSpec {
+    /// IPv4 address of the Taier speedtest node.
+    pub ip: Ipv4Addr,
+    /// TCP port (`65499` or `9443`, or a loopback port in tests).
+    pub port: u16,
+    /// Queue lease key (`uuid`) obtained from `dovalid`.
+    pub key: String,
+    /// Duration of the transfer window.
+    pub duration: Duration,
+    /// Parallel TCP connections (`1..=32`).
+    pub streams: u8,
+}
+
+/// Throughput summary of a multi-stream Taier download or upload phase.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct TaierTransfer {
+    /// Total payload bytes transferred across all active streams.
+    pub bytes: u64,
+    /// Elapsed transfer window in microseconds.
+    pub elapsed_micros: u64,
+    /// Sustained throughput in bits per second.
+    pub bits_per_sec: u64,
+    /// Number of streams that successfully transferred payload bytes.
+    pub active_streams: u8,
+}
+
+/// Latency, jitter, and packet-loss statistics for `64 B` or `1400 B` direct TCP probes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct TaierPacketStats {
+    /// Total probes sent.
+    pub sent: u8,
+    /// Probes that timed out or reset before answering.
+    pub lost: u8,
+    /// Mean round-trip time in microseconds (`None` when `lost == sent`).
+    pub avg_micros: Option<u64>,
+    /// Minimum round-trip time in microseconds (`None` when `lost == sent`).
+    pub min_micros: Option<u64>,
+    /// Maximum round-trip time in microseconds (`None` when `lost == sent`).
+    pub max_micros: Option<u64>,
+    /// Standard deviation of round-trip times in microseconds (`None` when `< 2` answered).
+    pub jitter_micros: Option<u64>,
+}
+
 /// Why a DNS or SMTP socket probe failed.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub enum NetError {
@@ -591,6 +660,74 @@ pub trait NetClient: Send + Sync {
         port: u16,
         timeout: Duration,
     ) -> NetFuture<'a, SmtpBanner>;
+
+    /// Executes a direct IPv4 `GET /speed/dovalid?{query}` handshake against `ip:port`.
+    fn taier_acquire<'a>(
+        &'a self,
+        _ip: Ipv4Addr,
+        _port: u16,
+        _query: &'a str,
+        _timeout: Duration,
+    ) -> NetFuture<'a, TaierAdmission> {
+        Box::pin(async {
+            Err(NetError::Transport(
+                "no network client configured".to_owned(),
+            ))
+        })
+    }
+
+    /// Best-effort `POST /speed/dovalid?key={key}` releasing a node's queue slot.
+    fn taier_release<'a>(
+        &'a self,
+        _ip: Ipv4Addr,
+        _port: u16,
+        _key: &'a str,
+        _timeout: Duration,
+    ) -> NetFuture<'a, ()> {
+        Box::pin(async { Ok(()) })
+    }
+
+    /// Runs a multi-stream direct IPv4 HTTP/1.1 download throughput measurement.
+    fn taier_download<'a>(
+        &'a self,
+        _spec: &'a TaierStreamSpec,
+        _cancel: &'a CancellationToken,
+    ) -> NetFuture<'a, TaierTransfer> {
+        Box::pin(async {
+            Err(NetError::Transport(
+                "no network client configured".to_owned(),
+            ))
+        })
+    }
+
+    /// Runs a multi-stream direct IPv4 HTTP/1.1 upload throughput measurement.
+    fn taier_upload<'a>(
+        &'a self,
+        _spec: &'a TaierStreamSpec,
+        _cancel: &'a CancellationToken,
+    ) -> NetFuture<'a, TaierTransfer> {
+        Box::pin(async {
+            Err(NetError::Transport(
+                "no network client configured".to_owned(),
+            ))
+        })
+    }
+
+    /// Measures `64 B` (`large == false`) or `1400 B` (`large == true`) RTT, jitter, and loss.
+    fn taier_packet_probe<'a>(
+        &'a self,
+        _ip: Ipv4Addr,
+        _port: u16,
+        _large: bool,
+        _samples: u8,
+        _cancel: &'a CancellationToken,
+    ) -> NetFuture<'a, TaierPacketStats> {
+        Box::pin(async {
+            Err(NetError::Transport(
+                "no network client configured".to_owned(),
+            ))
+        })
+    }
 }
 
 struct NoNetClient;
@@ -894,6 +1031,61 @@ impl<O: Measurement> Context<O> {
             () = self.cancel.cancelled() => Err(NetError::Cancelled),
             outcome = self.net.smtp_banner(family, host, port, timeout) => outcome,
         }
+    }
+
+    /// Requests a queue lease on a Taier speedtest node, stopping early when cancelled.
+    pub async fn taier_acquire(
+        &self,
+        ip: Ipv4Addr,
+        port: u16,
+        query: &str,
+        timeout: Duration,
+    ) -> Result<TaierAdmission, NetError> {
+        if self.cancel.is_cancelled() {
+            return Err(NetError::Cancelled);
+        }
+        tokio::select! {
+            biased;
+            () = self.cancel.cancelled() => Err(NetError::Cancelled),
+            outcome = self.net.taier_acquire(ip, port, query, timeout) => outcome,
+        }
+    }
+
+    /// Releases a queue lease on a Taier speedtest node (best effort).
+    pub async fn taier_release(&self, ip: Ipv4Addr, port: u16, key: &str, timeout: Duration) {
+        let _ = self.net.taier_release(ip, port, key, timeout).await;
+    }
+
+    /// Measures multi-stream download throughput from a Taier node.
+    pub async fn taier_download(&self, spec: &TaierStreamSpec) -> Result<TaierTransfer, NetError> {
+        if self.cancel.is_cancelled() {
+            return Err(NetError::Cancelled);
+        }
+        self.net.taier_download(spec, &self.cancel).await
+    }
+
+    /// Measures multi-stream upload throughput to a Taier node.
+    pub async fn taier_upload(&self, spec: &TaierStreamSpec) -> Result<TaierTransfer, NetError> {
+        if self.cancel.is_cancelled() {
+            return Err(NetError::Cancelled);
+        }
+        self.net.taier_upload(spec, &self.cancel).await
+    }
+
+    /// Measures small (`64 B`) or large (`1400 B`) TCP RTT, jitter, and loss against a Taier node.
+    pub async fn taier_packet_probe(
+        &self,
+        ip: Ipv4Addr,
+        port: u16,
+        large: bool,
+        samples: u8,
+    ) -> Result<TaierPacketStats, NetError> {
+        if self.cancel.is_cancelled() {
+            return Err(NetError::Cancelled);
+        }
+        self.net
+            .taier_packet_probe(ip, port, large, samples, &self.cancel)
+            .await
     }
 
     /// Replaces the last partial result. The report shows the last one published when the

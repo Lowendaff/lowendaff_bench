@@ -1,4 +1,4 @@
-//! User-editable TUI configuration for all 12 benchmark plugins and global run/report options.
+//! User-editable TUI configuration for all 13 benchmark plugins and global run/report options.
 
 use std::collections::BTreeMap;
 
@@ -7,6 +7,7 @@ use bench_api::Requirements;
 use plugin_cpu::bench::DEFAULT_SUITES;
 use plugin_cpu::bench::SUITE_CODES;
 use plugin_network::iperf3::result::Settings as IperfSettings;
+use plugin_network::taier::Settings as TaierSettings;
 
 use crate::app;
 use crate::fetcher::GithubProxy;
@@ -22,6 +23,14 @@ use crate::results::Measured;
 
 /// CPU sub-suite codes in UI display and execution order.
 pub const CPU_SUITES: [&str; 8] = SUITE_CODES;
+
+/// Carrier codes for `network.taier` in UI display and execution order.
+pub const TAIER_OPERATORS: [&str; 7] = [
+    "telecom", "unicom", "mobile", "cernet", "cbn", "other", "all",
+];
+
+/// Default enabled carrier checkboxes for `network.taier` (Telecom, Unicom, Mobile).
+pub const DEFAULT_TAIER_OPERATORS: [bool; 7] = [true, true, true, false, false, false, false];
 
 /// Route tracing group codes in UI display order.
 pub const TRACE_GROUPS: [&str; 4] = ["services", "china", "international", "all"];
@@ -52,6 +61,19 @@ pub enum ItemParams {
         streams: u8,
         /// Optional per-stream bandwidth cap in Mbit/s (`1..=1_000_000`).
         rate: Option<u32>,
+    },
+    /// `network.taier` China carrier speed test parameters.
+    Taier {
+        /// Selected carriers (`telecom`, `unicom`, `mobile`, `cernet`, `cbn`, `other`, `all`).
+        operators: [bool; 7],
+        /// Comma-separated cities, provinces, location IDs, or `all`; empty uses defaults.
+        cities: String,
+        /// Duration per direction in seconds (`1..=60`).
+        seconds: u16,
+        /// Parallel TCP streams (`1..=32`).
+        streams: u8,
+        /// Whether `64 B` and `1400 B` packet probes run.
+        probes: bool,
     },
     /// `network.trace` route tracing parameters.
     Trace {
@@ -98,6 +120,13 @@ impl ItemParams {
                 streams: IperfSettings::YABS.streams,
                 rate: None,
             },
+            "network.taier" => Self::Taier {
+                operators: DEFAULT_TAIER_OPERATORS,
+                cities: String::new(),
+                seconds: TaierSettings::DEFAULT_SECONDS,
+                streams: TaierSettings::DEFAULT_STREAMS,
+                probes: true,
+            },
             "network.trace" => Self::Trace {
                 groups: [false; 4],
                 targets: String::new(),
@@ -127,6 +156,13 @@ impl ItemParams {
                 seconds: IperfSettings::YABS.seconds,
                 streams: IperfSettings::YABS.streams,
                 rate: None,
+            },
+            "network.taier" => Self::Taier {
+                operators: [false; 7],
+                cities: String::new(),
+                seconds: TaierSettings::DEFAULT_SECONDS,
+                streams: TaierSettings::DEFAULT_STREAMS,
+                probes: false,
             },
             "network.trace" => Self::Trace {
                 groups: [false; 4],
@@ -164,6 +200,19 @@ impl ItemParams {
                     && *seconds == IperfSettings::YABS.seconds
                     && *streams == IperfSettings::YABS.streams
                     && rate.is_none()
+            }
+            Self::Taier {
+                operators,
+                cities,
+                seconds,
+                streams,
+                probes,
+            } => {
+                *operators == DEFAULT_TAIER_OPERATORS
+                    && split_csv(cities).is_empty()
+                    && *seconds == TaierSettings::DEFAULT_SECONDS
+                    && *streams == TaierSettings::DEFAULT_STREAMS
+                    && *probes
             }
             Self::Trace {
                 groups,
@@ -216,6 +265,40 @@ impl ItemParams {
                 }
                 if let Some(rate) = rate {
                     map.insert("rate".to_owned(), serde_json::Value::from(*rate));
+                }
+            }
+            Self::Taier {
+                operators,
+                cities,
+                seconds,
+                streams,
+                probes,
+            } => {
+                if *operators != DEFAULT_TAIER_OPERATORS {
+                    let chosen: Vec<String> = if operators[6] {
+                        vec!["all".to_owned()]
+                    } else {
+                        TAIER_OPERATORS[..6]
+                            .iter()
+                            .zip(operators[..6].iter())
+                            .filter(|(_, on)| **on)
+                            .map(|(code, _)| (*code).to_owned())
+                            .collect()
+                    };
+                    map.insert("operators".to_owned(), string_array(&chosen));
+                }
+                let cities = split_csv(cities);
+                if !cities.is_empty() {
+                    map.insert("cities".to_owned(), string_array(&cities));
+                }
+                if *seconds != TaierSettings::DEFAULT_SECONDS {
+                    map.insert("seconds".to_owned(), serde_json::Value::from(*seconds));
+                }
+                if *streams != TaierSettings::DEFAULT_STREAMS {
+                    map.insert("streams".to_owned(), serde_json::Value::from(*streams));
+                }
+                if !probes {
+                    map.insert("probes".to_owned(), serde_json::Value::Bool(false));
                 }
             }
             Self::Trace {
@@ -487,6 +570,12 @@ impl TuiConfig {
             {
                 return Err(vec![locale::words().tui_no_cpu_suites_selected()]);
             }
+            if item.enabled
+                && let ItemParams::Taier { operators, .. } = &item.params
+                && !operators[..6].iter().any(|on| *on)
+            {
+                return Err(vec![locale::words().tui_no_taier_operators_selected()]);
+            }
         }
         let settings = self.plugin_settings();
         orchestrator::plan(registry, &ids, &settings)
@@ -590,6 +679,56 @@ impl TuiConfig {
                         dimmed: false,
                         edit_raw: Some(rate.map_or_else(String::new, |val| val.to_string())),
                     },
+                    inactive,
+                ));
+            }
+            ItemParams::Taier {
+                operators,
+                cities,
+                seconds,
+                streams,
+                probes,
+            } => {
+                for ((code, on), def_on) in TAIER_OPERATORS
+                    .iter()
+                    .zip(operators.iter())
+                    .zip(DEFAULT_TAIER_OPERATORS.iter())
+                {
+                    rows.push(sub_row(
+                        bool_row(&words.tui_field_taier_operator(code), *on, *def_on),
+                        inactive,
+                    ));
+                }
+                rows.push(sub_row(
+                    text_row(
+                        words.tui_field_taier_cities(),
+                        cities,
+                        words.tui_default_taier_cities(),
+                    ),
+                    inactive,
+                ));
+                rows.push(sub_row(
+                    FieldRow {
+                        label: words.tui_field_seconds().to_owned(),
+                        value: seconds.to_string(),
+                        customized: *seconds != TaierSettings::DEFAULT_SECONDS,
+                        dimmed: false,
+                        edit_raw: Some(seconds.to_string()),
+                    },
+                    inactive,
+                ));
+                rows.push(sub_row(
+                    FieldRow {
+                        label: words.tui_field_streams().to_owned(),
+                        value: streams.to_string(),
+                        customized: *streams != TaierSettings::DEFAULT_STREAMS,
+                        dimmed: false,
+                        edit_raw: Some(streams.to_string()),
+                    },
+                    inactive,
+                ));
+                rows.push(sub_row(
+                    bool_row(words.tui_field_taier_probes(), *probes, true),
                     inactive,
                 ));
             }
@@ -777,6 +916,40 @@ impl TuiConfig {
                 _ => {}
             }
         }
+        if let ItemParams::Taier {
+            operators,
+            seconds,
+            streams,
+            probes,
+            ..
+        } = &mut item.params
+        {
+            match field_idx {
+                9 => {
+                    *seconds = step_u16(*seconds, delta, 1, 60);
+                    if !item.enabled {
+                        item.enabled = true;
+                        if !operators[..6].iter().any(|on| *on) {
+                            *operators = DEFAULT_TAIER_OPERATORS;
+                            *probes = true;
+                        }
+                    }
+                    return;
+                }
+                10 => {
+                    *streams = step_u8(*streams, delta, 1, 32);
+                    if !item.enabled {
+                        item.enabled = true;
+                        if !operators[..6].iter().any(|on| *on) {
+                            *operators = DEFAULT_TAIER_OPERATORS;
+                            *probes = true;
+                        }
+                    }
+                    return;
+                }
+                _ => {}
+            }
+        }
         self.toggle_item_boolean(item_idx, field_idx);
     }
 
@@ -797,6 +970,31 @@ impl TuiConfig {
                     item.enabled = suites.iter().any(|on| *on);
                 }
             }
+            ItemParams::Taier {
+                operators, probes, ..
+            } => match field_idx {
+                1..=7 => {
+                    if was_disabled {
+                        *probes = true;
+                    }
+                    toggle_taier_operator(operators, field_idx - 1);
+                    if operators[..6].iter().any(|on| *on) {
+                        item.enabled = true;
+                    } else {
+                        item.set_enabled(false);
+                    }
+                }
+                11 => {
+                    if was_disabled {
+                        item.enabled = true;
+                        *operators = DEFAULT_TAIER_OPERATORS;
+                        *probes = true;
+                    } else {
+                        *probes = !*probes;
+                    }
+                }
+                _ => {}
+            },
             ItemParams::Trace {
                 groups,
                 targets,
@@ -939,6 +1137,60 @@ impl TuiConfig {
                 }
                 _ => {}
             },
+            ItemParams::Taier {
+                operators,
+                cities,
+                seconds,
+                streams,
+                probes,
+            } => match field_idx {
+                8 => {
+                    let norm = normalize_csv(trimmed);
+                    if !norm.is_empty() && was_disabled {
+                        item.enabled = true;
+                        if !operators[..6].iter().any(|on| *on) {
+                            *operators = DEFAULT_TAIER_OPERATORS;
+                            *probes = true;
+                        }
+                    }
+                    *cities = norm;
+                }
+                9 => {
+                    if trimmed.is_empty() {
+                        *seconds = TaierSettings::DEFAULT_SECONDS;
+                    } else {
+                        let val = parse_range(trimmed, 1, 60).ok_or_else(|| {
+                            words.tui_invalid_number(words.tui_field_seconds(), 1, 60)
+                        })?;
+                        *seconds = u16::try_from(val).unwrap_or(TaierSettings::DEFAULT_SECONDS);
+                        if was_disabled {
+                            item.enabled = true;
+                            if !operators[..6].iter().any(|on| *on) {
+                                *operators = DEFAULT_TAIER_OPERATORS;
+                                *probes = true;
+                            }
+                        }
+                    }
+                }
+                10 => {
+                    if trimmed.is_empty() {
+                        *streams = TaierSettings::DEFAULT_STREAMS;
+                    } else {
+                        let val = parse_range(trimmed, 1, 32).ok_or_else(|| {
+                            words.tui_invalid_number(words.tui_field_streams(), 1, 32)
+                        })?;
+                        *streams = u8::try_from(val).unwrap_or(TaierSettings::DEFAULT_STREAMS);
+                        if was_disabled {
+                            item.enabled = true;
+                            if !operators[..6].iter().any(|on| *on) {
+                                *operators = DEFAULT_TAIER_OPERATORS;
+                                *probes = true;
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            },
             ItemParams::Trace {
                 groups,
                 targets,
@@ -1053,6 +1305,16 @@ fn toggle_trace_group(groups: &mut [bool; 4], idx: usize) {
     } else if idx < 3 {
         groups[idx] = !groups[idx];
         groups[3] = groups[0] && groups[1] && groups[2];
+    }
+}
+
+fn toggle_taier_operator(operators: &mut [bool; 7], idx: usize) {
+    if idx == 6 {
+        let next = !operators[6];
+        *operators = [next; 7];
+    } else if idx < 6 {
+        operators[idx] = !operators[idx];
+        operators[6] = operators[..6].iter().all(|on| *on);
     }
 }
 

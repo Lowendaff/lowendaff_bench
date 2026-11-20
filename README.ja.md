@@ -35,7 +35,7 @@ sudo ./lowendaff-bench-x86_64        # 引数なしで対話型 TUI を起動（
 以下はバイナリ名を `lowendaff-bench` にした場合の実用例です。
 
 ```sh
-# 1. 利用できる全 12 項目のテスト一覧を確認する（root 権限不要）
+# 1. 利用できる全 13 項目のテスト一覧を確認する（root 権限不要）
 ./lowendaff-bench --list
 
 # 2. 対話型 TUI モードを起動する（引数なしの既定動作：項目・サブ項目の連動切替、設定、進捗・レポート閲覧）
@@ -64,8 +64,9 @@ sudo ./lowendaff-bench -o report.json -f json
 # 8. 別ドライブ（マウント先）のディスク速度を測る（※メモリ上の /tmp は避けてください）
 sudo ./lowendaff-bench --only disk.fio --work-dir /mnt/data
 
-# 9. 地域を絞って測定：日本と米国の速度測定、中国向け経路、アジア圏の配信サービスのみ確認
+# 9. 地域を絞って測定：日本と米国の速度測定、中国主要キャリア（Taier）速度測定、中国向け経路、アジア圏の配信サービスのみ確認
 sudo ./lowendaff-bench --only network.iperf3 --countries JP,US
+sudo ./lowendaff-bench --only network.taier --taier-cities Beijing,Shanghai,Jiangsu --taier-operators telecom,unicom
 sudo ./lowendaff-bench --only network.trace --trace-groups china
 sudo ./lowendaff-bench --only ip.media --media-groups global,asia
 
@@ -87,7 +88,7 @@ sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-
 | オプション | 書き方 | 既定の動作 | わかりやすい説明 |
 |---|---|---|---|
 | *（引数なし）* | — | 対話型 TUI | オプションを付けずに `sudo ./lowendaff-bench` を実行すると対話型ターミナル画面を起動します（親スイッチとサブ項目の双方向連動、パラメータ変更、進捗表示、レポート閲覧） |
-| `-a, --all` | 値なし | オフ | 非対話 CLI モードで全 12 項目を実行します（`--only all` と同等） |
+| `-a, --all` | 値なし | オフ | 非対話 CLI モードで全 13 項目を実行します（`--only all` と同等） |
 | `--only` | `<項目名,...>` | 全項目を実行 | CLI モードで指定したカテゴリ・個別 ID・`all` だけを実行します（カンマ区切り） |
 | `--skip` | `<項目名,...>` | スキップなし | 指定したカテゴリ・個別 ID・`all` を除外します（`--all` や `--only` と併用可能） |
 | `-o, --output` | `<ファイル>` | 画面 + `/tmp` 保存 | 最終レポートを指定ファイルのみに出力します（未指定時は画面/ビューア表示に加え `/tmp/lowendaff-bench-<タイムスタンプ>.<ext>` に自動保存） |
@@ -95,6 +96,9 @@ sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-
 | `--work-dir` | `<ディレクトリ>` | カレント `.` | 一時ファイルの作成先（終了時に自動削除）。測定したいディスクのパスを指定します（`/tmp` は不可） |
 | `--cpu-bench` | `<スイート,...>` | 既定の 6 種 | `cpu.bench` で実行する CPU サブスイートを選びます（`sysbench`、`7zip`、`unixbench`、`hpl`、`passmark`、`ycruncher`、`prime95`、`geekbench`、または `all`） |
 | `--countries` | `<国コード,...>` | 既定の 5 拠点 | `network.iperf3` の測定先を 2 文字の国コード（`JP,US,SG` など）または `all` で絞り込みます |
+| `--taier-cities` | `<都市/省,...>` | 北京・上海・広州 | `network.taier` の測定先を都市・省名・拠点 ID（`Beijing,Jiangsu` など）または `all` で絞り込みます |
+| `--taier-operators` | `<キャリア,...>` | `telecom,unicom,mobile` | `network.taier` で測定する通信キャリアを選びます（`telecom`、`unicom`、`mobile`、`cernet`、`cbn`、`other`、または `all`） |
+| `--no-taier-probes` | 値なし | オフ | `network.taier` 内の `64B` / `1400B` TCP 遅延・ジッター・ロス測定を省略します |
 | `--trace-groups` | `<グループ,...>` | キャッシュ + 既定拠点 | `network.trace` で追跡する宛先グループを選びます |
 | `--media-groups` | `<地域,...>` | `all`（全地域） | `ip.media` でチェックする動画配信サービスの地域を選びます |
 | `--no-dnsbl` | 値なし | オフ | `ip.quality` 内の 25 カ所のブラックリスト（DNSBL）照会を省略します |
@@ -116,9 +120,9 @@ sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-
 | `--only` / `--skip` *（カテゴリ）* | `cpu` | 統合 CPU ベンチマークスイート：`cpu.bench` |
 | | `memory` | メモリテスト 4 項目：`memory.sysbench`、`memory.stream`、`memory.latency`、`memory.numa` |
 | | `disk` | ディスクテスト 2 項目：`disk.health`、`disk.fio` |
-| | `network` | ネットワークテスト 3 項目：`network.iperf3`、`network.trace`、`network.bgp` |
+| | `network` | ネットワークテスト 4 項目：`network.iperf3`、`network.taier`、`network.trace`、`network.bgp` |
 | | `ip` | IP テスト 2 項目：`ip.quality`、`ip.media` |
-| `--only` / `--skip` *（個別 ID）* | `disk.health`, `memory.sysbench`, `memory.stream`, `memory.latency`, `memory.numa`, `disk.fio`, `network.iperf3`, `network.trace`, `network.bgp`, `ip.quality`, `ip.media`, `cpu.bench` | 個別のテスト項目をピンポイントで選択・除外します |
+| `--only` / `--skip` *（個別 ID）* | `disk.health`, `memory.sysbench`, `memory.stream`, `memory.latency`, `memory.numa`, `disk.fio`, `network.iperf3`, `network.taier`, `network.trace`, `network.bgp`, `ip.quality`, `ip.media`, `cpu.bench` | 個別のテスト項目をピンポイントで選択・除外します |
 | `-f, --format` | `text` | ターミナルで読みやすい整形済みテキスト表 |
 | | `markdown` *（または `md`）* | ブログ・GitHub・掲示板にそのまま貼り付けられる Markdown 形式 |
 | | `json` | スクリプトでの自動集計や保存に便利な JSON 形式 |
@@ -143,6 +147,9 @@ sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-
 | | `all` | 全 5 地域・合計 68 サービスすべてを確認（既定） |
 | `--countries` | 2 文字の国コード *（例：`JP`, `US`, `DE`, `SG`, `GB`）* | 指定した国の公開 `iperf3` サーバーすべてで速度を測定（大文字・小文字不問） |
 | | `all` | サーバー一覧にあるすべての公開 `iperf3` サーバーで測定 |
+| `--taier-cities` | 都市・省名・拠点 ID *（例：`Beijing`, `Jiangsu`, `guangdong-shenzhen`）* | 指定した中国本土の CAICT GlobalSpeed（Taier）拠点で速度を測定（大文字・小文字不問） |
+| | `all` | `servers/taier.json` にあるすべての拠点で測定 |
+| `--taier-operators` | `telecom`, `unicom`, `mobile`, `cernet`, `cbn`, `other`, または `all` | CAICT GlobalSpeed の通信キャリアを絞り込みます（既定：`telecom,unicom,mobile`） |
 | `--socks5-proxy` | `socks5://[user:pass@]host[:port]` | ローカルでホスト名を解決してから SOCKS5 プロキシ経由でファイルをダウンロード |
 | | `socks5h://[user:pass@]host[:port]` | リモートの SOCKS5 プロキシ側でホスト名を解決してファイルをダウンロード |
 | `--github-proxy` | `https://<mirror>/` *（または `http://<mirror>/`）* | GitHub からのツール・一覧取得 URL の先頭にプレフィックスを付与して直接取得（例：`https://ghfast.top/https://github.com/...`） |
@@ -153,7 +160,7 @@ sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-
 
 テスト開始前に、まずサーバーの基本構成である **システム概要（`[System]`）** を自動で読み取ります。物理サーバー・VM・コンテナの判別、CPU 型番とキャッシュ容量、メモリと Swap、OS・カーネル・稼働時間・TCP 輻輳制御（BBR など）、ディスク構成、NIC リンク速度（PCIe 帯域低下の警告付き）、IPv4/IPv6 の疎通状況を確認でき、物理サーバーではメモリスロット情報、ECC エラー数、IPMI/BMC、ハードウェア RAID カードも一覧表示します（詳細：[`docs/system.md`](docs/system.md)）。
 
-続いて、以下の最大 12 項目を順番に測定します。
+続いて、以下の最大 13 項目を順番に測定します。
 
 | カテゴリ | 項目 ID・名前 | 対象環境 | このテストでわかること | 詳細解説 |
 |---|---|---|---|---|
@@ -164,6 +171,7 @@ sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-
 | `memory` | `memory.numa`<br>マルチ CPU メモリ速度 | 複数 NUMA 搭載機 | デュアル CPU などの環境で、手元のメモリと別ソケット側のメモリの速度差・遅延差を測定します | [`docs/memory.md`](docs/memory.md) |
 | `disk` | `disk.fio`<br>ディスク読み書き速度 | 全サーバー | YABS 互換条件（ランダム読込 50% / 書込 50%）で `4K`・`64K`・`512K`・`1M` の速度と IOPS を測定します。DB 用途は `4K`、大容量転送は `512K`/`1M` が目安になります | [`docs/disk.md`](docs/disk.md) |
 | `network` | `network.iperf3`<br>グローバル回線速度 | 通信可能な環境 | 既定でロサンゼルス・ニューヨーク・バージニア・東京・フランクフルトの公開サーバーと接続し、IPv4 / IPv6 の上り・下り速度と遅延を測定します | [`docs/network.md`](docs/network.md) |
+| `network` | `network.taier`<br>中国キャリア回線速度 | IPv4 通信可能な環境 | 純 Rust 実装による中国 CAICT GlobalSpeed（泰爾測速）拠点とのマルチストリーム HTTP/1.1 上り・下り速度測定および `64B` / `1400B` TCP 遅延・ジッター・ロス測定を行います（既定：北京・上海・広州 × 電信・聯通・移動） | [`docs/network.md`](docs/network.md) |
 | `network` | `network.trace`<br>ネットワーク経路追跡 | Raw ソケット対応環境 | YouTube / Netflix キャッシュや中国主要キャリア、海外バックボーンまでの経路を一跳びずつ追跡し、直通か迂回ルートかを可視化します | [`docs/network.md`](docs/network.md) |
 | `network` | `network.bgp`<br>BGP 経路トポロジー | グローバル IP 保有機 | 世界の BGP 収集拠点から広告プレフィックス・RPKI 状態・直接の上流キャリアを取得し、`text` 形式では限定公開の `imageupload.app` SVG トポロジー URL、Markdown では Mermaid 図、JSON ではスタンドアロン SVG コードを出力します | [`docs/network.md`](docs/network.md) |
 | `ip` | `ip.quality`<br>IP 品質・リスク診断 | グローバル IP 保有機 | 9 つの評価データベースを照合し、**ネイティブ IP / ブロードキャスト IP** の判別、データセンター / 家庭用回線の区分、不正リスク、公開ポート、25 種のブラックリスト、25 番メールポートの疎通を診断します | [`docs/ip.md`](docs/ip.md) |
@@ -194,4 +202,5 @@ cargo build --release --locked --target x86_64-unknown-linux-musl --bin lowendaf
 - **[RegionRestrictionCheck (`lmc999/RegionRestrictionCheck`)](https://github.com/lmc999/RegionRestrictionCheck)** および **[MediaUnlockTest (`HsukqiLee/MediaUnlockTest`)](https://github.com/HsukqiLee/MediaUnlockTest)**：`ip.media` の地域別動画配信サービス判定の参考。
 - **[NextTrace (`nxtrace/NTrace-core`)](https://github.com/nxtrace/NTrace-core)**：`network.trace` で使用する高速な ICMP 経路追跡エンジンおよび位置情報サービス。
 - **[peer.as (`Archeb/peer.as`)](https://github.com/Archeb/peer.as)**：`network.bgp` における AS パスの階層レイアウト・Tier-1 切り詰め・Prepend 折りたたみおよび SVG 描画の参考。
+- **[speedtaier (`transflo/speedtaier`)](https://github.com/transflo/speedtaier)**：`network.taier` における CAICT GlobalSpeed（`dovalid`）認証・マルチストリーム HTTP/1.1 速度測定および中国本土キャリア拠点一覧の参考。
 - **上流ベンチマークツール・公開データソース**：[`sysbench`](https://github.com/akopytov/sysbench)（Alexey Kopytov）、[`7-Zip`](https://www.7-zip.org/)（Igor Pavlov）、[`Byte-UnixBench`](https://github.com/kdlucas/byte-unixbench）、[`HPL`](https://www.netlib.org/benchmark/hpl/) および [`OpenBLAS`](https://www.openblas.net/)、[`PassMark PerformanceTest`](https://www.passmark.com/products/pt_linux/)、[`y-cruncher`](http://www.numberworld.org/y-cruncher/)（Alexander J. Yee）、[`Prime95 / GIMPS`](https://www.mersenne.org/)、[`Geekbench`](https://www.geekbench.com/)（Primate Labs）、[`STREAM`](https://www.cs.virginia.edu/stream/)（John D. McCalpin）、[`multichase`](https://github.com/google/multichase)（Google）、[`smartmontools`](https://www.smartmontools.org/)（`smartctl`）、[`fio`](https://github.com/axboe/fio)（Jens Axboe）、[`iperf3`](https://github.com/esnet/iperf)（ESnet）、[`RIPEstat`](https://stat.ripe.net/)（RIPE NCC）、[`iperf3serverlist.net`](https://iperf3serverlist.net/)、[`PeeringDB`](https://www.peeringdb.com/)。
