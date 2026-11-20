@@ -26,6 +26,9 @@ use plugin_network::trace::Trace;
 use tokio::io::AsyncRead;
 
 use crate::bgp_upload;
+use crate::fetcher::DownloadProxy;
+use crate::fetcher::GithubProxy;
+use crate::fetcher::Socks5Proxy;
 use crate::locale;
 use crate::netprobe::NetProbers;
 use crate::orchestrator;
@@ -205,6 +208,14 @@ pub struct Cli {
     )]
     pub download_connections: u16,
 
+    // Optional SOCKS5 proxy (`socks5://` or `socks5h://`) for tool and list downloads only.
+    #[arg(long, help = locale::words().help_socks5_proxy())]
+    pub socks5_proxy: Option<String>,
+
+    // Optional GitHub URL prefix mirror (e.g. `https://ghfast.top/`) for GitHub downloads only.
+    #[arg(long, help = locale::words().help_github_proxy())]
+    pub github_proxy: Option<String>,
+
     // Sub-suites for cpu.bench.
     #[arg(
         long,
@@ -303,10 +314,58 @@ fn item(entry: &Entry, out: &mut impl Write) {
     let _ = writeln!(out, "{line}");
 }
 
+/// Validates `--socks5-proxy` and `--github-proxy`, collecting all errors together.
+pub fn download_proxy(cli: &Cli) -> Result<DownloadProxy, Vec<String>> {
+    let mut errors = Vec::new();
+    let socks5 = match cli
+        .socks5_proxy
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        Some(raw) => match Socks5Proxy::parse(raw) {
+            Ok(proxy) => Some(proxy),
+            Err(err) => {
+                errors.push(err);
+                None
+            }
+        },
+        None => None,
+    };
+    let github = match cli
+        .github_proxy
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        Some(raw) => match GithubProxy::parse(raw) {
+            Ok(proxy) => Some(proxy),
+            Err(err) => {
+                errors.push(err);
+                None
+            }
+        },
+        None => None,
+    };
+    if !errors.is_empty() {
+        return Err(errors);
+    }
+    Ok(DownloadProxy { socks5, github })
+}
+
 /// Builds every selected plugin; all problems are reported together and nothing runs.
 pub fn prepare(cli: &Cli, registry: &[Entry]) -> Result<Vec<Planned<Measured>>, Vec<String>> {
-    let mut settings =
-        parse_overrides(cli.internal_overrides.as_deref()).map_err(|err| vec![err])?;
+    let mut errors = Vec::new();
+    if let Err(proxy_errs) = download_proxy(cli) {
+        errors.extend(proxy_errs);
+    }
+    let mut settings = match parse_overrides(cli.internal_overrides.as_deref()) {
+        Ok(settings) => settings,
+        Err(err) => {
+            errors.push(err);
+            return Err(errors);
+        }
+    };
     if !cli.cpu_bench.is_empty() {
         cpu_bench(&mut settings, &cli.cpu_bench);
     }
@@ -325,8 +384,21 @@ pub fn prepare(cli: &Cli, registry: &[Entry]) -> Result<Vec<Planned<Measured>>, 
     if cli.no_bgp_upload {
         bgp_settings(&mut settings, false);
     }
-    let ids = select(registry, &cli.only, &cli.skip)?;
-    orchestrator::plan(registry, &ids, &settings)
+    let ids = match select(registry, &cli.only, &cli.skip) {
+        Ok(ids) => ids,
+        Err(sel_errs) => {
+            errors.extend(sel_errs);
+            return Err(errors);
+        }
+    };
+    match orchestrator::plan(registry, &ids, &settings) {
+        Ok(planned) if errors.is_empty() => Ok(planned),
+        Ok(_) => Err(errors),
+        Err(plan_errs) => {
+            errors.extend(plan_errs);
+            Err(errors)
+        }
+    }
 }
 
 /// Registry order, narrowed by `--only` and `--skip`, which take ids, group names, or `all`;

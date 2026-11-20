@@ -858,6 +858,52 @@ fn config_flag_is_rejected_and_enum_parameters_configure_plugins() {
     );
 }
 
+#[test]
+fn socks5_and_github_proxy_flags_validate_upfront_with_other_cli_errors() {
+    let valid_dual = cli(&[
+        "--only",
+        "test.good",
+        "--socks5-proxy",
+        "socks5h://user:s3cret@127.0.0.1:1080",
+        "--github-proxy",
+        "https://ghfast.top/",
+    ]);
+    let proxy = app::download_proxy(&valid_dual).expect("valid dual proxy flags");
+    assert!(proxy.socks5.is_some());
+    assert!(proxy.github.is_some());
+    assert!(app::prepare(&valid_dual, &plugins()).is_ok());
+
+    let valid_socks5 = cli(&["--socks5-proxy", "socks5://127.0.0.1:1080"]);
+    assert!(app::download_proxy(&valid_socks5).is_ok());
+
+    let invalid = cli(&[
+        "--only",
+        "nope",
+        "--socks5-proxy",
+        "http://alice:s3cret@127.0.0.1:1080",
+        "--github-proxy",
+        "https://bob:s3cret@ghfast.top/",
+    ]);
+    let Err(errors) = app::prepare(&invalid, &plugins()) else {
+        panic!("invalid proxy URLs and unknown item must fail upfront")
+    };
+    assert_eq!(errors.len(), 3, "{errors:?}");
+    assert!(
+        errors[0].starts_with("invalid --socks5-proxy:"),
+        "{errors:?}"
+    );
+    assert!(
+        errors[1].starts_with("invalid --github-proxy:"),
+        "{errors:?}"
+    );
+    assert_eq!(errors[2], "unknown test item or group `nope`");
+    let joined = errors.join("\n");
+    assert!(
+        !joined.contains("s3cret"),
+        "CLI validation errors must never echo proxy credentials: {joined}"
+    );
+}
+
 #[tokio::test]
 async fn a_run_prints_sections_and_summary_then_removes_its_directory() {
     let planned = app::prepare(

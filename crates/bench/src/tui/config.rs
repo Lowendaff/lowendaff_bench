@@ -9,6 +9,8 @@ use plugin_cpu::bench::SUITE_CODES;
 use plugin_network::iperf3::result::Settings as IperfSettings;
 
 use crate::app;
+use crate::fetcher::GithubProxy;
+use crate::fetcher::Socks5Proxy;
 use crate::locale;
 use crate::orchestrator;
 use crate::orchestrator::Planned;
@@ -346,6 +348,10 @@ pub struct GlobalConfig {
     pub show_ip: bool,
     /// Maximum parallel connections per tool download (`32` by default, `1..=256`).
     pub download_connections: u16,
+    /// Optional SOCKS5 proxy URL (`socks5://` or `socks5h://`) for tool and list downloads.
+    pub socks5_proxy: String,
+    /// Optional GitHub mirror URL prefix (e.g. `https://ghfast.top/`) for GitHub downloads.
+    pub github_proxy: String,
     /// Whether verbose debug events (tool commands, HTTP/SMTP probes) are logged (`false`).
     pub verbose: bool,
 }
@@ -358,6 +364,8 @@ impl Default for GlobalConfig {
             work_dir: ".".to_owned(),
             show_ip: false,
             download_connections: app::DOWNLOAD_CONNECTIONS,
+            socks5_proxy: String::new(),
+            github_proxy: String::new(),
             verbose: false,
         }
     }
@@ -698,6 +706,22 @@ impl TuiConfig {
                 dimmed: false,
                 edit_raw: Some(g.download_connections.to_string()),
             },
+            FieldRow {
+                label: words.tui_field_socks5_proxy().to_owned(),
+                value: if g.socks5_proxy.trim().is_empty() {
+                    format!("({})", words.tui_default_none())
+                } else {
+                    redact_url_password(&g.socks5_proxy)
+                },
+                customized: !g.socks5_proxy.trim().is_empty(),
+                dimmed: false,
+                edit_raw: Some(g.socks5_proxy.trim().to_owned()),
+            },
+            text_row(
+                words.tui_field_github_proxy(),
+                &g.github_proxy,
+                words.tui_default_none(),
+            ),
             bool_row(words.tui_field_verbose(), g.verbose, false),
         ]
     }
@@ -956,7 +980,7 @@ impl TuiConfig {
         match field_idx {
             0 => self.global.format = cycle_format(self.global.format, 1),
             3 => self.global.show_ip = !self.global.show_ip,
-            5 => self.global.verbose = !self.global.verbose,
+            7 => self.global.verbose = !self.global.verbose,
             _ => {}
         }
         None
@@ -971,7 +995,7 @@ impl TuiConfig {
                 self.global.download_connections =
                     step_u16(self.global.download_connections, delta, 1, 256);
             }
-            5 => self.global.verbose = !self.global.verbose,
+            7 => self.global.verbose = !self.global.verbose,
             _ => {}
         }
     }
@@ -998,6 +1022,22 @@ impl TuiConfig {
                     })?;
                     self.global.download_connections =
                         u16::try_from(val).unwrap_or(app::DOWNLOAD_CONNECTIONS);
+                }
+            }
+            5 => {
+                if trimmed.is_empty() {
+                    self.global.socks5_proxy.clear();
+                } else {
+                    let _ = Socks5Proxy::parse(trimmed)?;
+                    self.global.socks5_proxy = trimmed.to_owned();
+                }
+            }
+            6 => {
+                if trimmed.is_empty() {
+                    self.global.github_proxy.clear();
+                } else {
+                    let _ = GithubProxy::parse(trimmed)?;
+                    self.global.github_proxy = trimmed.to_owned();
                 }
             }
             _ => {}
@@ -1123,6 +1163,20 @@ fn text_row(label: &str, raw: &str, placeholder: &str) -> FieldRow {
         customized: !trimmed.is_empty(),
         dimmed: false,
         edit_raw: Some(trimmed.to_owned()),
+    }
+}
+
+fn redact_url_password(raw: &str) -> String {
+    let trimmed = raw.trim();
+    let Some((scheme, rest)) = trimmed.split_once("://") else {
+        return trimmed.to_owned();
+    };
+    let Some((userinfo, host_part)) = rest.rsplit_once('@') else {
+        return trimmed.to_owned();
+    };
+    match userinfo.split_once(':') {
+        Some((user, _)) => format!("{scheme}://{user}:***@{host_part}"),
+        None => trimmed.to_owned(),
     }
 }
 

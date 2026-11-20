@@ -189,6 +189,8 @@ fn defaults_match_standard_cli_and_every_customized_plugin_builds_cleanly() {
     assert_eq!(cfg.global.work_dir, ".");
     assert!(!cfg.global.show_ip, "public IP must be masked by default");
     assert_eq!(cfg.global.download_connections, app::DOWNLOAD_CONNECTIONS);
+    assert_eq!(cfg.global.socks5_proxy, "");
+    assert_eq!(cfg.global.github_proxy, "");
     assert!(!cfg.global.verbose);
 
     let iperf_idx = cfg
@@ -359,6 +361,48 @@ fn keyboard_navigation_drives_item_switches_groups_params_and_global_options() {
     let _ = session.handle_key(press(KeyCode::Enter));
     assert!(session.editor.is_none());
     assert_eq!(session.config.global.download_connections, 16);
+
+    // Global field 5: SOCKS5 proxy rejects http://, accepts socks5h://, and redacts password.
+    let _ = session.handle_key(press(KeyCode::Down));
+    let _ = session.handle_key(press(KeyCode::Enter));
+    assert!(session.editor.is_some());
+    type_str(&mut session, "http://127.0.0.1:1080");
+    let _ = session.handle_key(press(KeyCode::Enter));
+    assert!(
+        session.editor.is_some(),
+        "non-SOCKS5 scheme keeps modal open with error"
+    );
+    let _ = session.handle_key(ctrl('u'));
+    type_str(&mut session, "socks5h://alice:s3cret@127.0.0.1:1080");
+    let _ = session.handle_key(press(KeyCode::Enter));
+    assert!(session.editor.is_none());
+    assert_eq!(
+        session.config.global.socks5_proxy,
+        "socks5h://alice:s3cret@127.0.0.1:1080"
+    );
+    let global_frame = render_text(&mut session, 140, 28);
+    assert!(
+        global_frame.contains("socks5h://alice:***@127.0.0.1:1080")
+            && !global_frame.contains("s3cret"),
+        "rendered TUI row must mask proxy password: {global_frame}"
+    );
+
+    // Global field 6: GitHub proxy URL rejects bare hostname and accepts https://ghfast.top/.
+    let _ = session.handle_key(press(KeyCode::Down));
+    let _ = session.handle_key(press(KeyCode::Enter));
+    type_str(&mut session, "ghfast.top");
+    let _ = session.handle_key(press(KeyCode::Enter));
+    assert!(session.editor.is_some());
+    let _ = session.handle_key(ctrl('u'));
+    type_str(&mut session, "https://ghfast.top/");
+    let _ = session.handle_key(press(KeyCode::Enter));
+    assert!(session.editor.is_none());
+    assert_eq!(session.config.global.github_proxy, "https://ghfast.top/");
+
+    // Global field 7: Verbose debug log toggle.
+    let _ = session.handle_key(press(KeyCode::Down));
+    let _ = session.handle_key(press(KeyCode::Char(' ')));
+    assert!(session.config.global.verbose);
 
     let _ = session.handle_key(press(KeyCode::Esc));
     assert_eq!(session.focus, Pane::Left);

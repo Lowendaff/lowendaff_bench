@@ -44,6 +44,7 @@ use tokio::sync::mpsc::UnboundedSender;
 use crate::app;
 use crate::app::Outcome;
 use crate::bgp_upload;
+use crate::fetcher::DownloadProxy;
 use crate::fetcher::Fetchers;
 use crate::locale;
 use crate::network;
@@ -272,6 +273,10 @@ fn launch_run(
         .config
         .build_plan(registry)
         .map_err(|errs| errs.join("; "))?;
+    let proxy = DownloadProxy::try_new(
+        Some(&session.config.global.socks5_proxy),
+        Some(&session.config.global.github_proxy),
+    )?;
 
     let custom_output = {
         let trimmed = session.config.global.output.trim();
@@ -300,7 +305,15 @@ fn launch_run(
     let started = Instant::now();
 
     tokio::spawn(async move {
-        let outcome = run_worker(planned, work_dir, connections, &worker_cancel, tx.clone()).await;
+        let outcome = run_worker(
+            planned,
+            work_dir,
+            connections,
+            proxy,
+            &worker_cancel,
+            tx.clone(),
+        )
+        .await;
         let saved_note = match &outcome {
             Ok(done) => {
                 let target_path = custom_output
@@ -334,6 +347,7 @@ async fn run_worker(
     planned: Vec<Planned<Measured>>,
     work_dir: PathBuf,
     connections: usize,
+    proxy: DownloadProxy,
     cancel: &CancellationToken,
     tx: UnboundedSender<WorkerEvent>,
 ) -> Result<Outcome, String> {
@@ -354,7 +368,7 @@ async fn run_worker(
     let summary = format!("{platform}, {}  |  IPv4: {v4}  |  IPv6: {v6}", host.arch);
     let _ = tx.send(WorkerEvent::HostSummary(summary));
 
-    let fetchers = Fetchers::try_new()?;
+    let fetchers = Fetchers::with_proxy(&proxy)?;
     let mut observer = TuiObserver { tx, log: Log };
     let mut outcome = app::execute_with_observer(
         planned,

@@ -27,6 +27,14 @@ pub trait ProgramWords {
     fn help_show_ip(&self) -> String;
     /// The help of `--download-connections`.
     fn help_download_connections(&self) -> String;
+    /// The help of `--socks5-proxy`.
+    fn help_socks5_proxy(&self) -> String;
+    /// The help of `--github-proxy`.
+    fn help_github_proxy(&self) -> String;
+    /// An invalid `--socks5-proxy` address (never echoes credentials).
+    fn invalid_socks5_proxy(&self) -> String;
+    /// An invalid `--github-proxy` URL (never echoes credentials).
+    fn invalid_github_proxy(&self) -> String;
     /// The help of `--cpu-bench`.
     fn help_cpu_bench(&self) -> String;
     /// The help of `--countries`.

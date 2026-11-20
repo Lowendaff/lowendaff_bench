@@ -93,9 +93,10 @@ sudo ./lowendaff-bench --only ip.media --media-groups global,asia
 # 10. Check IP reputation without testing outbound mail port 25 (useful on strict cloud providers)
 sudo ./lowendaff-bench --only ip.quality --no-mail
 
-# 11. Use a proxy to speed up tool downloads, and show unmasked public IPs in the report
-#     (Put proxy variables after sudo; IP, speed, and streaming checks still connect directly)
-sudo ALL_PROXY=socks5h://127.0.0.1:1080 ./lowendaff-bench --download-connections 16 --show-ip
+# 11. Speed up tool and server-list downloads via a GitHub mirror and/or SOCKS5 proxy
+#     (Environment proxy variables are ignored; IP, speed, route, BGP, and streaming checks always connect directly)
+sudo ./lowendaff-bench --all --github-proxy https://ghfast.top/
+sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-connections 16 --show-ip
 ```
 
 ---
@@ -121,6 +122,8 @@ sudo ALL_PROXY=socks5h://127.0.0.1:1080 ./lowendaff-bench --download-connections
 | `--no-mail` | *(flag)* | Off | Skip outbound port-25 mail server connectivity checks inside `ip.quality` |
 | `--no-bgp-upload` | *(flag)* | Off | Skip uploading `network.bgp` topology SVG diagrams to `imageupload.app` in `text` mode |
 | `--download-connections` | `<1..=256>` | `32` | Max parallel connections when downloading benchmark tools |
+| `--socks5-proxy` | `<URL>` | None | SOCKS5 proxy (`socks5://` or `socks5h://`) used exclusively for tool and list downloads (never touches benchmark probes; env proxy vars are ignored) |
+| `--github-proxy` | `<URL>` | None | GitHub URL prefix mirror (e.g. `https://ghfast.top/`) rewriting `https://github.com/...` and `https://raw.githubusercontent.com/...` downloads to `<URL>/https://...` |
 | `--show-ip` | *(flag)* | Off (masked) | Show your server's full public IPv4/IPv6 addresses and hostnames in the report |
 | `-v, --verbose` | *(flag)* | Off | Print detailed download progress and underlying tool commands for troubleshooting |
 | `--list` | *(flag)* | — | List all available test items, supported environments, and tool versions, then exit |
@@ -161,6 +164,9 @@ sudo ALL_PROXY=socks5h://127.0.0.1:1080 ./lowendaff-bench --download-connections
 | | `all` | All 68 platforms across all five regions (default) |
 | `--countries` | Two-letter country code *(e.g. `US`, `JP`, `DE`, `SG`, `GB`)* | Test all public `iperf3` servers in the selected countries (case-insensitive) |
 | | `all` | Test every public server in the server list |
+| `--socks5-proxy` | `socks5://[user:pass@]host[:port]` | Resolve download hostnames locally on this machine, then connect through the SOCKS5 proxy |
+| | `socks5h://[user:pass@]host[:port]` | Resolve download hostnames remotely on the SOCKS5 proxy server |
+| `--github-proxy` | `https://<mirror>/` *(or `http://<mirror>/`)* | Prefix mirror for GitHub tool and list downloads (for example `https://ghfast.top/` requests `https://ghfast.top/https://github.com/...` directly; can be combined with `--socks5-proxy`) |
 
 ---
 

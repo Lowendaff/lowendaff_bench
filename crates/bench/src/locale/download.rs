@@ -101,9 +101,9 @@ pub trait DownloadWords {
     fn unsupported_entry(&self, path: &Path) -> String;
     /// An archive without the tool's executable.
     fn no_executable(&self, executable: &str) -> String;
-    /// The end of a network error's reason when a proxy variable is set: its name, never its
-    /// value, which may hold a password.
-    fn proxy_set(&self, variable: &str) -> String;
-    /// The end of a network error's reason when no proxy variable is set: how to set one.
+    /// The end of a network error's reason when a download proxy option is set: the option name,
+    /// never its value, which may hold credentials.
+    fn proxy_set(&self, option: &str) -> String;
+    /// The end of a network error's reason when no download proxy is set: how to pass one.
     fn proxy_unset(&self) -> String;
 }

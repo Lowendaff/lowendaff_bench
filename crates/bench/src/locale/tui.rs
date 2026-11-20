@@ -98,6 +98,10 @@ pub trait TuiWords {
     fn tui_field_show_ip(&self) -> &'static str;
     /// Global field: max parallel connections per tool download.
     fn tui_field_connections(&self) -> &'static str;
+    /// Global field: SOCKS5 proxy for tool and list downloads.
+    fn tui_field_socks5_proxy(&self) -> &'static str;
+    /// Global field: GitHub mirror URL prefix for GitHub downloads.
+    fn tui_field_github_proxy(&self) -> &'static str;
     /// Global field: verbose tool and probe debug logging.
     fn tui_field_verbose(&self) -> &'static str;
     /// Placeholder value for default curated iperf3 locations.
