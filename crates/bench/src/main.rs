@@ -45,6 +45,15 @@ fn main() -> ExitCode {
             return ExitCode::from(app::EXIT_USAGE);
         }
     };
+    let proxy = match app::download_proxy(&cli) {
+        Ok(proxy) => proxy,
+        Err(errors) => {
+            for error in errors {
+                eprintln!("{error}");
+            }
+            return ExitCode::from(app::EXIT_USAGE);
+        }
+    };
     let output: Box<dyn io::Write + Send> = match &cli.output {
         Some(path) => match app::create_output(path) {
             Ok(file) => Box::new(file),
@@ -87,7 +96,7 @@ fn main() -> ExitCode {
             .await
             .map_err(|err| locale::words().network_failed(&err))?;
         progress::network(&host.network);
-        let fetchers = Fetchers::try_new()?;
+        let fetchers = Fetchers::with_proxy(&proxy)?;
         let auto_copy = cli
             .output
             .is_none()

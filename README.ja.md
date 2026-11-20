@@ -72,9 +72,10 @@ sudo ./lowendaff-bench --only ip.media --media-groups global,asia
 # 10. 25 番メールポートが制限されているクラウドで、メール疎通確認を除いて IP 品質を調べる
 sudo ./lowendaff-bench --only ip.quality --no-mail
 
-# 11. プロキシ経由でツールのダウンロードを高速化し、レポートに完全な IP を表示する
-#     （※プロキシ変数は sudo の後ろに指定します。IP 判定や速度・配信テストは直接通信します）
-sudo ALL_PROXY=socks5h://127.0.0.1:1080 ./lowendaff-bench --download-connections 16 --show-ip
+# 11. GitHub ミラーまたは SOCKS5 プロキシ経由でツールのダウンロードを高速化し、レポートに完全な IP を表示する
+#     （※環境変数のプロキシは無視されます。プロキシはファイル取得のみに使われ、IP 判定・速度・経路・BGP・配信テストは常に直接通信します）
+sudo ./lowendaff-bench --all --github-proxy https://ghfast.top/
+sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-connections 16 --show-ip
 ```
 
 ---
@@ -100,6 +101,8 @@ sudo ALL_PROXY=socks5h://127.0.0.1:1080 ./lowendaff-bench --download-connections
 | `--no-mail` | 値なし | オフ | `ip.quality` 内の 25 番メールポート接続テストを省略します |
 | `--no-bgp-upload` | 値なし | オフ | `text` 形式での `network.bgp` トポロジー SVG の `imageupload.app` へのアップロードを省略します |
 | `--download-connections` | `<1..=256>` | `32` | 測定ツールをダウンロードする際の最大同時接続数 |
+| `--socks5-proxy` | `<URL>` | なし | ツール・リスト取得専用の SOCKS5 プロキシ（`socks5://` / `socks5h://` 対応。環境変数は参照せず、測定通信には一切干渉しません） |
+| `--github-proxy` | `<URL>` | なし | GitHub 取得専用の URL プレフィックスミラー（例：`https://ghfast.top/` で `https://ghfast.top/https://github.com/...` に変換。`--socks5-proxy` と併用可能） |
 | `--show-ip` | 値なし | オフ（伏せ字） | レポート内のグローバル IP アドレスや逆引きホスト名を隠さず表示します |
 | `-v, --verbose` | 値なし | オフ | ダウンロード状況や実行コマンドの詳細ログを表示します（トラブル調査用） |
 | `--list` | 値なし | — | 全テスト項目・対象環境・ツール一覧を表示して終了します（`root` 不要） |
@@ -140,6 +143,9 @@ sudo ALL_PROXY=socks5h://127.0.0.1:1080 ./lowendaff-bench --download-connections
 | | `all` | 全 5 地域・合計 68 サービスすべてを確認（既定） |
 | `--countries` | 2 文字の国コード *（例：`JP`, `US`, `DE`, `SG`, `GB`）* | 指定した国の公開 `iperf3` サーバーすべてで速度を測定（大文字・小文字不問） |
 | | `all` | サーバー一覧にあるすべての公開 `iperf3` サーバーで測定 |
+| `--socks5-proxy` | `socks5://[user:pass@]host[:port]` | ローカルでホスト名を解決してから SOCKS5 プロキシ経由でファイルをダウンロード |
+| | `socks5h://[user:pass@]host[:port]` | リモートの SOCKS5 プロキシ側でホスト名を解決してファイルをダウンロード |
+| `--github-proxy` | `https://<mirror>/` *（または `http://<mirror>/`）* | GitHub からのツール・一覧取得 URL の先頭にプレフィックスを付与して直接取得（例：`https://ghfast.top/https://github.com/...`） |
 
 ---
 

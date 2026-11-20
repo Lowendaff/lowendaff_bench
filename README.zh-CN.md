@@ -72,9 +72,10 @@ sudo ./lowendaff-bench --only ip.media --media-groups global,asia
 # 10. 在默认封禁 25 邮件端口的云服务器上，跳过邮局连通性检查跑 IP 质量体检
 sudo ./lowendaff-bench --only ip.quality --no-mail
 
-# 11. 机器拉取 GitHub 文件较慢时，通过代理加速下载测试工具，并在报告中展示完整 IP
-#     （注：代理变量需放在 sudo 后面；公网 IP 识别、测速与流媒体检测依然会走本机直连）
-sudo ALL_PROXY=socks5h://127.0.0.1:1080 ./lowendaff-bench --download-connections 16 --show-ip
+# 11. 机器拉取 GitHub 或外部工具较慢时，使用 GitHub 镜像代理或 SOCKS5 代理加速文件下载，并在报告中展示完整 IP
+#     （程序不读取环境变量代理；代理仅作用于工具与节点列表文件下载，绝不干预公网 IP 识别、测速、路由、BGP 与流媒体检测）
+sudo ./lowendaff-bench --all --github-proxy https://ghfast.top/
+sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-connections 16 --show-ip
 ```
 
 ---
@@ -100,6 +101,8 @@ sudo ALL_PROXY=socks5h://127.0.0.1:1080 ./lowendaff-bench --download-connections
 | `--no-mail` | 无需带值 | 关闭 | 在 `ip.quality` 中跳过 25 端口各大邮箱服务连通性测试 |
 | `--no-bgp-upload` | 无需带值 | 关闭 | 在 `text` 模式下跳过将 `network.bgp` 拓扑 SVG 上传至 `imageupload.app` 图床 |
 | `--download-connections` | `<1..=256>` | `32` | 下载外部测试工具时的最大并发连接数，网络不稳定时可适当调小 |
+| `--socks5-proxy` | `<代理地址>` | 无 | 仅用于文件与工具下载的 SOCKS5 代理（支持 `socks5://` 与 `socks5h://`；不读取代理环境变量，也不影响任何检测项） |
+| `--github-proxy` | `<镜像前缀 URL>` | 无 | 仅用于 GitHub 工具与列表下载的前缀代理（如 `https://ghfast.top/`，实际请求 `<前缀>/https://github.com/...`，可与 `--socks5-proxy` 同时配置分流） |
 | `--show-ip` | 无需带值 | 关闭（默认打码） | 在最终报告里显示完整的本机公网 IPv4/IPv6 地址和反向解析域名 |
 | `-v, --verbose` | 无需带值 | 关闭 | 打印更详细的下载过程与子工具运行日志（方便排查卡住或报错原因） |
 | `--list` | 无需带值 | — | 列出所有支持的测试项目、适用条件与工具版本后直接退出（不需要 `root`） |
@@ -140,6 +143,9 @@ sudo ALL_PROXY=socks5h://127.0.0.1:1080 ./lowendaff-bench --download-connections
 | | `all` | 一次测完五大区域共 68 个平台（默认） |
 | `--countries` | 两位国家/地区代码 *（如 `US`、`JP`、`DE`、`SG`、`GB`）* | 只连接对应国家/地区的公共 `iperf3` 测速节点（大小写均可） |
 | | `all` | 连接节点列表里的所有可用公共 `iperf3` 服务器 |
+| `--socks5-proxy` | `socks5://[user:pass@]host[:port]` | 在本机解析下载域名后通过 SOCKS5 代理传输文件 |
+| | `socks5h://[user:pass@]host[:port]` | 将下载域名交由远端 SOCKS5 代理服务器解析并传输文件 |
+| `--github-proxy` | `https://<镜像域名>/` *（或 `http://<镜像域名>/`）* | 为 `github.com` 与 `raw.githubusercontent.com` 下载自动拼接前缀（如 `https://ghfast.top/https://github.com/...`，直连镜像站，不经过 SOCKS5） |
 
 ---
 

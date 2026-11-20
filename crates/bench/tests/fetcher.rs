@@ -1,8 +1,8 @@
-//! The download adapter against a local plain-HTTP server: streaming, byte ranges, HTTP errors,
-//! connection errors and the proxy hint they end in, and provisioning through the real client,
-//! whole or in ranges, and again where a download broke off.
+//! The download adapter against local plain-HTTP servers: streaming, byte ranges, HTTP errors,
+//! connection errors and the route-specific proxy hint they end in, ignoring environment proxy
+//! variables, and provisioning through direct clients or a GitHub prefix mirror.
 //! Building the client also proves the preconfigured rustls config matches reqwest's rustls
-//! version. The tests expect no proxy variables, as on CI's runners.
+//! version.
 
 use std::sync::Mutex;
 use std::sync::OnceLock;
@@ -10,7 +10,10 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
 use bench::fetcher;
+use bench::fetcher::DownloadProxy;
 use bench::fetcher::Fetcher;
+use bench::fetcher::Fetchers;
+use bench::fetcher::ProxyRoute;
 use bench::provision;
 use bench::provision::DownloadError;
 use bench::provision::MIN_RANGE;
@@ -218,7 +221,7 @@ async fn fetcher_streams_bodies_and_turns_failures_into_reasons() {
         refused.contains("tcp connect error: Connection refused"),
         "the reason names its cause: {refused}"
     );
-    let hint = fetcher::proxy_hint(|name| std::env::var(name).ok());
+    let hint = fetcher::proxy_hint(ProxyRoute::Direct);
     assert!(refused.ends_with(&hint), "{refused}");
 
     let Ok(Part::Whole(mut cut)) = fetcher.open(&format!("{base}/cut"), None).await else {
@@ -352,33 +355,125 @@ async fn the_answers_of_a_busy_or_failing_server_may_pass_and_the_others_will_no
 }
 
 #[test]
-fn the_proxy_hint_names_the_variable_that_is_set_or_how_to_set_one() {
-    let unset = fetcher::proxy_hint(|_| None);
-    assert_eq!(unset, "; set HTTPS_PROXY or ALL_PROXY to use a proxy");
+fn the_proxy_hint_names_the_active_flag_or_how_to_pass_one_without_leaking_values() {
     assert_eq!(
-        fetcher::proxy_hint(|_| Some(String::new())),
-        unset,
-        "an empty variable counts as unset"
+        fetcher::proxy_hint(ProxyRoute::Direct),
+        "; pass --socks5-proxy or --github-proxy to download through a proxy"
     );
     assert_eq!(
-        fetcher::proxy_hint(|name| (name == "HTTP_PROXY").then(|| "http://proxy:3128".to_owned())),
-        unset,
-        "HTTP_PROXY applies to http:// addresses only"
+        fetcher::proxy_hint(ProxyRoute::Socks5),
+        "; --socks5-proxy is set: check that the proxy works"
     );
-    // With every variable from one on set, that one is named: HTTPS_PROXY comes first, then
-    // https_proxy, ALL_PROXY and all_proxy. The value, which may hold a password, never shows.
-    let order = ["HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy"];
-    for (first, name) in order.iter().enumerate() {
-        let hint = fetcher::proxy_hint(|variable| {
-            order[first..]
-                .contains(&variable)
-                .then(|| "socks5h://alice:s3cret@proxy:1080".to_owned())
-        });
-        assert_eq!(
-            hint,
-            format!("; {name} is set on this host: check that the proxy works")
-        );
+    assert_eq!(
+        fetcher::proxy_hint(ProxyRoute::GithubMirror),
+        "; --github-proxy is set: check that the proxy works"
+    );
+    assert_eq!(
+        fetcher::proxy_hint(ProxyRoute::DirectProbe),
+        "",
+        "family-pinned probes never suggest a download proxy"
+    );
+}
+
+#[tokio::test]
+async fn environment_proxy_variables_are_ignored_by_default_clients() {
+    let vars = [
+        ("HTTP_PROXY", "http://127.0.0.1:9"),
+        ("http_proxy", "http://127.0.0.1:9"),
+        ("HTTPS_PROXY", "http://127.0.0.1:9"),
+        ("https_proxy", "http://127.0.0.1:9"),
+        ("ALL_PROXY", "socks5h://127.0.0.1:9"),
+        ("all_proxy", "socks5h://127.0.0.1:9"),
+    ];
+    if std::env::var_os("BENCH_FETCHER_ENV_SUBTEST").is_none() {
+        let exe = std::env::current_exe().expect("test binary path");
+        let mut cmd = std::process::Command::new(exe);
+        cmd.args([
+            "--exact",
+            "environment_proxy_variables_are_ignored_by_default_clients",
+            "--nocapture",
+        ])
+        .env("BENCH_FETCHER_ENV_SUBTEST", "1");
+        for (name, val) in vars {
+            cmd.env(name, val);
+        }
+        let status = cmd.status().expect("child test process runs");
+        assert!(status.success(), "child test exited with {status}");
+        return;
     }
+
+    let base = serve().await;
+    let url = format!("{base}/fio");
+    let single = Fetcher::try_new().unwrap();
+    let Ok(Part::Whole(body)) = single.open(&url, None).await else {
+        panic!("Fetcher::try_new must ignore HTTP_PROXY/ALL_PROXY")
+    };
+    assert_eq!(read(body).await, SCRIPT);
+
+    let all = Fetchers::try_new().unwrap();
+    let Ok(Part::Whole(body)) = all.open(None, &url, None).await else {
+        panic!("Fetchers::try_new must ignore HTTP_PROXY/ALL_PROXY")
+    };
+    assert_eq!(read(body).await, SCRIPT);
+}
+
+#[tokio::test]
+async fn provisioning_through_github_mirror_rewrites_github_tool_urls_and_verifies_sha256() {
+    use tokio::io::AsyncReadExt;
+    use tokio::io::AsyncWriteExt;
+
+    let gh_fio = "https://github.com/Lowendaff/lowendaff_bench/releases/download/fio-3.39/fio";
+    let gh_big = "https://github.com/Lowendaff/lowendaff_bench/releases/download/big-1.0/big";
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind local GitHub mirror");
+    let mirror = format!(
+        "http://{}/",
+        listener.local_addr().expect("bound mirror address")
+    );
+    tokio::spawn(async move {
+        while let Ok((mut socket, _)) = listener.accept().await {
+            tokio::spawn(async move {
+                let mut req_buf = vec![0_u8; 4096];
+                let read_n = socket.read(&mut req_buf).await.unwrap_or(0);
+                let req = String::from_utf8_lossy(&req_buf[..read_n]).into_owned();
+                let resp = if req.starts_with(&format!("GET /{gh_fio} ")) {
+                    whole(SCRIPT)
+                } else if req.starts_with(&format!("GET /{gh_big} ")) {
+                    match asked_range(&req) {
+                        Some((first, last)) => partial(big(), first, last),
+                        None => whole(big()),
+                    }
+                } else {
+                    b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                        .to_vec()
+                };
+                let _ = socket.write_all(&resp).await;
+            });
+        }
+    });
+
+    let tools = [
+        tool("fio", gh_fio.to_owned(), SCRIPT),
+        tool("big", gh_big.to_owned(), big()),
+    ];
+    let dir = tempfile::tempdir().unwrap();
+    let proxy = DownloadProxy::try_new(None, Some(&mirror)).unwrap();
+    let fetchers = Fetchers::with_proxy(&proxy).unwrap();
+
+    let provisioned = provision::provision_all(
+        &tools,
+        std::env::consts::ARCH,
+        dir.path(),
+        32,
+        &CancellationToken::new(),
+        |url, range| fetchers.open(None, url, range),
+    )
+    .await;
+
+    assert!(provisioned.failed.is_empty(), "{:?}", provisioned.failed);
+    assert_eq!(std::fs::read(&provisioned.ready["fio"]).unwrap(), SCRIPT);
+    assert_eq!(std::fs::read(&provisioned.ready["big"]).unwrap(), big());
 }
 
 /// An executable tool named `name`, pinned to `body` at `url`.

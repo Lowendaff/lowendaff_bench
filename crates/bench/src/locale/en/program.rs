@@ -62,6 +62,29 @@ impl ProgramWords for English {
         "The most connections that the download of one file uses at once (1 to 256)".to_owned()
     }
 
+    fn help_socks5_proxy(&self) -> String {
+        "SOCKS5 proxy for tool and list downloads only (socks5:// or socks5h://; never used for \
+         benchmarks)"
+            .to_owned()
+    }
+
+    fn help_github_proxy(&self) -> String {
+        "GitHub mirror prefix URL for GitHub tool and list downloads (e.g. https://ghfast.top/)"
+            .to_owned()
+    }
+
+    fn invalid_socks5_proxy(&self) -> String {
+        "invalid --socks5-proxy: expected socks5://[user:pass@]host[:port] or \
+         socks5h://[user:pass@]host[:port]"
+            .to_owned()
+    }
+
+    fn invalid_github_proxy(&self) -> String {
+        "invalid --github-proxy: expected an http:// or https:// base URL without credentials, \
+         such as https://ghfast.top/"
+            .to_owned()
+    }
+
     fn help_cpu_bench(&self) -> String {
         "Sub-suites for cpu.bench: comma-separated sysbench, 7zip, unixbench, hpl, passmark, \
          ycruncher, prime95, geekbench, or all"

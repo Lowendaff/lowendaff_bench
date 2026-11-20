@@ -160,11 +160,11 @@ impl DownloadWords for English {
         format!("the archive holds no {executable}")
     }
 
-    fn proxy_set(&self, variable: &str) -> String {
-        format!("; {variable} is set on this host: check that the proxy works")
+    fn proxy_set(&self, option: &str) -> String {
+        format!("; {option} is set: check that the proxy works")
     }
 
     fn proxy_unset(&self) -> String {
-        "; set HTTPS_PROXY or ALL_PROXY to use a proxy".to_owned()
+        "; pass --socks5-proxy or --github-proxy to download through a proxy".to_owned()
     }
 }

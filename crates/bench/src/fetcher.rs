@@ -1,7 +1,12 @@
-//! HTTPS download for tool provisioning: rustls with the ring provider only,
-//! and bundled Mozilla roots so minimal images without `ca-certificates` still work.
-//! Integrity comes from the pinned SHA-256, not from TLS. Downloads go through the proxy the
-//! standard environment variables name, SOCKS5 included.
+//! HTTPS download for tool and server-list provisioning: rustls with the ring provider only,
+//! bundled Mozilla roots so minimal images without `ca-certificates` still work, and zero
+//! reliance on environment proxy variables (`HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY` are ignored
+//! everywhere). Integrity comes from the pinned SHA-256, not from TLS.
+//!
+//! File and tool downloads (`family == None`) optionally route through explicit `--github-proxy`
+//! (direct prefix mirror for GitHub hosts) and/or `--socks5-proxy` (`socks5://` or `socks5h://`),
+//! while host-dependent probes (`family == Some(_)`, `network::probe`, `Probers`, `NetProbers`)
+//! always connect directly.
 
 use std::io;
 use std::net::IpAddr;
@@ -16,6 +21,7 @@ use reqwest::Client;
 use reqwest::ClientBuilder;
 use reqwest::Proxy;
 use reqwest::StatusCode;
+use reqwest::Url;
 use reqwest::header;
 use reqwest::header::HeaderValue;
 use rustls::ClientConfig;
@@ -28,30 +34,158 @@ use crate::locale;
 use crate::provision::DownloadError;
 use crate::provision::Part;
 
-/// The variables that set a proxy for `https://` addresses, in the order a hint names them.
-/// `HTTP_PROXY` applies to `http://` addresses only.
-const PROXY_VARIABLES: [&str; 4] = ["HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy"];
+/// Which download route a [`Fetcher`] uses, determining the hint appended on connection failure.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProxyRoute {
+    /// Direct download with no proxy configured for this URL.
+    Direct,
+    /// Download routed through `--socks5-proxy`.
+    Socks5,
+    /// GitHub download rewritten to `--github-proxy`.
+    GithubMirror,
+    /// Family-pinned probe (`family == Some(_)`), which never uses a download proxy.
+    DirectProbe,
+}
 
-/// HTTP client for tool downloads.
+/// Validated SOCKS5 proxy URL (`socks5://` for client-side DNS, `socks5h://` for proxy-side DNS).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Socks5Proxy {
+    url: String,
+}
+
+impl Socks5Proxy {
+    /// Validates a `socks5://` or `socks5h://` proxy URL without echoing credentials on error.
+    pub fn parse(raw: &str) -> Result<Self, String> {
+        let trimmed = raw.trim();
+        let invalid = || locale::words().invalid_socks5_proxy();
+        let Some((scheme, rest)) = trimmed.split_once("://") else {
+            return Err(invalid());
+        };
+        let lower = scheme.to_ascii_lowercase();
+        if lower != "socks5" && lower != "socks5h" {
+            return Err(invalid());
+        }
+        let normalized = format!("{lower}://{rest}");
+        let parsed = Url::parse(&normalized).map_err(|_| invalid())?;
+        if parsed.host_str().is_none_or(str::is_empty)
+            || !matches!(parsed.path(), "" | "/")
+            || parsed.query().is_some()
+            || parsed.fragment().is_some()
+        {
+            return Err(invalid());
+        }
+        let _ = Proxy::all(&normalized).map_err(|_| invalid())?;
+        Ok(Self { url: normalized })
+    }
+
+    fn to_reqwest_proxy(&self) -> Result<Proxy, String> {
+        Proxy::all(&self.url).map_err(|_| locale::words().invalid_socks5_proxy())
+    }
+}
+
+/// Validated GitHub mirror prefix URL (e.g. `https://ghfast.top`), rewriting
+/// `https://github.com/...` and `https://raw.githubusercontent.com/...` to
+/// `<prefix>/https://github.com/...`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GithubProxy {
+    prefix: String,
+}
+
+impl GithubProxy {
+    /// Validates an `http://` or `https://` GitHub proxy base URL and strips trailing slashes.
+    pub fn parse(raw: &str) -> Result<Self, String> {
+        let trimmed = raw.trim();
+        let invalid = || locale::words().invalid_github_proxy();
+        let parsed = Url::parse(trimmed).map_err(|_| invalid())?;
+        if !matches!(parsed.scheme(), "https" | "http")
+            || parsed.host_str().is_none_or(str::is_empty)
+            || !parsed.username().is_empty()
+            || parsed.password().is_some()
+            || parsed.query().is_some()
+            || parsed.fragment().is_some()
+        {
+            return Err(invalid());
+        }
+        let prefix = parsed.as_str().trim_end_matches('/').to_owned();
+        Ok(Self { prefix })
+    }
+
+    /// Rewrites `target_url` to `<prefix>/<target_url>` when `target_url` is an HTTPS GitHub
+    /// release, archive, or raw-file URL; returns `None` for non-GitHub URLs.
+    #[must_use]
+    pub fn rewrite(&self, target_url: &str) -> Option<String> {
+        if !is_github_download_url(target_url) {
+            return None;
+        }
+        Some(format!("{}/{target_url}", self.prefix))
+    }
+}
+
+/// Whether `url` points to a GitHub download host eligible for `--github-proxy` rewriting.
+#[must_use]
+pub fn is_github_download_url(url: &str) -> bool {
+    let Ok(parsed) = Url::parse(url) else {
+        return false;
+    };
+    parsed.scheme() == "https"
+        && matches!(
+            parsed.host_str(),
+            Some(
+                "github.com"
+                    | "raw.githubusercontent.com"
+                    | "objects.githubusercontent.com"
+                    | "release-assets.githubusercontent.com"
+                    | "codeload.github.com"
+            )
+        )
+}
+
+/// Optional download-only proxy settings (`--socks5-proxy` and `--github-proxy`).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct DownloadProxy {
+    /// Validated `socks5://` or `socks5h://` proxy for file/tool downloads.
+    pub socks5: Option<Socks5Proxy>,
+    /// Validated GitHub URL prefix mirror for GitHub file/tool downloads.
+    pub github: Option<GithubProxy>,
+}
+
+impl DownloadProxy {
+    /// Parses optional raw `--socks5-proxy` and `--github-proxy` inputs (treating empty or
+    /// whitespace-only strings as unset).
+    pub fn try_new(socks5: Option<&str>, github: Option<&str>) -> Result<Self, String> {
+        let socks5 = match socks5.map(str::trim).filter(|s| !s.is_empty()) {
+            Some(raw) => Some(Socks5Proxy::parse(raw)?),
+            None => None,
+        };
+        let github = match github.map(str::trim).filter(|s| !s.is_empty()) {
+            Some(raw) => Some(GithubProxy::parse(raw)?),
+            None => None,
+        };
+        Ok(Self { socks5, github })
+    }
+}
+
+/// HTTP client for tool and file downloads.
 pub struct Fetcher {
     client: Client,
+    route: ProxyRoute,
 }
 
 impl Fetcher {
-    /// Builds the client, which takes its proxy from the environment variables, as reqwest
-    /// does by default. Fails only if the TLS configuration is rejected.
+    /// Builds a direct client that ignores environment proxy variables. Fails only if the TLS
+    /// configuration is rejected.
     pub fn try_new() -> Result<Self, String> {
-        Self::build(None)
+        Self::build(None, ProxyRoute::Direct)
     }
 
     /// A client that connects over `family` only, also to an address written in a URL, and
-    /// without a proxy, which would connect over its own family and answer with its own address.
+    /// without any proxy, which would connect over its own family and answer with its own address.
     /// For files whose answer depends on the host's address of that family.
     pub fn try_new_for(family: IpFamily) -> Result<Self, String> {
         Self::build_for(family, None)
     }
 
-    /// `proxy`, which the client must not use, stands for the environment's; the tests use it.
+    /// `proxy`, which `.no_proxy()` must override, stands in for an unwanted proxy in tests.
     fn build_for(family: IpFamily, proxy: Option<Proxy>) -> Result<Self, String> {
         let local = match family {
             IpFamily::Ipv4 => IpAddr::V4(Ipv4Addr::UNSPECIFIED),
@@ -66,11 +200,13 @@ impl Fetcher {
             .local_address(local)
             .build()
             .map_err(|err| locale::words().http_client_failed(&err))?;
-        Ok(Self { client })
+        Ok(Self {
+            client,
+            route: ProxyRoute::DirectProbe,
+        })
     }
 
-    /// `proxy` replaces the environment's; the tests use it.
-    fn build(proxy: Option<Proxy>) -> Result<Self, String> {
+    fn build(proxy: Option<Proxy>, route: ProxyRoute) -> Result<Self, String> {
         let mut builder = timeouts(builder()?);
         if let Some(proxy) = proxy {
             builder = builder.proxy(proxy);
@@ -78,7 +214,7 @@ impl Fetcher {
         let client = builder
             .build()
             .map_err(|err| locale::words().http_client_failed(&err))?;
-        Ok(Self { client })
+        Ok(Self { client, route })
     }
 
     /// Opens a download: the whole file, or the byte `range` of it. Non-2xx answers are errors,
@@ -94,14 +230,16 @@ impl Fetcher {
     ) -> Result<Part<impl AsyncRead + Unpin + use<>>, DownloadError> {
         use futures_util::TryStreamExt;
 
-        let hint = || proxy_hint(|name| std::env::var(name).ok());
+        let route = self.route;
         let mut request = self.client.get(url);
         if let Some(range) = &range {
             let bytes = format!("bytes={}-{}", range.start, range.end.saturating_sub(1));
             request = request.header(header::RANGE, bytes);
         }
         let response = request.send().await.map_err(|err| {
-            DownloadError::Transient(locale::words().request_failed(&causes(&err), &hint()))
+            DownloadError::Transient(
+                locale::words().request_failed(&causes(&err), &proxy_hint(route)),
+            )
         })?;
         let status = response.status();
         if !status.is_success() {
@@ -124,7 +262,7 @@ impl Fetcher {
         {
             return Err(DownloadError::Final(locale::words().wrong_range()));
         }
-        let read_hint = hint();
+        let read_hint = proxy_hint(route);
         let body = response
             .bytes_stream()
             .map_err(move |err| io::Error::other(format!("{}{read_hint}", causes(&err))));
@@ -160,37 +298,66 @@ fn holds(content_range: Option<&HeaderValue>, range: Option<&Range<u64>>) -> boo
         && last.parse::<u64>().ok().map(|last| last + 1) == Some(range.end)
 }
 
-/// The downloads' clients: one over either family, through the proxy that the environment names,
-/// and one for each family alone ([`Fetcher::try_new_for`]).
+/// The downloads' clients:
+/// - `family == None`: GitHub URLs rewrite to `--github-proxy` via a direct client when configured;
+///   all remaining `family == None` URLs use `--socks5-proxy` when configured, or direct otherwise.
+/// - `family == Some(Ipv4 | Ipv6)`: always direct over that IP family alone, bypassing all proxies.
 pub struct Fetchers {
-    any: Fetcher,
+    direct: Fetcher,
+    github_direct: Fetcher,
+    socks5: Option<Fetcher>,
+    github: Option<GithubProxy>,
     ipv4: Fetcher,
     ipv6: Fetcher,
 }
 
 impl Fetchers {
-    /// Builds the three clients; fails only if the TLS configuration is rejected.
+    /// Builds direct clients with no download proxy configured.
     pub fn try_new() -> Result<Self, String> {
+        Self::with_proxy(&DownloadProxy::default())
+    }
+
+    /// Builds download clients configured with explicit `proxy` settings (ignoring environment
+    /// proxy variables).
+    pub fn with_proxy(proxy: &DownloadProxy) -> Result<Self, String> {
+        let socks5 = match &proxy.socks5 {
+            Some(spec) => Some(Fetcher::build(
+                Some(spec.to_reqwest_proxy()?),
+                ProxyRoute::Socks5,
+            )?),
+            None => None,
+        };
         Ok(Self {
-            any: Fetcher::try_new()?,
+            direct: Fetcher::build(None, ProxyRoute::Direct)?,
+            github_direct: Fetcher::build(None, ProxyRoute::GithubMirror)?,
+            socks5,
+            github: proxy.github.clone(),
             ipv4: Fetcher::try_new_for(IpFamily::Ipv4)?,
             ipv6: Fetcher::try_new_for(IpFamily::Ipv6)?,
         })
     }
 
-    /// Opens a download as [`Fetcher::open`] does, over `family` only when it is given.
+    /// Opens a download as [`Fetcher::open`] does: family-pinned probes connect directly over
+    /// `family`, while general file/tool downloads apply `--github-proxy` and/or `--socks5-proxy`.
     pub async fn open(
         &self,
         family: Option<IpFamily>,
         url: &str,
         range: Option<Range<u64>>,
     ) -> Result<Part<impl AsyncRead + Unpin + use<>>, DownloadError> {
-        let fetcher = match family {
-            None => &self.any,
-            Some(IpFamily::Ipv4) => &self.ipv4,
-            Some(IpFamily::Ipv6) => &self.ipv6,
-        };
-        fetcher.open(url, range).await
+        match family {
+            Some(IpFamily::Ipv4) => self.ipv4.open(url, range).await,
+            Some(IpFamily::Ipv6) => self.ipv6.open(url, range).await,
+            None => {
+                if let Some(mirrored) = self.github.as_ref().and_then(|gh| gh.rewrite(url)) {
+                    self.github_direct.open(&mirrored, range).await
+                } else if let Some(socks5) = &self.socks5 {
+                    socks5.open(url, range).await
+                } else {
+                    self.direct.open(url, range).await
+                }
+            }
+        }
     }
 }
 
@@ -203,7 +370,8 @@ fn timeouts(builder: ClientBuilder) -> ClientBuilder {
 }
 
 /// A client builder with the program's TLS configuration (rustls with ring, and the bundled
-/// Mozilla roots) and its user agent, for the downloads and the network module alike.
+/// Mozilla roots), its user agent, and `.no_proxy()` so environment proxy variables are ignored
+/// across both downloads and benchmark probes.
 pub fn builder() -> Result<ClientBuilder, String> {
     let roots = RootCertStore {
         roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
@@ -214,6 +382,7 @@ pub fn builder() -> Result<ClientBuilder, String> {
         .with_root_certificates(roots)
         .with_no_client_auth();
     Ok(Client::builder()
+        .no_proxy()
         .tls_backend_preconfigured(tls)
         .user_agent(concat!("lowendaff-bench/", env!("CARGO_PKG_VERSION"))))
 }
@@ -237,17 +406,15 @@ pub fn causes(error: &dyn std::error::Error) -> String {
     text
 }
 
-/// The end of a network error's reason: which proxy variable is set, or
-/// how to set one. It names the variable only, never its value, which may hold a password.
-/// `lookup` reads a variable.
+/// The end of a network error's reason: which explicit proxy flag was active for this download
+/// (never echoing its URL or credentials), or how to pass one.
 #[must_use]
-pub fn proxy_hint(lookup: impl Fn(&str) -> Option<String>) -> String {
-    let set = PROXY_VARIABLES
-        .into_iter()
-        .find(|name| lookup(name).is_some_and(|value| !value.is_empty()));
-    match set {
-        Some(name) => locale::words().proxy_set(name),
-        None => locale::words().proxy_unset(),
+pub fn proxy_hint(route: ProxyRoute) -> String {
+    match route {
+        ProxyRoute::Direct => locale::words().proxy_unset(),
+        ProxyRoute::Socks5 => locale::words().proxy_set("--socks5-proxy"),
+        ProxyRoute::GithubMirror => locale::words().proxy_set("--github-proxy"),
+        ProxyRoute::DirectProbe => String::new(),
     }
 }
 
@@ -265,14 +432,18 @@ mod tests {
 
     use bench_api::IpFamily;
 
+    use super::DownloadProxy;
     use super::Fetcher;
     use super::Fetchers;
+    use super::GithubProxy;
+    use super::ProxyRoute;
+    use super::Socks5Proxy;
     use crate::provision::DownloadError;
     use crate::provision::Part;
 
-    /// Answers every request on a local port with `body` over plain HTTP, or with the byte range
-    /// of it that a `Range: bytes=<first>-<last>` header asks for.
-    async fn serve(body: &'static [u8]) -> String {
+    /// Answers every request on a local port with `body` over plain HTTP (or its requested byte
+    /// range), recording each requested HTTP path into `paths`.
+    async fn serve_recording(body: &'static [u8], paths: Arc<Mutex<Vec<String>>>) -> String {
         let listener = TcpListener::bind("127.0.0.1:0")
             .await
             .expect("bind a local test server");
@@ -283,8 +454,14 @@ mod tests {
             while let Ok((mut socket, _)) = listener.accept().await {
                 let mut request = vec![0_u8; 4096];
                 let read = socket.read(&mut request).await.unwrap_or(0);
-                let request = String::from_utf8_lossy(&request[..read]).to_ascii_lowercase();
-                let range = request
+                let raw_req = String::from_utf8_lossy(&request[..read]);
+                if let Some(first_line) = raw_req.lines().next()
+                    && let Some(path) = first_line.split_whitespace().nth(1)
+                {
+                    paths.lock().expect("paths").push(path.to_owned());
+                }
+                let lower = raw_req.to_ascii_lowercase();
+                let range = lower
                     .lines()
                     .find_map(|line| line.strip_prefix("range: bytes="))
                     .and_then(|span| span.trim().split_once('-'))
@@ -307,9 +484,14 @@ mod tests {
         address.to_string()
     }
 
-    /// A SOCKS5 proxy without authentication that records the target of each CONNECT, given as
-    /// an IPv4 address or a domain name, and relays the bytes.
-    async fn socks5(targets: Arc<Mutex<Vec<String>>>) -> String {
+    async fn serve(body: &'static [u8]) -> String {
+        serve_recording(body, Arc::new(Mutex::new(Vec::new()))).await
+    }
+
+    /// A SOCKS5 proxy without authentication that records `(atyp, target)` of each CONNECT
+    /// (`atyp == 1` for client-resolved IPv4 `socks5://`, `atyp == 3` for proxy-resolved domain
+    /// `socks5h://`) and relays the bytes to `127.0.0.1:<port>` when `host == "localhost"`.
+    async fn socks5(targets: Arc<Mutex<Vec<(u8, String)>>>) -> String {
         let listener = TcpListener::bind("127.0.0.1:0")
             .await
             .expect("bind a local SOCKS5 proxy");
@@ -328,7 +510,8 @@ mod tests {
                     .expect("choose no authentication");
                 let mut request = [0_u8; 4];
                 client.read_exact(&mut request).await.expect("request");
-                let host = if request[3] == 1 {
+                let atyp = request[3];
+                let host = if atyp == 1 {
                     let mut ip = [0_u8; 4];
                     client.read_exact(&mut ip).await.expect("IPv4 address");
                     Ipv4Addr::from(ip).to_string()
@@ -339,9 +522,19 @@ mod tests {
                     String::from_utf8(name).expect("ASCII name")
                 };
                 let port = client.read_u16().await.expect("port");
-                let target = format!("{host}:{port}");
-                targets.lock().expect("targets").push(target.clone());
-                let mut upstream = TcpStream::connect(target).await.expect("reach the target");
+                let recorded = format!("{host}:{port}");
+                targets
+                    .lock()
+                    .expect("targets")
+                    .push((atyp, recorded.clone()));
+                let dial_host = if host == "localhost" {
+                    "127.0.0.1"
+                } else {
+                    host.as_str()
+                };
+                let mut upstream = TcpStream::connect(format!("{dial_host}:{port}"))
+                    .await
+                    .expect("reach the target");
                 client
                     .write_all(&[5, 0, 0, 1, 0, 0, 0, 0, 0, 0])
                     .await
@@ -352,32 +545,102 @@ mod tests {
         address.to_string()
     }
 
+    #[test]
+    fn socks5_and_github_proxy_parsers_validate_schemes_and_rewrite_github_urls() {
+        assert!(Socks5Proxy::parse("socks5://127.0.0.1:1080").is_ok());
+        assert!(Socks5Proxy::parse("SOCKS5H://user:s3cret@proxy.example.com:1080").is_ok());
+        for bad in [
+            "http://127.0.0.1:1080",
+            "https://127.0.0.1:1080",
+            "socks4://127.0.0.1:1080",
+            "127.0.0.1:1080",
+            "socks5://127.0.0.1:1080/path",
+            "socks5://user:s3cret@127.0.0.1:1080?x=1",
+        ] {
+            let err = Socks5Proxy::parse(bad).expect_err("invalid SOCKS5 URL must fail");
+            assert!(
+                !err.contains("s3cret"),
+                "validation error must never leak credentials: {err}"
+            );
+        }
+
+        let gh_slash = GithubProxy::parse("https://ghfast.top/").expect("valid trailing slash");
+        let gh_bare = GithubProxy::parse("https://ghfast.top").expect("valid bare origin");
+        assert_eq!(
+            gh_slash
+                .rewrite("https://github.com/stilleshan/dockerfiles")
+                .as_deref(),
+            Some("https://ghfast.top/https://github.com/stilleshan/dockerfiles")
+        );
+        assert_eq!(
+            gh_bare
+                .rewrite("https://github.com/stilleshan/dockerfiles")
+                .as_deref(),
+            Some("https://ghfast.top/https://github.com/stilleshan/dockerfiles")
+        );
+        let raw_file = "https://raw.githubusercontent.com/stilleshan/dockerfiles/main/README.md";
+        assert_eq!(
+            gh_slash.rewrite(raw_file).as_deref(),
+            Some(concat!(
+                "https://ghfast.top/",
+                "https://raw.githubusercontent.com/stilleshan/dockerfiles/main/README.md"
+            ))
+        );
+        assert_eq!(
+            gh_slash.rewrite("https://cdn.geekbench.com/Geekbench-7.1.0-Linux.tar.gz"),
+            None,
+            "non-GitHub URLs must never be rewritten to the GitHub mirror"
+        );
+        for bad in [
+            "socks5://127.0.0.1:1080",
+            "ghfast.top",
+            "https://user:s3cret@ghfast.top/",
+            "https://ghfast.top/?x=1",
+        ] {
+            let err = GithubProxy::parse(bad).expect_err("invalid GitHub proxy URL must fail");
+            assert!(
+                !err.contains("s3cret"),
+                "validation error must never leak credentials: {err}"
+            );
+        }
+    }
+
     #[tokio::test]
-    async fn downloads_go_through_a_socks5_proxy() {
+    async fn downloads_support_both_socks5_and_socks5h_wire_modes() {
         let site = serve(b"tool").await;
+        let port = site.split_once(':').expect("host:port").1.to_owned();
         let targets = Arc::new(Mutex::new(Vec::new()));
         let proxy = socks5(Arc::clone(&targets)).await;
-        let socks = Proxy::all(format!("socks5h://{proxy}")).expect("a proxy address");
-        let fetcher = Fetcher::build(Some(socks)).expect("client");
-        let url = format!("http://{site}/tool");
+        let url = format!("http://localhost:{port}/tool");
 
-        let Ok(Part::Whole(mut body)) = fetcher.open(&url, None).await else {
-            panic!("the download should go through the proxy")
+        // 1. socks5:// resolves `localhost` locally and sends IPv4 literal (ATYP = 1) or IPv6.
+        let cfg_v5 = DownloadProxy::try_new(Some(&format!("socks5://{proxy}")), None).unwrap();
+        let fetchers_v5 = Fetchers::with_proxy(&cfg_v5).expect("clients");
+        let Ok(Part::Whole(mut body)) = fetchers_v5
+            .open(None, &format!("http://{site}/tool"), None)
+            .await
+        else {
+            panic!("socks5:// download should succeed")
         };
         let mut bytes = Vec::new();
         body.read_to_end(&mut bytes).await.expect("body");
         assert_eq!(bytes, b"tool");
 
-        let Ok(Part::Range(mut body)) = fetcher.open(&url, Some(1..3)).await else {
-            panic!("a byte range should go through the proxy too")
+        // 2. socks5h:// delegates hostname resolution to the SOCKS5 proxy (ATYP = 3, "localhost").
+        let cfg_v5h = DownloadProxy::try_new(Some(&format!("socks5h://{proxy}")), None).unwrap();
+        let fetchers_v5h = Fetchers::with_proxy(&cfg_v5h).expect("clients");
+        let Ok(Part::Range(mut body)) = fetchers_v5h.open(None, &url, Some(1..3)).await else {
+            panic!("socks5h:// byte-range download should succeed")
         };
-        let mut bytes = Vec::new();
-        body.read_to_end(&mut bytes).await.expect("body");
-        assert_eq!(bytes, b"oo");
+        let mut range_bytes = Vec::new();
+        body.read_to_end(&mut range_bytes).await.expect("body");
+        assert_eq!(range_bytes, b"oo");
+
+        let seen = targets.lock().expect("targets").clone();
         assert_eq!(
-            *targets.lock().expect("targets"),
-            [site.clone(), site],
-            "the proxy relayed both downloads"
+            seen,
+            vec![(1, site), (3, format!("localhost:{port}"))],
+            "socks5:// sends IP literal (ATYP 1) while socks5h:// sends domain (ATYP 3)"
         );
     }
 
@@ -409,41 +672,90 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_download_takes_the_client_of_its_family_or_the_general_one() {
-        let site = serve(b"list").await;
-        let url = format!("http://{site}/list");
-        let targets = Arc::new(Mutex::new(Vec::new()));
-        let proxy = socks5(Arc::clone(&targets)).await;
-        let socks = Proxy::all(format!("socks5h://{proxy}")).expect("a proxy address");
-        // The program's own clients of each family, and a general one through the proxy.
-        let fetchers = Fetchers {
-            any: Fetcher::build(Some(socks)).expect("client"),
-            ..Fetchers::try_new().expect("clients")
-        };
+    async fn split_routing_keeps_github_mirror_socks5_and_direct_probes_separate() {
+        let gh_paths = Arc::new(Mutex::new(Vec::new()));
+        let gh_mirror = serve_recording(b"gh-asset", Arc::clone(&gh_paths)).await;
 
-        assert!(
-            fetchers
-                .open(Some(IpFamily::Ipv4), &url, None)
-                .await
-                .is_ok(),
-            "over IPv4"
-        );
-        assert!(
-            matches!(
-                fetchers.open(Some(IpFamily::Ipv6), &url, None).await,
-                Err(DownloadError::Transient(_))
-            ),
-            "not over IPv6, to an IPv4 address"
-        );
-        assert!(
-            targets.lock().expect("targets").is_empty(),
-            "neither through the proxy"
-        );
-        assert!(fetchers.open(None, &url, None).await.is_ok(), "over either");
+        let other_site = serve(b"vendor-asset").await;
+        let probe_site = serve(b"cache-map").await;
+
+        let socks_targets = Arc::new(Mutex::new(Vec::new()));
+        let socks_addr = socks5(Arc::clone(&socks_targets)).await;
+
+        let proxy_cfg = DownloadProxy::try_new(
+            Some(&format!("socks5h://{socks_addr}")),
+            Some(&format!("http://{gh_mirror}/")),
+        )
+        .expect("valid dual proxy config");
+        let fetchers = Fetchers::with_proxy(&proxy_cfg).expect("clients");
+
+        // 1. GitHub download (`family == None`) goes DIRECT to `gh_mirror` (NOT through SOCKS5!).
+        let gh_url =
+            "https://github.com/Lowendaff/lowendaff_bench/releases/download/fio-3.43-2/fio-x86_64";
+        let Ok(Part::Whole(mut gh_body)) = fetchers.open(None, gh_url, None).await else {
+            panic!("GitHub mirror download should succeed")
+        };
+        let mut gh_bytes = Vec::new();
+        gh_body.read_to_end(&mut gh_bytes).await.unwrap();
+        assert_eq!(gh_bytes, b"gh-asset");
         assert_eq!(
-            *targets.lock().expect("targets"),
-            [site],
-            "the general client goes through the proxy"
+            *gh_paths.lock().unwrap(),
+            vec![format!("/{gh_url}")],
+            "mirror received the full upstream GitHub URL path"
         );
+        assert!(
+            socks_targets.lock().unwrap().is_empty(),
+            "GitHub mirror traffic must bypass SOCKS5"
+        );
+
+        // 2. Non-GitHub download (`family == None`) routes through SOCKS5!
+        let vendor_url = format!("http://{other_site}/vendor.zip");
+        let Ok(Part::Whole(mut vendor_body)) = fetchers.open(None, &vendor_url, None).await else {
+            panic!("non-GitHub download via SOCKS5 should succeed")
+        };
+        let mut vendor_bytes = Vec::new();
+        vendor_body.read_to_end(&mut vendor_bytes).await.unwrap();
+        assert_eq!(vendor_bytes, b"vendor-asset");
+        assert_eq!(
+            *socks_targets.lock().unwrap(),
+            vec![(1, other_site)],
+            "non-GitHub download went through SOCKS5"
+        );
+
+        // 3. Family-pinned probe (`family == Some(Ipv4)`) bypasses BOTH GitHub mirror and SOCKS5!
+        let probe_url = format!("http://{probe_site}/report_mapping");
+        let Ok(Part::Whole(mut probe_body)) =
+            fetchers.open(Some(IpFamily::Ipv4), &probe_url, None).await
+        else {
+            panic!("IPv4 probe should connect directly")
+        };
+        let mut probe_bytes = Vec::new();
+        probe_body.read_to_end(&mut probe_bytes).await.unwrap();
+        assert_eq!(probe_bytes, b"cache-map");
+        assert_eq!(
+            socks_targets.lock().unwrap().len(),
+            1,
+            "family probe did not touch SOCKS5"
+        );
+        assert_eq!(
+            gh_paths.lock().unwrap().len(),
+            1,
+            "family probe did not touch GitHub mirror"
+        );
+
+        // 4. Proxy hints reflect active route without exposing URLs or credentials.
+        assert_eq!(
+            super::proxy_hint(ProxyRoute::Direct),
+            "; pass --socks5-proxy or --github-proxy to download through a proxy"
+        );
+        assert_eq!(
+            super::proxy_hint(ProxyRoute::Socks5),
+            "; --socks5-proxy is set: check that the proxy works"
+        );
+        assert_eq!(
+            super::proxy_hint(ProxyRoute::GithubMirror),
+            "; --github-proxy is set: check that the proxy works"
+        );
+        assert_eq!(super::proxy_hint(ProxyRoute::DirectProbe), "");
     }
 }

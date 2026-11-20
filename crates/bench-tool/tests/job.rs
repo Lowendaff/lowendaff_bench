@@ -94,6 +94,52 @@ async fn a_run_gives_its_output_then_its_errors_and_its_exit_code() {
 }
 
 #[tokio::test]
+async fn inherited_proxy_variables_are_removed_from_tool_environment() {
+    let vars = [
+        "HTTP_PROXY",
+        "http_proxy",
+        "HTTPS_PROXY",
+        "https_proxy",
+        "ALL_PROXY",
+        "all_proxy",
+    ];
+    if std::env::var_os("BENCH_JOB_PROXY_SUBTEST").is_none() {
+        let exe = std::env::current_exe().expect("test binary path");
+        let mut cmd = std::process::Command::new(exe);
+        cmd.args([
+            "--exact",
+            "inherited_proxy_variables_are_removed_from_tool_environment",
+            "--nocapture",
+        ])
+        .env("BENCH_JOB_PROXY_SUBTEST", "1");
+        for var in vars {
+            cmd.env(var, "http://127.0.0.1:9");
+        }
+        let status = cmd.status().expect("child test process runs");
+        assert!(status.success(), "child test exited with {status}");
+        return;
+    }
+    for var in vars {
+        assert_eq!(
+            std::env::var(var).as_deref(),
+            Ok("http://127.0.0.1:9"),
+            "parent environment holds {var}"
+        );
+    }
+    let (ctx, _channels) = context(CancellationToken::new());
+    let script = "printf '%s|%s|%s|%s|%s|%s\n' \"$HTTP_PROXY\" \"$http_proxy\" \"$HTTPS_PROXY\" \
+         \"$https_proxy\" \"$ALL_PROXY\" \"$all_proxy\"";
+    let outcome = shell(script, Duration::from_secs(30)).run(&ctx).await;
+    assert_eq!(
+        outcome.ended,
+        Ok(Output {
+            code: Some(0),
+            text: "|||||\n".to_owned(),
+        })
+    );
+}
+
+#[tokio::test]
 async fn the_tool_runs_in_its_directory() {
     let (ctx, _channels) = context(CancellationToken::new());
     let dir = tempfile::tempdir().expect("a temporary directory");

@@ -195,7 +195,6 @@ async fn upload_svg(
     tracing::debug!("network.bgp uploading {filename} to {endpoint}");
     let body = build_multipart(MULTIPART_BOUNDARY, filename, svg);
     let content_type = format!("multipart/form-data; boundary={MULTIPART_BOUNDARY}");
-    let hint = || fetcher::proxy_hint(|name| std::env::var(name).ok());
 
     let send_fut = async {
         let response = client
@@ -205,14 +204,14 @@ async fn upload_svg(
             .body(body)
             .send()
             .await
-            .map_err(|err| locale::words().request_failed(&fetcher::causes(&err), &hint()))?;
+            .map_err(|err| locale::words().request_failed(&fetcher::causes(&err), ""))?;
 
         let status = response.status().as_u16();
         let mut bytes = Vec::with_capacity(512);
         let mut stream = response.bytes_stream();
         while let Some(chunk) = stream.next().await {
-            let chunk = chunk
-                .map_err(|err| locale::words().request_failed(&fetcher::causes(&err), &hint()))?;
+            let chunk =
+                chunk.map_err(|err| locale::words().request_failed(&fetcher::causes(&err), ""))?;
             let remaining = MAX_RESPONSE_BYTES.saturating_sub(bytes.len());
             if chunk.len() > remaining {
                 bytes.extend_from_slice(&chunk[..remaining]);

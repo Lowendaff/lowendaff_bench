@@ -30,6 +30,17 @@ const OOM_SCORE_ADJ: &str = "/proc/self/oom_score_adj";
 /// The lines of a failed run's output that the log quotes.
 const TAIL: usize = 3;
 
+/// Inherited proxy environment variables cleared before running external benchmark tools so host
+/// shell proxies never interfere with speed, route, or Geekbench measurements.
+const PROXY_ENV_VARS: [&str; 6] = [
+    "HTTP_PROXY",
+    "http_proxy",
+    "HTTPS_PROXY",
+    "https_proxy",
+    "ALL_PROXY",
+    "all_proxy",
+];
+
 /// One run of a tool.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Job {
@@ -127,6 +138,9 @@ impl Job {
                 };
             }
         };
+        for var in PROXY_ENV_VARS {
+            command.env_remove(var);
+        }
         command
             .args(&self.args)
             .envs(self.envs.iter().map(|(key, value)| (key, value)))

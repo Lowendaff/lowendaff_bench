@@ -209,6 +209,14 @@ impl TuiWords for English {
         "Download connections"
     }
 
+    fn tui_field_socks5_proxy(&self) -> &'static str {
+        "SOCKS5 proxy (downloads)"
+    }
+
+    fn tui_field_github_proxy(&self) -> &'static str {
+        "GitHub proxy URL"
+    }
+
     fn tui_field_verbose(&self) -> &'static str {
         "Verbose debug log"
     }
