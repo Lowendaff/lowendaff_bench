@@ -11,9 +11,9 @@ A comprehensive test tool for Linux servers, virtual or dedicated, written in Ru
 The program prints in English. Every word it prints comes from one message catalog in
 `crates/bench/src/locale/`, so another language needs only a catalog of its own.
 
-**Status:** eleven test items, each a plugin with a result of its own type: disk health, CPU
+**Status:** twelve test items, each a plugin with a result of its own type: disk health, CPU
 performance, four items of memory performance, disk performance, network speed, route tracing,
-streaming media unlock and Geekbench 7.
+IP reputation, streaming media unlock and Geekbench 7.
 [`CONTRIBUTING.md`](CONTRIBUTING.md) holds the layout of the code, the steps to add a test item
 and the conventions for code, commits and pull requests.
 
@@ -37,6 +37,7 @@ them can be used; `--list` shows the items by group, and where each applies.
 | Disk performance (`disk.fio`) | Speed and IOPS of the test directory's filesystem, measured with fio exactly as YABS does: mixed random reads and writes (50/50) at 4K, 64K, 512K and 1M. Skipped on a RAM disk or without enough free space |
 | Network speed (`network.iperf3`) | iperf3's TCP throughput each way, and the latency, between the host and public iperf3 servers, as YABS measures them: over IPv4, then over IPv6 when the host has it, an upload and a download of 10 seconds over 8 streams to each server, by default those of Los Angeles, New York, Virginia, Tokyo and Frankfurt. About 5 GB of traffic per server at 1 Gbit/s ("Network speed" below); `--skip network` leaves it out |
 | Route tracing (`network.trace`) | NextTrace's classic ICMP trace from the host to the original project's 71 targets, carriers in mainland China and abroad, and to the nearest YouTube and Netflix cache servers, over IPv4, then over IPv6 when the host has it: every hop, each address with its network, place and latency, and whether the target was reached. Adds 6 to 18 minutes to a run |
+| IP reputation (`ip.quality`) | Reputation and network identity of the host's public IPv4 and IPv6 addresses across nine unauthenticated intelligence sources, 25 public DNSBL zones (24 for IPv4, 9 for IPv6) and eight mail providers on TCP port 25: ASN, RIR, native versus broadcast origin, usage type, fraud/abuse scores, risk factors, blacklist hits and SMTP banner reachability |
 | Media unlock (`media.unlock`) | Regional availability of 68 streaming platforms across Global, Asia, Europe, Americas and Oceania, probed directly over HTTPS without a proxy over IPv4 and IPv6: full unlock and region code, originals only, geo-restriction, anti-bot WAF block or missing IPv6 record |
 | Geekbench 7 (`cpu.geekbench`) | Geekbench 7's single- and multi-core scores and the public result link. The free version uploads every result to the Geekbench Browser; `--skip cpu.geekbench` leaves it out. Needs IPv4 and glibc 2.35 or later, and adds temporary swap when memory is short |
 
@@ -62,9 +63,9 @@ sudo lowendaff-bench --countries JP,DE         # the network test's servers in t
   exit code, with its last lines when it fails, except for Geekbench and smartctl, whose output
   holds a result's claim link or the disks' serial numbers, and iperf3, whose output names the
   host's own address. The report follows on stdout once every item is done: the system
-  information, a section for each group (CPU, memory, disks, network, streaming media) and a
-  summary of how each item ended. On a terminal, its tables wrap to the terminal's width. After
-  Ctrl-C the report holds what finished, and the rest is marked interrupted.
+  information, a section for each group (CPU, memory, disks, network, IP reputation, streaming
+  media) and a summary of how each item ended. On a terminal, its tables wrap to the terminal's
+  width. After Ctrl-C the report holds what finished, and the rest is marked interrupted.
 - **Public addresses.** Each address family that reaches the Internet asks Cloudflare, ipify and
   icanhazip in turn, without a proxy, for the address they see; the first valid answer counts.
   Behind NAT that is the shared address. The report masks it, keeping two octets of IPv4 and the
@@ -199,6 +200,34 @@ own public addresses are masked unless `--show-ip` is given; the routers' are sh
   geo = false                     # no lookups of the hops' networks and places
   ```
 
+## IP reputation
+
+IP reputation (`ip.quality`) evaluates the host's public IPv4 and IPv6 addresses across nine
+unauthenticated intelligence services (`Scamalytics`, `ProxyCheck`, `ipapi.is`, `GreyNoise`,
+`Shodan`, `RIPEstat`, `IPinfo`, `DB-IP` and `IPWHOIS`), 25 public DNSBL zones (24 for IPv4, 9 for
+IPv6) and eight email providers' inbound MX servers (`Gmail`, `Outlook`, `Yahoo`, `iCloud`,
+`Proton Mail`, `Fastmail`, `QQ Mail` and `163 Mail`) on TCP port 25.
+
+- **Native vs broadcast origin.** Comparing the official RIR WHOIS registration country (`RIPEstat`
+  and `ipapi.is`) with the operational GeoIP consensus across five databases shows whether the
+  address is `native` to its hosting country or `broadcast` from another country's allocation.
+- **DNSBL filtering.** Reversed-IP `A` queries go to the host's configured recursive resolvers;
+  RFC 5782 policy-refusal responses (`127.255.255.0/24`, such as Spamhaus's answer to open public
+  resolvers) and non-`127.0.0.0/8` replies are counted as refused rather than blacklist hits.
+- **Port-25 mail check.** Each MX check reads only the initial three-digit SMTP greeting (`220` vs
+  `4xx`/`5xx` rejection) and immediately sends `QUIT`, never `HELO` or mail data.
+- **Privacy and what third parties see.** The nine intelligence endpoints, the configured DNS
+  resolvers and the eight MX servers see the host's public IP addresses. The report masks the
+  host's own addresses and hides reverse-DNS hostnames unless `--show-ip` is given. `--skip ip`
+  leaves the item out.
+- **Settings.** The table `[plugins."ip.quality"]` of the config file may set:
+
+  ```toml
+  [plugins."ip.quality"]
+  dnsbl = true   # set false to skip DNSBL blacklist lookups
+  mail = true    # set false to skip outbound TCP port-25 MX banner checks
+  ```
+
 ## Streaming media
 
 Media unlock (`media.unlock`) checks regional availability across 68 streaming services in five
@@ -257,8 +286,8 @@ commands. Run them locally before pushing.
 | Exchange list | `scripts/netflix-ix-cases.sh`, then `scripts/netflix-ix.sh check`: the list of Netflix's exchange ports follows its rules; the cases include the fixtures that the program's reader reads too, and the safety stops of `update` | any host with jq |
 | Static build | `cargo build --release --locked --target <arch>-unknown-linux-musl --bin lowendaff-bench` | Linux |
 | Swap round trip | `cargo build --release --locked --target <arch>-unknown-linux-musl -p swap-file --example roundtrip`, then `sudo target/<arch>-unknown-linux-musl/release/examples/roundtrip <dir>`: turns a 64 MiB swap file in `<dir>` on and off | Linux, with sudo, on a filesystem that holds swap files, such as ext4 |
-| Smoke | `scripts/smoke-iperf3.sh <dir>`, which starts an iperf3 server of the pinned build on 127.0.0.1 and writes a server list naming it and a config file, `scripts/smoke-trace.sh <dir2> <dir>/config.toml`, which points route tracing at 127.0.0.1 with lists and answers of its own and without NextTrace's lookups, and `scripts/smoke-media.sh <dir3> <dir>/config.toml`, which starts a local responder on 127.0.0.1 for media unlock, then `scripts/smoke.sh target/<arch>-unknown-linux-musl/release/lowendaff-bench --skip cpu.geekbench --config <dir>/config.toml`: a full run without Geekbench 7, which would publish a result, in which no test item is skipped, fails or times out, with the network test against that server only, the report on stdout and the progress log on stderr, then a short run that must find the public IPv4 address without the proxy that the environment names | Linux, as root or with sudo, with network access (it downloads sysbench, STREAM, multichase, fio, iperf3 and NextTrace) |
-| Smoke mutants | `scripts/smoke-mutants.sh <arch>-unknown-linux-musl`: smoke must reject deliberately broken builds; these runs skip the groups cpu, memory, disk, network and media (`--skip cpu,memory,disk,network,media`) | Linux, as root or with sudo |
+| Smoke | `scripts/smoke-iperf3.sh <dir>`, which starts an iperf3 server of the pinned build on 127.0.0.1 and writes a server list naming it and a config file, `scripts/smoke-trace.sh <dir2> <dir>/config.toml`, which points route tracing at 127.0.0.1 with lists and answers of its own and without NextTrace's lookups, `scripts/smoke-ip.sh <dir3> <dir>/config.toml`, which starts local HTTP, DNSBL and SMTP responders on 127.0.0.1 for IP reputation, and `scripts/smoke-media.sh <dir4> <dir>/config.toml`, which starts a local responder on 127.0.0.1 for media unlock, then `scripts/smoke.sh target/<arch>-unknown-linux-musl/release/lowendaff-bench --skip cpu.geekbench --config <dir>/config.toml`: a full run without Geekbench 7, which would publish a result, in which no test item is skipped, fails or times out, with the network test against that server only, the report on stdout and the progress log on stderr, then a short run that must find the public IPv4 address without the proxy that the environment names | Linux, as root or with sudo, with network access (it downloads sysbench, STREAM, multichase, fio, iperf3 and NextTrace) |
+| Smoke mutants | `scripts/smoke-mutants.sh <arch>-unknown-linux-musl`: smoke must reject deliberately broken builds; these runs skip the groups cpu, memory, disk, network, ip and media (`--skip cpu,memory,disk,network,ip,media`) | Linux, as root or with sudo |
 | Distributions | `scripts/distros.sh target/<arch>-unknown-linux-musl/release/lowendaff-bench ghcr.io/lowendaff/mirror`: the system information of a run with every test item skipped, in the images of `scripts/distros.txt`, 12 distributions (13 on x86_64), pulled from their copies on GHCR, with the uptime and load marked as the host's, and Geekbench 7 there without a network, which must skip for the image's glibc; without the last argument, from the original registries | Linux or macOS with Docker; the copies need `docker login ghcr.io` |
 | Network speed, not required | `scripts/network-check.sh <build> servers/iperf3.json`: the network test against one or two servers of the list, chosen at random, 3 seconds over 2 streams of at most 100 Mbit/s each (300 MB at most); it fails only when the program misbehaves, and a server that is busy or cannot be reached shows in the job's summary. CI runs it in the job `network speed against public servers` with the x86_64 build of the test job, which no merge waits for | Linux, as root or with sudo, with network access |
 
