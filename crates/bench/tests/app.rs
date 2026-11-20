@@ -1392,7 +1392,8 @@ fn the_list_keeps_each_group_together_in_the_reports_order() {
             "[CPU performance] (group: cpu)",
             "[Memory performance] (group: memory)",
             "[Disks] (group: disk)",
-            "[Network] (group: network)"
+            "[Network] (group: network)",
+            "[Streaming media] (group: media)"
         ]
     );
     let ids: Vec<&str> = text
@@ -1412,7 +1413,8 @@ fn the_list_keeps_each_group_together_in_the_reports_order() {
             "disk.health",
             "disk.fio",
             "network.iperf3",
-            "network.trace"
+            "network.trace",
+            "media.unlock"
         ]
     );
     let cpu: Vec<&str> = text
@@ -1463,6 +1465,11 @@ fn the_list_keeps_each_group_together_in_the_reports_order() {
             "  network.trace  Route tracing (tools: nexttrace 1.7.6)"
         ]
     );
+    let media: Vec<&str> = text
+        .lines()
+        .filter(|line| line.starts_with("  media."))
+        .collect();
+    assert_eq!(media, ["  media.unlock  Media unlock"]);
 }
 
 #[test]
@@ -1519,5 +1526,5 @@ fn the_items_that_do_not_apply_here_are_named_as_the_report_names_them() {
     let (applicable, names) = orchestrator::for_host(planned, &vm);
 
     assert_eq!(names, ["Disk health", "Memory NUMA"]);
-    assert_eq!(applicable.len(), 8, "the others run");
+    assert_eq!(applicable.len(), 9, "the others run");
 }

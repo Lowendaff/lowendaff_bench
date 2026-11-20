@@ -14,6 +14,7 @@ use bench_api::CancellationToken;
 use bench_api::Context;
 use bench_api::FileSpec;
 use bench_api::Files;
+use bench_api::HttpClient;
 use bench_api::Net;
 use bench_api::Plugin;
 use bench_api::Progress;
@@ -200,6 +201,8 @@ pub struct Settings {
     /// The files that each plugin asked for, by the plugin's id: those that were had, and why
     /// the others failed.
     pub files: BTreeMap<&'static str, Provisioned>,
+    /// Direct HTTP client over each IP family, when configured.
+    pub http: Option<Arc<dyn HttpClient>>,
     /// The host, as the run read it, for the plugins.
     pub host: Arc<HostProfile>,
 }
@@ -404,6 +407,7 @@ async fn run_one<R: Send + 'static>(
         host: Arc::clone(&settings.host),
         tools: Arc::clone(&settings.tools),
         files: Arc::new(files),
+        http: settings.http.clone(),
         deadline: Instant::now() + planned.timeout,
         work_dir: work.path().to_path_buf(),
         token: global.child_token(),
@@ -422,6 +426,7 @@ struct Launch<'a, R> {
     host: Arc<HostProfile>,
     tools: Arc<BTreeMap<String, PathBuf>>,
     files: Arc<Files>,
+    http: Option<Arc<dyn HttpClient>>,
     deadline: Instant,
     work_dir: PathBuf,
     /// The plugin's own token, a child of `global`.
@@ -453,7 +458,7 @@ struct PluginRunner<P: Plugin, R> {
 impl<P: Plugin, R: Send + 'static> Runner<R> for PluginRunner<P, R> {
     fn run<'a>(&'a self, launch: Launch<'a, R>) -> Running<'a, R> {
         Box::pin(async move {
-            let (ctx, mut channels) = Context::<P::Output>::new(
+            let (mut ctx, mut channels) = Context::<P::Output>::new(
                 launch.host,
                 launch.tools,
                 launch.files,
@@ -461,6 +466,9 @@ impl<P: Plugin, R: Send + 'static> Runner<R> for PluginRunner<P, R> {
                 launch.work_dir,
                 launch.token.clone(),
             );
+            if let Some(http) = launch.http {
+                ctx = ctx.with_http(http);
+            }
             let plugin = self.plugin.clone();
             let mut task = tokio::spawn(async move { plugin.run(&ctx).await });
             // In this order, so that a plugin that has already ended is taken at its word, and

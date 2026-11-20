@@ -6,6 +6,7 @@
 mod cpu;
 mod disk;
 mod host;
+mod media;
 mod memory;
 mod network;
 mod summary;
@@ -39,7 +40,7 @@ pub use summary::run_status;
 pub use summary::unmet_text;
 
 /// The sections of the plugins, in the report's order, after the host's: the groups' ids.
-const SECTIONS: [&str; 4] = ["cpu", "memory", "disk", "network"];
+const SECTIONS: [&str; 5] = ["cpu", "memory", "disk", "network", "media"];
 
 /// The reporter's name for a plugin, by its id.
 #[must_use]
@@ -130,6 +131,7 @@ fn plugin(out: &mut Out, run: &Run<Measured>, indent: &str, page: &Page) {
             let own = own_addresses(page.host);
             network::trace(out, report, indent, &own, page.show_ip);
         }
+        Some(Measured::MediaUnlock(report)) => media::unlock(out, report, indent),
         None => {}
     }
     out.line(&format!("{indent}{}", run_status(run)));

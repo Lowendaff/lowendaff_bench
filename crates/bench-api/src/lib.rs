@@ -5,10 +5,12 @@
 
 #![warn(missing_docs)]
 
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::future::Future;
 use std::path::Path;
 use std::path::PathBuf;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -295,6 +297,198 @@ pub enum Step {
         /// Whether the trace runs over IPv6, else over IPv4.
         ipv6: bool,
     },
+    /// Probing a regional group of streaming services.
+    Media {
+        /// The group's name, such as `Global` or `Asia`.
+        group: &'static str,
+        /// Whether the probes run over IPv6, else over IPv4.
+        ipv6: bool,
+    },
+}
+
+/// Default byte limit read from an HTTP probe response body (256 KiB).
+pub const DEFAULT_HTTP_LIMIT: usize = 256 * 1024;
+
+/// Default timeout of one HTTP probe request.
+pub const DEFAULT_HTTP_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Method of an [`HttpRequest`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HttpMethod {
+    /// HTTP `GET`.
+    Get,
+    /// HTTP `POST`.
+    Post,
+}
+
+/// How an [`HttpClient`] treats `3xx` redirects.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RedirectPolicy {
+    /// Returns the `3xx` status and headers as received.
+    None,
+    /// Follows up to `max` redirects over the same IP family.
+    Follow {
+        /// Maximum redirect hops before [`HttpError::TooManyRedirects`].
+        max: u8,
+    },
+}
+
+/// One direct HTTP probe over a chosen IP family.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HttpRequest {
+    /// IP family the connection must bind to and resolve.
+    pub family: IpFamily,
+    /// HTTP method.
+    pub method: HttpMethod,
+    /// Target URL (`https://`, or loopback `http://` in tests).
+    pub url: String,
+    /// Extra request headers (`name`, `value`).
+    pub headers: Vec<(String, String)>,
+    /// Optional request body, for `POST` probes.
+    pub body: Option<Vec<u8>>,
+    /// Redirect policy.
+    pub redirect: RedirectPolicy,
+    /// Maximum time for the whole probe (including redirects and body read).
+    pub timeout: Duration,
+    /// Most bytes of the response body to keep; further bytes are dropped.
+    pub max_bytes: usize,
+}
+
+impl HttpRequest {
+    /// A `GET` probe over `family` to `url`, without following redirects.
+    #[must_use]
+    pub fn get(family: IpFamily, url: impl Into<String>) -> Self {
+        Self {
+            family,
+            method: HttpMethod::Get,
+            url: url.into(),
+            headers: Vec::new(),
+            body: None,
+            redirect: RedirectPolicy::None,
+            timeout: DEFAULT_HTTP_TIMEOUT,
+            max_bytes: DEFAULT_HTTP_LIMIT,
+        }
+    }
+
+    /// A `POST` probe over `family` to `url` with `body`, without following redirects.
+    #[must_use]
+    pub fn post(family: IpFamily, url: impl Into<String>, body: impl Into<Vec<u8>>) -> Self {
+        Self {
+            family,
+            method: HttpMethod::Post,
+            url: url.into(),
+            headers: Vec::new(),
+            body: Some(body.into()),
+            redirect: RedirectPolicy::None,
+            timeout: DEFAULT_HTTP_TIMEOUT,
+            max_bytes: DEFAULT_HTTP_LIMIT,
+        }
+    }
+
+    /// Appends a request header.
+    #[must_use]
+    pub fn with_header(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
+        self.headers.push((name.into(), value.into()));
+        self
+    }
+
+    /// Sets how `3xx` responses are handled.
+    #[must_use]
+    pub fn with_redirect(mut self, redirect: RedirectPolicy) -> Self {
+        self.redirect = redirect;
+        self
+    }
+
+    /// Sets the time limit of the probe.
+    #[must_use]
+    pub fn with_timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = timeout;
+        self
+    }
+
+    /// Sets the maximum response body bytes kept.
+    #[must_use]
+    pub fn with_max_bytes(mut self, max_bytes: usize) -> Self {
+        self.max_bytes = max_bytes;
+        self
+    }
+}
+
+/// Answer of an [`HttpRequest`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HttpResponse {
+    /// HTTP status code, such as `200`, `302` or `403`.
+    pub status: u16,
+    /// Effective URL that answered (after any followed redirects).
+    pub final_url: String,
+    /// Response headers with lowercase names, in wire order.
+    pub headers: Vec<(String, String)>,
+    /// Response body, truncated to [`HttpRequest::max_bytes`].
+    pub body: Vec<u8>,
+}
+
+impl HttpResponse {
+    /// First header value matching `name` (ASCII case-insensitive).
+    #[must_use]
+    pub fn header(&self, name: &str) -> Option<&str> {
+        self.headers
+            .iter()
+            .find(|(key, _)| key.eq_ignore_ascii_case(name))
+            .map(|(_, value)| value.as_str())
+    }
+
+    /// Every header value matching `name` (ASCII case-insensitive), such as `set-cookie`.
+    #[must_use]
+    pub fn header_values<'a>(&'a self, name: &str) -> Vec<&'a str> {
+        self.headers
+            .iter()
+            .filter(|(key, _)| key.eq_ignore_ascii_case(name))
+            .map(|(_, value)| value.as_str())
+            .collect()
+    }
+
+    /// The body decoded as UTF-8, replacing invalid sequences.
+    #[must_use]
+    pub fn text(&self) -> Cow<'_, str> {
+        String::from_utf8_lossy(&self.body)
+    }
+}
+
+/// Why an [`HttpRequest`] did not yield an [`HttpResponse`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub enum HttpError {
+    /// The target host has no address of [`HttpRequest::family`].
+    NoAddress,
+    /// The probe exceeded [`HttpRequest::timeout`].
+    TimedOut,
+    /// Redirect hops exceeded the limit in [`RedirectPolicy::Follow`].
+    TooManyRedirects,
+    /// A `3xx` response had a missing, malformed or downgraded `Location`.
+    InvalidRedirect(String),
+    /// The URL uses a scheme other than `https` (outside loopback tests).
+    NotHttps(String),
+    /// Connection, DNS lookup, TLS or read failure.
+    Transport(String),
+    /// Cancelled via the plugin's [`CancellationToken`].
+    Cancelled,
+}
+
+/// Boxed future returned by [`HttpClient::send`].
+pub type HttpFuture<'a> =
+    Pin<Box<dyn Future<Output = Result<HttpResponse, HttpError>> + Send + 'a>>;
+
+/// Direct, proxy-free HTTP transport over a chosen IP family.
+pub trait HttpClient: Send + Sync {
+    /// Executes `request` over `request.family`.
+    fn send<'a>(&'a self, request: &'a HttpRequest) -> HttpFuture<'a>;
+}
+
+struct NoHttpClient;
+
+impl HttpClient for NoHttpClient {
+    fn send<'a>(&'a self, _request: &'a HttpRequest) -> HttpFuture<'a> {
+        Box::pin(async { Err(HttpError::Transport("no HTTP client configured".to_owned())) })
+    }
 }
 
 /// A tool that a plugin ran: its command, how it ended, and what it printed last when it did
@@ -358,6 +552,7 @@ pub struct Context<O> {
     host: Arc<HostProfile>,
     tools: Arc<BTreeMap<String, PathBuf>>,
     files: Arc<Files>,
+    http: Arc<dyn HttpClient>,
     cancel: CancellationToken,
     deadline: Instant,
     work_dir: PathBuf,
@@ -395,6 +590,7 @@ impl<O: Measurement> Context<O> {
             host,
             tools,
             files,
+            http: Arc::new(NoHttpClient),
             cancel,
             deadline,
             work_dir,
@@ -470,6 +666,25 @@ impl<O: Measurement> Context<O> {
     /// listens.
     pub fn ran(&self, run: ToolRun) {
         let _ = self.progress.send(Progress::Tool(run));
+    }
+
+    /// Attaches the direct HTTP client used by [`Self::probe`].
+    #[must_use]
+    pub fn with_http(mut self, http: Arc<dyn HttpClient>) -> Self {
+        self.http = http;
+        self
+    }
+
+    /// Sends `request` over its IP family, stopping early when [`Self::cancel_token`] fires.
+    pub async fn probe(&self, request: &HttpRequest) -> Result<HttpResponse, HttpError> {
+        if self.cancel.is_cancelled() {
+            return Err(HttpError::Cancelled);
+        }
+        tokio::select! {
+            biased;
+            () = self.cancel.cancelled() => Err(HttpError::Cancelled),
+            outcome = self.http.send(request) => outcome,
+        }
     }
 
     /// Replaces the last partial result. The report shows the last one published when the

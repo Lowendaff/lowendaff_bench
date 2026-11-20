@@ -9,8 +9,16 @@ use std::time::Duration;
 use bench_api::CancellationToken;
 use bench_api::Channels;
 use bench_api::Context;
+use bench_api::HttpClient;
+use bench_api::HttpError;
+use bench_api::HttpFuture;
+use bench_api::HttpMethod;
+use bench_api::HttpRequest;
+use bench_api::HttpResponse;
+use bench_api::IpFamily;
 use bench_api::Measurement;
 use bench_api::Progress;
+use bench_api::RedirectPolicy;
 use bench_api::Step;
 use bench_api::ToolEnd;
 use bench_api::ToolRun;
@@ -136,4 +144,65 @@ fn the_context_hands_out_host_tools_files_why_files_are_missing_directory_deadli
         "the plugin sees the orchestrator's cancel"
     );
     assert_eq!(Output { runs: 0 }.tools()[0].version, "1.0");
+}
+
+struct StubHttp;
+
+impl HttpClient for StubHttp {
+    fn send<'a>(&'a self, request: &'a HttpRequest) -> HttpFuture<'a> {
+        Box::pin(async move {
+            Ok(HttpResponse {
+                status: 200,
+                final_url: request.url.clone(),
+                headers: vec![
+                    ("content-type".to_owned(), "application/json".to_owned()),
+                    ("set-cookie".to_owned(), "a=1".to_owned()),
+                    ("set-cookie".to_owned(), "b=2".to_owned()),
+                ],
+                body: b"{\"ok\":true}".to_vec(),
+            })
+        })
+    }
+}
+
+struct PendingHttp;
+
+impl HttpClient for PendingHttp {
+    fn send<'a>(&'a self, _request: &'a HttpRequest) -> HttpFuture<'a> {
+        Box::pin(async { std::future::pending().await })
+    }
+}
+
+#[tokio::test]
+async fn context_probe_uses_the_configured_http_client_and_stops_on_cancellation() {
+    let (default_ctx, _channels, _) = context();
+    let get = HttpRequest::get(IpFamily::Ipv4, "https://example.com")
+        .with_header("accept", "application/json")
+        .with_redirect(RedirectPolicy::Follow { max: 3 })
+        .with_timeout(Duration::from_secs(5))
+        .with_max_bytes(1024);
+    assert_eq!(get.method, HttpMethod::Get);
+    assert_eq!(get.redirect, RedirectPolicy::Follow { max: 3 });
+    assert_eq!(get.max_bytes, 1024);
+    assert!(matches!(
+        default_ctx.probe(&get).await,
+        Err(HttpError::Transport(_))
+    ));
+
+    let post = HttpRequest::post(IpFamily::Ipv6, "https://example.com/api", b"{}".to_vec());
+    assert_eq!(post.method, HttpMethod::Post);
+    assert_eq!(post.body.as_deref(), Some(b"{}".as_slice()));
+
+    let (ctx, _channels, _) = context();
+    let ctx = ctx.with_http(Arc::new(StubHttp));
+    let response = ctx.probe(&get).await.expect("stub response");
+    assert_eq!(response.status, 200);
+    assert_eq!(response.header("Content-Type"), Some("application/json"));
+    assert_eq!(response.header_values("Set-Cookie"), vec!["a=1", "b=2"]);
+    assert_eq!(response.text(), "{\"ok\":true}");
+
+    let (ctx, _channels, cancel) = context();
+    let ctx = ctx.with_http(Arc::new(PendingHttp));
+    cancel.cancel();
+    assert_eq!(ctx.probe(&get).await, Err(HttpError::Cancelled));
 }

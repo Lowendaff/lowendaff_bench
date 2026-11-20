@@ -453,6 +453,7 @@ async fn run_on<R: Send + 'static>(
         tools: Arc::new(tools),
         failed_tools: BTreeMap::new(),
         files: BTreeMap::new(),
+        http: None,
         host: Arc::new(host),
     };
     orchestrator::run_plan(plan, cancel, &settings, observer).await
@@ -755,6 +756,7 @@ async fn the_work_directory_lives_under_the_run_root_and_is_removed() {
         tools: Arc::default(),
         failed_tools: BTreeMap::new(),
         files: BTreeMap::new(),
+        http: None,
         host: Arc::default(),
     };
     let runs = orchestrator::run_plan(

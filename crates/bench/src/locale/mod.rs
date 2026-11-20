@@ -27,6 +27,9 @@ pub use items::DiskWords;
 pub use items::FioRow;
 pub use items::ListRule;
 pub use items::LookupProblem;
+pub use items::MediaCell;
+pub use items::MediaChoice;
+pub use items::MediaWords;
 pub use items::MemoryWords;
 pub use items::NetworkWords;
 pub use items::NoSwapWhy;
@@ -56,6 +59,7 @@ pub trait Words:
     + DiskWords
     + NetworkWords
     + TraceWords
+    + MediaWords
     + Sync
 {
 }
@@ -71,6 +75,7 @@ impl<T> Words for T where
         + DiskWords
         + NetworkWords
         + TraceWords
+        + MediaWords
         + Sync
 {
 }

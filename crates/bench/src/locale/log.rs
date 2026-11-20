@@ -30,6 +30,8 @@ pub trait LogWords {
     fn tool_run(&self, id: &str, command: &str, end: &ToolEnd) -> String;
     /// `-v`: one of the last lines that a tool printed.
     fn tool_output(&self, id: &str, line: &str) -> String;
+    /// `-v`: one direct HTTP probe and how it ended.
+    fn http_probe(&self, method: &str, host: &str, ipv6: bool, outcome: &str) -> String;
     /// The first Ctrl-C: what happens now, and what a second one does.
     fn interrupt(&self) -> String;
 }

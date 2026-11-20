@@ -42,6 +42,9 @@ pub fn all() -> Vec<Entry> {
         // Route tracing: after network speed, so that its probes do not share the link with
         // iperf3's streams, and before Geekbench.
         entry::<plugin_network::trace::Trace>(Measured::NetworkTrace),
+        // Media unlock: lightweight direct HTTPS probes across global and regional OTT platforms,
+        // after network speed and route tracing and before Geekbench.
+        entry::<plugin_media::unlock::Unlock>(Measured::MediaUnlock),
         // Geekbench 7: last, being the longest, with a download, an upload and perhaps swap that
         // must not disturb the disk test.
         entry::<plugin_cpu::geekbench::Geekbench>(Measured::CpuGeekbench),
@@ -237,6 +240,7 @@ mod tests {
                 "disk.fio",
                 "network.iperf3",
                 "network.trace",
+                "media.unlock",
                 "cpu.geekbench",
             ]
         );

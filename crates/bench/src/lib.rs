@@ -6,6 +6,7 @@ pub mod fetcher;
 pub mod locale;
 pub mod network;
 pub mod orchestrator;
+pub mod prober;
 pub mod progress;
 pub mod provision;
 pub mod registry;

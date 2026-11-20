@@ -453,3 +453,63 @@ pub enum ListRule {
     /// The place, the provider or the link.
     Text,
 }
+
+/// Streaming media unlock's words: its method, regional subheadings, table cells and notes.
+pub trait MediaWords {
+    /// Method line at the top of the streaming media section.
+    fn media_method(&self, choice: &MediaChoice) -> String;
+    /// Heading of a regional group (`global`, `asia`, `europe`, `americas`, `oceania`).
+    fn media_group(&self, code: &str) -> &'static str;
+    /// Headers of a regional table (`Service`, `IPv4`, `IPv6`).
+    fn media_headers(&self) -> [&'static str; 3];
+    /// Cell text for an unlocked service, optionally in `region`.
+    fn media_yes(&self, region: Option<&str>) -> String;
+    /// Cell text when only originals are available, optionally in `region`.
+    fn media_originals(&self, region: Option<&str>) -> String;
+    /// Cell text for a non-unlocked outcome.
+    fn media_cell(&self, cell: MediaCell, ipv6: bool) -> &'static str;
+    /// Note below a regional table for an unexpected HTTP or parse error.
+    fn media_unexpected(&self, service: &str, ipv6: bool, reason: &str) -> String;
+    /// Note when configured `services` contain unknown ids.
+    fn unknown_services(&self, ids: &[String]) -> String;
+    /// Failure reason when `base_url` is neither `https://` nor loopback `http://`.
+    fn invalid_base_url(&self, url: &str) -> String;
+    /// Skip reason when no requested service matched the catalog.
+    fn no_service(&self, unknown: &[String]) -> String;
+    /// Skip reason when neither IPv4 nor IPv6 is reachable.
+    fn no_media_family(&self) -> String;
+}
+
+/// Non-default settings chosen for `media.unlock`.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct MediaChoice {
+    /// Regional groups requested, such as `global` or `asia`.
+    pub groups: Vec<String>,
+    /// Specific service ids requested.
+    pub services: Vec<String>,
+    /// Whether `base_url` overrode the built-in endpoints.
+    pub custom_base: bool,
+}
+
+/// Non-unlocked cell kinds in the streaming media table.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MediaCell {
+    /// Geographically restricted.
+    No,
+    /// Redirected to Mainland China (`CN`).
+    NoChina,
+    /// Service announced as coming soon.
+    ComingSoon,
+    /// Proxy or VPN detected by the service.
+    ProxyDetected,
+    /// Blocked by an anti-bot challenge or WAF.
+    BlockedWaf,
+    /// Rate limited (`HTTP 429`).
+    RateLimited,
+    /// Domain has no DNS record for this IP family.
+    NoAddress,
+    /// Probe timed out.
+    TimedOut,
+    /// Unexpected status or response body.
+    Error,
+}

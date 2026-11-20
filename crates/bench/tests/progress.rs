@@ -166,6 +166,20 @@ fn each_step_has_its_words() {
             },
             "download from Frankfurt, DE over IPv6",
         ),
+        (
+            Step::Trace {
+                target: "Tokyo",
+                ipv6: false,
+            },
+            "trace to Tokyo over IPv4",
+        ),
+        (
+            Step::Media {
+                group: "global",
+                ipv6: true,
+            },
+            "probing Global over IPv6",
+        ),
     ];
     let lines = logged(false, || {
         let mut log = Log;

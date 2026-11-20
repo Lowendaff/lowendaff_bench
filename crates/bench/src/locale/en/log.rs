@@ -41,6 +41,7 @@ impl LogWords for English {
     }
 
     fn item_progress(&self, id: &str, step: Step) -> String {
+        use crate::locale::MediaWords;
         use crate::locale::MemoryWords;
 
         let step = match step {
@@ -70,6 +71,9 @@ impl LogWords for English {
                 ipv6,
             } => format!("download from {location}, {country} over {}", family(ipv6)),
             Step::Trace { target, ipv6 } => format!("trace to {target} over {}", family(ipv6)),
+            Step::Media { group, ipv6 } => {
+                format!("probing {} over {}", self.media_group(group), family(ipv6))
+            }
         };
         format!("{id} {step}")
     }
@@ -94,6 +98,10 @@ impl LogWords for English {
 
     fn tool_output(&self, id: &str, line: &str) -> String {
         format!("{id} output: {line}")
+    }
+
+    fn http_probe(&self, method: &str, host: &str, ipv6: bool, outcome: &str) -> String {
+        format!("Probe {method} {host} over {}: {outcome}", family(ipv6))
     }
 
     fn interrupt(&self) -> String {

@@ -9,6 +9,9 @@ use crate::locale::DiskWords;
 use crate::locale::FioRow;
 use crate::locale::ListRule;
 use crate::locale::LookupProblem;
+use crate::locale::MediaCell;
+use crate::locale::MediaChoice;
+use crate::locale::MediaWords;
 use crate::locale::MemoryWords;
 use crate::locale::NetworkWords;
 use crate::locale::NoSwapWhy;
@@ -771,5 +774,100 @@ impl TraceWords for English {
 
     fn no_target_route(&self) -> String {
         "no target got a route".to_owned()
+    }
+}
+
+impl MediaWords for English {
+    fn media_method(&self, choice: &MediaChoice) -> String {
+        let mut method = "HTTPS probes, direct (no proxy)".to_owned();
+        if !choice.groups.is_empty() {
+            method.push_str(&format!("; groups {}", choice.groups.join(", ")));
+        }
+        if !choice.services.is_empty() {
+            method.push_str(&format!("; services {}", choice.services.join(", ")));
+        }
+        if choice.custom_base {
+            method.push_str("; custom base URL");
+        }
+        method
+    }
+
+    fn media_group(&self, code: &str) -> &'static str {
+        match code {
+            "global" => "Global",
+            "asia" => "Asia",
+            "europe" => "Europe",
+            "americas" => "Americas",
+            "oceania" => "Oceania",
+            _ => "Other",
+        }
+    }
+
+    fn media_headers(&self) -> [&'static str; 3] {
+        ["Service", "IPv4", "IPv6"]
+    }
+
+    fn media_yes(&self, region: Option<&str>) -> String {
+        match region {
+            Some(region) => format!("yes ({region})"),
+            None => "yes".to_owned(),
+        }
+    }
+
+    fn media_originals(&self, region: Option<&str>) -> String {
+        match region {
+            Some(region) => format!("originals only ({region})"),
+            None => "originals only".to_owned(),
+        }
+    }
+
+    fn media_cell(&self, cell: MediaCell, ipv6: bool) -> &'static str {
+        match cell {
+            MediaCell::No => "no",
+            MediaCell::NoChina => "no (CN)",
+            MediaCell::ComingSoon => "no (coming soon)",
+            MediaCell::ProxyDetected => "no (proxy detected)",
+            MediaCell::BlockedWaf => "blocked (WAF)",
+            MediaCell::RateLimited => "rate limited",
+            MediaCell::NoAddress => {
+                if ipv6 {
+                    "no IPv6 address"
+                } else {
+                    "no IPv4 address"
+                }
+            }
+            MediaCell::TimedOut => "timed out",
+            MediaCell::Error => "error",
+        }
+    }
+
+    fn media_unexpected(&self, service: &str, ipv6: bool, reason: &str) -> String {
+        let family = if ipv6 { "IPv6" } else { "IPv4" };
+        format!("{service} over {family}: {reason}")
+    }
+
+    fn unknown_services(&self, ids: &[String]) -> String {
+        format!("no streaming service in the catalog for {}", ids.join(", "))
+    }
+
+    fn invalid_base_url(&self, url: &str) -> String {
+        format!(
+            "base_url must start with https:// or loopback http://127.0.0.1 or http://[::1]: {url}"
+        )
+    }
+
+    fn no_service(&self, unknown: &[String]) -> String {
+        if unknown.is_empty() {
+            "no streaming service is chosen".to_owned()
+        } else {
+            format!(
+                "no streaming service in the catalog for {}",
+                unknown.join(", ")
+            )
+        }
+    }
+
+    fn no_media_family(&self) -> String {
+        "the host reaches neither IPv4 nor IPv6".to_owned()
     }
 }

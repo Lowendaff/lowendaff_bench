@@ -33,6 +33,7 @@ impl ReportWords for English {
             "memory" => Some("Memory performance"),
             "disk" => Some("Disks"),
             "network" => Some("Network"),
+            "media" => Some("Streaming media"),
             _ => None,
         }
     }
@@ -49,6 +50,7 @@ impl ReportWords for English {
             "disk.fio" => Some("Disk performance"),
             "network.iperf3" => Some("Network speed"),
             "network.trace" => Some("Route tracing"),
+            "media.unlock" => Some("Media unlock"),
             _ => None,
         }
     }

@@ -24,6 +24,7 @@ use crate::locale;
 use crate::orchestrator;
 use crate::orchestrator::Planned;
 use crate::orchestrator::Settings;
+use crate::prober::Probers;
 use crate::progress::Log;
 use crate::provision;
 use crate::provision::DownloadError;
@@ -301,6 +302,7 @@ where
         files.insert(planned.id(), fetched);
     }
 
+    let probers = Arc::new(Probers::try_new()?);
     let host = Arc::new(host);
     let settings = Settings {
         grace: GRACE,
@@ -309,6 +311,7 @@ where
         tools: Arc::new(ready),
         failed_tools,
         files,
+        http: Some(probers),
         host: Arc::clone(&host),
     };
     let runs = orchestrator::run_plan(planned, cancel, &settings, &mut Log).await;
