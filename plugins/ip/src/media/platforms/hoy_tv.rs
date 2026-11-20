@@ -37,9 +37,17 @@ pub fn probe<'a>(
 /// Parses HOY TV's HTTP response into a [`Verdict`].
 #[must_use]
 pub fn parse(response: &HttpResponse) -> Verdict {
-    parse::status_verdict(
-        response,
-        "HK",
-        &["geo", "not available", "outside hong kong", "\"code\":403"],
-    )
+    if let Some(early) = parse::gate(response) {
+        return early;
+    }
+    let body = response.text().to_ascii_lowercase();
+    if matches!(response.status, 403 | 451)
+        || body.contains("geo")
+        || body.contains("not available")
+        || body.contains("outside hong kong")
+        || body.contains("\"code\":403")
+    {
+        return Verdict::no();
+    }
+    parse::no_region()
 }

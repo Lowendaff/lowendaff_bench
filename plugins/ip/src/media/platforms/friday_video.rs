@@ -50,15 +50,28 @@ pub fn parse(response: &HttpResponse) -> Verdict {
         return Verdict::no();
     }
     let body = response.text();
-    // 1003 or "\u{6d77}\u{5916}" ("overseas") / "\u{5730}\u{533a}" ("region") marks geo-block.
     if body.contains("\"code\":1003")
         || body.contains("\u{6d77}\u{5916}")
         || body.contains("\u{5730}\u{533a}")
     {
         return Verdict::no();
     }
-    if response.status == 200 && body.contains("\"code\":") {
-        return Verdict::yes_in("TW");
+    if let Some(val) = parse::json(response) {
+        let code = val.get("code").and_then(|value| {
+            value
+                .as_i64()
+                .or_else(|| value.as_str().and_then(|text| text.parse().ok()))
+        });
+        let message = val
+            .get("message")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default();
+        return match code {
+            Some(0) => Verdict::yes_in("TW"),
+            Some(1003) => Verdict::no(),
+            Some(code) => Verdict::Unexpected(format!("streaming code {code}: {message}")),
+            None => parse::no_region(),
+        };
     }
-    Verdict::Unexpected(format!("HTTP {}", response.status))
+    parse::no_region()
 }

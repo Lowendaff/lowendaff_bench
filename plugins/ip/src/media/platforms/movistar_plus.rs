@@ -37,9 +37,15 @@ pub fn probe<'a>(
 /// Parses Movistar Plus+'s HTTP response into a [`Verdict`].
 #[must_use]
 pub fn parse(response: &HttpResponse) -> Verdict {
-    parse::status_verdict(
-        response,
-        "ES",
-        &["fuera de espana", "no disponible en tu pais"],
-    )
+    if let Some(early) = parse::gate(response) {
+        return early;
+    }
+    let body = response.text().to_ascii_lowercase();
+    if matches!(response.status, 403 | 451)
+        || body.contains("fuera de espana")
+        || body.contains("no disponible en tu pais")
+    {
+        return Verdict::no();
+    }
+    parse::no_region()
 }

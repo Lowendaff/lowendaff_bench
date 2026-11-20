@@ -26,7 +26,8 @@ pub fn probe<'a>(
 ) -> ProbeFuture<'a> {
     Box::pin(async move {
         let url = |real: &str| parse::endpoint(base_url, SPEC.id, "check", real);
-        let req = HttpRequest::get(family, url("https://www.tiktok.com/cdn-cgi/trace"));
+        let req = HttpRequest::get(family, url("https://www.tiktok.com/explore"))
+            .with_max_bytes(1024 * 1024);
         match parse::send(ctx, req).await {
             Ok(res) => parse(&res),
             Err(verdict) => verdict,
@@ -47,9 +48,10 @@ pub fn parse(response: &HttpResponse) -> Verdict {
         return Verdict::Unexpected(format!("HTTP {}", response.status));
     }
     let body = response.text();
-    let region = parse::trace_loc(&body).or_else(|| {
-        parse::extract_between(&body, "\"region\":\"", "\"").and_then(parse::country_code)
-    });
+    let region = body
+        .find("\"webapp.app-context\"")
+        .and_then(|start| parse::extract_between(&body[start..], "\"region\":\"", "\""))
+        .and_then(parse::country_code);
     match region.as_deref() {
         Some("CN" | "HK" | "IN" | "IR" | "KP" | "AF") => Verdict::no(),
         Some(code) => Verdict::yes_in(code),

@@ -42,8 +42,11 @@ pub fn parse(response: &HttpResponse) -> Verdict {
     if let Some(early) = parse::gate(response) {
         return early;
     }
-    if response.final_url.contains("serviceAreaBlock") || matches!(response.status, 403 | 451) {
+    if response.final_url.contains("serviceAreaBlock")
+        || response.text().contains("serviceAreaBlock")
+        || matches!(response.status, 403 | 451)
+    {
         return Verdict::no();
     }
-    parse::status_verdict(response, "TW", &["serviceAreaBlock"])
+    parse::no_region()
 }

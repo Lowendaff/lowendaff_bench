@@ -51,6 +51,9 @@ pub fn parse(response: &HttpResponse) -> Verdict {
         if loc.contains("unavailable") || loc.contains("geo") {
             return Verdict::no();
         }
+        if loc.contains("disneyplus") {
+            return Verdict::Unexpected("redirected to Disney+".to_owned());
+        }
     }
     let body = response.text();
     if body.contains("anonymous proxy tool") || body.contains("unblocker") {
@@ -61,8 +64,5 @@ pub fn parse(response: &HttpResponse) -> Verdict {
     if body.contains("not available in your region") {
         return Verdict::no();
     }
-    if matches!(response.status, 200 | 301 | 302) {
-        return Verdict::yes_in("US");
-    }
-    Verdict::Unexpected(format!("HTTP {}", response.status))
+    parse::no_region()
 }

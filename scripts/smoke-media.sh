@@ -28,18 +28,18 @@ import sys
 PORT = int(sys.argv[1])
 
 RESPONSES = {
-    "/netflix/licensed": (200, "https://127.0.0.1/us/title/81280792", b"ok"),
-    "/netflix/original": (200, "https://127.0.0.1/us/title/80018499", b"ok"),
-    "/abema/check": (200, None, b'{"isoCountryCode":"JP"}'),
-    "/bbc-iplayer/check": (200, None, b'{"media":[]}'),
-    "/starz/check": (200, None, b'{"isAllowedCountry":true,"country":"US"}'),
-    "/stan/check": (400, None, b'{"errors":["InvalidCredentials"]}'),
+    "/netflix/licensed": (200, b"ok"),
+    "/netflix/original": (200, b"ok"),
+    "/abema/check": (200, b'{"isoCountryCode":"JP"}'),
+    "/bbc-iplayer/check": (200, b'{"media":[]}'),
+    "/starz/check": (401, b'{"errorDetails":null,"errorCode":0,"properties":{}}'),
+    "/stan/check": (403, b'{"errors":["StreamCo.Concurrency.GeoBlocked"]}'),
 }
 
 class Handler(http.server.BaseHTTPRequestHandler):
     def respond(self):
         path = self.path.split("?", 1)[0]
-        status, _, body = RESPONSES.get(path, (200, None, b"{}"))
+        status, body = RESPONSES.get(path, (200, b"{}"))
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))

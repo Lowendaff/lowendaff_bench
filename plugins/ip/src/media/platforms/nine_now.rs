@@ -50,8 +50,5 @@ pub fn parse(response: &HttpResponse) -> Verdict {
     if body.contains("\"geoblocked\":true") || body.contains("GeoBlocked") {
         return Verdict::no();
     }
-    if response.status == 200 {
-        return Verdict::yes_in("AU");
-    }
-    Verdict::Unexpected(format!("HTTP {}", response.status))
+    parse::no_region()
 }

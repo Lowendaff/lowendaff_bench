@@ -90,5 +90,25 @@ pub fn create_failure(response: &HttpResponse) -> Verdict {
 /// Evaluates TVer's `callHome` response.
 #[must_use]
 pub fn parse(response: &HttpResponse) -> Verdict {
-    parse::status_verdict(response, "JP", &["forbidden", "outside japan"])
+    if let Some(early) = parse::gate(response) {
+        return early;
+    }
+    if matches!(response.status, 403 | 451) {
+        return Verdict::no();
+    }
+    let body = response.text().to_ascii_lowercase();
+    if body.contains("forbidden") || body.contains("outside japan") {
+        return Verdict::no();
+    }
+    if let Some(val) = parse::json(response) {
+        let populated = match val.get("result") {
+            Some(serde_json::Value::Object(map)) => !map.is_empty(),
+            Some(serde_json::Value::Array(items)) => !items.is_empty(),
+            _ => false,
+        };
+        if populated {
+            return Verdict::yes_in("JP");
+        }
+    }
+    parse::no_region()
 }

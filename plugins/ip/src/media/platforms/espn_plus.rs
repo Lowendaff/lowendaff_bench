@@ -44,9 +44,13 @@ pub fn parse(response: &HttpResponse) -> Verdict {
         return Verdict::no();
     }
     if let Some(loc) = response.header("location")
-        && (loc.contains("unavailable") || loc.contains("block"))
+        && (loc.contains("unavailable") || loc.contains("block") || loc.contains("denied"))
     {
         return Verdict::no();
     }
-    parse::status_verdict(response, "US", &["not available in your region"])
+    let body = response.text().to_ascii_lowercase();
+    if body.contains("not available in your region") {
+        return Verdict::no();
+    }
+    parse::no_region()
 }

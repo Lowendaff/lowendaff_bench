@@ -4,7 +4,6 @@ use bench_api::Context;
 use bench_api::HttpRequest;
 use bench_api::HttpResponse;
 use bench_api::IpFamily;
-use bench_api::RedirectPolicy;
 
 use super::super::parse;
 use super::super::result::Output;
@@ -27,8 +26,16 @@ pub fn probe<'a>(
 ) -> ProbeFuture<'a> {
     Box::pin(async move {
         let url = |real: &str| parse::endpoint(base_url, SPEC.id, "check", real);
-        let req = HttpRequest::get(family, url("https://www.nicovideo.jp/watch/so23017073"))
-            .with_redirect(RedirectPolicy::Follow { max: 5 });
+        let track = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |elapsed| elapsed.as_secs());
+        let real = format!(
+            "https://www.nicovideo.jp/api/watch/v3_guest/so23017073\
+             ?actionTrackId=AAAAAAAAAA_{track}"
+        );
+        let req = HttpRequest::get(family, url(&real))
+            .with_header("x-frontend-id", "6")
+            .with_header("x-frontend-version", "0");
         match parse::send(ctx, req).await {
             Ok(res) => parse(&res),
             Err(verdict) => verdict,
@@ -45,15 +52,26 @@ pub fn parse(response: &HttpResponse) -> Verdict {
     if matches!(response.status, 403 | 451) {
         return Verdict::no();
     }
-    let body = response.text();
-    if body.contains("same_region")
-        || body.contains("notAllowedCountry")
-        || body.contains("cannot be played in your country")
-    {
-        return Verdict::no();
-    }
-    if response.status == 200 {
-        return Verdict::yes_in("JP");
+    if let Some(val) = parse::json(response) {
+        let status = val
+            .pointer("/meta/status")
+            .and_then(serde_json::Value::as_i64);
+        let error = val
+            .pointer("/meta/errorCode")
+            .and_then(serde_json::Value::as_str);
+        let reason = val
+            .pointer("/data/reasonCode")
+            .and_then(serde_json::Value::as_str);
+        if status == Some(200) {
+            return Verdict::yes_in("JP");
+        }
+        if error == Some("FORBIDDEN") || reason == Some("DOMESTIC_VIDEO") {
+            return Verdict::no();
+        }
+        return Verdict::Unexpected(format!(
+            "watch API status {}",
+            status.map_or_else(|| "unknown".to_owned(), |code| code.to_string())
+        ));
     }
     Verdict::Unexpected(format!("HTTP {}", response.status))
 }

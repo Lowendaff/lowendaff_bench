@@ -56,14 +56,17 @@ sudo ./lowendaff-bench --only ip.quality --no-mail
 
 ### 测试逻辑
 1. **五大区域分组、68 个平台双栈直连检测**：
-   - 平台名录按地理区域划分为五组：**`global`**（Netflix、YouTube Premium、Disney+、Prime Video、Spotify、TikTok、ChatGPT、Claude、Gemini、Reddit 等全球通用服务）、**`asia`**（Bilibili 港澳台/大陆、巴哈姆特动画疯、KKTV、LINE TV、MyTVSuper、Now E、Viu、Abema、DMM、Niconico、TVer、U-NEXT、Coupang Play、Wavve、TVING 等亚洲平台）、**`europe`**（BBC iPlayer、ITVX、Channel 4、Canal+、ZDF、ARTE、RAI Play、ORF ON 等欧洲平台）、**`americas`**（Hulu、Max、Peacock、Paramount+、Starz、Crave、Globoplay 等美洲平台）与 **`oceania`**（Stan、9Now、7plus、ABC iview、TVNZ+、ThreeNow 等大洋洲平台）。
+   - 平台名录按地理区域划分为五组：`global`（12）、`asia`（24）、`europe`（14）、`americas`（10）与 `oceania`（8），共 68 项；各组名录与平台 ID 定义见 [`plugins/ip/src/media/platforms/mod.rs`](../plugins/ip/src/media/platforms/mod.rs)。
    - 每个区域内部以最多 **10 个平台并发** 推进，每完成一个大洲分组立即向编排器发布阶段性结果；每个平台均分别绑定 IPv4 客户端与 IPv6 客户端独立探测，互不串栈。
 2. **精细化解锁状态分类**：
-   - `yes (XX)`：完整解锁非自制版权内容，并在可识别时附带两位地区代码（如 `yes (JP)`、`yes (US)`）。
+   - `yes (XX)` / `yes`：完整解锁非自制版权内容，并在平台给出时附带两位地区代码（如 `yes (JP)`、`yes (US)`）。
    - `originals only (XX)`：如 Netflix 仅可观看自制剧集（非自制剧测试片源受限）。
-   - `no` / `no (China mainland)` / `coming soon` / `proxy detected`：服务明确不可用、特定地区限制或被平台识别为代理/机房节点。
-   - `no IPv6 address`：平台域名本身未配置 `AAAA` 记录（纯 IPv4 服务）。
+   - `no` / `no (CN)` / `no (coming soon)` / `no (proxy detected)`：平台明确不可用、中国大陆限制、即将上线或被平台识别为代理/机房节点。
+   - `blocked (WAF)`：平台返回 Cloudflare Turnstile、DataDome、Akamai 等人机验证或 WAF 质询，探针不尝试绕过。
    - `rate limited`：触发 `HTTP 429` 频率限制。
+   - `no IPv4 address` / `no IPv6 address`：平台域名本身未配置该协议族的地址。
+   - `timed out`：探针超时。
+   - `error`：响应没有给出可判定的地区或许可信息（页面全球可达、接口已失效或仅返回业务错误码），表格下方 `Note` 给出具体原因；该状态不推断解锁结果。
 3. **合规反爬边界（绝不绕过人机验证）**：
    - 当目标平台返回 Cloudflare Turnstile、reCAPTCHA、hCaptcha 等人机验证或 WAF 质询页面时，探针**立即停止对该平台的后续请求并如实标记为 `blocked (WAF)`**，绝不尝试计算工作量证明、模拟浏览器绕过或借用第三方缓存结果。
 

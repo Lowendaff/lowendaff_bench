@@ -42,12 +42,13 @@ pub fn parse(response: &HttpResponse) -> Verdict {
     if let Some(early) = parse::gate(response) {
         return early;
     }
-    if response.final_url.contains("geoblocking") || matches!(response.status, 403 | 451) {
+    let body = response.text().to_ascii_lowercase();
+    if response.final_url.contains("geoblocking")
+        || matches!(response.status, 403 | 451)
+        || body.contains("geoblocking")
+        || body.contains("not available in your country")
+    {
         return Verdict::no();
     }
-    parse::status_verdict(
-        response,
-        "DE",
-        &["geoblocking", "not available in your country"],
-    )
+    parse::no_region()
 }

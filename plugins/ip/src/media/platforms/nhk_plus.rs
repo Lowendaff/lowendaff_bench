@@ -43,6 +43,11 @@ pub fn parse(response: &HttpResponse) -> Verdict {
     if matches!(response.status, 403 | 451) {
         return Verdict::no();
     }
+    if let Some(loc) = response.header("location")
+        && loc.contains("web.nhk")
+    {
+        return Verdict::no();
+    }
     if let Some(val) = parse::json(response) {
         let allowed = val
             .get("is_domestic")

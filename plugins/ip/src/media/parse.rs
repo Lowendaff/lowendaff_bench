@@ -38,6 +38,26 @@ pub fn error_verdict(error: &HttpError) -> Verdict {
     }
 }
 
+/// Verdict for an endpoint that answered without naming a region or a restriction.
+#[must_use]
+pub fn no_region() -> Verdict {
+    Verdict::Unexpected("endpoint reports no region".to_owned())
+}
+
+/// Value of cookie `name` set by `response`, if any.
+#[must_use]
+pub fn cookie(response: &HttpResponse, name: &str) -> Option<String> {
+    response
+        .header_values("set-cookie")
+        .into_iter()
+        .find_map(|value| {
+            let (key, rest) = value.split_once('=')?;
+            key.trim()
+                .eq_ignore_ascii_case(name)
+                .then(|| rest.split(';').next().unwrap_or_default().trim().to_owned())
+        })
+}
+
 /// Checks universal rate-limit (`429`), anti-bot/WAF challenge, and `5xx` server errors before a
 /// platform's own rules run. Never attempts to solve or bypass a challenge.
 #[must_use]
@@ -54,8 +74,8 @@ pub fn gate(response: &HttpResponse) -> Option<Verdict> {
     None
 }
 
-/// Detects Cloudflare Turnstile, Cloudflare JS challenge, DataDome, PerimeterX and Imperva
-/// anti-bot challenges.
+/// Detects Cloudflare Turnstile, Cloudflare JS challenge, DataDome, PerimeterX, Imperva and
+/// Akamai anti-bot challenges.
 #[must_use]
 pub fn is_waf_challenge(response: &HttpResponse) -> bool {
     if response
@@ -64,20 +84,23 @@ pub fn is_waf_challenge(response: &HttpResponse) -> bool {
     {
         return true;
     }
-    if response.header("x-datadome").is_some() {
-        return true;
-    }
     if !matches!(response.status, 403 | 503) {
         return false;
     }
-    let body = response.text();
+    if response.header("x-dd-b").is_some() {
+        return true;
+    }
+    let body = response.text().to_ascii_lowercase();
     let markers = [
         "challenges.cloudflare.com/turnstile",
         "/cdn-cgi/challenge-platform/",
-        "<title>Just a moment...</title>",
-        "Attention Required! | Cloudflare",
-        "_Incapsula_Resource",
+        "<title>just a moment...</title>",
+        "attention required! | cloudflare",
+        "_incapsula_resource",
         "px-captcha",
+        "captcha-delivery.com",
+        "errors.edgesuite.net",
+        "errors&#46;edgesuite&#46;net",
     ];
     markers.iter().any(|marker| body.contains(marker))
 }
@@ -142,17 +165,6 @@ pub fn extract_between<'a>(haystack: &'a str, prefix: &str, suffix: &str) -> Opt
     let rest = &haystack[start..];
     let end = rest.find(suffix)?;
     Some(&rest[..end])
-}
-
-/// Extracts `loc=XX` from a Cloudflare `/cdn-cgi/trace` body.
-#[must_use]
-pub fn trace_loc(body: &str) -> Option<String> {
-    for line in body.lines() {
-        if let Some(value) = line.strip_prefix("loc=") {
-            return country_code(value);
-        }
-    }
-    None
 }
 
 /// Verdict for a region-locked endpoint where `2xx` means unlocked in `region` and `403`/`451`

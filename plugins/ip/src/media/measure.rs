@@ -205,3 +205,32 @@ where
     done.sort_by_key(|(idx, _)| *idx);
     done.into_iter().map(|(_, value)| value).collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
+
+    use super::run_bounded;
+
+    #[tokio::test]
+    async fn run_bounded_keeps_input_order_without_exceeding_the_limit() {
+        let in_flight = Arc::new(AtomicUsize::new(0));
+        let peak = Arc::new(AtomicUsize::new(0));
+        let tasks = (0..25).map(|index| {
+            let in_flight = Arc::clone(&in_flight);
+            let peak = Arc::clone(&peak);
+            async move {
+                let now = in_flight.fetch_add(1, Ordering::SeqCst) + 1;
+                peak.fetch_max(now, Ordering::SeqCst);
+                tokio::task::yield_now().await;
+                in_flight.fetch_sub(1, Ordering::SeqCst);
+                index
+            }
+        });
+        let order = run_bounded(4, tasks).await;
+        assert_eq!(order, (0..25).collect::<Vec<_>>());
+        assert_eq!(peak.load(Ordering::SeqCst), 4);
+    }
+}

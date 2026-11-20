@@ -48,14 +48,9 @@ pub fn parse(response: &HttpResponse) -> Verdict {
     let body = response.text();
     if body.contains("StreamCo.Concurrency.GeoBlocked")
         || body.contains("AccessDenied")
-        || response.status == 403
-        || response.status == 451
+        || matches!(response.status, 403 | 451)
     {
         return Verdict::no();
     }
-    // Without credentials, Australian IPs receive 400/422 validation errors, not GeoBlocked.
-    if matches!(response.status, 200 | 400 | 401 | 422) {
-        return Verdict::yes_in("AU");
-    }
-    Verdict::Unexpected(format!("HTTP {}", response.status))
+    parse::no_region()
 }

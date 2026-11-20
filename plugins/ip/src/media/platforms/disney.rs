@@ -1,4 +1,4 @@
-//! Disney+ unlock probe: checks storefront redirect headers and BAMGrid session location metadata.
+//! Disney+ unlock probe: checks storefront redirect headers and page location metadata.
 
 use bench_api::Context;
 use bench_api::HttpRequest;
@@ -19,7 +19,7 @@ pub const SPEC: Platform = Platform {
     probe,
 };
 
-/// Probes Disney+'s web root and BAMGrid public GraphQL endpoint over `family`.
+/// Probes Disney+'s web root over `family`.
 pub fn probe<'a>(
     ctx: &'a Context<Output>,
     family: IpFamily,
@@ -30,27 +30,10 @@ pub fn probe<'a>(
             family,
             parse::endpoint(base_url, SPEC.id, "web", "https://www.disneyplus.com/"),
         );
-        let web = match parse::send(ctx, web_req).await {
-            Ok(res) => res,
-            Err(verdict) => return verdict,
-        };
-        if let Some(early) = web_early(&web) {
-            return early;
+        match parse::send(ctx, web_req).await {
+            Ok(web) => parse(&web),
+            Err(verdict) => verdict,
         }
-        let gql_payload = br#"{"query":"query { __typename }"}"#.to_vec();
-        let api_req = HttpRequest::post(
-            family,
-            parse::endpoint(
-                base_url,
-                SPEC.id,
-                "api",
-                "https://disney.api.edge.bamgrid.com/v1/public/graphql",
-            ),
-            gql_payload,
-        )
-        .with_header("content-type", "application/json");
-        let api = ctx.probe(&api_req).await.ok();
-        parse(&web, api.as_ref())
     })
 }
 
@@ -77,35 +60,11 @@ pub fn web_early(web: &HttpResponse) -> Option<Verdict> {
     None
 }
 
-/// Evaluates Disney+'s web and optional BAMGrid GraphQL responses.
+/// Evaluates Disney+'s web response.
 #[must_use]
-pub fn parse(web: &HttpResponse, api: Option<&HttpResponse>) -> Verdict {
+pub fn parse(web: &HttpResponse) -> Verdict {
     if let Some(early) = web_early(web) {
         return early;
-    }
-    if let Some(api_res) = api
-        && let Some(val) = parse::json(api_res)
-    {
-        let session = val
-            .pointer("/extensions/sdk/session")
-            .or_else(|| val.pointer("/data/session"));
-        if let Some(session) = session {
-            let supported = session
-                .pointer("/location/inSupportedLocation")
-                .or_else(|| session.get("inSupportedLocation"))
-                .and_then(serde_json::Value::as_bool);
-            let country = session
-                .pointer("/location/countryCode")
-                .or_else(|| session.get("countryCode"))
-                .and_then(serde_json::Value::as_str)
-                .and_then(parse::country_code);
-            if supported == Some(false) {
-                return Verdict::no();
-            }
-            if supported == Some(true) || country.is_some() {
-                return Verdict::Yes { region: country };
-            }
-        }
     }
     let body = web.text();
     if body.contains("Disney+ is not available in your region")
@@ -119,9 +78,8 @@ pub fn parse(web: &HttpResponse, api: Option<&HttpResponse>) -> Verdict {
         .or_else(|| {
             parse::extract_between(&body, "\"countryCode\":\"", "\"").and_then(parse::country_code)
         });
-    if matches!(web.status, 200 | 301 | 302 | 307 | 308) {
-        Verdict::Yes { region }
-    } else {
-        Verdict::Unexpected(format!("HTTP {}", web.status))
+    match region {
+        Some(code) => Verdict::yes_in(code),
+        None => parse::no_region(),
     }
 }

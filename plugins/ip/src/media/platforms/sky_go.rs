@@ -40,5 +40,15 @@ pub fn probe<'a>(
 /// Parses Sky Go's HTTP response into a [`Verdict`].
 #[must_use]
 pub fn parse(response: &HttpResponse) -> Verdict {
-    parse::status_verdict(response, "GB", &["access denied", "geoblocked"])
+    if let Some(early) = parse::gate(response) {
+        return early;
+    }
+    let body = response.text().to_ascii_lowercase();
+    if matches!(response.status, 403 | 451)
+        || body.contains("access denied")
+        || body.contains("geoblocked")
+    {
+        return Verdict::no();
+    }
+    parse::no_region()
 }

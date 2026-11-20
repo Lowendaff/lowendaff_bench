@@ -50,15 +50,22 @@ pub fn parse(response: &HttpResponse) -> Verdict {
         return Verdict::no();
     }
     let body = response.text();
-    // 024 or "\u{d574}\u{c678}" ("overseas" in Korean) marks geo-restriction.
     if body.contains("\"code\":\"024\"")
         || body.contains("\u{d574}\u{c678}")
         || body.contains("not service")
     {
         return Verdict::no();
     }
-    if response.status == 200 && body.contains("header") {
-        return Verdict::yes_in("KR");
+    if let Some(val) = parse::json(response) {
+        let populated = match val.pointer("/body/content").or_else(|| val.get("content")) {
+            Some(serde_json::Value::Object(map)) => !map.is_empty(),
+            Some(serde_json::Value::Array(items)) => !items.is_empty(),
+            Some(serde_json::Value::Null) | None => false,
+            Some(_) => true,
+        };
+        if populated {
+            return Verdict::yes_in("KR");
+        }
     }
-    Verdict::Unexpected(format!("HTTP {}", response.status))
+    parse::no_region()
 }

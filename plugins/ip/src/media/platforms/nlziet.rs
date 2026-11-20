@@ -48,8 +48,5 @@ pub fn parse(response: &HttpResponse) -> Verdict {
     {
         return Verdict::no();
     }
-    if matches!(response.status, 200 | 301 | 302) {
-        return Verdict::yes_in("NL");
-    }
-    Verdict::Unexpected(format!("HTTP {}", response.status))
+    parse::no_region()
 }

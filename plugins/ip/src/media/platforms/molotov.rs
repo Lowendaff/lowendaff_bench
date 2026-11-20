@@ -56,8 +56,7 @@ pub fn parse(response: &HttpResponse) -> Verdict {
         return match (is_fr, country.as_deref()) {
             (Some(true), _) | (None, Some("FR")) => Verdict::yes_in("FR"),
             (Some(false), _) | (None, Some(_)) => Verdict::no(),
-            (None, None) if response.status == 200 => Verdict::yes_in("FR"),
-            _ => Verdict::Unexpected("unrecognized Molotov payload".to_owned()),
+            (None, None) => Verdict::Unexpected("unrecognized Molotov payload".to_owned()),
         };
     }
     Verdict::Unexpected(format!("HTTP {}", response.status))

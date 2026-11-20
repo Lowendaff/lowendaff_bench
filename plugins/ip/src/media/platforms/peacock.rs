@@ -48,10 +48,12 @@ pub fn parse(response: &HttpResponse) -> Verdict {
     {
         return Verdict::no();
     }
-    let territory = response
+    let Some(territory) = response
         .header("x-skyott-territory")
         .and_then(parse::country_code)
-        .unwrap_or_else(|| "US".to_owned());
+    else {
+        return parse::no_region();
+    };
     if matches!(response.status, 200 | 301 | 302) {
         return Verdict::yes_in(territory);
     }

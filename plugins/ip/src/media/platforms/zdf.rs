@@ -43,9 +43,17 @@ pub fn parse(response: &HttpResponse) -> Verdict {
     if matches!(response.status, 403 | 451) {
         return Verdict::no();
     }
-    if response.status == 200 {
-        let code = parse::country_code(&response.text()).unwrap_or_else(|| "DE".to_owned());
-        return Verdict::yes_in(code);
+    if response.status != 200 {
+        return Verdict::Unexpected(format!("HTTP {}", response.status));
     }
-    Verdict::Unexpected(format!("HTTP {}", response.status))
+    let body = response.text();
+    let trimmed = body.trim();
+    if trimmed.eq_ignore_ascii_case("XX") || trimmed.eq_ignore_ascii_case("NON-EU") {
+        return Verdict::no();
+    }
+    match parse::country_code(trimmed) {
+        Some(code) if code == "DE" => Verdict::yes_in("DE"),
+        Some(_) => Verdict::no(),
+        None => parse::no_region(),
+    }
 }

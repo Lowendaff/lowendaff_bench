@@ -4,7 +4,6 @@
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::net::Ipv6Addr;
-use std::sync::Arc;
 use std::time::Duration;
 
 use bench_api::HttpClient;
@@ -20,9 +19,6 @@ use reqwest::Proxy;
 use reqwest::Url;
 use reqwest::header;
 use reqwest::redirect::Policy;
-use rustls::ClientConfig;
-use rustls::RootCertStore;
-use rustls::crypto::ring;
 
 use crate::fetcher;
 use crate::locale;
@@ -92,16 +88,7 @@ fn build_for(family: IpFamily, proxy: Option<Proxy>) -> Result<Client, String> {
         IpFamily::Ipv4 => IpAddr::V4(Ipv4Addr::UNSPECIFIED),
         IpFamily::Ipv6 => IpAddr::V6(Ipv6Addr::UNSPECIFIED),
     };
-    let roots = RootCertStore {
-        roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
-    };
-    let tls = ClientConfig::builder_with_provider(Arc::new(ring::default_provider()))
-        .with_safe_default_protocol_versions()
-        .map_err(|err| locale::words().tls_failed(&err))?
-        .with_root_certificates(roots)
-        .with_no_client_auth();
-    let mut builder = Client::builder()
-        .tls_backend_preconfigured(tls)
+    let mut builder = fetcher::builder()?
         .user_agent(BROWSER_USER_AGENT)
         .redirect(Policy::none())
         .connect_timeout(CONNECT_TIMEOUT);
@@ -286,8 +273,6 @@ fn error_summary(error: &HttpError) -> String {
 #[cfg(test)]
 mod tests {
     use std::net::Ipv4Addr;
-    use std::sync::Arc;
-    use std::sync::Mutex;
     use std::time::Duration;
 
     use bench_api::HttpError;
@@ -335,7 +320,6 @@ mod tests {
     #[tokio::test]
     async fn probers_bind_family_ignore_proxy_handle_redirects_and_truncate_bodies() {
         let site = serve_redirects().await;
-        let proxy_hits = Arc::new(Mutex::new(Vec::<String>::new()));
         let proxy = Proxy::all("socks5h://127.0.0.1:9").expect("proxy URL");
         let probers = Probers {
             ipv4: super::build_for(IpFamily::Ipv4, Some(proxy)).expect("v4 client"),
@@ -372,7 +356,6 @@ mod tests {
         assert_eq!(res.final_url, format!("http://{site}/step2"));
         assert_eq!(res.header("x-region"), Some("US"));
         assert_eq!(res.body, b"1234");
-        assert!(proxy_hits.lock().expect("lock").is_empty());
 
         // Redirect loop stops at TooManyRedirects.
         let looping = HttpRequest::get(IpFamily::Ipv4, format!("http://{site}/loop"))

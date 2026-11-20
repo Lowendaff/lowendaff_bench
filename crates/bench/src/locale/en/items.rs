@@ -785,15 +785,16 @@ impl TraceWords for English {
 
 impl MediaWords for English {
     fn media_method(&self, choice: &MediaChoice) -> String {
-        let mut method = "HTTPS probes, direct (no proxy)".to_owned();
+        let mut method = if choice.custom_base {
+            "probes via custom base URL, direct (no proxy)".to_owned()
+        } else {
+            "HTTPS probes, direct (no proxy)".to_owned()
+        };
         if !choice.groups.is_empty() {
             method.push_str(&format!("; groups {}", choice.groups.join(", ")));
         }
         if !choice.services.is_empty() {
             method.push_str(&format!("; services {}", choice.services.join(", ")));
-        }
-        if choice.custom_base {
-            method.push_str("; custom base URL");
         }
         method
     }

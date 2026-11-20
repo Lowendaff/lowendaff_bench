@@ -56,11 +56,12 @@ pub fn parse(response: &HttpResponse) -> Verdict {
         .header("x-wbd-country")
         .and_then(parse::country_code)
         .or_else(|| {
-            parse::extract_between(&response.text(), "\"countryCode\":\"", "\"")
+            parse::cookie(response, "countryCode")
+                .as_deref()
                 .and_then(parse::country_code)
         });
-    if matches!(response.status, 200 | 301 | 302 | 307 | 308) {
-        return Verdict::Yes { region };
+    match region {
+        Some(code) => Verdict::yes_in(code),
+        None => parse::no_region(),
     }
-    Verdict::Unexpected(format!("HTTP {}", response.status))
 }

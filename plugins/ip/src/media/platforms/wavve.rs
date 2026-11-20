@@ -7,6 +7,7 @@ use bench_api::IpFamily;
 
 use super::super::parse;
 use super::super::result::Output;
+use super::super::result::Restriction;
 use super::super::result::Verdict;
 use super::Platform;
 use super::ProbeFuture;
@@ -49,7 +50,6 @@ pub fn parse(response: &HttpResponse) -> Verdict {
         return early;
     }
     let body = response.text();
-    // 551 or "\u{d574}\u{c678}" ("overseas" in Korean) marks geo-restriction.
     if matches!(response.status, 403 | 451)
         || body.contains("\"resultcode\":\"551\"")
         || body.contains("\u{d574}\u{c678}")
@@ -57,8 +57,13 @@ pub fn parse(response: &HttpResponse) -> Verdict {
     {
         return Verdict::no();
     }
-    if response.status == 200 || body.contains("resultcode") {
+    if body.contains("warning_kr") || body.contains("\u{bd88}\u{bc95}\u{c801}\u{c73c}\u{b85c}") {
+        return Verdict::No {
+            restriction: Some(Restriction::ProxyDetected),
+        };
+    }
+    if body.contains("\"resultcode\":\"200\"") || body.contains("\"resultcode\":200") {
         return Verdict::yes_in("KR");
     }
-    Verdict::Unexpected(format!("HTTP {}", response.status))
+    parse::no_region()
 }

@@ -40,5 +40,15 @@ pub fn probe<'a>(
 /// Parses ABC iview's HTTP response into a [`Verdict`].
 #[must_use]
 pub fn parse(response: &HttpResponse) -> Verdict {
-    parse::status_verdict(response, "AU", &["outside australia", "geoblocked"])
+    if let Some(early) = parse::gate(response) {
+        return early;
+    }
+    let body = response.text().to_ascii_lowercase();
+    if matches!(response.status, 403 | 451)
+        || body.contains("outside australia")
+        || body.contains("geoblocked")
+    {
+        return Verdict::no();
+    }
+    parse::no_region()
 }

@@ -47,14 +47,8 @@ pub fn parse(response: &HttpResponse) -> Verdict {
         return early;
     }
     let body = response.text();
-    if matches!(response.status, 403 | 451)
-        || body.contains("GeoRestriction")
-        || body.contains("geo")
-    {
+    if matches!(response.status, 403 | 451) || body.contains("GeoRestriction") {
         return Verdict::no();
     }
-    if matches!(response.status, 200 | 401) {
-        return Verdict::yes_in("CA");
-    }
-    Verdict::Unexpected(format!("HTTP {}", response.status))
+    parse::no_region()
 }

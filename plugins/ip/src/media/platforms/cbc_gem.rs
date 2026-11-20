@@ -51,21 +51,14 @@ pub fn parse(response: &HttpResponse) -> Verdict {
         return Verdict::no();
     }
     if let Some(val) = parse::json(response) {
-        let error_code = val.get("errorCode").and_then(serde_json::Value::as_i64);
         let message = val
             .get("message")
             .and_then(serde_json::Value::as_str)
             .unwrap_or_default()
             .to_ascii_lowercase();
-        if error_code == Some(0) || val.get("url").and_then(serde_json::Value::as_str).is_some() {
-            return Verdict::yes_in("CA");
-        }
-        if error_code.is_some()
-            || message.contains("not available")
-            || message.contains("outside canada")
-        {
+        if message.contains("not available") || message.contains("outside canada") {
             return Verdict::no();
         }
     }
-    Verdict::Unexpected(format!("HTTP {}", response.status))
+    parse::no_region()
 }
