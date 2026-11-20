@@ -35,6 +35,10 @@ pub trait ProgramWords {
     fn help_no_dnsbl(&self) -> String;
     /// The help of `--no-mail`.
     fn help_no_mail(&self) -> String;
+    /// The help of `--tui`.
+    fn help_tui(&self) -> String;
+    /// `--tui` started without an interactive terminal.
+    fn tui_not_a_tty(&self) -> String;
     /// Items written as one list, as in "sysbench 1.0.20, fio 3.43".
     fn list(&self, items: &[String]) -> String;
     /// The first line of `--list`: how many test items there are.

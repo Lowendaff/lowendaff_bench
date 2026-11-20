@@ -60,6 +60,9 @@ Assuming the binary is named `lowendaff-bench`:
 # 2. Run the full suite (CPU, memory, disk, network speed/routes/BGP, IP reputation, media unlock)
 sudo ./lowendaff-bench
 
+# 2b. Launch the interactive TUI (toggle items, edit parameters, watch progress, and browse report)
+sudo ./lowendaff-bench --tui
+
 # 3. Quick server check: skip Geekbench 7 (long & uploads public scores) and route tracing
 sudo ./lowendaff-bench --skip cpu.geekbench,network.trace
 
@@ -101,6 +104,7 @@ sudo ALL_PROXY=socks5h://127.0.0.1:1080 ./lowendaff-bench --download-connections
 
 | Option | Syntax | Default | What it does |
 |---|---|---|---|
+| `--tui` | *(flag)* | Off | Launch the interactive terminal interface to toggle items, edit per-item & global parameters, monitor live progress, and browse the report (**mutually exclusive with all other options**) |
 | `--only` | `<ITEM,...>` | All items | Run only the listed categories or test IDs (comma-separated or repeated) |
 | `--skip` | `<ITEM,...>` | None | Skip the listed categories or test IDs (can be combined with `--only`) |
 | `-o, --output` | `<FILE>` | Terminal | Save the final report to `<FILE>` instead of printing it to standard output |

@@ -13,6 +13,7 @@ use bench::network;
 use bench::progress;
 use bench::registry;
 use bench::report::Format;
+use bench::tui;
 use bench_api::CancellationToken;
 use bench_host::profile::HostProfile;
 use tokio::runtime;
@@ -28,6 +29,9 @@ fn main() -> ExitCode {
     if !rustix::process::geteuid().is_root() {
         eprintln!("{}", locale::words().not_root());
         return ExitCode::from(app::EXIT_USAGE);
+    }
+    if cli.tui {
+        return tui::run(registry);
     }
     progress::init(cli.verbose);
     let planned = match app::prepare(&cli, &registry) {

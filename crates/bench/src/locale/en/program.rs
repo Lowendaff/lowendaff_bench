@@ -78,6 +78,15 @@ impl ProgramWords for English {
         "Skip outbound TCP port-25 mail checks in ip.quality".to_owned()
     }
 
+    fn help_tui(&self) -> String {
+        "Start the interactive terminal interface (cannot be combined with other options)"
+            .to_owned()
+    }
+
+    fn tui_not_a_tty(&self) -> String {
+        "--tui requires an interactive terminal (TTY)".to_owned()
+    }
+
     fn list(&self, items: &[String]) -> String {
         items.join(", ")
     }
