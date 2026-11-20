@@ -2,10 +2,12 @@
 # Checks the rules of the documentation (README "Gates", Rules) in the repository it runs in:
 #
 # - no tracked file holds CJK characters outside localized Markdown documents (`README.zh-CN.md`,
-#   `README.ja.md`, and `docs/**/*.md` outside `docs/design/`) and catalogs of other languages
+#   `README.ja.md`, and `docs/**/*.md` outside `docs/design/`), bilingual GitHub issue templates
+#   (`.github/ISSUE_TEMPLATE/`), and catalogs of other languages
 #   (`crates/bench/src/locale/<language>/`): the code, its tests and their data, the scripts and
-#   the English documents (`README.md`, `CONTRIBUTING.md`, `.github/`) stay English, and the
-#   English catalog, `en/`, is checked like every other code file;
+#   the English documents (`README.md`, `CONTRIBUTING.md`, `.github/pull_request_template.md`,
+#   `.github/workflows/`) stay English, and the English catalog, `en/`, is checked like every
+#   other code file;
 # - no tracked file points into the design documents, which are kept outside the repository: no
 #   path under docs/design, no section sign, no decision id such as CP-07 and no parenthetical
 #   that starts with "design". Fixture data is recorded output and is left out; the READMEs and
@@ -43,10 +45,12 @@ cjk='(*UTF)[\x{3000}-\x{30ff}\x{3400}-\x{4dbf}\x{4e00}-\x{9fff}\x{ac00}-\x{d7af}
 cjk="$cjk\\x{f900}-\\x{faff}\\x{ff00}-\\x{ffef}]"
 if grep_found -n -I -P "$cjk" -- . ':(exclude,glob)crates/bench/src/locale/*/**' \
     ':(exclude)README.zh-CN.md' ':(exclude)README.ja.md' \
-    ':(exclude,glob)docs/*.md' ':(exclude,glob)docs/**/*.md' >&2 ||
+    ':(exclude,glob)docs/*.md' ':(exclude,glob)docs/**/*.md' \
+    ':(exclude,glob).github/ISSUE_TEMPLATE/**' >&2 ||
     grep_found -n -I -P "$cjk" -- crates/bench/src/locale/en ':(glob)docs/design/**' >&2
 then
-    fail "the lines above hold CJK characters; only localized docs and non-en catalogs may"
+    fail "the lines above hold CJK characters; only localized docs, issue templates and" \
+        "non-en catalogs may"
 fi
 
 ids='D|P|S|DK|DH|CP|ME|R|H|NW|RT|NC|MU|IQ|OR|MD|CF'

@@ -1,0 +1,99 @@
+name: "Bug Report / 缺陷反馈"
+description: "Crash, timeout, hardware/host detection bug, or CLI/report error / 程序崩溃、超时、硬件识别异常或报表错误"
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Privacy Notice / 隐私提醒**
+        Do **not** paste raw public IPv4/IPv6 addresses, hostnames, MAC addresses, disk serials/WWNs,
+        UUIDs, or Geekbench claim URLs. Keep default IP redaction enabled (omit `--show-ip`).
+        请勿公开贴出服务器真实公网 IP、主机名、磁盘序列号或含 claim key 的 Geekbench 链接。
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: "Affected Component / 问题所属模块"
+      options:
+        - "CLI & Orchestrator / 命令行参数与调度器"
+        - "[System] Host & Hardware Profile / 系统与硬件环境探针"
+        - "cpu.* (cpu.sysbench / cpu.geekbench)"
+        - "memory.* (sysbench / stream / latency / numa)"
+        - "disk.* (disk.health / disk.fio)"
+        - "network.* (network.iperf3 / network.trace)"
+        - "ip.* (ip.quality / ip.media)"
+        - "Report Formatting (text / markdown / json) / 报告输出与格式渲染"
+        - "Tool Download or Static Binary / 外部工具下载校验或静态二进制"
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: "Version / 程序版本"
+      description: "Output of `lowendaff-bench --version` or release tag / 请填写版本号或提交哈希"
+      placeholder: "lowendaff-bench 0.1.0 (x86_64-unknown-linux-musl)"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: arch
+    attributes:
+      label: "Architecture / CPU 架构"
+      options:
+        - "x86_64"
+        - "aarch64"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: virtualization
+    attributes:
+      label: "Environment / 运行环境类型"
+      options:
+        - "KVM / QEMU VPS"
+        - "LXC / OpenVZ Container"
+        - "Dedicated / Bare Metal (独立服务器)"
+        - "Cloud Instance (AWS / GCP / Azure / Oracle / Alibaba)"
+        - "Docker / OCI Container"
+        - "Other / Unknown"
+    validations:
+      required: true
+
+  - type: input
+    id: distro
+    attributes:
+      label: "Linux Distribution & Kernel / 发行版与内核版本"
+      description: "Check `/etc/os-release` and `uname -sr`"
+      placeholder: "Debian 12 (Bookworm), Linux 6.1.0-28-amd64"
+    validations:
+      required: true
+
+  - type: input
+    id: command
+    attributes:
+      label: "Command Executed / 执行的完整命令"
+      placeholder: "sudo ./lowendaff-bench --only disk.fio -v"
+    validations:
+      required: true
+
+  - type: textarea
+    id: details
+    attributes:
+      label: "Expected vs Actual Behavior & Logs / 复现现象与日志输出"
+      description: |
+        Describe what you expected vs what happened, and paste relevant `-v` stderr/stdout lines
+        with private identifiers redacted.
+        请描述预期行为与实际现象，并附带脱敏后的 `-v` 进度日志或报错输出。
+      render: text
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: "Redaction Check / 脱敏确认"
+      options:
+        - label: "I removed raw public IPs, hostnames, serials, and Geekbench claim keys / 已隐去真实公网 IP 与硬件序列号等敏感信息"
+          required: true

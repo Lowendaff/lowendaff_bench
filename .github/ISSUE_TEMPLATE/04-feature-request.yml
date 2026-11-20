@@ -1,0 +1,46 @@
+name: "Feature Proposal / 新功能与检测项建议"
+description: "Propose a new benchmark plugin, streaming platform check, or CLI/report feature / 提议新增检测项、平台或命令行功能"
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: dropdown
+    id: category
+    attributes:
+      label: "Proposal Category / 提议类别"
+      options:
+        - "New streaming or AI platform in ip.media / 新增流媒体或 AI 解锁平台"
+        - "New benchmark plugin (<group>.<name>) / 新增硬件或网络基准测试项"
+        - "CLI flag or report format enhancement / 命令行参数或导出报表增强"
+        - "[System] Host/hardware profile field / 系统或硬件信息采集增强"
+        - "Other / 其他建议"
+    validations:
+      required: true
+
+  - type: textarea
+    id: motivation
+    attributes:
+      label: "Use Case & Problem Statement / 使用场景与痛点"
+      description: "Why is this feature or check valuable for server evaluation? / 该功能对服务器评测解决什么问题？"
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: "Proposed Design or Detection Signal / 期望行为或检测方法"
+      description: |
+        - For **ip.media platforms**: share the public URL and observable HTTP/HTML/API regional
+          indicators (note: checks never solve or bypass anti-bot/CAPTCHA challenges).
+        - For **benchmark items**: name the open-source tool, license, runtime budget, and target
+          metrics.
+        - For **CLI/report features**: sketch the expected flag or output format.
+    validations:
+      required: true
+
+  - type: textarea
+    id: references
+    attributes:
+      label: "References or Prior Art / 参考实现或补充资料（选填）"
+      placeholder: "Links to upstream documentation, specifications, or open-source implementations"
+    validations:
+      required: false

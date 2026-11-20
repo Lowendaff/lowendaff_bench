@@ -1,0 +1,48 @@
+name: "Question & Troubleshooting / 结果疑问与排查求助"
+description: "Ask about benchmark scores, skip reasons, host requirements, or usage / 咨询测试指标含义、跳过原因或使用问题"
+title: "[Question] "
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Tip / 提示**
+        Before opening an issue, check [`docs/README.md`](https://github.com/Lowendaff/lowendaff_bench/blob/main/docs/README.md)
+        for detailed scoring methodologies, skip conditions (`glibc`, `NUMA >= 2`, container `/dev`
+        access, disk free space, root privileges), and CLI examples in
+        [`README.zh-CN.md`](https://github.com/Lowendaff/lowendaff_bench/blob/main/README.zh-CN.md) /
+        [`README.md`](https://github.com/Lowendaff/lowendaff_bench/blob/main/README.md) /
+        [`README.ja.md`](https://github.com/Lowendaff/lowendaff_bench/blob/main/README.ja.md).
+
+  - type: dropdown
+    id: topic
+    attributes:
+      label: "Topic / 咨询主题"
+      options:
+        - "Benchmark Score or Verdict Meaning / 测试分数或判定结论解读"
+        - "Why a Test Item Was Skipped / 检测项被跳过的原因排查"
+        - "CLI Parameters & Report Export / 命令行参数与报告导出用法"
+        - "Container or Distribution Compatibility / 容器或系统发行版兼容性"
+        - "Other / 其他疑问"
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: "Environment & Command / 运行环境与执行命令（选填）"
+      placeholder: "Ubuntu 24.04 x86_64 KVM, sudo ./lowendaff-bench --format markdown"
+    validations:
+      required: false
+
+  - type: textarea
+    id: question
+    attributes:
+      label: "Question Details / 具体问题描述"
+      description: |
+        Paste any relevant (redacted) report snippet and describe your question. Do not include
+        raw public IP addresses or hardware serial numbers.
+        请附上相关的脱敏输出片段并描述你的疑问（请勿贴出真实公网 IP 或硬件序列号）。
+      render: text
+    validations:
+      required: true

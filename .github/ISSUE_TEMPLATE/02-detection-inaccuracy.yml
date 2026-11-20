@@ -1,0 +1,80 @@
+name: "Detection Inaccuracy / 检测规则误判反馈"
+description: "False positive or outdated rule in ip.media or ip.quality / 流媒体解锁或 IP 信誉与原生广播误判反馈"
+title: "[Detection] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **IP Privacy Warning / 严禁泄露源站 IP 提醒**
+        Never post your server's raw public IPv4 or IPv6 address in a public GitHub issue.
+        Share **only** the ASN, country/region code, and default redacted output.
+        请勿在公开 Issue 中填写服务器完整公网 IPv4/IPv6 地址，仅需提供 ASN、国家/地区代码及默认脱敏输出。
+
+  - type: dropdown
+    id: plugin
+    attributes:
+      label: "Detection Module / 检测模块"
+      options:
+        - "ip.media — Streaming & AI Unlock (流媒体与 AI 平台解锁检测)"
+        - "ip.quality — IP Reputation, Risk & Native/Broadcast Origin (IP 质量与原生/广播判定)"
+        - "[System] — Virtualization, RAID or Hardware Probe (虚拟化或硬件特征误判)"
+    validations:
+      required: true
+
+  - type: input
+    id: target
+    attributes:
+      label: "Platform, Provider or Field / 具体平台、数据源或指标名称"
+      placeholder: "Netflix / Disney+ / Bahamut / ChatGPT / RIR native vs broadcast / ipinfo"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: stack
+    attributes:
+      label: "IP Stack / 协议栈"
+      options:
+        - "IPv4"
+        - "IPv6"
+        - "Both (IPv4 & IPv6)"
+        - "Not applicable (Hardware / System probe)"
+    validations:
+      required: true
+
+  - type: input
+    id: asn_region
+    attributes:
+      label: "ASN & Region (No Raw IP!) / 所属 ASN 与地区（切勿填写完整 IP）"
+      placeholder: "AS20473 / JP (Tokyo)"
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: "Version / 程序版本"
+      placeholder: "lowendaff-bench 0.1.0"
+    validations:
+      required: true
+
+  - type: textarea
+    id: comparison
+    attributes:
+      label: "Reported Verdict vs Actual Observation / 工具判定结果与实际表现对比"
+      description: |
+        Paste the redacted section from `lowendaff-bench`, then describe what you observe directly
+        on the same host (e.g., browser access, `curl -I` HTTP status/Location header, or WHOIS/RIR
+        registration country) without exposing your IP.
+        请贴出默认脱敏输出片段，并说明同一台机器上的真实表现（如浏览器实际可播地区、`curl -I` 状态码或重定向特征、WHOIS 注册国等）。
+      render: text
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: "Redaction Check / 脱敏确认"
+      options:
+        - label: "I verified that no raw public IPv4/IPv6 address appears above / 已确认上方不包含完整公网 IP 地址"
+          required: true

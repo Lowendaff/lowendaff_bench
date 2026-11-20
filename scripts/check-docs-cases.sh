@@ -123,7 +123,10 @@ write_bytes README.zh-CN.md "# $chinese"
 write_bytes README.ja.md "# $kana"
 write_bytes docs/cpu.md "# CPU $chinese"
 write_bytes docs/sub/guide.md "# $chinese"
-check accept 'localized READMEs and Markdown guides under docs/'
+write_bytes .github/ISSUE_TEMPLATE/01-bug-report.yml "name: Bug / $chinese"
+check accept 'localized READMEs, Markdown guides under docs/, and issue templates'
+write_bytes .github/workflows/ci.yml "# $chinese"
+check reject 'CJK in a GitHub workflow' '.github/workflows/ci.yml:1:'
 write_bytes docs/script.sh "echo '$chinese'"
 check reject 'CJK in a script under docs/' 'docs/script.sh:1:'
 write_bytes docs/design/cpu.md "# $chinese"

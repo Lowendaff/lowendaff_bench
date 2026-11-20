@@ -1,0 +1,70 @@
+name: "Server & Target List / 测速节点与路由目标维护"
+description: "Report dead public iperf3 servers, suggest new candidates, or update trace targets / 公共测速节点与路由目标维护"
+title: "[Servers] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **How Lists Are Maintained / 节点列表维护说明**
+        - `network.iperf3` automatically syncs active nodes twice daily from reviewed location
+          candidates listed on `iperf3serverlist.net` (supporting TCP download `-R` on ports
+          `1024-65535`).
+        - `network.trace` maintains carrier (CT / CU / CM) and international ICMP route targets,
+          plus automated PeeringDB exchange snapshots.
+
+  - type: dropdown
+    id: action
+    attributes:
+      label: "Action / 维护动作"
+      options:
+        - "Report broken, offline, or misconfigured iperf3 server / 反馈失效或异常的公共 iperf3 节点"
+        - "Suggest a new public iperf3 candidate / 推荐新增公共 iperf3 候选节点"
+        - "Report outdated or dead network.trace target / 反馈失效或异常的路由追踪目标"
+        - "Suggest a new network.trace target / 建议新增路由追踪目标"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: module
+    attributes:
+      label: "Target Module / 涉及模块"
+      options:
+        - "network.iperf3 — Public iperf3 Speed Servers"
+        - "network.trace — Carrier & International Route Targets"
+    validations:
+      required: true
+
+  - type: input
+    id: endpoint
+    attributes:
+      label: "Location, Provider & Host:Port / 地区、服务商及节点地址与端口"
+      placeholder: "SG Singapore / Leaseweb / speedtest.sin1.sg.leaseweb.net (ports 5201-5210)"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: families
+    attributes:
+      label: "Supported IP Families / 支持协议栈"
+      options:
+        - "IPv4 + IPv6 (Dual-stack)"
+        - "IPv4 only"
+        - "IPv6 only"
+        - "Unknown"
+    validations:
+      required: true
+
+  - type: textarea
+    id: details
+    attributes:
+      label: "Verification & Reference Link / 验证情况与公开来源链接"
+      description: |
+        - For a **new iperf3 candidate**: provide the provider's public speedtest/looking-glass URL
+          or `iperf3serverlist.net` entry, port range (`<= 64` ports in `1024-65535`), and confirm
+          reverse download (`iperf3 -R`) works.
+        - For a **broken server or trace target**: describe the failure mode (timeout, permanent
+          refusal, routing anomaly) without pasting your own host IP.
+      render: text
+    validations:
+      required: true

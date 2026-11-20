@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: "Methodology & Scoring Guides / 检测项原理与判定说明"
+    url: "https://github.com/Lowendaff/lowendaff_bench/blob/main/docs/README.md"
+    about: "Read how CPU, Memory, Disk, Network and IP items measure and judge / 查阅各模块测试逻辑与常见现象说明"
+  - name: "CLI Usage & Parameter Reference / 命令行参数与多语言手册"
+    url: "https://github.com/Lowendaff/lowendaff_bench/blob/main/README.md"
+    about: "Check CLI flags, enum values, skip rules and guides (English / 简体中文 / 日本語)"
+  - name: "Releases & Static Binaries / 预编译静态二进制下载"
+    url: "https://github.com/Lowendaff/lowendaff_bench/releases"
+    about: "Download official Linux x86_64 and aarch64 musl builds with SHA256SUMS"
