@@ -37,6 +37,7 @@ plugins/
   memory/      memory.sysbench, memory.stream, memory.latency, memory.numa
   disk/        disk.health, disk.fio
   network/     network.iperf3, network.trace
+  media/       media.unlock
 servers/       the lists that the network items download at run time: network speed's servers,
                with their candidates, route tracing's targets and Netflix's exchange ports
 ```
