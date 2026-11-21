@@ -10,7 +10,7 @@
 # binary must be static and pass HPL's residual check on a test matrix.
 set -eu
 
-RELEASE=hpl-2.3-1
+RELEASE=hpl-2.3-2
 # The image the tools workflow runs this script in: Alpine 3.22 of scripts/distros.txt.
 # shellcheck disable=SC2034 # tools.yml reads this line and the next
 IMAGE=ghcr.io/lowendaff/mirror/docker/library/alpine:3.22
@@ -71,7 +71,15 @@ tar -xzf "$OPENBLAS_ARCHIVE"
 tar -xzf "musl-$MUSL_VERSION.tar.gz" "musl-$MUSL_VERSION/COPYRIGHT"
 
 # 1. Build static CBLAS-only OpenBLAS with runtime microarchitecture dispatch (DYNAMIC_ARCH=1).
+# Pin TARGET to the baseline core of $arch so non-kernel files (such as driver/others/memory.c)
+# do not inherit the build runner's ISA (for example ARMv8.4 LRCPC2 stlur on Neoverse runners).
+case $arch in
+x86_64) openblas_target=PRESCOTT ;;
+aarch64) openblas_target=ARMV8 ;;
+*) fail "unsupported architecture: $arch" ;;
+esac
 make -C "$work/OpenBLAS-$OPENBLAS_VERSION" -j"$(nproc)" \
+    TARGET="$openblas_target" \
     NO_SHARED=1 \
     NO_LAPACK=1 \
     NO_LAPACKE=1 \
@@ -81,10 +89,14 @@ make -C "$work/OpenBLAS-$OPENBLAS_VERSION" -j"$(nproc)" \
     NUM_THREADS=256 \
     libs >/dev/null
 make -C "$work/OpenBLAS-$OPENBLAS_VERSION" \
+    TARGET="$openblas_target" \
     NO_SHARED=1 \
     NO_LAPACK=1 \
     NO_LAPACKE=1 \
     ONLY_CBLAS=1 \
+    USE_OPENMP=1 \
+    DYNAMIC_ARCH=1 \
+    NUM_THREADS=256 \
     PREFIX="$work/openblas" \
     install >/dev/null
 
