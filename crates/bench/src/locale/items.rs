@@ -854,3 +854,146 @@ pub trait TaierWords {
     /// Failure reason when every attempted `(location, operator)` slot failed.
     fn taier_no_result(&self) -> String;
 }
+
+/// Effective parameters shown in `network.cloudflare`'s method line.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CloudflareChoice {
+    /// Concurrent HTTP workers per throughput direction.
+    pub concurrency: u8,
+    /// Duration per throughput direction in seconds.
+    pub seconds: u16,
+    /// Whether the STUN UDP packet-loss probe is enabled.
+    pub udp: bool,
+    /// Number of STUN UDP probe packets when `udp` is enabled.
+    pub udp_packets: u16,
+    /// Whether custom HTTP or STUN endpoints were configured.
+    pub custom_endpoints: bool,
+}
+
+/// Summary row labels in `[Cloudflare speed]` (`network.cloudflare`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CloudflareField {
+    /// Edge colocation server (`SJC - San Jose, United States`).
+    Server,
+    /// Client IP reported by Cloudflare (masked unless `--show-ip`).
+    ClientIp,
+    /// Client ASN and organization reported by Cloudflare.
+    ClientAsn,
+    /// Pre-transfer unloaded HTTP RTT summary.
+    IdleLatency,
+    /// Steady-state download throughput and p50/p95 summary.
+    Download,
+    /// Loaded latency during download.
+    DownloadLatency,
+    /// Steady-state upload throughput and p50/p95 summary.
+    Upload,
+    /// Loaded latency during upload.
+    UploadLatency,
+    /// STUN UDP packet loss, out-of-order %, and ITU-T G.107 E-model MOS.
+    UdpLoss,
+    /// Waveform bufferbloat and CV throughput stability grades.
+    Quality,
+}
+
+/// Cloudflare speed's words (`network.cloudflare`).
+pub trait CloudflareWords {
+    /// Method line at the top of `[Cloudflare speed]`.
+    fn cloudflare_method(&self, choice: &CloudflareChoice) -> String;
+    /// Summary subtable headers (`["Metric", "IPv4", "IPv6"]` or single-family fields).
+    fn cloudflare_headers(&self) -> [&'static str; 3];
+    /// Label of a row in the Cloudflare summary table.
+    fn cloudflare_field(&self, field: CloudflareField) -> &'static str;
+    /// Latency cell (`12.4 ms median (jitter 1.2 ms, loss 0.0%)`).
+    fn cloudflare_latency_cell(
+        &self,
+        median: &str,
+        min: &str,
+        max: &str,
+        jitter: Option<&str>,
+        loss_pct: f64,
+    ) -> String;
+    /// Throughput cell (`845 Mbit/s (p50 850, p95 910 Mbit/s)`).
+    fn cloudflare_speed_cell(&self, speed: &str, p50_mbps: f64, p95_mbps: f64) -> String;
+    /// STUN UDP packet-loss cell (`0.0% loss (50/50, 0.0% reordered, MOS 4.4 Excellent)`).
+    fn cloudflare_udp_cell(
+        &self,
+        loss_pct: f64,
+        received: u64,
+        sent: u64,
+        reordered_pct: f64,
+        mos: Option<f64>,
+        quality: &str,
+    ) -> String;
+    /// Connection quality cell (`bufferbloat A (+12.0 ms), stability A (CV 2.4%)`).
+    fn cloudflare_quality_cell(
+        &self,
+        bloat_grade: &str,
+        bloat_ms: Option<f64>,
+        stab_grade: &str,
+        stab_cv: Option<f64>,
+    ) -> String;
+    /// Per-family note when STUN UDP probing failed or was blocked.
+    fn cloudflare_udp_note(&self, ipv6: bool, reason: &str) -> String;
+    /// Per-family note when one family failed while the other succeeded.
+    fn cloudflare_family_failed(&self, ipv6: bool, reason: &str) -> String;
+    /// Failure reason when every reachable family failed.
+    fn cloudflare_no_result(&self, reason: &str) -> String;
+}
+
+/// Effective parameters shown in `network.inetspeed`'s method line.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InetspeedChoice {
+    /// Multi-thread worker count.
+    pub threads: u8,
+    /// Per-thread timeout in seconds.
+    pub timeout_secs: u16,
+    /// Per-thread byte cap label (`2G` by default).
+    pub max: String,
+    /// Idle latency sample count (`20` by default).
+    pub latency_count: u8,
+    /// Whether `--inetspeed-endpoint` forced a specific IP.
+    pub forced_endpoint: bool,
+    /// Whether custom URLs overrode `mensura.cdn-apple.com`.
+    pub custom_endpoints: bool,
+}
+
+/// Apple CDN speed's words (`network.inetspeed`).
+pub trait InetspeedWords {
+    /// Method line at the top of `[Apple CDN speed]`.
+    fn inetspeed_method(&self, choice: &InetspeedChoice) -> String;
+    /// Selected endpoint field label (`Selected endpoint`).
+    fn inetspeed_endpoint_label(&self) -> &'static str;
+    /// Selected endpoint value (`17.253.x.x (mensura.cdn-apple.com, 8.42 ms via Dual DoH)`).
+    fn inetspeed_endpoint_value(
+        &self,
+        host: &str,
+        ip: Option<&str>,
+        rtt_ms: Option<f64>,
+        source: &str,
+    ) -> String;
+    /// Human-readable endpoint discovery source (`pinned`, `Dual DoH`, `system DNS`, etc.).
+    fn inetspeed_source(&self, code: &str) -> &'static str;
+    /// Idle latency field label (`Idle latency`).
+    fn inetspeed_idle_label(&self) -> &'static str;
+    /// Formatted idle latency summary (`8.50 ms median (min ... / avg ... / max ..., jitter ...)`).
+    fn inetspeed_latency_value(
+        &self,
+        median_ms: f64,
+        min_ms: f64,
+        avg_ms: f64,
+        max_ms: f64,
+        jitter_ms: f64,
+    ) -> String;
+    /// Total data transferred field label (`Data transferred`).
+    fn inetspeed_total_label(&self) -> &'static str;
+    /// Round table headers (`["Round", "Threads", "Speed", "Data", "Loaded latency"]`).
+    fn inetspeed_headers(&self) -> [&'static str; 5];
+    /// Round name cell (`Download (1T)`, `Download (4T)`, `Upload (1T)`, `Upload (4T)`).
+    fn inetspeed_round_name(&self, download: bool, single: bool) -> &'static str;
+    /// Loaded latency cell (`14.20 ms (jitter 1.80 ms)`).
+    fn inetspeed_loaded_cell(&self, median_ms: f64, jitter_ms: f64) -> String;
+    /// Failure reason when `max` byte-size string is invalid.
+    fn inetspeed_invalid_max(&self, raw: &str) -> String;
+    /// Failure reason when every transfer round failed.
+    fn inetspeed_no_result(&self) -> String;
+}

@@ -1,11 +1,15 @@
-//! User-editable TUI configuration for all 13 benchmark plugins and global run/report options.
+//! User-editable TUI configuration for all 15 benchmark plugins and global run/report options.
 
 use std::collections::BTreeMap;
+use std::net::IpAddr;
 
 use bench_api::Net;
 use bench_api::Requirements;
 use plugin_cpu::bench::DEFAULT_SUITES;
 use plugin_cpu::bench::SUITE_CODES;
+use plugin_network::cloudflare::Settings as CfSettings;
+use plugin_network::inetspeed::Settings as InetSettings;
+use plugin_network::inetspeed::parse as inet_parse;
 use plugin_network::iperf3::result::Settings as IperfSettings;
 use plugin_network::taier::Settings as TaierSettings;
 
@@ -73,6 +77,28 @@ pub enum ItemParams {
         /// Parallel TCP streams (`1..=32`).
         streams: u8,
     },
+    /// `network.cloudflare` speed test parameters.
+    Cloudflare {
+        /// Duration per throughput direction in seconds (`1..=60`).
+        seconds: u16,
+        /// Concurrent HTTP workers (`1..=32`).
+        concurrency: u8,
+        /// Whether to run the RFC 5389 STUN UDP packet-loss probe.
+        udp: bool,
+    },
+    /// `network.inetspeed` Apple CDN speed test parameters.
+    Inetspeed {
+        /// Multi-thread worker count (`1..=64`).
+        threads: u8,
+        /// Per-thread timeout in seconds (`1..=120`).
+        timeout: u16,
+        /// Per-thread byte cap string (`2G`, `500M`, `1GiB`).
+        max: String,
+        /// Idle latency sample count (`1..=100`).
+        latency_count: u8,
+        /// Optional pinned endpoint IP literal; empty uses Dual DoH discovery.
+        endpoint: String,
+    },
     /// `network.trace` route tracing parameters.
     Trace {
         /// Selected target groups (`services`, `china`, `international`, `all`).
@@ -124,6 +150,18 @@ impl ItemParams {
                 seconds: TaierSettings::DEFAULT_SECONDS,
                 streams: TaierSettings::DEFAULT_STREAMS,
             },
+            "network.cloudflare" => Self::Cloudflare {
+                seconds: CfSettings::DEFAULT_SECONDS,
+                concurrency: CfSettings::DEFAULT_CONCURRENCY,
+                udp: true,
+            },
+            "network.inetspeed" => Self::Inetspeed {
+                threads: InetSettings::DEFAULT_THREADS,
+                timeout: InetSettings::DEFAULT_TIMEOUT_SECS,
+                max: InetSettings::DEFAULT_MAX.to_owned(),
+                latency_count: InetSettings::DEFAULT_LATENCY_COUNT,
+                endpoint: String::new(),
+            },
             "network.trace" => Self::Trace {
                 groups: [false; 4],
                 targets: String::new(),
@@ -159,6 +197,18 @@ impl ItemParams {
                 cities: String::new(),
                 seconds: TaierSettings::DEFAULT_SECONDS,
                 streams: TaierSettings::DEFAULT_STREAMS,
+            },
+            "network.cloudflare" => Self::Cloudflare {
+                seconds: CfSettings::DEFAULT_SECONDS,
+                concurrency: CfSettings::DEFAULT_CONCURRENCY,
+                udp: false,
+            },
+            "network.inetspeed" => Self::Inetspeed {
+                threads: InetSettings::DEFAULT_THREADS,
+                timeout: InetSettings::DEFAULT_TIMEOUT_SECS,
+                max: InetSettings::DEFAULT_MAX.to_owned(),
+                latency_count: InetSettings::DEFAULT_LATENCY_COUNT,
+                endpoint: String::new(),
             },
             "network.trace" => Self::Trace {
                 groups: [false; 4],
@@ -207,6 +257,28 @@ impl ItemParams {
                     && split_csv(cities).is_empty()
                     && *seconds == TaierSettings::DEFAULT_SECONDS
                     && *streams == TaierSettings::DEFAULT_STREAMS
+            }
+            Self::Cloudflare {
+                seconds,
+                concurrency,
+                udp,
+            } => {
+                *seconds == CfSettings::DEFAULT_SECONDS
+                    && *concurrency == CfSettings::DEFAULT_CONCURRENCY
+                    && *udp
+            }
+            Self::Inetspeed {
+                threads,
+                timeout,
+                max,
+                latency_count,
+                endpoint,
+            } => {
+                *threads == InetSettings::DEFAULT_THREADS
+                    && *timeout == InetSettings::DEFAULT_TIMEOUT_SECS
+                    && max.trim().eq_ignore_ascii_case(InetSettings::DEFAULT_MAX)
+                    && *latency_count == InetSettings::DEFAULT_LATENCY_COUNT
+                    && endpoint.trim().is_empty()
             }
             Self::Trace {
                 groups,
@@ -289,6 +361,60 @@ impl ItemParams {
                 }
                 if *streams != TaierSettings::DEFAULT_STREAMS {
                     map.insert("streams".to_owned(), serde_json::Value::from(*streams));
+                }
+            }
+            Self::Cloudflare {
+                seconds,
+                concurrency,
+                udp,
+            } => {
+                if *seconds != CfSettings::DEFAULT_SECONDS {
+                    map.insert("seconds".to_owned(), serde_json::Value::from(*seconds));
+                }
+                if *concurrency != CfSettings::DEFAULT_CONCURRENCY {
+                    map.insert(
+                        "concurrency".to_owned(),
+                        serde_json::Value::from(*concurrency),
+                    );
+                }
+                if !udp {
+                    map.insert("udp".to_owned(), serde_json::Value::Bool(false));
+                }
+            }
+            Self::Inetspeed {
+                threads,
+                timeout,
+                max,
+                latency_count,
+                endpoint,
+            } => {
+                if *threads != InetSettings::DEFAULT_THREADS {
+                    map.insert("threads".to_owned(), serde_json::Value::from(*threads));
+                }
+                if *timeout != InetSettings::DEFAULT_TIMEOUT_SECS {
+                    map.insert("timeout".to_owned(), serde_json::Value::from(*timeout));
+                }
+                let max_trimmed = max.trim();
+                if !max_trimmed.is_empty()
+                    && !max_trimmed.eq_ignore_ascii_case(InetSettings::DEFAULT_MAX)
+                {
+                    map.insert(
+                        "max".to_owned(),
+                        serde_json::Value::String(max_trimmed.to_owned()),
+                    );
+                }
+                if *latency_count != InetSettings::DEFAULT_LATENCY_COUNT {
+                    map.insert(
+                        "latency_count".to_owned(),
+                        serde_json::Value::from(*latency_count),
+                    );
+                }
+                let ep_trimmed = endpoint.trim();
+                if !ep_trimmed.is_empty() {
+                    map.insert(
+                        "endpoint".to_owned(),
+                        serde_json::Value::String(ep_trimmed.to_owned()),
+                    );
                 }
             }
             Self::Trace {
@@ -717,6 +843,93 @@ impl TuiConfig {
                     inactive,
                 ));
             }
+            ItemParams::Cloudflare {
+                seconds,
+                concurrency,
+                udp,
+            } => {
+                rows.push(sub_row(
+                    FieldRow {
+                        label: words.tui_field_seconds().to_owned(),
+                        value: seconds.to_string(),
+                        customized: *seconds != CfSettings::DEFAULT_SECONDS,
+                        dimmed: false,
+                        edit_raw: Some(seconds.to_string()),
+                    },
+                    inactive,
+                ));
+                rows.push(sub_row(
+                    FieldRow {
+                        label: words.tui_field_cf_concurrency().to_owned(),
+                        value: concurrency.to_string(),
+                        customized: *concurrency != CfSettings::DEFAULT_CONCURRENCY,
+                        dimmed: false,
+                        edit_raw: Some(concurrency.to_string()),
+                    },
+                    inactive,
+                ));
+                rows.push(sub_row(
+                    bool_row(words.tui_field_cf_udp(), *udp, true),
+                    inactive,
+                ));
+            }
+            ItemParams::Inetspeed {
+                threads,
+                timeout,
+                max,
+                latency_count,
+                endpoint,
+            } => {
+                rows.push(sub_row(
+                    FieldRow {
+                        label: words.tui_field_inet_threads().to_owned(),
+                        value: threads.to_string(),
+                        customized: *threads != InetSettings::DEFAULT_THREADS,
+                        dimmed: false,
+                        edit_raw: Some(threads.to_string()),
+                    },
+                    inactive,
+                ));
+                rows.push(sub_row(
+                    FieldRow {
+                        label: words.tui_field_inet_timeout().to_owned(),
+                        value: timeout.to_string(),
+                        customized: *timeout != InetSettings::DEFAULT_TIMEOUT_SECS,
+                        dimmed: false,
+                        edit_raw: Some(timeout.to_string()),
+                    },
+                    inactive,
+                ));
+                let max_trimmed = max.trim();
+                rows.push(sub_row(
+                    FieldRow {
+                        label: words.tui_field_inet_max().to_owned(),
+                        value: max_trimmed.to_owned(),
+                        customized: !max_trimmed.eq_ignore_ascii_case(InetSettings::DEFAULT_MAX),
+                        dimmed: false,
+                        edit_raw: Some(max_trimmed.to_owned()),
+                    },
+                    inactive,
+                ));
+                rows.push(sub_row(
+                    FieldRow {
+                        label: words.tui_field_inet_latency_count().to_owned(),
+                        value: latency_count.to_string(),
+                        customized: *latency_count != InetSettings::DEFAULT_LATENCY_COUNT,
+                        dimmed: false,
+                        edit_raw: Some(latency_count.to_string()),
+                    },
+                    inactive,
+                ));
+                rows.push(sub_row(
+                    text_row(
+                        words.tui_field_inet_endpoint(),
+                        endpoint,
+                        words.tui_default_inet_endpoint(),
+                    ),
+                    inactive,
+                ));
+            }
             ItemParams::Trace {
                 groups,
                 targets,
@@ -932,6 +1145,58 @@ impl TuiConfig {
                 _ => {}
             }
         }
+        if let ItemParams::Cloudflare {
+            seconds,
+            concurrency,
+            udp,
+        } = &mut item.params
+        {
+            match field_idx {
+                1 => {
+                    *seconds = step_u16(*seconds, delta, 1, 60);
+                    if !item.enabled {
+                        item.enabled = true;
+                        *udp = true;
+                    }
+                    return;
+                }
+                2 => {
+                    *concurrency = step_u8(*concurrency, delta, 1, 32);
+                    if !item.enabled {
+                        item.enabled = true;
+                        *udp = true;
+                    }
+                    return;
+                }
+                _ => {}
+            }
+        }
+        if let ItemParams::Inetspeed {
+            threads,
+            timeout,
+            latency_count,
+            ..
+        } = &mut item.params
+        {
+            match field_idx {
+                1 => {
+                    *threads = step_u8(*threads, delta, 1, 64);
+                    item.enabled = true;
+                    return;
+                }
+                2 => {
+                    *timeout = step_u16(*timeout, delta, 1, 120);
+                    item.enabled = true;
+                    return;
+                }
+                4 => {
+                    *latency_count = step_u8(*latency_count, delta, 1, 100);
+                    item.enabled = true;
+                    return;
+                }
+                _ => {}
+            }
+        }
         self.toggle_item_boolean(item_idx, field_idx);
     }
 
@@ -945,7 +1210,17 @@ impl TuiConfig {
         }
         let was_disabled = !item.enabled;
         match &mut item.params {
-            ItemParams::Fixed | ItemParams::Iperf3 { .. } => {}
+            ItemParams::Fixed | ItemParams::Iperf3 { .. } | ItemParams::Inetspeed { .. } => {}
+            ItemParams::Cloudflare { udp, .. } => {
+                if field_idx == 3 {
+                    if was_disabled {
+                        item.enabled = true;
+                        *udp = true;
+                    } else {
+                        *udp = !*udp;
+                    }
+                }
+            }
             ItemParams::CpuBench { suites } => {
                 if (1..=8).contains(&field_idx) {
                     suites[field_idx - 1] = !suites[field_idx - 1];
@@ -1150,6 +1425,105 @@ impl TuiConfig {
                                 *operators = DEFAULT_TAIER_OPERATORS;
                             }
                         }
+                    }
+                }
+                _ => {}
+            },
+            ItemParams::Cloudflare {
+                seconds,
+                concurrency,
+                udp,
+            } => match field_idx {
+                1 => {
+                    if trimmed.is_empty() {
+                        *seconds = CfSettings::DEFAULT_SECONDS;
+                    } else {
+                        let val = parse_range(trimmed, 1, 60).ok_or_else(|| {
+                            words.tui_invalid_number(words.tui_field_seconds(), 1, 60)
+                        })?;
+                        *seconds = u16::try_from(val).unwrap_or(CfSettings::DEFAULT_SECONDS);
+                        if was_disabled {
+                            item.enabled = true;
+                            *udp = true;
+                        }
+                    }
+                }
+                2 => {
+                    if trimmed.is_empty() {
+                        *concurrency = CfSettings::DEFAULT_CONCURRENCY;
+                    } else {
+                        let val = parse_range(trimmed, 1, 32).ok_or_else(|| {
+                            words.tui_invalid_number(words.tui_field_cf_concurrency(), 1, 32)
+                        })?;
+                        *concurrency = u8::try_from(val).unwrap_or(CfSettings::DEFAULT_CONCURRENCY);
+                        if was_disabled {
+                            item.enabled = true;
+                            *udp = true;
+                        }
+                    }
+                }
+                _ => {}
+            },
+            ItemParams::Inetspeed {
+                threads,
+                timeout,
+                max,
+                latency_count,
+                endpoint,
+            } => match field_idx {
+                1 => {
+                    if trimmed.is_empty() {
+                        *threads = InetSettings::DEFAULT_THREADS;
+                    } else {
+                        let val = parse_range(trimmed, 1, 64).ok_or_else(|| {
+                            words.tui_invalid_number(words.tui_field_inet_threads(), 1, 64)
+                        })?;
+                        *threads = u8::try_from(val).unwrap_or(InetSettings::DEFAULT_THREADS);
+                        item.enabled = true;
+                    }
+                }
+                2 => {
+                    if trimmed.is_empty() {
+                        *timeout = InetSettings::DEFAULT_TIMEOUT_SECS;
+                    } else {
+                        let val = parse_range(trimmed, 1, 120).ok_or_else(|| {
+                            words.tui_invalid_number(words.tui_field_inet_timeout(), 1, 120)
+                        })?;
+                        *timeout = u16::try_from(val).unwrap_or(InetSettings::DEFAULT_TIMEOUT_SECS);
+                        item.enabled = true;
+                    }
+                }
+                3 => {
+                    if trimmed.is_empty() {
+                        *max = InetSettings::DEFAULT_MAX.to_owned();
+                    } else {
+                        let _ = inet_parse::parse_size(trimmed)
+                            .map_err(|_| words.inetspeed_invalid_max(trimmed))?;
+                        *max = trimmed.to_owned();
+                        item.enabled = true;
+                    }
+                }
+                4 => {
+                    if trimmed.is_empty() {
+                        *latency_count = InetSettings::DEFAULT_LATENCY_COUNT;
+                    } else {
+                        let val = parse_range(trimmed, 1, 100).ok_or_else(|| {
+                            words.tui_invalid_number(words.tui_field_inet_latency_count(), 1, 100)
+                        })?;
+                        *latency_count =
+                            u8::try_from(val).unwrap_or(InetSettings::DEFAULT_LATENCY_COUNT);
+                        item.enabled = true;
+                    }
+                }
+                5 => {
+                    if trimmed.is_empty() {
+                        endpoint.clear();
+                    } else {
+                        let ip = trimmed
+                            .parse::<IpAddr>()
+                            .map_err(|_| words.invalid_inetspeed_endpoint(trimmed))?;
+                        *endpoint = ip.to_string();
+                        item.enabled = true;
                     }
                 }
                 _ => {}

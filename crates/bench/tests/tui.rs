@@ -144,7 +144,7 @@ fn release_events_and_stray_pastes_are_ignored_while_editor_supports_cursor_and_
 
     // Bracketed paste outside an open editor must not trigger single-key shortcuts like 'a' or 'q'.
     session.handle_paste("aqdr");
-    assert_eq!(session.config.enabled_count(), 13);
+    assert_eq!(session.config.enabled_count(), 15);
 
     // Open Global -> work_dir editor and exercise cursor movement, Delete, Backspace, and Paste.
     let _ = session.handle_key(press(KeyCode::End));
@@ -177,8 +177,8 @@ fn defaults_match_standard_cli_and_every_customized_plugin_builds_cleanly() {
     let all = registry::all();
     let mut cfg = TuiConfig::from_registry(&all);
 
-    assert_eq!(cfg.items.len(), 13);
-    assert_eq!(cfg.enabled_count(), 13);
+    assert_eq!(cfg.items.len(), 15);
+    assert_eq!(cfg.enabled_count(), 15);
     assert_eq!(cfg.customized_count(), 0);
     assert!(
         cfg.plugin_settings().is_empty(),
@@ -263,8 +263,50 @@ fn defaults_match_standard_cli_and_every_customized_plugin_builds_cleanly() {
     assert!(cfg.apply_item_edit(taier_idx, 9, "0").is_err());
     assert!(cfg.apply_item_edit(taier_idx, 10, "99").is_err());
 
-    assert_eq!(cfg.customized_count(), 7);
+    let cf_idx = cfg
+        .items
+        .iter()
+        .position(|item| item.id == "network.cloudflare")
+        .unwrap();
+    cfg.apply_item_edit(cf_idx, 1, "6").unwrap();
+    cfg.apply_item_edit(cf_idx, 2, "4").unwrap();
+    assert_eq!(cfg.activate_item_field(cf_idx, 3), None); // udp -> false
+    assert!(cfg.apply_item_edit(cf_idx, 1, "0").is_err());
+    assert!(cfg.apply_item_edit(cf_idx, 2, "99").is_err());
+
+    let inet_idx = cfg
+        .items
+        .iter()
+        .position(|item| item.id == "network.inetspeed")
+        .unwrap();
+    cfg.apply_item_edit(inet_idx, 1, "8").unwrap();
+    cfg.apply_item_edit(inet_idx, 2, "15").unwrap();
+    cfg.apply_item_edit(inet_idx, 3, "500M").unwrap();
+    cfg.apply_item_edit(inet_idx, 4, "10").unwrap();
+    cfg.apply_item_edit(inet_idx, 5, "198.51.100.25").unwrap();
+    assert!(cfg.apply_item_edit(inet_idx, 3, "10XB").is_err());
+    assert!(cfg.apply_item_edit(inet_idx, 5, "not-an-ip").is_err());
+
+    assert_eq!(cfg.customized_count(), 9);
     let settings = cfg.plugin_settings();
+    assert_eq!(
+        settings["network.cloudflare"],
+        serde_json::json!({
+            "seconds": 6,
+            "concurrency": 4,
+            "udp": false,
+        })
+    );
+    assert_eq!(
+        settings["network.inetspeed"],
+        serde_json::json!({
+            "threads": 8,
+            "timeout": 15,
+            "max": "500M",
+            "latency_count": 10,
+            "endpoint": "198.51.100.25",
+        })
+    );
     assert_eq!(
         settings["network.taier"],
         serde_json::json!({
@@ -319,7 +361,7 @@ fn defaults_match_standard_cli_and_every_customized_plugin_builds_cleanly() {
     let planned = cfg
         .build_plan(&all)
         .expect("customized settings must build");
-    assert_eq!(planned.len(), 13);
+    assert_eq!(planned.len(), 15);
 
     // Unchecking every carrier in network.taier while enabled is rejected.
     if let ItemParams::Taier { operators, .. } = &mut cfg.items[taier_idx].params {
@@ -442,7 +484,7 @@ fn keyboard_navigation_drives_item_switches_groups_params_and_global_options() {
 
     let _ = session.handle_key(press(KeyCode::Home));
     let _ = session.handle_key(press(KeyCode::Char('d')));
-    assert_eq!(session.config.enabled_count(), 13);
+    assert_eq!(session.config.enabled_count(), 15);
     assert_eq!(
         session.config.global.download_connections,
         app::DOWNLOAD_CONNECTIONS
@@ -477,7 +519,7 @@ fn keyboard_navigation_drives_item_switches_groups_params_and_global_options() {
 
     let planned = session.config.build_plan(&all).unwrap();
     let ids: Vec<&str> = planned.iter().map(Planned::id).collect();
-    assert_eq!(ids.len(), 13);
+    assert_eq!(ids.len(), 15);
 }
 
 #[test]

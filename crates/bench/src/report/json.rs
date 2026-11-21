@@ -162,6 +162,14 @@ fn serialize_measured(measured: &Measured, own: &[IpAddr], show_ip: bool) -> Opt
         Measured::DiskFio(r) => r.output.as_ref().map(to_value),
         Measured::NetworkIperf3(r) => r.output.as_ref().map(to_value),
         Measured::NetworkTaier(r) => r.output.as_ref().map(to_value),
+        Measured::NetworkCloudflare(r) => r.output.as_ref().map(|out| {
+            let mut val = to_value(out);
+            if !show_ip {
+                mask_cloudflare_value(&mut val, out);
+            }
+            val
+        }),
+        Measured::NetworkInetspeed(r) => r.output.as_ref().map(to_value),
         Measured::NetworkTrace(r) => r.output.as_ref().map(|out| {
             let mut val = to_value(out);
             if !show_ip && !own.is_empty() {
@@ -198,6 +206,17 @@ fn mask_quality_family(root: &mut Value, key: &str, address: IpAddr) {
     if let Some(family) = root.get_mut(key).and_then(Value::as_object_mut) {
         family.insert("address".to_owned(), Value::String(network::mask(address)));
         family.insert("hostname".to_owned(), Value::Null);
+    }
+}
+
+fn mask_cloudflare_value(root: &mut Value, out: &plugin_network::cloudflare::Output) {
+    for (key, maybe_fam) in [("ipv4", out.ipv4.as_deref()), ("ipv6", out.ipv6.as_deref())] {
+        if let Some(fam) = maybe_fam
+            && let Some(ip) = fam.client_ip
+            && let Some(obj) = root.get_mut(key).and_then(Value::as_object_mut)
+        {
+            obj.insert("client_ip".to_owned(), Value::String(network::mask(ip)));
+        }
     }
 }
 

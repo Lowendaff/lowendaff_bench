@@ -90,6 +90,22 @@ impl LogWords for English {
                 operator,
                 stage,
             } => format!("{location} ({operator}): {stage}"),
+            Step::Cloudflare { stage, ipv6 } => {
+                let phase = match stage {
+                    "latency" => "idle latency",
+                    "download" => "download + loaded latency",
+                    "upload" => "upload + loaded latency",
+                    "udp" => "STUN UDP packet-loss probe",
+                    other => other,
+                };
+                format!("{phase} over {}", family(ipv6))
+            }
+            Step::Inetspeed { stage, threads } => match (stage, threads) {
+                ("discover", _) => "discovering optimal Apple CDN endpoint".to_owned(),
+                ("latency", _) => "measuring idle latency".to_owned(),
+                (dir, 1) => format!("{dir} (single-thread)"),
+                (dir, n) => format!("{dir} ({n} threads)"),
+            },
         };
         format!("{id} {step}")
     }

@@ -41,7 +41,8 @@ plugins/
   cpu/         cpu.bench (sysbench, 7zip, unixbench, hpl, passmark, ycruncher, prime95, geekbench)
   memory/      memory.sysbench, memory.stream, memory.latency, memory.numa
   disk/        disk.health, disk.fio
-  network/     network.iperf3, network.taier, network.trace, network.bgp
+  network/     network.iperf3, network.taier, network.cloudflare, network.inetspeed,
+               network.trace, network.bgp
   ip/          ip.quality, ip.media
 docs/          detailed module-by-module guides explaining how each test item measures and judges
 servers/       the lists that the network items download at run time: network speed's servers,
@@ -267,8 +268,9 @@ ones before pushing:
 - `ast-grep test`, `ast-grep scan`, `scripts/check-docs-cases.sh` and `scripts/check-docs.sh`
 - `scripts/{iperf3-servers,taier-servers,traceroute-targets,netflix-ix}{-cases,}.sh` (`check`)
 - On Linux (`x86_64` and `aarch64`): static `musl` release build, `swap-file` roundtrip example,
-  `scripts/smoke.sh` with local responders (`smoke-{iperf3,taier,trace,ip,media,bgp}.sh`),
-  `scripts/smoke-mutants.sh`, `scripts/distros.sh`, and non-blocking `scripts/network-check.sh`.
+  `scripts/smoke.sh` with local responders
+  (`smoke-{iperf3,taier,cloudflare,inetspeed,trace,ip,media,bgp}.sh`), `scripts/smoke-mutants.sh`,
+  `scripts/distros.sh`, and non-blocking `scripts/network-check.sh`.
 
 CI pins `cargo-nextest` `0.9.151`, `cargo-deny` `0.20.2`, `zizmor` `1.32.0`, `ast-grep` `0.51.1`,
 `shellcheck` `0.11.0`, and `actionlint` `1.7.12`.

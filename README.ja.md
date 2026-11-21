@@ -35,7 +35,7 @@ sudo ./lowendaff-bench-x86_64        # 引数なしで対話型 TUI を起動（
 以下はバイナリ名を `lowendaff-bench` にした場合の実用例です。
 
 ```sh
-# 1. 利用できる全 13 項目のテスト一覧を確認する（root 権限不要）
+# 1. 利用できる全 15 項目のテスト一覧を確認する（root 権限不要）
 ./lowendaff-bench --list
 
 # 2. 対話型 TUI モードを起動する（引数なしの既定動作：項目・サブ項目の連動切替、設定、進捗・レポート閲覧）
@@ -88,7 +88,7 @@ sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-
 | オプション | 書き方 | 既定の動作 | わかりやすい説明 |
 |---|---|---|---|
 | *（引数なし）* | — | 対話型 TUI | オプションを付けずに `sudo ./lowendaff-bench` を実行すると対話型ターミナル画面を起動します（親スイッチとサブ項目の双方向連動、パラメータ変更、進捗表示、レポート閲覧） |
-| `-a, --all` | 値なし | オフ | 非対話 CLI モードで全 13 項目を実行します（`--only all` と同等） |
+| `-a, --all` | 値なし | オフ | 非対話 CLI モードで全 15 項目を実行します（`--only all` と同等） |
 | `--only` | `<項目名,...>` | 全項目を実行 | CLI モードで指定したカテゴリ・個別 ID・`all` だけを実行します（カンマ区切り） |
 | `--skip` | `<項目名,...>` | スキップなし | 指定したカテゴリ・個別 ID・`all` を除外します（`--all` や `--only` と併用可能） |
 | `-o, --output` | `<ファイル>` | 画面 + `/tmp` 保存 | 最終レポートを指定ファイルのみに出力します（未指定時は画面/ビューア表示に加え `/tmp/lowendaff-bench-<タイムスタンプ>.<ext>` に自動保存） |
@@ -98,6 +98,9 @@ sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-
 | `--countries` | `<国コード,...>` | 既定の 5 拠点 | `network.iperf3` の測定先を 2 文字の国コード（`JP,US,SG` など）または `all` で絞り込みます |
 | `--taier-cities` | `<都市/省,...>` | 北京・上海・広州 | `network.taier` の測定先を都市・省名・拠点 ID（`Beijing,Jiangsu` など）または `all` で絞り込みます |
 | `--taier-operators` | `<キャリア,...>` | `telecom,unicom,mobile` | `network.taier` で測定する通信キャリアを選びます（`telecom`、`unicom`、`mobile`、`cernet`、`cbn`、`other`、または `all`） |
+| `--no-cloudflare-udp` | 値なし | オフ | `network.cloudflare` 内の RFC 5389 STUN UDP パケットロス測定を省略します |
+| `--inetspeed-threads` | `<1..=64>` | `4` | `network.inetspeed` のマルチスレッド測定で使用する並列スレッド数 |
+| `--inetspeed-endpoint` | `<IP>` | 自動（Dual DoH） | `network.inetspeed` で特定の Apple CDN エッジ IP を固定します |
 | `--trace-groups` | `<グループ,...>` | キャッシュ + 既定拠点 | `network.trace` で追跡する宛先グループを選びます |
 | `--media-groups` | `<地域,...>` | `all`（全地域） | `ip.media` でチェックする動画配信サービスの地域を選びます |
 | `--no-dnsbl` | 値なし | オフ | `ip.quality` 内の 25 カ所のブラックリスト（DNSBL）照会を省略します |
@@ -119,9 +122,9 @@ sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-
 | `--only` / `--skip` *（カテゴリ）* | `cpu` | 統合 CPU ベンチマークスイート：`cpu.bench` |
 | | `memory` | メモリテスト 4 項目：`memory.sysbench`、`memory.stream`、`memory.latency`、`memory.numa` |
 | | `disk` | ディスクテスト 2 項目：`disk.health`、`disk.fio` |
-| | `network` | ネットワークテスト 4 項目：`network.iperf3`、`network.taier`、`network.trace`、`network.bgp` |
+| | `network` | ネットワークテスト 6 項目：`network.iperf3`、`network.taier`、`network.cloudflare`、`network.inetspeed`、`network.trace`、`network.bgp` |
 | | `ip` | IP テスト 2 項目：`ip.quality`、`ip.media` |
-| `--only` / `--skip` *（個別 ID）* | `disk.health`, `memory.sysbench`, `memory.stream`, `memory.latency`, `memory.numa`, `disk.fio`, `network.iperf3`, `network.taier`, `network.trace`, `network.bgp`, `ip.quality`, `ip.media`, `cpu.bench` | 個別のテスト項目をピンポイントで選択・除外します |
+| `--only` / `--skip` *（個別 ID）* | `disk.health`, `memory.sysbench`, `memory.stream`, `memory.latency`, `memory.numa`, `disk.fio`, `network.iperf3`, `network.taier`, `network.cloudflare`, `network.inetspeed`, `network.trace`, `network.bgp`, `ip.quality`, `ip.media`, `cpu.bench` | 個別のテスト項目をピンポイントで選択・除外します |
 | `-f, --format` | `text` | ターミナルで読みやすい整形済みテキスト表 |
 | | `markdown` *（または `md`）* | ブログ・GitHub・掲示板にそのまま貼り付けられる Markdown 形式 |
 | | `json` | スクリプトでの自動集計や保存に便利な JSON 形式 |
@@ -159,7 +162,7 @@ sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-
 
 テスト開始前に、まずサーバーの基本構成である **システム概要（`[System]`）** を自動で読み取ります。物理サーバー・VM・コンテナの判別、CPU 型番とキャッシュ容量、メモリと Swap、OS・カーネル・稼働時間・TCP 輻輳制御（BBR など）、ディスク構成、NIC リンク速度（PCIe 帯域低下の警告付き）、IPv4/IPv6 の疎通状況を確認でき、物理サーバーではメモリスロット情報、ECC エラー数、IPMI/BMC、ハードウェア RAID カードも一覧表示します（詳細：[`docs/system.md`](docs/system.md)）。
 
-続いて、以下の最大 13 項目を順番に測定します。
+続いて、以下の最大 15 項目を順番に測定します。
 
 | カテゴリ | 項目 ID・名前 | 対象環境 | このテストでわかること | 詳細解説 |
 |---|---|---|---|---|
@@ -171,6 +174,8 @@ sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-
 | `disk` | `disk.fio`<br>ディスク読み書き速度 | 全サーバー | YABS 互換条件（ランダム読込 50% / 書込 50%）で `4K`・`64K`・`512K`・`1M` の速度と IOPS を測定します。DB 用途は `4K`、大容量転送は `512K`/`1M` が目安になります | [`docs/disk.md`](docs/disk.md) |
 | `network` | `network.iperf3`<br>グローバル回線速度 | 通信可能な環境 | 既定でロサンゼルス・ニューヨーク・バージニア・東京・フランクフルトの公開サーバーと接続し、IPv4 / IPv6 の上り・下り速度と遅延を測定します | [`docs/network.md`](docs/network.md) |
 | `network` | `network.taier`<br>中国キャリア回線速度 | IPv4 通信可能な環境 | 純 Rust 実装による中国 CAICT GlobalSpeed（泰爾測速）拠点とのマルチストリーム HTTP/1.1 上り・下り速度測定を行います（既定：北京・上海・広州 × 電信・聯通・移動） | [`docs/network.md`](docs/network.md) |
+| `network` | `network.cloudflare`<br>Cloudflare 回線速度 | 通信可能な環境 | 純 Rust 実装による `speed.cloudflare.com` デュアルスタック上り・下り速度、無負荷・高負荷時遅延、Bufferbloat / 安定性評価、および STUN UDP パケットロス・MOS 測定を行います | [`docs/network.md`](docs/network.md) |
+| `network` | `network.inetspeed`<br>Apple CDN 回線速度 | 通信可能な環境 | 純 Rust 実装による `mensura.cdn-apple.com` 速度測定。Dual DoH で最小 RTT エッジ IP を自動選択・固定し、シングルスレッドとマルチスレッドの上り・下り速度を測定します | [`docs/network.md`](docs/network.md) |
 | `network` | `network.trace`<br>ネットワーク経路追跡 | Raw ソケット対応環境 | YouTube / Netflix キャッシュや中国主要キャリア、海外バックボーンまでの経路を一跳びずつ追跡し、直通か迂回ルートかを可視化します | [`docs/network.md`](docs/network.md) |
 | `network` | `network.bgp`<br>BGP 経路トポロジー | グローバル IP 保有機 | 世界の BGP 収集拠点から広告プレフィックス・RPKI 状態・直接の上流キャリアを取得し、`text` 形式では限定公開の `imageupload.app` SVG トポロジー URL、Markdown では Mermaid 図、JSON ではスタンドアロン SVG コードを出力します | [`docs/network.md`](docs/network.md) |
 | `ip` | `ip.quality`<br>IP 品質・リスク診断 | グローバル IP 保有機 | 9 つの評価データベースを照合し、**ネイティブ IP / ブロードキャスト IP** の判別、データセンター / 家庭用回線の区分、不正リスク、公開ポート、25 種のブラックリスト、25 番メールポートの疎通を診断します | [`docs/ip.md`](docs/ip.md) |
@@ -202,4 +207,6 @@ cargo build --release --locked --target x86_64-unknown-linux-musl --bin lowendaf
 - **[NextTrace (`nxtrace/NTrace-core`)](https://github.com/nxtrace/NTrace-core)**：`network.trace` で使用する高速な ICMP 経路追跡エンジンおよび位置情報サービス。
 - **[peer.as (`Archeb/peer.as`)](https://github.com/Archeb/peer.as)**：`network.bgp` における AS パスの階層レイアウト・Tier-1 切り詰め・Prepend 折りたたみおよび SVG 描画の参考。
 - **[speedtaier (`transflo/speedtaier`)](https://github.com/transflo/speedtaier)**：`network.taier` における CAICT GlobalSpeed（`dovalid`）認証・マルチストリーム HTTP/1.1 速度測定および中国本土キャリア拠点一覧の参考。
+- **[cloudflare-speed-cli (`kavehtehrani/cloudflare-speed-cli`)](https://github.com/kavehtehrani/cloudflare-speed-cli)**：`network.cloudflare` における定常 HTTPS スループット、高負荷時遅延、Waveform Bufferbloat / 安定性評価、および STUN UDP パケットロス・MOS 測定の参考。
+- **[iNetSpeed-CLI (`nxtrace/iNetSpeed-CLI`)](https://github.com/nxtrace/iNetSpeed-CLI)**：`network.inetspeed` における Dual DoH エンドポイント探索・IP ピン留めおよび `mensura.cdn-apple.com` 速度測定プロトコルの参考。
 - **上流ベンチマークツール・公開データソース**：[`sysbench`](https://github.com/akopytov/sysbench)（Alexey Kopytov）、[`7-Zip`](https://www.7-zip.org/)（Igor Pavlov）、[`Byte-UnixBench`](https://github.com/kdlucas/byte-unixbench）、[`HPL`](https://www.netlib.org/benchmark/hpl/) および [`OpenBLAS`](https://www.openblas.net/)、[`PassMark PerformanceTest`](https://www.passmark.com/products/pt_linux/)、[`y-cruncher`](http://www.numberworld.org/y-cruncher/)（Alexander J. Yee）、[`Prime95 / GIMPS`](https://www.mersenne.org/)、[`Geekbench`](https://www.geekbench.com/)（Primate Labs）、[`STREAM`](https://www.cs.virginia.edu/stream/)（John D. McCalpin）、[`multichase`](https://github.com/google/multichase)（Google）、[`smartmontools`](https://www.smartmontools.org/)（`smartctl`）、[`fio`](https://github.com/axboe/fio)（Jens Axboe）、[`iperf3`](https://github.com/esnet/iperf)（ESnet）、[`RIPEstat`](https://stat.ripe.net/)（RIPE NCC）、[`iperf3serverlist.net`](https://iperf3serverlist.net/)、[`PeeringDB`](https://www.peeringdb.com/)。

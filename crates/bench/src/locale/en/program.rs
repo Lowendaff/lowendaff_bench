@@ -108,6 +108,24 @@ impl ProgramWords for English {
             .to_owned()
     }
 
+    fn help_no_cloudflare_udp(&self) -> String {
+        "Skip the RFC 5389 STUN UDP packet-loss probe in network.cloudflare".to_owned()
+    }
+
+    fn help_inetspeed_threads(&self) -> String {
+        "Concurrent worker threads for multi-thread rounds in network.inetspeed (1 to 64)"
+            .to_owned()
+    }
+
+    fn help_inetspeed_endpoint(&self) -> String {
+        "Pin a specific Apple CDN IPv4 or IPv6 endpoint IP in network.inetspeed, skipping DoH"
+            .to_owned()
+    }
+
+    fn invalid_inetspeed_endpoint(&self, raw: &str) -> String {
+        format!("invalid --inetspeed-endpoint `{raw}`: expected an IPv4 or IPv6 address")
+    }
+
     fn help_trace_groups(&self) -> String {
         "Target groups for network.trace: comma-separated services, china, international, or all"
             .to_owned()

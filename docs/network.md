@@ -1,8 +1,9 @@
-# 网络吞吐、中国三网测速、路由追踪与 BGP 拓扑（`network.iperf3`、`network.taier`、`network.trace`、`network.bgp`）
+# 网络吞吐、中国三网、Cloudflare / Apple CDN 测速、路由追踪与 BGP 拓扑
+# （`network.iperf3`、`network.taier`、`network.cloudflare`、`network.inetspeed`、`network.trace`、`network.bgp`）
 
 [返回文档目录](README.md) | [简体中文首页](../README.zh-CN.md)
 
-网络章节包含四项测试：**`network.iperf3`** 测量本机与全球公网节点之间的双向多线程 TCP 吞吐带宽及往返延迟；**`network.taier`** 基于中国信通院“全球网测（泰尔测速）”协议，使用纯 Rust 原生套接字测量中国大陆三网及教育网/广电节点的双向多线程上下行吞吐带宽；**`network.trace`** 执行逐跳 ICMP 路由追踪，识别去程骨干网线路、运营商 AS（如 163 / CN2 / 9929 / CMIN2）、流媒体边缘缓存服务器与互联网交换中心（IX）；**`network.bgp`** 通过全球全表采集点查询本机公网前缀的控制面 BGP `AS_PATH` 传播路径、直连上游占比与 RPKI 路由签名状态，并直接绘制自治域拓扑图。
+网络章节包含六项测试：**`network.iperf3`** 测量本机与全球公网节点之间的双向多线程 TCP 吞吐带宽及往返延迟；**`network.taier`** 基于中国信通院“全球网测（泰尔测速）”协议，使用纯 Rust 原生套接字测量中国大陆三网及教育网/广电节点的双向多线程上下行吞吐带宽；**`network.cloudflare`** 使用纯 Rust 原生客户端双栈测量 `speed.cloudflare.com` 稳态上下行吞吐、空载/负载延迟、Waveform Bufferbloat 与 CV 稳定性评级以及 RFC 5389 STUN UDP 丢包与 MOS 语音质量；**`network.inetspeed`** 使用纯 Rust 原生实现双 DoH 边缘节点优选绑定与 Apple CDN（`mensura.cdn-apple.com`）单线程/多线程上下行吞吐测试；**`network.trace`** 执行逐跳 ICMP 路由追踪，识别去程骨干网线路、运营商 AS、流媒体边缘缓存服务器与互联网交换中心（IX）；**`network.bgp`** 通过全球全表采集点查询本机公网前缀的控制面 BGP `AS_PATH` 传播路径、直连上游占比与 RPKI 路由签名状态，并直接绘制自治域拓扑图。
 
 ---
 
@@ -76,7 +77,50 @@ sudo ./lowendaff-bench --only network.taier --taier-cities Jiangsu,guangdong-she
 
 ---
 
-## 3. 去程路由追踪：`network.trace`
+## 3. Cloudflare 双栈测速与连接质量：`network.cloudflare`
+
+| 属性 | 说明 |
+|---|---|
+| 插件 ID | `network.cloudflare`（所属分组：`network`） |
+| 适用平台 | 全平台（需具备 IPv4 或 IPv6 公网连接） |
+| 依赖工具 | **零外部二进制依赖**（100% 纯 Rust 原生 HTTPS + RFC 5389 STUN UDP 实现，直连绕过一切代理） |
+| 超时上限 | `10 分钟` |
+| 快捷参数 | `--no-cloudflare-udp`（跳过 STUN UDP 丢包探测） |
+
+### 测试逻辑
+1. **双栈独立测速与边缘机房识别**：
+   - 自动针对本机可达的每一个协议栈（IPv4 与 IPv6）分别绑定本地地址直连 `speed.cloudflare.com`，依次读取 `/meta`、回退 `/cdn-cgi/trace` 与 `cf-meta-*` / `cf-ray` 响应头，并结合 `/locations` 映射出具体接入的三字码边缘数据中心（如 `LAX - Los Angeles, United States`、`NRT - Tokyo, Japan`），直观对比 IPv4 与 IPv6 是否绕路至不同机房。
+2. **稳态慢启动剔除与 429 自适应退避**：
+   - 先采样 2 秒空载 HTTP RTT（计算 `min`、`median`、`p25/p75/p95/p99` 与样本标准差抖动）；
+   - 随后默认以 **6 个并发工作协程、每方向持续 10 秒** 分别执行下载（`GET /__down`；遇到 HTTP 429 自动将单次请求字节数折半退避）与流式分块上传（`POST /__up`，64 KiB 零字节流，请求异常自动回滚已计数字节），每 200 ms 采样一次瞬时吞吐并自动剔除前 `max(20% 时长, 1 秒)` 的 TCP 慢启动爬坡期，避免起速阶段拉低真实稳态带宽；同时在后台并发探测负载下延迟（`during=download` / `during=upload`）。
+3. **RFC 5389 STUN UDP 丢包乱序探测与连接质量评级**：
+   - 向 `stun.cloudflare.com:3478` 发送默认 50 个原生 STUN Binding Request 报文（支持延迟到达包按事务 ID 归位、去重与乱序统计，连续 10 包无响应自动判定 UDP 被防火墙拦截并以非致命提示记录），按简化 ITU-T G.107 E-model 计算语音 MOS 分（`1.0..=5.0`）；
+   - 基于空载与双向负载中位数延迟增量计算 Waveform 标准 **Bufferbloat 缓冲膨胀等级（`A+` 至 `F`）**，并基于稳态吞吐变异系数（CV%）给出 **吞吐稳定性等级（`A` 至 `F`）**。
+   - 默认对 Cloudflare 返回的客户端公网 IP 自动脱敏（传入 `--show-ip` 时显示完整地址）。
+
+---
+
+## 4. Apple CDN 优选测速（iNetSpeed）：`network.inetspeed`
+
+| 属性 | 说明 |
+|---|---|
+| 插件 ID | `network.inetspeed`（所属分组：`network`） |
+| 适用平台 | 全平台（需具备 IPv4 或 IPv6 公网连接） |
+| 依赖工具 | **零外部二进制依赖**（100% 纯 Rust 原生实现 `mensura.cdn-apple.com` / `networkQuality` 协议，直连绕过一切代理） |
+| 超时上限 | `15 分钟` |
+| 快捷参数 | `--inetspeed-threads <1..=64>`、`--inetspeed-endpoint <固定节点 IP>` |
+
+### 测试逻辑
+1. **双 DoH 并发发现与保留 TLS SNI 的最低延迟 IP 固定**：
+   - 同时向 Cloudflare DoH（`cloudflare-dns.com/dns-query`）与阿里 DoH（`dns.alidns.com/resolve`）并发查询本机可达协议栈下的 `mensura.cdn-apple.com` 候选边缘 IP（双 DoH 不可达时自动回退系统 DNS）；
+   - 逐一对候选边缘 IP 建立保留 `mensura.cdn-apple.com` TLS SNI 的直连探测（`GET /api/v1/gm/small`），按实测 HTTP RTT 升序排列并自动锁定延迟最低的健康边缘节点用于后续全部测试（亦可通过 `--inetspeed-endpoint` 手动指定节点 IP）。
+2. **空载延迟与单线程 / 多线程四轮吞吐对比**：
+   - 先采集默认 20 次空载延迟样本（统计 `min`、`avg`、`median`、`max` 与 `jitter`）；
+   - 随后依次运行 **下载单线程（1T）**、**下载多线程（默认 4T）**、**上传单线程（1T）** 与 **上传多线程（默认 4T）** 共四轮测试（上传使用流式 `PUT /api/v1/gm/slurp` 并携带 `Upload-Draft-Interop-Version: 6` 与 `Upload-Complete: ?1` 协议头，非 2xx/3xx 响应自动回滚字节计数），每轮均在后台同步采集负载延迟与抖动，清晰展现单流限速与多流聚合能力。
+
+---
+
+## 5. 去程路由追踪：`network.trace`
 
 | 属性 | 说明 |
 |---|---|
@@ -111,7 +155,7 @@ sudo ./lowendaff-bench --only network.trace --trace-groups services,china
 
 ---
 
-## 4. BGP 自治域路径拓扑：`network.bgp`
+## 6. BGP 自治域路径拓扑：`network.bgp`
 
 | 属性 | 说明 |
 |---|---|

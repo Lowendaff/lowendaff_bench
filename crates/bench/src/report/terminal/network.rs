@@ -11,6 +11,11 @@ use plugin_network::bgp::BgpPath;
 use plugin_network::bgp::FamilyBgp;
 use plugin_network::bgp::RpkiStatus;
 use plugin_network::bgp::asns;
+use plugin_network::cloudflare;
+use plugin_network::cloudflare::FamilyCloudflare;
+use plugin_network::inetspeed;
+use plugin_network::inetspeed::RoundResult;
+use plugin_network::inetspeed::TransferDirection;
 use plugin_network::iperf3;
 use plugin_network::iperf3::result::Tested;
 use plugin_network::iperf3::result::Way;
@@ -39,6 +44,9 @@ use super::Out;
 use super::tool;
 use crate::locale;
 use crate::locale::BgpField;
+use crate::locale::CloudflareChoice;
+use crate::locale::CloudflareField;
+use crate::locale::InetspeedChoice;
 use crate::locale::ListRule;
 use crate::locale::LookupProblem;
 use crate::locale::TaierCell;
@@ -766,5 +774,288 @@ pub(super) fn bgp_failure(failure: &bgp::Failure) -> String {
         bgp::Failure::NoPublicAddress => words.ip_no_public_address(),
         bgp::Failure::QueryFailed(reason) => words.bgp_query_failed(reason),
         bgp::Failure::Cancelled => words.interrupted(),
+    }
+}
+
+/// Cloudflare speed (`network.cloudflare`): method line, IPv4 / IPv6 side-by-side summary table
+/// (masking `client_ip` unless `show_ip`), and per-family UDP or failure notes.
+pub(super) fn cloudflare(
+    out: &mut Out,
+    report: &Report<cloudflare::Output, cloudflare::Failure>,
+    indent: &str,
+    show_ip: bool,
+) {
+    let words = locale::words();
+    let Some(output) = &report.output else {
+        return;
+    };
+    let settings = output.settings;
+    let choice = CloudflareChoice {
+        concurrency: settings.concurrency,
+        seconds: settings.seconds,
+        udp: settings.udp,
+        udp_packets: settings.udp_packets,
+        custom_endpoints: settings.custom_endpoints,
+    };
+    out.line(&format!("{indent}{}", words.cloudflare_method(&choice)));
+
+    let v4 = output.ipv4.as_deref();
+    let v6 = output.ipv6.as_deref();
+    if v4.is_some() || v6.is_some() {
+        let headers = words.cloudflare_headers().map(str::to_owned);
+        let rows = build_cloudflare_rows(v4, v6, settings.udp, show_ip);
+        out.table_left(indent, &headers, &rows);
+    }
+
+    for (ipv6, maybe_fam) in [(false, v4), (true, v6)] {
+        if let Some(fam) = maybe_fam
+            && let Some(reason) = &fam.udp_note
+        {
+            out.field(
+                indent,
+                &words.note(),
+                &words.cloudflare_udp_note(ipv6, reason),
+            );
+        }
+    }
+    for (ipv6, reason) in &output.notes {
+        out.field(
+            indent,
+            &words.note(),
+            &words.cloudflare_family_failed(*ipv6, reason),
+        );
+    }
+}
+
+fn build_cloudflare_rows(
+    v4: Option<&FamilyCloudflare>,
+    v6: Option<&FamilyCloudflare>,
+    show_udp: bool,
+    show_ip: bool,
+) -> Vec<Vec<String>> {
+    let words = locale::words();
+    let pair = |field: CloudflareField, f: &dyn Fn(&FamilyCloudflare) -> String| -> Vec<String> {
+        vec![
+            words.cloudflare_field(field).to_owned(),
+            v4.map_or_else(|| MISSING.to_owned(), f),
+            v6.map_or_else(|| MISSING.to_owned(), f),
+        ]
+    };
+
+    let fmt_lat = |lat: &cloudflare::LatencyStats| -> String {
+        let (Some(med), Some(min), Some(max)) = (lat.median_ms, lat.min_ms, lat.max_ms) else {
+            return MISSING.to_owned();
+        };
+        let med_s = format_ms(med);
+        let min_s = format_ms(min);
+        let max_s = format_ms(max);
+        let jit_s = lat.jitter_ms.map(format_ms);
+        words.cloudflare_latency_cell(&med_s, &min_s, &max_s, jit_s.as_deref(), lat.loss_pct)
+    };
+
+    let mut rows = vec![
+        pair(CloudflareField::Server, &|fam| {
+            fam.server
+                .clone()
+                .or_else(|| fam.colo.clone())
+                .unwrap_or_else(|| MISSING.to_owned())
+        }),
+        pair(CloudflareField::ClientIp, &|fam| match fam.client_ip {
+            Some(ip) if show_ip => ip.to_string(),
+            Some(ip) => network::mask(ip),
+            None => MISSING.to_owned(),
+        }),
+        pair(
+            CloudflareField::ClientAsn,
+            &|fam| match (fam.asn, fam.as_org.as_deref()) {
+                (Some(asn), Some(org)) => format!("AS{asn} ({org})"),
+                (Some(asn), None) => format!("AS{asn}"),
+                (None, Some(org)) => org.to_owned(),
+                (None, None) => MISSING.to_owned(),
+            },
+        ),
+        pair(CloudflareField::IdleLatency, &|fam| {
+            fmt_lat(&fam.idle_latency)
+        }),
+        pair(CloudflareField::Download, &|fam| {
+            words.cloudflare_speed_cell(
+                &bits(fam.download.bps),
+                fam.download.median_mbps,
+                fam.download.p95_mbps,
+            )
+        }),
+        pair(CloudflareField::DownloadLatency, &|fam| {
+            fmt_lat(&fam.loaded_download_latency)
+        }),
+        pair(CloudflareField::Upload, &|fam| {
+            words.cloudflare_speed_cell(
+                &bits(fam.upload.bps),
+                fam.upload.median_mbps,
+                fam.upload.p95_mbps,
+            )
+        }),
+        pair(CloudflareField::UploadLatency, &|fam| {
+            fmt_lat(&fam.loaded_upload_latency)
+        }),
+    ];
+
+    if show_udp || v4.is_some_and(|f| f.udp.is_some()) || v6.is_some_and(|f| f.udp.is_some()) {
+        rows.push(pair(CloudflareField::UdpLoss, &|fam| match &fam.udp {
+            Some(u) => words.cloudflare_udp_cell(
+                u.loss_pct,
+                u.received,
+                u.sent,
+                u.out_of_order_pct,
+                u.mos,
+                &u.quality,
+            ),
+            None => MISSING.to_owned(),
+        }));
+    }
+
+    rows.push(pair(CloudflareField::Quality, &|fam| match &fam.quality {
+        Some(q) => words.cloudflare_quality_cell(
+            &q.bufferbloat_grade,
+            q.bufferbloat_ms,
+            &q.stability_grade,
+            q.stability_cv_pct,
+        ),
+        None => MISSING.to_owned(),
+    }));
+    rows
+}
+
+fn format_ms(ms: f64) -> String {
+    format!("{} ms", digits(ms.max(0.0)))
+}
+
+/// Why `network.cloudflare` stopped short.
+pub(super) fn cloudflare_failure(failure: &cloudflare::Failure) -> String {
+    let words = locale::words();
+    match failure {
+        cloudflare::Failure::InvalidEndpoint(raw) => words.ip_invalid_endpoint(raw),
+        cloudflare::Failure::NoFamily => words.no_family(),
+        cloudflare::Failure::NoResult(reason) => words.cloudflare_no_result(reason),
+        cloudflare::Failure::Cancelled => words.interrupted(),
+    }
+}
+
+/// Apple CDN speed (`network.inetspeed`): method line, selected endpoint & idle latency fields,
+/// 4-round throughput & loaded-latency table, and any degradation notes.
+pub(super) fn inetspeed(
+    out: &mut Out,
+    report: &Report<inetspeed::Output, inetspeed::Failure>,
+    indent: &str,
+) {
+    let words = locale::words();
+    let Some(output) = &report.output else {
+        return;
+    };
+    let settings = &output.settings;
+    let choice = InetspeedChoice {
+        threads: settings.threads,
+        timeout_secs: settings.timeout_secs,
+        max: settings.max.clone(),
+        latency_count: settings.latency_count,
+        forced_endpoint: settings.forced_endpoint.is_some(),
+        custom_endpoints: settings.custom_endpoints,
+    };
+    out.line(&format!("{indent}{}", words.inetspeed_method(&choice)));
+
+    let ep_ip = output.selected.ip.map(|ip| ip.to_string());
+    let ep_val = words.inetspeed_endpoint_value(
+        &output.selected.host,
+        ep_ip.as_deref(),
+        output.selected.rtt_ms,
+        output.selected.source.code(),
+    );
+    out.field(indent, words.inetspeed_endpoint_label(), &ep_val);
+
+    if let Some(idle) = &output.idle_latency {
+        out.field(
+            indent,
+            words.inetspeed_idle_label(),
+            &words.inetspeed_latency_value(
+                idle.median_ms,
+                idle.min_ms,
+                idle.avg_ms,
+                idle.max_ms,
+                idle.jitter_ms,
+            ),
+        );
+    }
+
+    out.field(
+        indent,
+        words.inetspeed_total_label(),
+        &human_bytes(output.total_bytes),
+    );
+
+    if !output.rounds.is_empty() {
+        let headers = words.inetspeed_headers().map(str::to_owned);
+        let rows: Vec<Vec<String>> = output.rounds.iter().map(inetspeed_row).collect();
+        out.table_left(indent, &headers, &rows);
+    }
+
+    for round in &output.rounds {
+        if let Some(err) = &round.error {
+            let label = words.inetspeed_round_name(
+                round.direction == TransferDirection::Download,
+                round.threads <= 1,
+            );
+            out.field(indent, &words.note(), &format!("{label}: {err}"));
+        }
+    }
+    for warning in &output.warnings {
+        out.field(indent, &words.note(), warning);
+    }
+}
+
+fn inetspeed_row(round: &RoundResult) -> Vec<String> {
+    let words = locale::words();
+    let name = words
+        .inetspeed_round_name(
+            round.direction == TransferDirection::Download,
+            round.threads <= 1,
+        )
+        .to_owned();
+    let speed = if round.bytes == 0 {
+        words.way_cell(crate::locale::WayCell::Error).to_owned()
+    } else {
+        bits(round.bps)
+    };
+    let data = human_bytes(round.bytes);
+    let loaded = round.loaded_latency.map_or_else(
+        || MISSING.to_owned(),
+        |lat| words.inetspeed_loaded_cell(lat.median_ms, lat.jitter_ms),
+    );
+    vec![name, round.threads.to_string(), speed, data, loaded]
+}
+
+fn human_bytes(bytes: u64) -> String {
+    const GIB: f64 = 1_073_741_824.0;
+    const MIB: f64 = 1_048_576.0;
+    const KIB: f64 = 1_024.0;
+    let b = bytes as f64;
+    if bytes >= (1_u64 << 30) {
+        format!("{:.2} GiB", b / GIB)
+    } else if bytes >= (1_u64 << 20) {
+        format!("{:.1} MiB", b / MIB)
+    } else if bytes >= (1_u64 << 10) {
+        format!("{:.0} KiB", b / KIB)
+    } else {
+        format!("{bytes} B")
+    }
+}
+
+/// Why `network.inetspeed` stopped short.
+pub(super) fn inetspeed_failure(failure: &inetspeed::Failure) -> String {
+    let words = locale::words();
+    match failure {
+        inetspeed::Failure::InvalidEndpoint(raw) => words.ip_invalid_endpoint(raw),
+        inetspeed::Failure::InvalidMax(raw) => words.inetspeed_invalid_max(raw),
+        inetspeed::Failure::NoFamily => words.no_family(),
+        inetspeed::Failure::NoResult => words.inetspeed_no_result(),
+        inetspeed::Failure::Cancelled => words.interrupted(),
     }
 }

@@ -175,6 +175,34 @@ impl TuiWords for English {
         "Cities / provinces"
     }
 
+    fn tui_field_cf_concurrency(&self) -> &'static str {
+        "Concurrent workers"
+    }
+
+    fn tui_field_cf_udp(&self) -> &'static str {
+        "STUN UDP loss probe"
+    }
+
+    fn tui_field_inet_threads(&self) -> &'static str {
+        "Multi-thread workers"
+    }
+
+    fn tui_field_inet_timeout(&self) -> &'static str {
+        "Timeout per thread (s)"
+    }
+
+    fn tui_field_inet_max(&self) -> &'static str {
+        "Cap per thread"
+    }
+
+    fn tui_field_inet_latency_count(&self) -> &'static str {
+        "Idle latency probes"
+    }
+
+    fn tui_field_inet_endpoint(&self) -> &'static str {
+        "Pinned endpoint IP"
+    }
+
     fn tui_field_trace_group(&self, group: &str) -> String {
         format!("Group: {group}")
     }
@@ -247,6 +275,10 @@ impl TuiWords for English {
         "default (Beijing, Shanghai, Guangzhou)"
     }
 
+    fn tui_default_inet_endpoint(&self) -> &'static str {
+        "auto (Dual DoH + RTT)"
+    }
+
     fn tui_default_none(&self) -> &'static str {
         "none"
     }
@@ -261,6 +293,14 @@ impl TuiWords for English {
 
     fn tui_default_taier_note(&self) -> &'static str {
         "Defaults to Beijing, Shanghai & Guangzhou across Telecom, Unicom & Mobile."
+    }
+
+    fn tui_default_cloudflare_note(&self) -> &'static str {
+        "Measures speed.cloudflare.com HTTPS throughput, bufferbloat & STUN UDP loss."
+    }
+
+    fn tui_default_inetspeed_note(&self) -> &'static str {
+        "Discovers optimal mensura.cdn-apple.com IP via Dual DoH and runs 1T & NT rounds."
     }
 
     fn tui_default_trace_note(&self) -> &'static str {

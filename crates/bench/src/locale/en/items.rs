@@ -6,9 +6,14 @@ use super::English;
 use super::count;
 use crate::locale::BgpField;
 use crate::locale::BgpWords;
+use crate::locale::CloudflareChoice;
+use crate::locale::CloudflareField;
+use crate::locale::CloudflareWords;
 use crate::locale::CpuWords;
 use crate::locale::DiskWords;
 use crate::locale::FioRow;
+use crate::locale::InetspeedChoice;
+use crate::locale::InetspeedWords;
 use crate::locale::IpChoice;
 use crate::locale::IpField;
 use crate::locale::IpTable;
@@ -1556,5 +1561,219 @@ impl TaierWords for English {
 
     fn taier_no_result(&self) -> String {
         "no China carrier node gave a speed result".to_owned()
+    }
+}
+
+impl CloudflareWords for English {
+    fn cloudflare_method(&self, choice: &CloudflareChoice) -> String {
+        let workers = count(usize::from(choice.concurrency), "worker", "workers");
+        let mut method = format!(
+            "Cloudflare Speed: {workers}, {} s each way, HTTPS",
+            choice.seconds
+        );
+        if choice.udp {
+            method.push_str(&format!(" + STUN UDP ({} probes)", choice.udp_packets));
+        } else {
+            method.push_str("; without STUN UDP probe");
+        }
+        if choice.custom_endpoints {
+            method.push_str("; custom endpoints");
+        }
+        method
+    }
+
+    fn cloudflare_headers(&self) -> [&'static str; 3] {
+        ["Metric", "IPv4", "IPv6"]
+    }
+
+    fn cloudflare_field(&self, field: CloudflareField) -> &'static str {
+        match field {
+            CloudflareField::Server => "Edge server",
+            CloudflareField::ClientIp => "Client IP",
+            CloudflareField::ClientAsn => "Client ASN",
+            CloudflareField::IdleLatency => "Idle latency",
+            CloudflareField::Download => "Download",
+            CloudflareField::DownloadLatency => "Download latency",
+            CloudflareField::Upload => "Upload",
+            CloudflareField::UploadLatency => "Upload latency",
+            CloudflareField::UdpLoss => "UDP packet loss",
+            CloudflareField::Quality => "Connection quality",
+        }
+    }
+
+    fn cloudflare_latency_cell(
+        &self,
+        median: &str,
+        min: &str,
+        max: &str,
+        jitter: Option<&str>,
+        loss_pct: f64,
+    ) -> String {
+        let mut text = format!("{median} (min {min}, max {max}");
+        if let Some(jit) = jitter {
+            text.push_str(&format!(", jitter {jit}"));
+        }
+        if loss_pct > 0.0 {
+            text.push_str(&format!(", loss {loss_pct:.1}%"));
+        }
+        text.push(')');
+        text
+    }
+
+    fn cloudflare_speed_cell(&self, speed: &str, p50_mbps: f64, p95_mbps: f64) -> String {
+        format!("{speed} (p50 {p50_mbps:.1}, p95 {p95_mbps:.1} Mbit/s)")
+    }
+
+    fn cloudflare_udp_cell(
+        &self,
+        loss_pct: f64,
+        received: u64,
+        sent: u64,
+        reordered_pct: f64,
+        mos: Option<f64>,
+        quality: &str,
+    ) -> String {
+        let mut text = format!("{loss_pct:.1}% ({received}/{sent}");
+        if reordered_pct > 0.0 {
+            text.push_str(&format!(", {reordered_pct:.1}% reordered"));
+        }
+        if let Some(m) = mos {
+            text.push_str(&format!(", MOS {m:.2}"));
+        }
+        text.push_str(&format!(", {quality})"));
+        text
+    }
+
+    fn cloudflare_quality_cell(
+        &self,
+        bloat_grade: &str,
+        bloat_ms: Option<f64>,
+        stab_grade: &str,
+        stab_cv: Option<f64>,
+    ) -> String {
+        let bloat = match bloat_ms {
+            Some(ms) => format!("bufferbloat {bloat_grade} (+{ms:.1} ms)"),
+            None => format!("bufferbloat {bloat_grade}"),
+        };
+        let stab = match stab_cv {
+            Some(cv) => format!("stability {stab_grade} (CV {cv:.1}%)"),
+            None => format!("stability {stab_grade}"),
+        };
+        format!("{bloat}, {stab}")
+    }
+
+    fn cloudflare_udp_note(&self, ipv6: bool, reason: &str) -> String {
+        let fam = if ipv6 { "IPv6" } else { "IPv4" };
+        format!("{fam} STUN UDP probe unavailable: {reason}")
+    }
+
+    fn cloudflare_family_failed(&self, ipv6: bool, reason: &str) -> String {
+        let fam = if ipv6 { "IPv6" } else { "IPv4" };
+        format!("{fam} Cloudflare speed test failed: {reason}")
+    }
+
+    fn cloudflare_no_result(&self, reason: &str) -> String {
+        if reason.is_empty() {
+            "Cloudflare speed test produced no result".to_owned()
+        } else {
+            format!("Cloudflare speed test failed: {reason}")
+        }
+    }
+}
+
+impl InetspeedWords for English {
+    fn inetspeed_method(&self, choice: &InetspeedChoice) -> String {
+        let rounds = if choice.threads <= 1 {
+            "1 thread".to_owned()
+        } else {
+            format!("1 & {} threads", choice.threads)
+        };
+        let mut method = format!(
+            "Apple CDN (iNetSpeed): {rounds}, {} / {} s cap, {} idle probes",
+            choice.max, choice.timeout_secs, choice.latency_count
+        );
+        if choice.forced_endpoint {
+            method.push_str("; pinned endpoint");
+        }
+        if choice.custom_endpoints {
+            method.push_str("; custom endpoints");
+        }
+        method
+    }
+
+    fn inetspeed_endpoint_label(&self) -> &'static str {
+        "Selected endpoint"
+    }
+
+    fn inetspeed_endpoint_value(
+        &self,
+        host: &str,
+        ip: Option<&str>,
+        rtt_ms: Option<f64>,
+        source: &str,
+    ) -> String {
+        let src = self.inetspeed_source(source);
+        match (ip, rtt_ms) {
+            (Some(addr), Some(rtt)) => format!("{addr} ({host}, {rtt:.2} ms via {src})"),
+            (Some(addr), None) => format!("{addr} ({host}, via {src})"),
+            (None, _) if host.is_empty() => format!("unpinned ({src})"),
+            (None, _) => format!("{host} (unpinned, {src})"),
+        }
+    }
+
+    fn inetspeed_source(&self, code: &str) -> &'static str {
+        match code {
+            "user" => "pinned",
+            "doh" => "Dual DoH",
+            "system_dns" => "system DNS",
+            _ => "default DNS",
+        }
+    }
+
+    fn inetspeed_idle_label(&self) -> &'static str {
+        "Idle latency"
+    }
+
+    fn inetspeed_latency_value(
+        &self,
+        median_ms: f64,
+        min_ms: f64,
+        avg_ms: f64,
+        max_ms: f64,
+        jitter_ms: f64,
+    ) -> String {
+        format!(
+            "{median_ms:.2} ms median (min {min_ms:.2} / avg {avg_ms:.2} / max {max_ms:.2} ms, \
+             jitter {jitter_ms:.2} ms)"
+        )
+    }
+
+    fn inetspeed_total_label(&self) -> &'static str {
+        "Data transferred"
+    }
+
+    fn inetspeed_headers(&self) -> [&'static str; 5] {
+        ["Round", "Threads", "Speed", "Data", "Loaded latency"]
+    }
+
+    fn inetspeed_round_name(&self, download: bool, single: bool) -> &'static str {
+        match (download, single) {
+            (true, true) => "Download (single)",
+            (true, false) => "Download (multi)",
+            (false, true) => "Upload (single)",
+            (false, false) => "Upload (multi)",
+        }
+    }
+
+    fn inetspeed_loaded_cell(&self, median_ms: f64, jitter_ms: f64) -> String {
+        format!("{median_ms:.2} ms (jitter {jitter_ms:.2} ms)")
+    }
+
+    fn inetspeed_invalid_max(&self, raw: &str) -> String {
+        format!("invalid transfer cap {raw:?}: expected a size such as 2G, 500M, or 1GiB")
+    }
+
+    fn inetspeed_no_result(&self) -> String {
+        "Apple CDN speed test completed no transfer round".to_owned()
     }
 }

@@ -10,6 +10,8 @@ use plugin_memory::latency;
 use plugin_memory::numa;
 use plugin_memory::stream;
 use plugin_network::bgp;
+use plugin_network::cloudflare;
+use plugin_network::inetspeed;
 use plugin_network::iperf3;
 use plugin_network::taier;
 use plugin_network::trace;
@@ -45,6 +47,10 @@ pub enum Measured {
     NetworkIperf3(Report<iperf3::Output, iperf3::Failure>),
     /// China carrier speed (`network.taier`).
     NetworkTaier(Report<taier::Output, taier::Failure>),
+    /// Cloudflare speed (`network.cloudflare`).
+    NetworkCloudflare(Report<cloudflare::Output, cloudflare::Failure>),
+    /// Apple CDN speed (`network.inetspeed`).
+    NetworkInetspeed(Report<inetspeed::Output, inetspeed::Failure>),
     /// Route tracing (`network.trace`).
     NetworkTrace(Report<trace::Output, trace::Failure>),
     /// BGP paths (`network.bgp`).
