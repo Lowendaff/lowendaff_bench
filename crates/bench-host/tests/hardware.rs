@@ -154,7 +154,7 @@ fn device_tree_boards_without_smbios() {
 fn board_memory_sums_the_memory_nodes() {
     assert_eq!(
         machine::board_memory(&common::fixture(BOARD)),
-        Some(0x7FE0_0000)
+        Some(0x7fe0_0000)
     );
     assert_eq!(machine::board_memory(&common::fixture(SERVER)), None);
     // One address cell more than size cells, as on a Raspberry Pi 4.
@@ -168,10 +168,10 @@ fn board_memory_sums_the_memory_nodes() {
     let reg = [
         0_u32,
         0,
-        0x3B40_0000, // 0x0, 948 MiB
+        0x3b40_0000, // 0x0, 948 MiB
         0,
         0x4000_0000,
-        0xBC00_0000, // 0x4000_0000, 3008 MiB
+        0xbc00_0000, // 0x4000_0000, 3008 MiB
     ];
     let bytes: Vec<u8> = reg.iter().flat_map(|cell| cell.to_be_bytes()).collect();
     common::add_bytes(&dir, "/proc/device-tree/memory@0/reg", &bytes);
@@ -190,7 +190,7 @@ fn board_memory_sums_the_memory_nodes() {
     );
     assert_eq!(
         machine::board_memory(&Root::new(dir.path())),
-        Some(0x3B40_0000 + 0xBC00_0000)
+        Some(0x3b40_0000 + 0xbc00_0000)
     );
     common::add_bytes(&dir, "/proc/device-tree/#size-cells", &3_u32.to_be_bytes());
     assert_eq!(machine::board_memory(&Root::new(dir.path())), None);
@@ -206,7 +206,7 @@ fn board_memory_sums_the_memory_nodes() {
     common::add_bytes(&dir, "/proc/device-tree/memory/reg", &bytes[..12]);
     assert_eq!(
         machine::board_memory(&Root::new(dir.path())),
-        Some(0x3B40_0000)
+        Some(0x3b40_0000)
     );
 }
 

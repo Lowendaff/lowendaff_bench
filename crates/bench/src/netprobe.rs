@@ -10,14 +10,15 @@ use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use bench_api::CancellationToken;
-use bench_api::CfStunRaw;
-use bench_api::CfStunSpec;
-use bench_api::CfTransferRaw;
-use bench_api::CfTransferSpec;
+use bench_api::CloudflareStun;
+use bench_api::CloudflareStunSpec;
+use bench_api::CloudflareTransfer;
+use bench_api::CloudflareTransferSpec;
 use bench_api::DnsAnswer;
-use bench_api::InetTarget;
-use bench_api::InetTransferRaw;
-use bench_api::InetTransferSpec;
+use bench_api::FamilyFilter;
+use bench_api::InetspeedTarget;
+use bench_api::InetspeedTransfer;
+use bench_api::InetspeedTransferSpec;
 use bench_api::IpFamily;
 use bench_api::NetClient;
 use bench_api::NetError;
@@ -32,8 +33,8 @@ use tokio::net::TcpSocket;
 use tokio::net::TcpStream;
 use tokio::net::UdpSocket;
 
-use crate::cf_probe;
-use crate::inet_probe;
+use crate::cloudflare_probe;
+use crate::inetspeed_probe;
 use crate::locale;
 use crate::taier_probe;
 
@@ -175,56 +176,55 @@ impl NetClient for NetProbers {
         Box::pin(async move { taier_probe::upload(spec, cancel).await })
     }
 
-    fn cf_download<'a>(
+    fn cloudflare_download<'a>(
         &'a self,
-        spec: &'a CfTransferSpec,
+        spec: &'a CloudflareTransferSpec,
         cancel: &'a CancellationToken,
-    ) -> NetFuture<'a, CfTransferRaw> {
-        Box::pin(async move { cf_probe::download(spec, cancel).await })
+    ) -> NetFuture<'a, CloudflareTransfer> {
+        Box::pin(async move { cloudflare_probe::download(spec, cancel).await })
     }
 
-    fn cf_upload<'a>(
+    fn cloudflare_upload<'a>(
         &'a self,
-        spec: &'a CfTransferSpec,
+        spec: &'a CloudflareTransferSpec,
         cancel: &'a CancellationToken,
-    ) -> NetFuture<'a, CfTransferRaw> {
-        Box::pin(async move { cf_probe::upload(spec, cancel).await })
+    ) -> NetFuture<'a, CloudflareTransfer> {
+        Box::pin(async move { cloudflare_probe::upload(spec, cancel).await })
     }
 
-    fn cf_udp_loss<'a>(
+    fn cloudflare_udp_loss<'a>(
         &'a self,
-        spec: &'a CfStunSpec,
+        spec: &'a CloudflareStunSpec,
         cancel: &'a CancellationToken,
-    ) -> NetFuture<'a, CfStunRaw> {
-        Box::pin(async move { cf_probe::udp_loss(spec, cancel).await })
+    ) -> NetFuture<'a, CloudflareStun> {
+        Box::pin(async move { cloudflare_probe::udp_loss(spec, cancel).await })
     }
 
-    fn inet_resolve<'a>(
+    fn inetspeed_resolve<'a>(
         &'a self,
         host: &'a str,
-        ipv4: bool,
-        ipv6: bool,
+        families: FamilyFilter,
         timeout: Duration,
     ) -> NetFuture<'a, Vec<IpAddr>> {
-        Box::pin(async move { inet_probe::resolve_system(host, ipv4, ipv6, timeout).await })
+        Box::pin(async move { inetspeed_probe::resolve_system(host, families, timeout).await })
     }
 
-    fn inet_probe_rtt<'a>(
+    fn inetspeed_probe_rtt<'a>(
         &'a self,
-        target: &'a InetTarget,
+        target: &'a InetspeedTarget,
         count: u8,
         timeout: Duration,
         cancel: &'a CancellationToken,
     ) -> NetFuture<'a, Vec<u64>> {
-        Box::pin(async move { inet_probe::probe_rtt(target, count, timeout, cancel).await })
+        Box::pin(async move { inetspeed_probe::probe_rtt(target, count, timeout, cancel).await })
     }
 
-    fn inet_transfer<'a>(
+    fn inetspeed_transfer<'a>(
         &'a self,
-        spec: &'a InetTransferSpec,
+        spec: &'a InetspeedTransferSpec,
         cancel: &'a CancellationToken,
-    ) -> NetFuture<'a, InetTransferRaw> {
-        Box::pin(async move { inet_probe::transfer(spec, cancel).await })
+    ) -> NetFuture<'a, InetspeedTransfer> {
+        Box::pin(async move { inetspeed_probe::transfer(spec, cancel).await })
     }
 }
 

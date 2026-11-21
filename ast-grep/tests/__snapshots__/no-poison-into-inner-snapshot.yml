@@ -1,0 +1,14 @@
+id: no-poison-into-inner
+snapshots:
+  "let guard = state.lock().unwrap_or_else(PoisonError::into_inner);":
+    labels:
+    - source: PoisonError::into_inner
+      style: primary
+      start: 40
+      end: 63
+  "let guard = state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);":
+    labels:
+    - source: std::sync::PoisonError::into_inner
+      style: primary
+      start: 40
+      end: 74

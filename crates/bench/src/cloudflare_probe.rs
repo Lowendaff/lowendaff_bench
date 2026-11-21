@@ -8,7 +8,6 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::hash_map::RandomState;
-use std::hash::BuildHasher;
 use std::io;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
@@ -22,12 +21,13 @@ use std::time::Duration;
 use std::time::Instant;
 
 use bench_api::CancellationToken;
-use bench_api::CfStunRaw;
-use bench_api::CfStunSpec;
-use bench_api::CfTransferRaw;
-use bench_api::CfTransferSpec;
+use bench_api::CloudflareStun;
+use bench_api::CloudflareStunSpec;
+use bench_api::CloudflareTransfer;
+use bench_api::CloudflareTransferSpec;
 use bench_api::IpFamily;
 use bench_api::NetError;
+use bench_api::ThroughputTick;
 use futures_util::stream;
 use reqwest::Body;
 use reqwest::Client;
@@ -56,9 +56,9 @@ const UDP_UNREACHABLE_AFTER: u64 = 10;
 /// Multi-worker Cloudflare download phase (`GET /__down`) with 200 ms sampling and concurrent
 /// loaded-latency probes.
 pub async fn download(
-    spec: &CfTransferSpec,
+    spec: &CloudflareTransferSpec,
     cancel: &CancellationToken,
-) -> Result<CfTransferRaw, NetError> {
+) -> Result<CloudflareTransfer, NetError> {
     if cancel.is_cancelled() {
         return Err(NetError::Cancelled);
     }
@@ -177,7 +177,7 @@ pub async fn download(
     lat_handle.abort();
     let _ = lat_handle.await;
 
-    Ok(CfTransferRaw {
+    Ok(CloudflareTransfer {
         bytes: total.load(Ordering::Relaxed),
         duration_ms: active_ms,
         ticks,
@@ -190,9 +190,9 @@ pub async fn download(
 /// Multi-worker Cloudflare upload phase (`POST /__up`) streaming 64 KiB zero chunks with error
 /// byte rollback, 200 ms sampling, and concurrent loaded-latency probes.
 pub async fn upload(
-    spec: &CfTransferSpec,
+    spec: &CloudflareTransferSpec,
     cancel: &CancellationToken,
-) -> Result<CfTransferRaw, NetError> {
+) -> Result<CloudflareTransfer, NetError> {
     if cancel.is_cancelled() {
         return Err(NetError::Cancelled);
     }
@@ -321,7 +321,7 @@ pub async fn upload(
     lat_handle.abort();
     let _ = lat_handle.await;
 
-    Ok(CfTransferRaw {
+    Ok(CloudflareTransfer {
         bytes: total.load(Ordering::Relaxed),
         duration_ms: active_ms,
         ticks,
@@ -333,9 +333,11 @@ pub async fn upload(
 
 /// RFC 5389 STUN Binding Request UDP packet-loss and reordering probe.
 pub async fn udp_loss(
-    spec: &CfStunSpec,
+    spec: &CloudflareStunSpec,
     cancel: &CancellationToken,
-) -> Result<CfStunRaw, NetError> {
+) -> Result<CloudflareStun, NetError> {
+    use std::hash::BuildHasher;
+
     if cancel.is_cancelled() {
         return Err(NetError::Cancelled);
     }
@@ -451,7 +453,7 @@ pub async fn udp_loss(
         )));
     }
 
-    Ok(CfStunRaw {
+    Ok(CloudflareStun {
         target,
         sent,
         received,
@@ -464,7 +466,7 @@ async fn sample_ticks(
     duration: Duration,
     total: &AtomicU64,
     cancel: &CancellationToken,
-) -> Result<(u64, Vec<(u64, u64)>), NetError> {
+) -> Result<(u64, Vec<ThroughputTick>), NetError> {
     let mut active = Duration::ZERO;
     let mut ticks = Vec::with_capacity(128);
     while active < duration {
@@ -475,9 +477,9 @@ async fn sample_ticks(
             () = tokio::time::sleep(SAMPLE_INTERVAL) => {}
         }
         active += tick_start.elapsed();
-        let active_ms = u64::try_from(active.as_millis()).unwrap_or(u64::MAX);
-        let now_bytes = total.load(Ordering::Relaxed);
-        ticks.push((active_ms, now_bytes));
+        let elapsed_ms = u64::try_from(active.as_millis()).unwrap_or(u64::MAX);
+        let bytes = total.load(Ordering::Relaxed);
+        ticks.push(ThroughputTick { elapsed_ms, bytes });
     }
     let total_ms = u64::try_from(active.as_millis()).unwrap_or(u64::MAX);
     Ok((total_ms, ticks))
@@ -672,8 +674,8 @@ mod tests {
     use std::time::Duration;
 
     use bench_api::CancellationToken;
-    use bench_api::CfStunSpec;
-    use bench_api::CfTransferSpec;
+    use bench_api::CloudflareStunSpec;
+    use bench_api::CloudflareTransferSpec;
     use bench_api::IpFamily;
     use tokio::io::AsyncReadExt;
     use tokio::io::AsyncWriteExt;
@@ -681,7 +683,7 @@ mod tests {
     use tokio::net::UdpSocket;
 
     #[tokio::test]
-    async fn cf_download_and_upload_stream_over_loopback_and_handle_429_backoff() {
+    async fn cloudflare_download_and_upload_stream_over_loopback_and_handle_429_backoff() {
         let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind tcp");
         let addr = listener.local_addr().expect("local addr");
         let hit_429 = Arc::new(AtomicUsize::new(0));
@@ -742,7 +744,7 @@ mod tests {
             }
         });
 
-        let spec = CfTransferSpec {
+        let spec = CloudflareTransferSpec {
             family: IpFamily::Ipv4,
             base_url: format!("http://{addr}"),
             meas_id: "987654321".to_owned(),
@@ -759,7 +761,7 @@ mod tests {
         assert!(!down.ticks.is_empty());
         assert!(!down.loaded_rtts_micros.is_empty());
 
-        let up_spec = CfTransferSpec {
+        let up_spec = CloudflareTransferSpec {
             bytes_per_req: 65_536,
             ..spec
         };
@@ -769,7 +771,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn cf_stun_udp_measures_rtts_and_rejects_silent_blackhole() {
+    async fn cloudflare_stun_udp_measures_rtts_and_rejects_silent_blackhole() {
         let server = UdpSocket::bind("127.0.0.1:0").await.expect("bind stun");
         let stun_addr = server.local_addr().expect("stun addr");
         tokio::spawn(async move {
@@ -785,7 +787,7 @@ mod tests {
         });
 
         let cancel = CancellationToken::new();
-        let ok_spec = CfStunSpec {
+        let ok_spec = CloudflareStunSpec {
             family: IpFamily::Ipv4,
             host: "127.0.0.1".to_owned(),
             port: stun_addr.port(),
@@ -801,7 +803,7 @@ mod tests {
 
         let blackhole = UdpSocket::bind("127.0.0.1:0").await.expect("blackhole");
         let bh_port = blackhole.local_addr().expect("bh addr").port();
-        let bh_spec = CfStunSpec {
+        let bh_spec = CloudflareStunSpec {
             port: bh_port,
             packets: 2,
             timeout: Duration::from_millis(30),

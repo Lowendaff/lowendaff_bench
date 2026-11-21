@@ -175,31 +175,31 @@ impl TuiWords for English {
         "Cities / provinces"
     }
 
-    fn tui_field_cf_concurrency(&self) -> &'static str {
+    fn tui_field_cloudflare_concurrency(&self) -> &'static str {
         "Concurrent workers"
     }
 
-    fn tui_field_cf_udp(&self) -> &'static str {
+    fn tui_field_cloudflare_udp(&self) -> &'static str {
         "STUN UDP loss probe"
     }
 
-    fn tui_field_inet_threads(&self) -> &'static str {
+    fn tui_field_inetspeed_threads(&self) -> &'static str {
         "Multi-thread workers"
     }
 
-    fn tui_field_inet_timeout(&self) -> &'static str {
+    fn tui_field_inetspeed_timeout(&self) -> &'static str {
         "Timeout per thread (s)"
     }
 
-    fn tui_field_inet_max(&self) -> &'static str {
+    fn tui_field_inetspeed_max(&self) -> &'static str {
         "Cap per thread"
     }
 
-    fn tui_field_inet_latency_count(&self) -> &'static str {
+    fn tui_field_inetspeed_latency_count(&self) -> &'static str {
         "Idle latency probes"
     }
 
-    fn tui_field_inet_endpoint(&self) -> &'static str {
+    fn tui_field_inetspeed_endpoint(&self) -> &'static str {
         "Pinned endpoint IP"
     }
 
@@ -275,7 +275,7 @@ impl TuiWords for English {
         "default (Beijing, Shanghai, Guangzhou)"
     }
 
-    fn tui_default_inet_endpoint(&self) -> &'static str {
+    fn tui_default_inetspeed_endpoint(&self) -> &'static str {
         "auto (Dual DoH + RTT)"
     }
 

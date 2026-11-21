@@ -1,5 +1,6 @@
 //! Typed results and failure reasons for `network.taier` (China carrier speedtest).
 
+use std::fmt;
 use std::net::Ipv4Addr;
 
 use bench_api::Measurement;
@@ -53,6 +54,12 @@ impl Operator {
 
     /// Default three major mainland Chinese carriers.
     pub const DEFAULTS: [Self; 3] = [Self::Telecom, Self::Unicom, Self::Mobile];
+}
+
+impl fmt::Display for Operator {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.code())
+    }
 }
 
 /// Configuration selector for `operators` in `network.taier`.

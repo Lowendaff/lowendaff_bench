@@ -85,7 +85,8 @@ fn parse_residual(text: &str) -> Option<f64> {
 
 /// Extracts `2.3` from `HPLinpack 2.3  --  High-Performance Linpack benchmark`.
 fn version(text: &str) -> Option<String> {
-    for line in text.lines().take(8) {
+    let header_lines = text.lines().take(8);
+    for line in header_lines {
         let Some(rest) = line.trim().strip_prefix("HPLinpack ") else {
             continue;
         };

@@ -7,9 +7,9 @@ use bench_api::Net;
 use bench_api::Requirements;
 use plugin_cpu::bench::DEFAULT_SUITES;
 use plugin_cpu::bench::SUITE_CODES;
-use plugin_network::cloudflare::Settings as CfSettings;
-use plugin_network::inetspeed::Settings as InetSettings;
-use plugin_network::inetspeed::parse as inet_parse;
+use plugin_network::cloudflare::Settings as CloudflareSettings;
+use plugin_network::inetspeed::Settings as InetspeedSettings;
+use plugin_network::inetspeed::parse as inetspeed_parse;
 use plugin_network::iperf3::result::Settings as IperfSettings;
 use plugin_network::taier::Settings as TaierSettings;
 
@@ -151,15 +151,15 @@ impl ItemParams {
                 streams: TaierSettings::DEFAULT_STREAMS,
             },
             "network.cloudflare" => Self::Cloudflare {
-                seconds: CfSettings::DEFAULT_SECONDS,
-                concurrency: CfSettings::DEFAULT_CONCURRENCY,
+                seconds: CloudflareSettings::DEFAULT_SECONDS,
+                concurrency: CloudflareSettings::DEFAULT_CONCURRENCY,
                 udp: true,
             },
             "network.inetspeed" => Self::Inetspeed {
-                threads: InetSettings::DEFAULT_THREADS,
-                timeout: InetSettings::DEFAULT_TIMEOUT_SECS,
-                max: InetSettings::DEFAULT_MAX.to_owned(),
-                latency_count: InetSettings::DEFAULT_LATENCY_COUNT,
+                threads: InetspeedSettings::DEFAULT_THREADS,
+                timeout: InetspeedSettings::DEFAULT_TIMEOUT_SECS,
+                max: InetspeedSettings::DEFAULT_MAX.to_owned(),
+                latency_count: InetspeedSettings::DEFAULT_LATENCY_COUNT,
                 endpoint: String::new(),
             },
             "network.trace" => Self::Trace {
@@ -199,15 +199,15 @@ impl ItemParams {
                 streams: TaierSettings::DEFAULT_STREAMS,
             },
             "network.cloudflare" => Self::Cloudflare {
-                seconds: CfSettings::DEFAULT_SECONDS,
-                concurrency: CfSettings::DEFAULT_CONCURRENCY,
+                seconds: CloudflareSettings::DEFAULT_SECONDS,
+                concurrency: CloudflareSettings::DEFAULT_CONCURRENCY,
                 udp: false,
             },
             "network.inetspeed" => Self::Inetspeed {
-                threads: InetSettings::DEFAULT_THREADS,
-                timeout: InetSettings::DEFAULT_TIMEOUT_SECS,
-                max: InetSettings::DEFAULT_MAX.to_owned(),
-                latency_count: InetSettings::DEFAULT_LATENCY_COUNT,
+                threads: InetspeedSettings::DEFAULT_THREADS,
+                timeout: InetspeedSettings::DEFAULT_TIMEOUT_SECS,
+                max: InetspeedSettings::DEFAULT_MAX.to_owned(),
+                latency_count: InetspeedSettings::DEFAULT_LATENCY_COUNT,
                 endpoint: String::new(),
             },
             "network.trace" => Self::Trace {
@@ -263,8 +263,8 @@ impl ItemParams {
                 concurrency,
                 udp,
             } => {
-                *seconds == CfSettings::DEFAULT_SECONDS
-                    && *concurrency == CfSettings::DEFAULT_CONCURRENCY
+                *seconds == CloudflareSettings::DEFAULT_SECONDS
+                    && *concurrency == CloudflareSettings::DEFAULT_CONCURRENCY
                     && *udp
             }
             Self::Inetspeed {
@@ -274,10 +274,12 @@ impl ItemParams {
                 latency_count,
                 endpoint,
             } => {
-                *threads == InetSettings::DEFAULT_THREADS
-                    && *timeout == InetSettings::DEFAULT_TIMEOUT_SECS
-                    && max.trim().eq_ignore_ascii_case(InetSettings::DEFAULT_MAX)
-                    && *latency_count == InetSettings::DEFAULT_LATENCY_COUNT
+                *threads == InetspeedSettings::DEFAULT_THREADS
+                    && *timeout == InetspeedSettings::DEFAULT_TIMEOUT_SECS
+                    && max
+                        .trim()
+                        .eq_ignore_ascii_case(InetspeedSettings::DEFAULT_MAX)
+                    && *latency_count == InetspeedSettings::DEFAULT_LATENCY_COUNT
                     && endpoint.trim().is_empty()
             }
             Self::Trace {
@@ -368,10 +370,10 @@ impl ItemParams {
                 concurrency,
                 udp,
             } => {
-                if *seconds != CfSettings::DEFAULT_SECONDS {
+                if *seconds != CloudflareSettings::DEFAULT_SECONDS {
                     map.insert("seconds".to_owned(), serde_json::Value::from(*seconds));
                 }
-                if *concurrency != CfSettings::DEFAULT_CONCURRENCY {
+                if *concurrency != CloudflareSettings::DEFAULT_CONCURRENCY {
                     map.insert(
                         "concurrency".to_owned(),
                         serde_json::Value::from(*concurrency),
@@ -388,22 +390,22 @@ impl ItemParams {
                 latency_count,
                 endpoint,
             } => {
-                if *threads != InetSettings::DEFAULT_THREADS {
+                if *threads != InetspeedSettings::DEFAULT_THREADS {
                     map.insert("threads".to_owned(), serde_json::Value::from(*threads));
                 }
-                if *timeout != InetSettings::DEFAULT_TIMEOUT_SECS {
+                if *timeout != InetspeedSettings::DEFAULT_TIMEOUT_SECS {
                     map.insert("timeout".to_owned(), serde_json::Value::from(*timeout));
                 }
                 let max_trimmed = max.trim();
                 if !max_trimmed.is_empty()
-                    && !max_trimmed.eq_ignore_ascii_case(InetSettings::DEFAULT_MAX)
+                    && !max_trimmed.eq_ignore_ascii_case(InetspeedSettings::DEFAULT_MAX)
                 {
                     map.insert(
                         "max".to_owned(),
                         serde_json::Value::String(max_trimmed.to_owned()),
                     );
                 }
-                if *latency_count != InetSettings::DEFAULT_LATENCY_COUNT {
+                if *latency_count != InetspeedSettings::DEFAULT_LATENCY_COUNT {
                     map.insert(
                         "latency_count".to_owned(),
                         serde_json::Value::from(*latency_count),
@@ -733,11 +735,11 @@ impl TuiConfig {
         match &item.params {
             ItemParams::Fixed => {}
             ItemParams::CpuBench { suites } => {
-                for ((code, on), def_on) in CPU_SUITES
+                let suite_rows = CPU_SUITES
                     .iter()
                     .zip(suites.iter())
-                    .zip(DEFAULT_SUITES.iter())
-                {
+                    .zip(DEFAULT_SUITES.iter());
+                for ((code, on), def_on) in suite_rows {
                     rows.push(sub_row(
                         bool_row(&words.tui_field_cpu_suite(code), *on, *def_on),
                         inactive,
@@ -804,11 +806,11 @@ impl TuiConfig {
                 seconds,
                 streams,
             } => {
-                for ((code, on), def_on) in TAIER_OPERATORS
+                let operator_rows = TAIER_OPERATORS
                     .iter()
                     .zip(operators.iter())
-                    .zip(DEFAULT_TAIER_OPERATORS.iter())
-                {
+                    .zip(DEFAULT_TAIER_OPERATORS.iter());
+                for ((code, on), def_on) in operator_rows {
                     rows.push(sub_row(
                         bool_row(&words.tui_field_taier_operator(code), *on, *def_on),
                         inactive,
@@ -852,7 +854,7 @@ impl TuiConfig {
                     FieldRow {
                         label: words.tui_field_seconds().to_owned(),
                         value: seconds.to_string(),
-                        customized: *seconds != CfSettings::DEFAULT_SECONDS,
+                        customized: *seconds != CloudflareSettings::DEFAULT_SECONDS,
                         dimmed: false,
                         edit_raw: Some(seconds.to_string()),
                     },
@@ -860,16 +862,16 @@ impl TuiConfig {
                 ));
                 rows.push(sub_row(
                     FieldRow {
-                        label: words.tui_field_cf_concurrency().to_owned(),
+                        label: words.tui_field_cloudflare_concurrency().to_owned(),
                         value: concurrency.to_string(),
-                        customized: *concurrency != CfSettings::DEFAULT_CONCURRENCY,
+                        customized: *concurrency != CloudflareSettings::DEFAULT_CONCURRENCY,
                         dimmed: false,
                         edit_raw: Some(concurrency.to_string()),
                     },
                     inactive,
                 ));
                 rows.push(sub_row(
-                    bool_row(words.tui_field_cf_udp(), *udp, true),
+                    bool_row(words.tui_field_cloudflare_udp(), *udp, true),
                     inactive,
                 ));
             }
@@ -882,9 +884,9 @@ impl TuiConfig {
             } => {
                 rows.push(sub_row(
                     FieldRow {
-                        label: words.tui_field_inet_threads().to_owned(),
+                        label: words.tui_field_inetspeed_threads().to_owned(),
                         value: threads.to_string(),
-                        customized: *threads != InetSettings::DEFAULT_THREADS,
+                        customized: *threads != InetspeedSettings::DEFAULT_THREADS,
                         dimmed: false,
                         edit_raw: Some(threads.to_string()),
                     },
@@ -892,9 +894,9 @@ impl TuiConfig {
                 ));
                 rows.push(sub_row(
                     FieldRow {
-                        label: words.tui_field_inet_timeout().to_owned(),
+                        label: words.tui_field_inetspeed_timeout().to_owned(),
                         value: timeout.to_string(),
-                        customized: *timeout != InetSettings::DEFAULT_TIMEOUT_SECS,
+                        customized: *timeout != InetspeedSettings::DEFAULT_TIMEOUT_SECS,
                         dimmed: false,
                         edit_raw: Some(timeout.to_string()),
                     },
@@ -903,9 +905,10 @@ impl TuiConfig {
                 let max_trimmed = max.trim();
                 rows.push(sub_row(
                     FieldRow {
-                        label: words.tui_field_inet_max().to_owned(),
+                        label: words.tui_field_inetspeed_max().to_owned(),
                         value: max_trimmed.to_owned(),
-                        customized: !max_trimmed.eq_ignore_ascii_case(InetSettings::DEFAULT_MAX),
+                        customized: !max_trimmed
+                            .eq_ignore_ascii_case(InetspeedSettings::DEFAULT_MAX),
                         dimmed: false,
                         edit_raw: Some(max_trimmed.to_owned()),
                     },
@@ -913,9 +916,9 @@ impl TuiConfig {
                 ));
                 rows.push(sub_row(
                     FieldRow {
-                        label: words.tui_field_inet_latency_count().to_owned(),
+                        label: words.tui_field_inetspeed_latency_count().to_owned(),
                         value: latency_count.to_string(),
-                        customized: *latency_count != InetSettings::DEFAULT_LATENCY_COUNT,
+                        customized: *latency_count != InetspeedSettings::DEFAULT_LATENCY_COUNT,
                         dimmed: false,
                         edit_raw: Some(latency_count.to_string()),
                     },
@@ -923,9 +926,9 @@ impl TuiConfig {
                 ));
                 rows.push(sub_row(
                     text_row(
-                        words.tui_field_inet_endpoint(),
+                        words.tui_field_inetspeed_endpoint(),
                         endpoint,
-                        words.tui_default_inet_endpoint(),
+                        words.tui_default_inetspeed_endpoint(),
                     ),
                     inactive,
                 ));
@@ -935,7 +938,8 @@ impl TuiConfig {
                 targets,
                 geo,
             } => {
-                for (code, on) in TRACE_GROUPS.iter().zip(groups.iter()) {
+                let group_rows = TRACE_GROUPS.iter().zip(groups.iter());
+                for (code, on) in group_rows {
                     rows.push(sub_row(
                         bool_row(&words.tui_field_trace_group(code), *on, false),
                         inactive,
@@ -967,7 +971,8 @@ impl TuiConfig {
                 ));
             }
             ItemParams::IpMedia { groups, services } => {
-                for (code, on) in MEDIA_GROUPS.iter().zip(groups.iter()) {
+                let region_rows = MEDIA_GROUPS.iter().zip(groups.iter());
+                for (code, on) in region_rows {
                     rows.push(sub_row(
                         bool_row(&words.tui_field_media_group(code), *on, false),
                         inactive,
@@ -1436,12 +1441,13 @@ impl TuiConfig {
             } => match field_idx {
                 1 => {
                     if trimmed.is_empty() {
-                        *seconds = CfSettings::DEFAULT_SECONDS;
+                        *seconds = CloudflareSettings::DEFAULT_SECONDS;
                     } else {
                         let val = parse_range(trimmed, 1, 60).ok_or_else(|| {
                             words.tui_invalid_number(words.tui_field_seconds(), 1, 60)
                         })?;
-                        *seconds = u16::try_from(val).unwrap_or(CfSettings::DEFAULT_SECONDS);
+                        *seconds =
+                            u16::try_from(val).unwrap_or(CloudflareSettings::DEFAULT_SECONDS);
                         if was_disabled {
                             item.enabled = true;
                             *udp = true;
@@ -1450,12 +1456,17 @@ impl TuiConfig {
                 }
                 2 => {
                     if trimmed.is_empty() {
-                        *concurrency = CfSettings::DEFAULT_CONCURRENCY;
+                        *concurrency = CloudflareSettings::DEFAULT_CONCURRENCY;
                     } else {
                         let val = parse_range(trimmed, 1, 32).ok_or_else(|| {
-                            words.tui_invalid_number(words.tui_field_cf_concurrency(), 1, 32)
+                            words.tui_invalid_number(
+                                words.tui_field_cloudflare_concurrency(),
+                                1,
+                                32,
+                            )
                         })?;
-                        *concurrency = u8::try_from(val).unwrap_or(CfSettings::DEFAULT_CONCURRENCY);
+                        *concurrency =
+                            u8::try_from(val).unwrap_or(CloudflareSettings::DEFAULT_CONCURRENCY);
                         if was_disabled {
                             item.enabled = true;
                             *udp = true;
@@ -1473,31 +1484,32 @@ impl TuiConfig {
             } => match field_idx {
                 1 => {
                     if trimmed.is_empty() {
-                        *threads = InetSettings::DEFAULT_THREADS;
+                        *threads = InetspeedSettings::DEFAULT_THREADS;
                     } else {
                         let val = parse_range(trimmed, 1, 64).ok_or_else(|| {
-                            words.tui_invalid_number(words.tui_field_inet_threads(), 1, 64)
+                            words.tui_invalid_number(words.tui_field_inetspeed_threads(), 1, 64)
                         })?;
-                        *threads = u8::try_from(val).unwrap_or(InetSettings::DEFAULT_THREADS);
+                        *threads = u8::try_from(val).unwrap_or(InetspeedSettings::DEFAULT_THREADS);
                         item.enabled = true;
                     }
                 }
                 2 => {
                     if trimmed.is_empty() {
-                        *timeout = InetSettings::DEFAULT_TIMEOUT_SECS;
+                        *timeout = InetspeedSettings::DEFAULT_TIMEOUT_SECS;
                     } else {
                         let val = parse_range(trimmed, 1, 120).ok_or_else(|| {
-                            words.tui_invalid_number(words.tui_field_inet_timeout(), 1, 120)
+                            words.tui_invalid_number(words.tui_field_inetspeed_timeout(), 1, 120)
                         })?;
-                        *timeout = u16::try_from(val).unwrap_or(InetSettings::DEFAULT_TIMEOUT_SECS);
+                        *timeout =
+                            u16::try_from(val).unwrap_or(InetspeedSettings::DEFAULT_TIMEOUT_SECS);
                         item.enabled = true;
                     }
                 }
                 3 => {
                     if trimmed.is_empty() {
-                        *max = InetSettings::DEFAULT_MAX.to_owned();
+                        *max = InetspeedSettings::DEFAULT_MAX.to_owned();
                     } else {
-                        let _ = inet_parse::parse_size(trimmed)
+                        let _ = inetspeed_parse::parse_size(trimmed)
                             .map_err(|_| words.inetspeed_invalid_max(trimmed))?;
                         *max = trimmed.to_owned();
                         item.enabled = true;
@@ -1505,13 +1517,17 @@ impl TuiConfig {
                 }
                 4 => {
                     if trimmed.is_empty() {
-                        *latency_count = InetSettings::DEFAULT_LATENCY_COUNT;
+                        *latency_count = InetspeedSettings::DEFAULT_LATENCY_COUNT;
                     } else {
                         let val = parse_range(trimmed, 1, 100).ok_or_else(|| {
-                            words.tui_invalid_number(words.tui_field_inet_latency_count(), 1, 100)
+                            words.tui_invalid_number(
+                                words.tui_field_inetspeed_latency_count(),
+                                1,
+                                100,
+                            )
                         })?;
                         *latency_count =
-                            u8::try_from(val).unwrap_or(InetSettings::DEFAULT_LATENCY_COUNT);
+                            u8::try_from(val).unwrap_or(InetspeedSettings::DEFAULT_LATENCY_COUNT);
                         item.enabled = true;
                     }
                 }
@@ -1519,8 +1535,8 @@ impl TuiConfig {
                     if trimmed.is_empty() {
                         endpoint.clear();
                     } else {
-                        let ip = trimmed
-                            .parse::<IpAddr>()
+                        let ip: IpAddr = trimmed
+                            .parse()
                             .map_err(|_| words.invalid_inetspeed_endpoint(trimmed))?;
                         *endpoint = ip.to_string();
                         item.enabled = true;
@@ -1617,7 +1633,7 @@ impl TuiConfig {
                 if trimmed.is_empty() {
                     self.global.socks5_proxy.clear();
                 } else {
-                    let _ = Socks5Proxy::parse(trimmed)?;
+                    let _ = Socks5Proxy::try_new(trimmed)?;
                     self.global.socks5_proxy = trimmed.to_owned();
                 }
             }
@@ -1625,7 +1641,7 @@ impl TuiConfig {
                 if trimmed.is_empty() {
                     self.global.github_proxy.clear();
                 } else {
-                    let _ = GithubProxy::parse(trimmed)?;
+                    let _ = GithubProxy::try_new(trimmed)?;
                     self.global.github_proxy = trimmed.to_owned();
                 }
             }

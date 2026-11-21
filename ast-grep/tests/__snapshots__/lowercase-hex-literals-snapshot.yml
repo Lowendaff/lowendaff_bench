@@ -1,0 +1,20 @@
+id: lowercase-hex-literals
+snapshots:
+  "const BASE: u64 = 0xF_0000;":
+    labels:
+    - source: "0xF_0000"
+      style: primary
+      start: 18
+      end: 26
+  "const BYTE: u8 = 0x1F_u8;":
+    labels:
+    - source: 0x1F_u8
+      style: primary
+      start: 17
+      end: 24
+  "const MASK: u16 = 0xFFFF;":
+    labels:
+    - source: "0xFFFF"
+      style: primary
+      start: 18
+      end: 24

@@ -444,7 +444,8 @@ fn target_name(target: &Target) -> String {
 fn hop_rows(trace: &Trace, own: &[IpAddr], show_ip: bool) -> Vec<Vec<String>> {
     let words = locale::words();
     let mut rows = Vec::new();
-    for (number, hop) in (1_usize..).zip(&trace.hops) {
+    let numbered_hops = (1_usize..).zip(&trace.hops);
+    for (number, hop) in numbered_hops {
         if hop.answers.is_empty() {
             let mut row = vec![number.to_string(), "*".to_owned()];
             row.resize(5, String::new());
@@ -704,7 +705,8 @@ fn build_bgp_summary_rows(
             }
             let total = rep.total_peers.max(1);
             let mut items = Vec::new();
-            for up in rep.upstreams.iter().take(SHOWN_UPSTREAMS) {
+            let shown = rep.upstreams.iter().take(SHOWN_UPSTREAMS);
+            for up in shown {
                 let pct = ((f64::from(up.peers) * 100.0) / f64::from(total)).round() as u32;
                 let item = match asn_label(rep, up.asn) {
                     Some(name) => format!("AS{} {name} ({pct}%)", up.asn),
@@ -1020,7 +1022,7 @@ fn inetspeed_row(round: &RoundResult) -> Vec<String> {
         )
         .to_owned();
     let speed = if round.bytes == 0 {
-        words.way_cell(crate::locale::WayCell::Error).to_owned()
+        words.way_cell(WayCell::Error).to_owned()
     } else {
         bits(round.bps)
     };

@@ -28,6 +28,7 @@ use bench_api::Requirements;
 use bench_api::Stop;
 use bench_tool::NEXTTRACE;
 use serde::Deserialize;
+use tokio::fs::File;
 
 use exchanges::Exchanges;
 use lists::ListError;
@@ -317,7 +318,7 @@ async fn read(path: &Path) -> Result<Vec<u8>, String> {
     use tokio::io::AsyncReadExt;
 
     let unreadable = |err: io::Error| err.to_string();
-    let file = tokio::fs::File::open(path).await.map_err(unreadable)?;
+    let file = File::open(path).await.map_err(unreadable)?;
     let mut bytes = Vec::new();
     file.take(lists::LIMIT as u64 + 1)
         .read_to_end(&mut bytes)

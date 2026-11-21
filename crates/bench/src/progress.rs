@@ -142,13 +142,11 @@ impl Observer<Measured> for Log {
 
 #[cfg(test)]
 mod tests {
-    use super::stamp;
-
     #[test]
     fn the_time_is_written_as_hours_minutes_and_seconds() {
-        assert_eq!(stamp(0), "[00:00:00]");
-        assert_eq!(stamp(125), "[00:02:05]");
-        assert_eq!(stamp(3 * 3600 + 25 * 60 + 7), "[03:25:07]");
-        assert_eq!(stamp(100 * 3600 + 59 * 60 + 59), "[100:59:59]");
+        assert_eq!(super::stamp(0), "[00:00:00]");
+        assert_eq!(super::stamp(125), "[00:02:05]");
+        assert_eq!(super::stamp(3 * 3600 + 25 * 60 + 7), "[03:25:07]");
+        assert_eq!(super::stamp(100 * 3600 + 59 * 60 + 59), "[100:59:59]");
     }
 }

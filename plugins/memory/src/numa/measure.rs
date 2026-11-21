@@ -23,6 +23,7 @@ use super::result::Kind;
 use super::result::Measured;
 use super::result::Output;
 use crate::Tried;
+use crate::Value;
 use crate::chase;
 use crate::plan;
 use crate::plan::Plan;
@@ -153,7 +154,7 @@ async fn measured<F, Fut>(
     ctx: &Context<Output>,
     run: &F,
     job: &Job,
-    read: fn(&job::Output) -> Result<crate::Value, Fault>,
+    read: fn(&job::Output) -> Result<Value, Fault>,
     (row, column, kind): (usize, usize, Kind),
 ) -> Result<Measured, Stop<Failure>>
 where

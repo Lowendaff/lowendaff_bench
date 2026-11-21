@@ -55,7 +55,7 @@ pub struct Socks5Proxy {
 
 impl Socks5Proxy {
     /// Validates a `socks5://` or `socks5h://` proxy URL without echoing credentials on error.
-    pub fn parse(raw: &str) -> Result<Self, String> {
+    pub fn try_new(raw: &str) -> Result<Self, String> {
         let trimmed = raw.trim();
         let invalid = || locale::words().invalid_socks5_proxy();
         let Some((scheme, rest)) = trimmed.split_once("://") else {
@@ -93,7 +93,7 @@ pub struct GithubProxy {
 
 impl GithubProxy {
     /// Validates an `http://` or `https://` GitHub proxy base URL and strips trailing slashes.
-    pub fn parse(raw: &str) -> Result<Self, String> {
+    pub fn try_new(raw: &str) -> Result<Self, String> {
         let trimmed = raw.trim();
         let invalid = || locale::words().invalid_github_proxy();
         let parsed = Url::parse(trimmed).map_err(|_| invalid())?;
@@ -154,11 +154,11 @@ impl DownloadProxy {
     /// whitespace-only strings as unset).
     pub fn try_new(socks5: Option<&str>, github: Option<&str>) -> Result<Self, String> {
         let socks5 = match socks5.map(str::trim).filter(|s| !s.is_empty()) {
-            Some(raw) => Some(Socks5Proxy::parse(raw)?),
+            Some(raw) => Some(Socks5Proxy::try_new(raw)?),
             None => None,
         };
         let github = match github.map(str::trim).filter(|s| !s.is_empty()) {
-            Some(raw) => Some(GithubProxy::parse(raw)?),
+            Some(raw) => Some(GithubProxy::try_new(raw)?),
             None => None,
         };
         Ok(Self { socks5, github })
@@ -314,12 +314,12 @@ pub struct Fetchers {
 impl Fetchers {
     /// Builds direct clients with no download proxy configured.
     pub fn try_new() -> Result<Self, String> {
-        Self::with_proxy(&DownloadProxy::default())
+        Self::try_new_with_proxy(&DownloadProxy::default())
     }
 
     /// Builds download clients configured with explicit `proxy` settings (ignoring environment
     /// proxy variables).
-    pub fn with_proxy(proxy: &DownloadProxy) -> Result<Self, String> {
+    pub fn try_new_with_proxy(proxy: &DownloadProxy) -> Result<Self, String> {
         let socks5 = match &proxy.socks5 {
             Some(spec) => Some(Fetcher::build(
                 Some(spec.to_reqwest_proxy()?),
@@ -547,8 +547,8 @@ mod tests {
 
     #[test]
     fn socks5_and_github_proxy_parsers_validate_schemes_and_rewrite_github_urls() {
-        assert!(Socks5Proxy::parse("socks5://127.0.0.1:1080").is_ok());
-        assert!(Socks5Proxy::parse("SOCKS5H://user:s3cret@proxy.example.com:1080").is_ok());
+        assert!(Socks5Proxy::try_new("socks5://127.0.0.1:1080").is_ok());
+        assert!(Socks5Proxy::try_new("SOCKS5H://user:s3cret@proxy.example.com:1080").is_ok());
         for bad in [
             "http://127.0.0.1:1080",
             "https://127.0.0.1:1080",
@@ -557,15 +557,15 @@ mod tests {
             "socks5://127.0.0.1:1080/path",
             "socks5://user:s3cret@127.0.0.1:1080?x=1",
         ] {
-            let err = Socks5Proxy::parse(bad).expect_err("invalid SOCKS5 URL must fail");
+            let err = Socks5Proxy::try_new(bad).expect_err("invalid SOCKS5 URL must fail");
             assert!(
                 !err.contains("s3cret"),
                 "validation error must never leak credentials: {err}"
             );
         }
 
-        let gh_slash = GithubProxy::parse("https://ghfast.top/").expect("valid trailing slash");
-        let gh_bare = GithubProxy::parse("https://ghfast.top").expect("valid bare origin");
+        let gh_slash = GithubProxy::try_new("https://ghfast.top/").expect("valid trailing slash");
+        let gh_bare = GithubProxy::try_new("https://ghfast.top").expect("valid bare origin");
         assert_eq!(
             gh_slash
                 .rewrite("https://github.com/stilleshan/dockerfiles")
@@ -597,7 +597,7 @@ mod tests {
             "https://user:s3cret@ghfast.top/",
             "https://ghfast.top/?x=1",
         ] {
-            let err = GithubProxy::parse(bad).expect_err("invalid GitHub proxy URL must fail");
+            let err = GithubProxy::try_new(bad).expect_err("invalid GitHub proxy URL must fail");
             assert!(
                 !err.contains("s3cret"),
                 "validation error must never leak credentials: {err}"
@@ -615,7 +615,7 @@ mod tests {
 
         // 1. socks5:// resolves `localhost` locally and sends IPv4 literal (ATYP = 1) or IPv6.
         let cfg_v5 = DownloadProxy::try_new(Some(&format!("socks5://{proxy}")), None).unwrap();
-        let fetchers_v5 = Fetchers::with_proxy(&cfg_v5).expect("clients");
+        let fetchers_v5 = Fetchers::try_new_with_proxy(&cfg_v5).expect("clients");
         let Ok(Part::Whole(mut body)) = fetchers_v5
             .open(None, &format!("http://{site}/tool"), None)
             .await
@@ -628,7 +628,7 @@ mod tests {
 
         // 2. socks5h:// delegates hostname resolution to the SOCKS5 proxy (ATYP = 3, "localhost").
         let cfg_v5h = DownloadProxy::try_new(Some(&format!("socks5h://{proxy}")), None).unwrap();
-        let fetchers_v5h = Fetchers::with_proxy(&cfg_v5h).expect("clients");
+        let fetchers_v5h = Fetchers::try_new_with_proxy(&cfg_v5h).expect("clients");
         let Ok(Part::Range(mut body)) = fetchers_v5h.open(None, &url, Some(1..3)).await else {
             panic!("socks5h:// byte-range download should succeed")
         };
@@ -687,7 +687,7 @@ mod tests {
             Some(&format!("http://{gh_mirror}/")),
         )
         .expect("valid dual proxy config");
-        let fetchers = Fetchers::with_proxy(&proxy_cfg).expect("clients");
+        let fetchers = Fetchers::try_new_with_proxy(&proxy_cfg).expect("clients");
 
         // 1. GitHub download (`family == None`) goes DIRECT to `gh_mirror` (NOT through SOCKS5!).
         let gh_url =

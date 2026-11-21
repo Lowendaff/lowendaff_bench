@@ -2,7 +2,6 @@
 //! host's `pci.ids`, and how the disks of the system information's disk table attach to them.
 
 use std::fs::File;
-use std::io::BufRead;
 use std::io::BufReader;
 use std::path::Path;
 
@@ -139,6 +138,8 @@ fn attachment(driver: Option<&str>, segments: &[&str]) -> Attachment {
 /// The card's name in the first `pci.ids` there is: the subsystem's name, else the vendor's
 /// and the device's names. The file is read only up to the entry.
 fn name(root: &Root, ids: Ids) -> Option<String> {
+    use std::io::BufRead;
+
     let path = PCI_IDS.iter().find(|path| root.exists(path))?;
     let file = File::open(root.join(path)).ok()?;
     let vendor_key = format!("{:04x}  ", ids.vendor);

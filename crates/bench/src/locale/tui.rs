@@ -77,19 +77,19 @@ pub trait TuiWords {
     /// `network.taier` field: city/province filter or `all`.
     fn tui_field_taier_cities(&self) -> &'static str;
     /// `network.cloudflare` field: concurrent HTTP workers.
-    fn tui_field_cf_concurrency(&self) -> &'static str;
+    fn tui_field_cloudflare_concurrency(&self) -> &'static str;
     /// `network.cloudflare` field: STUN UDP packet-loss probe toggle.
-    fn tui_field_cf_udp(&self) -> &'static str;
+    fn tui_field_cloudflare_udp(&self) -> &'static str;
     /// `network.inetspeed` field: multi-thread worker count.
-    fn tui_field_inet_threads(&self) -> &'static str;
+    fn tui_field_inetspeed_threads(&self) -> &'static str;
     /// `network.inetspeed` field: per-thread timeout in seconds.
-    fn tui_field_inet_timeout(&self) -> &'static str;
+    fn tui_field_inetspeed_timeout(&self) -> &'static str;
     /// `network.inetspeed` field: per-thread byte cap (`2G`, `500M`, `1GiB`).
-    fn tui_field_inet_max(&self) -> &'static str;
+    fn tui_field_inetspeed_max(&self) -> &'static str;
     /// `network.inetspeed` field: idle latency sample count.
-    fn tui_field_inet_latency_count(&self) -> &'static str;
+    fn tui_field_inetspeed_latency_count(&self) -> &'static str;
     /// `network.inetspeed` field: pinned endpoint IP override.
-    fn tui_field_inet_endpoint(&self) -> &'static str;
+    fn tui_field_inetspeed_endpoint(&self) -> &'static str;
     /// `network.trace` field: target group toggle.
     fn tui_field_trace_group(&self, group: &str) -> String;
     /// `network.trace` field: specific target IDs.
@@ -127,7 +127,7 @@ pub trait TuiWords {
     /// Placeholder value for default Taier cities.
     fn tui_default_taier_cities(&self) -> &'static str;
     /// Placeholder value for automatic Dual DoH Apple CDN discovery.
-    fn tui_default_inet_endpoint(&self) -> &'static str;
+    fn tui_default_inetspeed_endpoint(&self) -> &'static str;
     /// Placeholder value when an override list is unset.
     fn tui_default_none(&self) -> &'static str;
     /// Placeholder value when rate limit is unset.

@@ -10,6 +10,7 @@ use std::task::Poll;
 use std::time::Duration;
 
 use bench_api::Context;
+use bench_api::DEFAULT_HTTP_LIMIT;
 use bench_api::HttpError;
 use bench_api::HttpRequest;
 use bench_api::HttpResponse;
@@ -189,7 +190,8 @@ async fn query_family(
     for origin in &parsed.origins {
         push_asn(origin.asn);
     }
-    for up in parsed.upstreams.iter().take(12) {
+    let top_upstreams = parsed.upstreams.iter().take(12);
+    for up in top_upstreams {
         push_asn(up.asn);
     }
     for path in &parsed.paths {
@@ -220,7 +222,7 @@ async fn query_family(
             family,
             fallback,
             ENRICH_TIMEOUT,
-            bench_api::DEFAULT_HTTP_LIMIT,
+            DEFAULT_HTTP_LIMIT,
         )
         .await
         {
@@ -239,7 +241,7 @@ async fn query_family(
             family,
             fallback,
             ENRICH_TIMEOUT,
-            bench_api::DEFAULT_HTTP_LIMIT,
+            DEFAULT_HTTP_LIMIT,
         )
         .await;
         let name = match res {

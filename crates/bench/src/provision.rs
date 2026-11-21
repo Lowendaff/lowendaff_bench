@@ -10,9 +10,13 @@
 use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::fmt;
+use std::fs as std_fs;
+use std::fs::File as StdFile;
 use std::fs::Permissions;
 use std::future::Future;
 use std::io;
+use std::io::BufReader;
+use std::io::BufWriter;
 use std::ops::Range;
 use std::path::Path;
 use std::path::PathBuf;
@@ -840,7 +844,7 @@ async fn unpack(
 
 fn unpack_tar_gz(archive: &Path, staging: &Path) -> Result<(), String> {
     let write_error = |err: io::Error| locale::words().unpack_failed(&err);
-    let file = std::fs::File::open(archive).map_err(write_error)?;
+    let file = StdFile::open(archive).map_err(write_error)?;
     unpack_tar_stripped(
         tar::Archive::new(flate2::read::GzDecoder::new(file)),
         staging,
@@ -852,21 +856,21 @@ fn unpack_tar_xz(archive: &Path, staging: &Path) -> Result<(), String> {
     let write_error = |err: io::Error| locale::words().unpack_failed(&err);
     let temp_tar = staging.with_extension("tar");
     let decompressed = (|| -> Result<(), String> {
-        let input = std::fs::File::open(archive).map_err(write_error)?;
-        let mut reader = std::io::BufReader::new(input);
-        let output = std::fs::File::create(&temp_tar).map_err(write_error)?;
-        let mut writer = std::io::BufWriter::new(output);
+        let input = StdFile::open(archive).map_err(write_error)?;
+        let mut reader = BufReader::new(input);
+        let output = StdFile::create(&temp_tar).map_err(write_error)?;
+        let mut writer = BufWriter::new(output);
         lzma_rs::xz_decompress(&mut reader, &mut writer).map_err(damaged)?;
         io::Write::flush(&mut writer).map_err(write_error)
     })();
     if let Err(err) = decompressed {
-        let _ = std::fs::remove_file(&temp_tar);
+        let _ = std_fs::remove_file(&temp_tar);
         return Err(err);
     }
-    let result = std::fs::File::open(&temp_tar)
+    let result = StdFile::open(&temp_tar)
         .map_err(write_error)
         .and_then(|tar_file| unpack_tar_stripped(tar::Archive::new(tar_file), staging));
-    let _ = std::fs::remove_file(&temp_tar);
+    let _ = std_fs::remove_file(&temp_tar);
     result
 }
 
@@ -881,7 +885,7 @@ fn unpack_tar_stripped<R: io::Read>(
 
     let damaged = |err: io::Error| locale::words().damaged_archive(&err);
     let write_error = |err: io::Error| locale::words().unpack_failed(&err);
-    std::fs::create_dir(staging).map_err(write_error)?;
+    std_fs::create_dir(staging).map_err(write_error)?;
     let entries = archive.entries().map_err(damaged)?;
     let mut top: Option<OsString> = None;
     for entry in entries {
@@ -906,10 +910,10 @@ fn unpack_tar_stripped<R: io::Read>(
         }
         let kind = entry.header().entry_type();
         if kind.is_dir() {
-            std::fs::create_dir_all(&target).map_err(write_error)?;
+            std_fs::create_dir_all(&target).map_err(write_error)?;
         } else if kind.is_file() && target != staging {
             if let Some(parent) = target.parent() {
-                std::fs::create_dir_all(parent).map_err(write_error)?;
+                std_fs::create_dir_all(parent).map_err(write_error)?;
             }
             entry.unpack(&target).map_err(write_error)?;
         } else {
@@ -923,13 +927,14 @@ fn unpack_tar_stripped<R: io::Read>(
 /// regular files, directories, and plain sibling symlinks (`libgmp.so.10 -> libgmp.so.10.4.1`)
 /// whose target is a single plain file name in the same directory.
 fn unpack_tar_gz_flat(archive: &Path, staging: &Path) -> Result<(), String> {
+    use std::os::unix::fs as unix_fs;
     use std::path::Component;
 
     let damaged = |err: io::Error| locale::words().damaged_archive(&err);
     let write_error = |err: io::Error| locale::words().unpack_failed(&err);
-    let file = std::fs::File::open(archive).map_err(write_error)?;
+    let file = StdFile::open(archive).map_err(write_error)?;
     let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(file));
-    std::fs::create_dir(staging).map_err(write_error)?;
+    std_fs::create_dir(staging).map_err(write_error)?;
     let entries = archive.entries().map_err(damaged)?;
     for entry in entries {
         let mut entry = entry.map_err(damaged)?;
@@ -949,10 +954,10 @@ fn unpack_tar_gz_flat(archive: &Path, staging: &Path) -> Result<(), String> {
         }
         let kind = entry.header().entry_type();
         if kind.is_dir() {
-            std::fs::create_dir_all(&target).map_err(write_error)?;
+            std_fs::create_dir_all(&target).map_err(write_error)?;
         } else if kind.is_file() && saw_any {
             if let Some(parent) = target.parent() {
-                std::fs::create_dir_all(parent).map_err(write_error)?;
+                std_fs::create_dir_all(parent).map_err(write_error)?;
             }
             entry.unpack(&target).map_err(write_error)?;
         } else if kind.is_symlink() && saw_any {
@@ -966,9 +971,9 @@ fn unpack_tar_gz_flat(archive: &Path, staging: &Path) -> Result<(), String> {
                 return Err(unsupported());
             };
             if let Some(parent) = target.parent() {
-                std::fs::create_dir_all(parent).map_err(write_error)?;
+                std_fs::create_dir_all(parent).map_err(write_error)?;
             }
-            std::os::unix::fs::symlink(sibling, &target).map_err(write_error)?;
+            unix_fs::symlink(sibling, &target).map_err(write_error)?;
         } else {
             return Err(unsupported());
         }
@@ -985,7 +990,7 @@ fn unpack_zip(archive: &Path, staging: &Path) -> Result<(), String> {
 
     let damaged_msg = |msg: &str| locale::words().damaged_archive(&msg);
     let write_error = |err: io::Error| locale::words().unpack_failed(&err);
-    let bytes = std::fs::read(archive).map_err(write_error)?;
+    let bytes = std_fs::read(archive).map_err(write_error)?;
     let eocd = find_zip_eocd(&bytes).ok_or_else(|| damaged_msg("missing ZIP central directory"))?;
     let total_entries = usize::from(read_u16_le(&bytes, eocd + 10)?);
     let cd_size = usize::try_from(read_u32_le(&bytes, eocd + 12)?)
@@ -997,7 +1002,7 @@ fn unpack_zip(archive: &Path, staging: &Path) -> Result<(), String> {
         .filter(|end| *end <= eocd)
         .ok_or_else(|| damaged_msg("central directory out of bounds"))?;
 
-    std::fs::create_dir(staging).map_err(write_error)?;
+    std_fs::create_dir(staging).map_err(write_error)?;
     let mut top: Option<OsString> = None;
     let mut cursor = cd_offset;
     for _ in 0..total_entries {
@@ -1052,7 +1057,7 @@ fn unpack_zip(archive: &Path, staging: &Path) -> Result<(), String> {
             target.push(part);
         }
         if is_dir || unix_type == 0o040_000 {
-            std::fs::create_dir_all(&target).map_err(write_error)?;
+            std_fs::create_dir_all(&target).map_err(write_error)?;
             continue;
         }
         if target == staging {
@@ -1076,9 +1081,9 @@ fn unpack_zip(archive: &Path, staging: &Path) -> Result<(), String> {
         let payload = &bytes[data_start..data_end];
 
         if let Some(parent) = target.parent() {
-            std::fs::create_dir_all(parent).map_err(write_error)?;
+            std_fs::create_dir_all(parent).map_err(write_error)?;
         }
-        let mut out_file = std::fs::File::create(&target).map_err(write_error)?;
+        let mut out_file = StdFile::create(&target).map_err(write_error)?;
         let mut crc = crc32fast::Hasher::new();
         let mut written_bytes: u64 = 0;
         let mut copy_checked = |reader: &mut dyn Read| -> Result<(), String> {
@@ -1110,8 +1115,7 @@ fn unpack_zip(archive: &Path, staging: &Path) -> Result<(), String> {
         }
         let unix_mode = (external_attrs >> 16) & 0o777;
         if unix_mode & 0o111 != 0 {
-            std::fs::set_permissions(&target, Permissions::from_mode(0o755))
-                .map_err(write_error)?;
+            std_fs::set_permissions(&target, Permissions::from_mode(0o755)).map_err(write_error)?;
         }
     }
     Ok(())

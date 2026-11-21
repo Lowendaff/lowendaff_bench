@@ -174,8 +174,10 @@ where
 /// What a finished run of NextTrace gave: its trace, with the exchanges named, or its error.
 fn route_of(finished: &job::Output, exchanges: &Exchanges) -> Route {
     if let Some(mut trace) = parse::trace(&finished.text) {
-        for answer in trace.hops.iter_mut().flat_map(|hop| hop.answers.iter_mut()) {
-            answer.exchange = exchanges.get(&answer.address).cloned();
+        for hop in &mut trace.hops {
+            for answer in &mut hop.answers {
+                answer.exchange = exchanges.get(&answer.address).cloned();
+            }
         }
         return Route::Traced(trace);
     }

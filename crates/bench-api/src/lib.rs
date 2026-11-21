@@ -621,10 +621,19 @@ pub struct TaierTransfer {
     pub active_streams: u8,
 }
 
+/// One cumulative throughput sample recorded during a Cloudflare transfer phase.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct ThroughputTick {
+    /// Active transfer window elapsed in milliseconds when the sample was taken.
+    pub elapsed_ms: u64,
+    /// Cumulative payload bytes transferred up to `elapsed_ms`.
+    pub bytes: u64,
+}
+
 /// Parameters for a multi-worker Cloudflare download or upload throughput phase with concurrent
 /// loaded-latency probing.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CfTransferSpec {
+pub struct CloudflareTransferSpec {
     /// IP family the connections must bind to and resolve.
     pub family: IpFamily,
     /// Base URL (`https://speed.cloudflare.com`, or loopback `http://` in tests).
@@ -645,13 +654,13 @@ pub struct CfTransferSpec {
 
 /// Raw observations collected during a Cloudflare download or upload throughput phase.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct CfTransferRaw {
+pub struct CloudflareTransfer {
     /// Cumulative payload bytes transferred across all workers.
     pub bytes: u64,
     /// Active phase duration in milliseconds.
     pub duration_ms: u64,
-    /// Cumulative `(active_ms, total_bytes)` samples recorded every 200 ms.
-    pub ticks: Vec<(u64, u64)>,
+    /// Cumulative throughput samples recorded every 200 ms.
+    pub ticks: Vec<ThroughputTick>,
     /// Number of loaded-latency probes sent during the transfer window.
     pub loaded_sent: u64,
     /// Round-trip times in microseconds of successful loaded-latency probes.
@@ -662,7 +671,7 @@ pub struct CfTransferRaw {
 
 /// Parameters for a Cloudflare RFC 5389 STUN UDP packet-loss and reordering probe.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CfStunSpec {
+pub struct CloudflareStunSpec {
     /// IP family the UDP socket must bind to and resolve.
     pub family: IpFamily,
     /// STUN server hostname or IP literal (e.g. `stun.cloudflare.com`).
@@ -679,7 +688,7 @@ pub struct CfStunSpec {
 
 /// Raw observations from a Cloudflare RFC 5389 STUN UDP packet-loss probe.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct CfStunRaw {
+pub struct CloudflareStun {
     /// Effective `stun:<host>:<port>` target probed.
     pub target: String,
     /// Number of STUN Binding Requests sent.
@@ -692,9 +701,18 @@ pub struct CfStunRaw {
     pub rtts_micros: Vec<u64>,
 }
 
+/// Reachable IP address families permitted when resolving or filtering candidate endpoints.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+pub struct FamilyFilter {
+    /// Whether IPv4 (`A`) addresses are permitted.
+    pub ipv4: bool,
+    /// Whether IPv6 (`AAAA`) addresses are permitted.
+    pub ipv6: bool,
+}
+
 /// Transfer direction of an Apple CDN (`network.inetspeed`) speedtest round.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-pub enum InetDirection {
+pub enum InetspeedDirection {
     /// HTTP `GET` download round.
     Download,
     /// Streaming HTTP `PUT` upload round.
@@ -703,7 +721,7 @@ pub enum InetDirection {
 
 /// Endpoint target for an Apple CDN (`network.inetspeed`) HTTP RTT probe.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct InetTarget {
+pub struct InetspeedTarget {
     /// Probe URL (`https://mensura.cdn-apple.com/api/v1/gm/small`, or loopback `http://`).
     pub url: String,
     /// Optional IP address to pin `url`'s hostname to while preserving TLS SNI.
@@ -712,9 +730,9 @@ pub struct InetTarget {
 
 /// Parameters for an Apple CDN (`network.inetspeed`) single-thread or multi-thread transfer round.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct InetTransferSpec {
+pub struct InetspeedTransferSpec {
     /// Transfer direction (`Download` or `Upload`).
-    pub direction: InetDirection,
+    pub direction: InetspeedDirection,
     /// Download (`GET`) or upload (`PUT`) endpoint URL.
     pub transfer_url: String,
     /// Latency probe (`GET`) endpoint URL polled concurrently during the transfer.
@@ -731,7 +749,7 @@ pub struct InetTransferSpec {
 
 /// Raw observations from an Apple CDN (`network.inetspeed`) transfer round.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct InetTransferRaw {
+pub struct InetspeedTransfer {
     /// Total payload bytes transferred across all workers.
     pub bytes: u64,
     /// Elapsed round duration in microseconds.
@@ -833,11 +851,11 @@ pub trait NetClient: Send + Sync {
     }
 
     /// Runs a Cloudflare multi-worker download throughput phase with loaded-latency probes.
-    fn cf_download<'a>(
+    fn cloudflare_download<'a>(
         &'a self,
-        _spec: &'a CfTransferSpec,
+        _spec: &'a CloudflareTransferSpec,
         _cancel: &'a CancellationToken,
-    ) -> NetFuture<'a, CfTransferRaw> {
+    ) -> NetFuture<'a, CloudflareTransfer> {
         Box::pin(async {
             Err(NetError::Transport(
                 "no network client configured".to_owned(),
@@ -846,11 +864,11 @@ pub trait NetClient: Send + Sync {
     }
 
     /// Runs a Cloudflare multi-worker upload throughput phase with loaded-latency probes.
-    fn cf_upload<'a>(
+    fn cloudflare_upload<'a>(
         &'a self,
-        _spec: &'a CfTransferSpec,
+        _spec: &'a CloudflareTransferSpec,
         _cancel: &'a CancellationToken,
-    ) -> NetFuture<'a, CfTransferRaw> {
+    ) -> NetFuture<'a, CloudflareTransfer> {
         Box::pin(async {
             Err(NetError::Transport(
                 "no network client configured".to_owned(),
@@ -859,11 +877,11 @@ pub trait NetClient: Send + Sync {
     }
 
     /// Runs an RFC 5389 STUN UDP packet-loss probe against a Cloudflare STUN endpoint.
-    fn cf_udp_loss<'a>(
+    fn cloudflare_udp_loss<'a>(
         &'a self,
-        _spec: &'a CfStunSpec,
+        _spec: &'a CloudflareStunSpec,
         _cancel: &'a CancellationToken,
-    ) -> NetFuture<'a, CfStunRaw> {
+    ) -> NetFuture<'a, CloudflareStun> {
         Box::pin(async {
             Err(NetError::Transport(
                 "no network client configured".to_owned(),
@@ -871,12 +889,11 @@ pub trait NetClient: Send + Sync {
         })
     }
 
-    /// Resolves `host` via the system resolver, filtered by `ipv4` and `ipv6` family flags.
-    fn inet_resolve<'a>(
+    /// Resolves `host` via the system resolver, filtered by `families`.
+    fn inetspeed_resolve<'a>(
         &'a self,
         _host: &'a str,
-        _ipv4: bool,
-        _ipv6: bool,
+        _families: FamilyFilter,
         _timeout: Duration,
     ) -> NetFuture<'a, Vec<IpAddr>> {
         Box::pin(async {
@@ -887,9 +904,9 @@ pub trait NetClient: Send + Sync {
     }
 
     /// Measures `count` sequential HTTP `GET` RTT samples against `target` (optionally IP-pinned).
-    fn inet_probe_rtt<'a>(
+    fn inetspeed_probe_rtt<'a>(
         &'a self,
-        _target: &'a InetTarget,
+        _target: &'a InetspeedTarget,
         _count: u8,
         _timeout: Duration,
         _cancel: &'a CancellationToken,
@@ -902,11 +919,11 @@ pub trait NetClient: Send + Sync {
     }
 
     /// Runs an Apple CDN (`network.inetspeed`) download or upload round with loaded-latency probes.
-    fn inet_transfer<'a>(
+    fn inetspeed_transfer<'a>(
         &'a self,
-        _spec: &'a InetTransferSpec,
+        _spec: &'a InetspeedTransferSpec,
         _cancel: &'a CancellationToken,
-    ) -> NetFuture<'a, InetTransferRaw> {
+    ) -> NetFuture<'a, InetspeedTransfer> {
         Box::pin(async {
             Err(NetError::Transport(
                 "no network client configured".to_owned(),
@@ -1258,35 +1275,43 @@ impl<O: Measurement> Context<O> {
     }
 
     /// Runs a Cloudflare multi-worker download phase with concurrent loaded-latency probes.
-    pub async fn cf_download(&self, spec: &CfTransferSpec) -> Result<CfTransferRaw, NetError> {
+    pub async fn cloudflare_download(
+        &self,
+        spec: &CloudflareTransferSpec,
+    ) -> Result<CloudflareTransfer, NetError> {
         if self.cancel.is_cancelled() {
             return Err(NetError::Cancelled);
         }
-        self.net.cf_download(spec, &self.cancel).await
+        self.net.cloudflare_download(spec, &self.cancel).await
     }
 
     /// Runs a Cloudflare multi-worker upload phase with concurrent loaded-latency probes.
-    pub async fn cf_upload(&self, spec: &CfTransferSpec) -> Result<CfTransferRaw, NetError> {
+    pub async fn cloudflare_upload(
+        &self,
+        spec: &CloudflareTransferSpec,
+    ) -> Result<CloudflareTransfer, NetError> {
         if self.cancel.is_cancelled() {
             return Err(NetError::Cancelled);
         }
-        self.net.cf_upload(spec, &self.cancel).await
+        self.net.cloudflare_upload(spec, &self.cancel).await
     }
 
     /// Runs an RFC 5389 STUN UDP packet-loss probe for `network.cloudflare`.
-    pub async fn cf_udp_loss(&self, spec: &CfStunSpec) -> Result<CfStunRaw, NetError> {
+    pub async fn cloudflare_udp_loss(
+        &self,
+        spec: &CloudflareStunSpec,
+    ) -> Result<CloudflareStun, NetError> {
         if self.cancel.is_cancelled() {
             return Err(NetError::Cancelled);
         }
-        self.net.cf_udp_loss(spec, &self.cancel).await
+        self.net.cloudflare_udp_loss(spec, &self.cancel).await
     }
 
     /// Resolves `host` via the system DNS resolver, stopping early when cancelled.
-    pub async fn inet_resolve(
+    pub async fn inetspeed_resolve(
         &self,
         host: &str,
-        ipv4: bool,
-        ipv6: bool,
+        families: FamilyFilter,
         timeout: Duration,
     ) -> Result<Vec<IpAddr>, NetError> {
         if self.cancel.is_cancelled() {
@@ -1295,14 +1320,14 @@ impl<O: Measurement> Context<O> {
         tokio::select! {
             biased;
             () = self.cancel.cancelled() => Err(NetError::Cancelled),
-            outcome = self.net.inet_resolve(host, ipv4, ipv6, timeout) => outcome,
+            outcome = self.net.inetspeed_resolve(host, families, timeout) => outcome,
         }
     }
 
     /// Measures `count` sequential HTTP RTT samples against an Apple CDN endpoint.
-    pub async fn inet_probe_rtt(
+    pub async fn inetspeed_probe_rtt(
         &self,
-        target: &InetTarget,
+        target: &InetspeedTarget,
         count: u8,
         timeout: Duration,
     ) -> Result<Vec<u64>, NetError> {
@@ -1310,19 +1335,19 @@ impl<O: Measurement> Context<O> {
             return Err(NetError::Cancelled);
         }
         self.net
-            .inet_probe_rtt(target, count, timeout, &self.cancel)
+            .inetspeed_probe_rtt(target, count, timeout, &self.cancel)
             .await
     }
 
     /// Runs an Apple CDN (`network.inetspeed`) download or upload transfer round.
-    pub async fn inet_transfer(
+    pub async fn inetspeed_transfer(
         &self,
-        spec: &InetTransferSpec,
-    ) -> Result<InetTransferRaw, NetError> {
+        spec: &InetspeedTransferSpec,
+    ) -> Result<InetspeedTransfer, NetError> {
         if self.cancel.is_cancelled() {
             return Err(NetError::Cancelled);
         }
-        self.net.inet_transfer(spec, &self.cancel).await
+        self.net.inetspeed_transfer(spec, &self.cancel).await
     }
 
     /// Replaces the last partial result. The report shows the last one published when the

@@ -249,7 +249,8 @@ pub(super) fn fio(out: &mut Out, report: &Report<fio::Output, fio::Failure>, ind
             rows.push(vec![words.fio_row(row).to_owned(), first, second]);
         }
         out.table(indent, &headers, &rows);
-        for (block_size, outcome) in pair.into_iter().zip(outcomes) {
+        let pair_outcomes = pair.into_iter().zip(outcomes);
+        for (block_size, outcome) in pair_outcomes {
             let Some(Outcome::Failed(fault)) = outcome else {
                 continue;
             };

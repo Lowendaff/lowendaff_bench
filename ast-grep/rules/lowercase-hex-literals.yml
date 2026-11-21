@@ -1,0 +1,11 @@
+id: lowercase-hex-literals
+language: rust
+severity: error
+message: Write hexadecimal integer literals in lowercase (e.g. `0xf_0000`, `0x1f`).
+note: >-
+  CONTRIBUTING "Code" (Google Rust Style Guide, `hex_literal_case = Lower`). Stable `rustfmt`
+  does not rewrite hex literal case, so this rule enforces lowercase hex digits across the
+  workspace.
+rule:
+  kind: integer_literal
+  regex: ^0[xX][0-9a-f_]*[A-F][0-9a-fA-F_]*(i8|i16|i32|i64|i128|isize|u8|u16|u32|u64|u128|usize)?$

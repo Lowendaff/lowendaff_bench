@@ -3,7 +3,7 @@
 #![allow(dead_code, reason = "each test binary uses a different subset")]
 
 use std::fs;
-use std::os::unix::fs::symlink;
+use std::os::unix::fs as unix_fs;
 use std::path::Path;
 use std::path::PathBuf;
 
@@ -91,7 +91,7 @@ pub fn add(dir: &TempDir, (files, dirs): Layout) {
 pub fn link(dir: &TempDir, path: &str, target: &str) {
     let path = dir.path().join(path.trim_start_matches('/'));
     fs::create_dir_all(path.parent().expect("parent")).expect("create parent");
-    symlink(target, path).expect("symlink");
+    unix_fs::symlink(target, path).expect("symlink");
 }
 
 /// Adds a block device to `/sys/class/block`: `major:minor`, size in 512-byte sectors,
@@ -123,13 +123,14 @@ pub fn add_bytes(dir: &TempDir, path: &str, contents: &[u8]) {
 /// Adds a sparse file, such as `/dev/mem`, with `chunks` written at their offsets.
 pub fn add_sparse(dir: &TempDir, path: &str, chunks: &[(u64, &[u8])]) {
     use std::io::Seek;
+    use std::io::SeekFrom;
     use std::io::Write;
 
     let path = dir.path().join(path.trim_start_matches('/'));
     fs::create_dir_all(path.parent().expect("parent")).expect("create parent");
     let mut file = fs::File::create(path).expect("create sparse file");
     for (offset, bytes) in chunks {
-        file.seek(std::io::SeekFrom::Start(*offset)).expect("seek");
+        file.seek(SeekFrom::Start(*offset)).expect("seek");
         file.write_all(bytes).expect("write chunk");
     }
 }
@@ -208,23 +209,23 @@ pub fn memory_device(handle: u16, device: Device<'_>) -> Vec<u8> {
     let bank = string_number(&mut strings, device.bank);
     let manufacturer = string_number(&mut strings, device.manufacturer);
     let part = string_number(&mut strings, device.part);
-    let mut fields = vec![0_u8; 0x5C - 4];
+    let mut fields = vec![0_u8; 0x5c - 4];
     let mut put = |offset: usize, bytes: &[u8]| {
         fields[offset - 4..offset - 4 + bytes.len()].copy_from_slice(bytes);
     };
     put(0x04, &device.array.to_le_bytes());
-    put(0x06, &0xFFFE_u16.to_le_bytes());
+    put(0x06, &0xfffe_u16.to_le_bytes());
     put(0x08, &72_u16.to_le_bytes());
-    put(0x0A, &64_u16.to_le_bytes());
-    put(0x0C, &device.size.to_le_bytes());
-    put(0x0E, &[0x09]);
+    put(0x0a, &64_u16.to_le_bytes());
+    put(0x0c, &device.size.to_le_bytes());
+    put(0x0e, &[0x09]);
     put(0x10, &[locator, bank]);
     put(0x12, &[device.kind]);
     put(0x13, &device.detail.to_le_bytes());
     put(0x15, &device.speed.to_le_bytes());
     put(0x17, &[manufacturer]);
-    put(0x1A, &[part]);
-    put(0x1C, &device.extended_size.to_le_bytes());
+    put(0x1a, &[part]);
+    put(0x1c, &device.extended_size.to_le_bytes());
     put(0x20, &device.configured_speed.to_le_bytes());
     put(0x54, &device.extended_speed.to_le_bytes());
     put(0x58, &device.extended_configured_speed.to_le_bytes());
@@ -245,7 +246,7 @@ fn string_number<'a>(strings: &mut Vec<&'a str>, text: &'a str) -> u8 {
 pub fn memory_array(handle: u16, usage: u8, correction: u8) -> Vec<u8> {
     let mut fields = vec![0x03, usage, correction];
     fields.extend(0x0100_0000_u32.to_le_bytes());
-    fields.extend(0xFFFE_u16.to_le_bytes());
+    fields.extend(0xfffe_u16.to_le_bytes());
     fields.extend(4_u16.to_le_bytes());
     fields.extend(0_u64.to_le_bytes());
     structure(16, handle, &fields, &[])
@@ -254,8 +255,8 @@ pub fn memory_array(handle: u16, usage: u8, correction: u8) -> Vec<u8> {
 /// IPMI device information (type 38): the interface (1 KCS, 2 SMIC, 3 BT, 4 SSIF) and the
 /// specification revision in BCD.
 pub fn ipmi_device(handle: u16, interface: u8, revision: u8) -> Vec<u8> {
-    let mut fields = vec![interface, revision, 0x20, 0xFF];
-    fields.extend(0xCA2_u64.to_le_bytes());
+    let mut fields = vec![interface, revision, 0x20, 0xff];
+    fields.extend(0xca2_u64.to_le_bytes());
     fields.extend([0, 0]);
     structure(38, handle, &fields, &[])
 }
@@ -280,7 +281,7 @@ pub fn entry_point_3(address: u64, maximum: u32) -> Vec<u8> {
 /// An SMBIOS 2.x entry point (`_SM_` with its `_DMI_` part) for a table of `length` bytes.
 pub fn entry_point_2(address: u32, length: u16, count: u16) -> Vec<u8> {
     let mut entry = b"_SM_".to_vec();
-    entry.extend([0, 0x1F, 3, 2, 0, 0, 0, 0, 0, 0, 0, 0]);
+    entry.extend([0, 0x1f, 3, 2, 0, 0, 0, 0, 0, 0, 0, 0]);
     entry.extend(b"_DMI_");
     entry.push(0);
     entry.extend(length.to_le_bytes());

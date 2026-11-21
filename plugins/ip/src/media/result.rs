@@ -1,5 +1,7 @@
 //! Pure data types for streaming media unlock results and failure reasons.
 
+use std::fmt;
+
 use bench_api::Measurement;
 use bench_api::ToolVersion;
 use serde::Deserialize;
@@ -41,6 +43,12 @@ impl Group {
             Self::Americas => "americas",
             Self::Oceania => "oceania",
         }
+    }
+}
+
+impl fmt::Display for Group {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.code())
     }
 }
 
@@ -88,6 +96,12 @@ impl Choice {
                 | (Self::Americas, Group::Americas)
                 | (Self::Oceania, Group::Oceania)
         )
+    }
+}
+
+impl fmt::Display for Choice {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.code())
     }
 }
 

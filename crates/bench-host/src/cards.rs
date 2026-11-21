@@ -7,6 +7,7 @@
 
 use std::collections::BTreeSet;
 use std::path::Path;
+use std::str::FromStr;
 
 use crate::Root;
 
@@ -376,7 +377,10 @@ fn default_routes(root: &Root, ipv6: bool) -> BTreeSet<String> {
 }
 
 /// A number in a file.
-fn number<T: std::str::FromStr>(root: &Root, path: &str) -> Option<T> {
+fn number<T>(root: &Root, path: &str) -> Option<T>
+where
+    T: FromStr,
+{
     root.read_line(path)?.parse().ok()
 }
 

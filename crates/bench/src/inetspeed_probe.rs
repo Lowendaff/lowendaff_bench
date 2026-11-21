@@ -17,10 +17,11 @@ use std::time::Duration;
 use std::time::Instant;
 
 use bench_api::CancellationToken;
-use bench_api::InetDirection;
-use bench_api::InetTarget;
-use bench_api::InetTransferRaw;
-use bench_api::InetTransferSpec;
+use bench_api::FamilyFilter;
+use bench_api::InetspeedDirection;
+use bench_api::InetspeedTarget;
+use bench_api::InetspeedTransfer;
+use bench_api::InetspeedTransferSpec;
 use bench_api::NetError;
 use futures_util::stream;
 use reqwest::Body;
@@ -40,13 +41,13 @@ const UPLOAD_CHUNK_SIZE: u64 = 64 * 1024;
 /// IPv6, matching `iNetSpeed-CLI`).
 pub async fn resolve_system(
     host: &str,
-    ipv4: bool,
-    ipv6: bool,
+    families: FamilyFilter,
     timeout: Duration,
 ) -> Result<Vec<IpAddr>, NetError> {
     let clean = host.trim_matches(['[', ']']);
-    if let Ok(ip) = clean.parse::<IpAddr>() {
-        return if (ip.is_ipv4() && ipv4) || (ip.is_ipv6() && ipv6) {
+    let parsed_ip: Result<IpAddr, _> = clean.parse();
+    if let Ok(ip) = parsed_ip {
+        return if (ip.is_ipv4() && families.ipv4) || (ip.is_ipv6() && families.ipv6) {
             Ok(vec![ip])
         } else {
             Err(NetError::NoAddress)
@@ -63,13 +64,13 @@ pub async fn resolve_system(
     let mut v6 = Vec::new();
     for addr in resolved {
         match addr.ip() {
-            IpAddr::V4(ip) if ipv4 => {
+            IpAddr::V4(ip) if families.ipv4 => {
                 let ip = IpAddr::V4(ip);
                 if !v4.contains(&ip) {
                     v4.push(ip);
                 }
             }
-            IpAddr::V6(ip) if ipv6 => {
+            IpAddr::V6(ip) if families.ipv6 => {
                 let ip = IpAddr::V6(ip);
                 if !v6.contains(&ip) {
                     v6.push(ip);
@@ -89,7 +90,7 @@ pub async fn resolve_system(
 /// Measures `count` sequential `GET` RTT probes in microseconds against `target` (pinned to
 /// `target.pin_ip` when set).
 pub async fn probe_rtt(
-    target: &InetTarget,
+    target: &InetspeedTarget,
     count: u8,
     timeout: Duration,
     cancel: &CancellationToken,
@@ -124,9 +125,9 @@ pub async fn probe_rtt(
 /// Runs a 1-thread or multi-thread Apple CDN download (`GET`) or upload (`PUT`) round with a
 /// concurrent background loaded-latency probe loop.
 pub async fn transfer(
-    spec: &InetTransferSpec,
+    spec: &InetspeedTransferSpec,
     cancel: &CancellationToken,
-) -> Result<InetTransferRaw, NetError> {
+) -> Result<InetspeedTransfer, NetError> {
     if cancel.is_cancelled() {
         return Err(NetError::Cancelled);
     }
@@ -180,10 +181,10 @@ pub async fn transfer(
 
         handles.push(tokio::spawn(async move {
             let fault = match direction {
-                InetDirection::Download => {
+                InetspeedDirection::Download => {
                     run_download_worker(&http, url, max_bytes, timeout, &bytes_ref, &cancel_w).await
                 }
-                InetDirection::Upload => {
+                InetspeedDirection::Upload => {
                     run_upload_worker(&http, url, max_bytes, timeout, &bytes_ref, &cancel_w).await
                 }
             };
@@ -219,7 +220,7 @@ pub async fn transfer(
         .map(|guard| guard.clone())
         .unwrap_or_default();
 
-    Ok(InetTransferRaw {
+    Ok(InetspeedTransfer {
         bytes: total_bytes.load(Ordering::Relaxed),
         elapsed_micros,
         fault_count: fault_count.load(Ordering::Relaxed),
@@ -449,15 +450,15 @@ mod tests {
     use std::time::Duration;
 
     use bench_api::CancellationToken;
-    use bench_api::InetDirection;
-    use bench_api::InetTarget;
-    use bench_api::InetTransferSpec;
+    use bench_api::InetspeedDirection;
+    use bench_api::InetspeedTarget;
+    use bench_api::InetspeedTransferSpec;
     use tokio::io::AsyncReadExt;
     use tokio::io::AsyncWriteExt;
     use tokio::net::TcpListener;
 
     #[tokio::test]
-    async fn inet_probe_measures_rtt_downloads_uploads_and_rolls_back_failed_puts() {
+    async fn inetspeed_probe_measures_rtt_downloads_uploads_and_rolls_back_failed_puts() {
         let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
         let addr = listener.local_addr().expect("addr");
         let put_headers = Arc::new(Mutex::new(Vec::new()));
@@ -529,7 +530,7 @@ mod tests {
         let cancel = CancellationToken::new();
         let small = format!("http://{addr}/api/v1/gm/small");
         let rtts = super::probe_rtt(
-            &InetTarget {
+            &InetspeedTarget {
                 url: small.clone(),
                 pin_ip: Some(IpAddr::V4(Ipv4Addr::LOCALHOST)),
             },
@@ -542,8 +543,8 @@ mod tests {
         assert_eq!(rtts.len(), 3);
 
         let dl = super::transfer(
-            &InetTransferSpec {
-                direction: InetDirection::Download,
+            &InetspeedTransferSpec {
+                direction: InetspeedDirection::Download,
                 transfer_url: format!("http://{addr}/api/v1/gm/large"),
                 latency_url: small.clone(),
                 pin_ip: Some(IpAddr::V4(Ipv4Addr::LOCALHOST)),
@@ -559,8 +560,8 @@ mod tests {
         assert_eq!(dl.fault_count, 0);
 
         let ul = super::transfer(
-            &InetTransferSpec {
-                direction: InetDirection::Upload,
+            &InetspeedTransferSpec {
+                direction: InetspeedDirection::Upload,
                 transfer_url: format!("http://{addr}/api/v1/gm/slurp"),
                 latency_url: small.clone(),
                 pin_ip: None,
@@ -583,8 +584,8 @@ mod tests {
         );
 
         let failed_ul = super::transfer(
-            &InetTransferSpec {
-                direction: InetDirection::Upload,
+            &InetspeedTransferSpec {
+                direction: InetspeedDirection::Upload,
                 transfer_url: format!("http://{addr}/api/v1/gm/fail"),
                 latency_url: small,
                 pin_ip: None,

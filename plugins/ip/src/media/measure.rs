@@ -43,7 +43,7 @@ pub struct Plan {
 #[must_use]
 pub fn plan(groups: &[Choice], services: &[String]) -> Plan {
     if !services.is_empty() {
-        let mut unknown = Vec::new();
+        let mut unknown: Vec<String> = Vec::new();
         for wanted in services {
             let trimmed = wanted.trim();
             let exists = Group::ALL.into_iter().any(|group| {
@@ -53,7 +53,7 @@ pub fn plan(groups: &[Choice], services: &[String]) -> Plan {
             });
             let already = unknown
                 .iter()
-                .any(|seen: &String| seen.eq_ignore_ascii_case(trimmed));
+                .any(|seen| seen.eq_ignore_ascii_case(trimmed));
             if !exists && !already {
                 unknown.push(trimmed.to_owned());
             }
@@ -212,8 +212,6 @@ mod tests {
     use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering;
 
-    use super::run_bounded;
-
     #[tokio::test]
     async fn run_bounded_keeps_input_order_without_exceeding_the_limit() {
         let in_flight = Arc::new(AtomicUsize::new(0));
@@ -229,7 +227,7 @@ mod tests {
                 index
             }
         });
-        let order = run_bounded(4, tasks).await;
+        let order = super::run_bounded(4, tasks).await;
         assert_eq!(order, (0..25).collect::<Vec<_>>());
         assert_eq!(peak.load(Ordering::SeqCst), 4);
     }

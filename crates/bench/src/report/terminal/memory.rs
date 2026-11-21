@@ -283,8 +283,10 @@ pub(super) fn numa(out: &mut Out, report: &Report<numa::Output, numa::Failure>, 
         out.heading(indent, words.numa_title(probe(kind)));
         out.table(indent, &headers, &rows);
     }
-    for (row, cells) in output.rows.iter().zip(&output.cells) {
-        for (column, cell) in output.columns.iter().zip(cells) {
+    let matrix_rows = output.rows.iter().zip(&output.cells);
+    for (row, cells) in matrix_rows {
+        let row_cells = output.columns.iter().zip(cells);
+        for (column, cell) in row_cells {
             let runs = [
                 (Kind::Bandwidth, cell.bandwidth.as_ref()),
                 (Kind::Latency, cell.latency.as_ref()),

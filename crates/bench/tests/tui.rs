@@ -397,7 +397,8 @@ fn keyboard_navigation_drives_item_switches_groups_params_and_global_options() {
     let _ = session.handle_key(press(KeyCode::Down));
     let _ = session.handle_key(press(KeyCode::Down));
     let _ = session.handle_key(press(KeyCode::Char('g')));
-    for item in session.config.items.iter().filter(|i| i.group == "memory") {
+    let memory_items = session.config.items.iter().filter(|i| i.group == "memory");
+    for item in memory_items {
         assert!(
             !item.enabled,
             "{} should be disabled by group toggle",

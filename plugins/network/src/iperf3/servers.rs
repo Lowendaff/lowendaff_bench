@@ -281,7 +281,7 @@ pub fn choose(servers: &[Server], countries: &[String], ids: &[String]) -> Chose
         };
     }
     if !countries.is_empty() {
-        let has = |country: &String| {
+        let has = |country: &str| {
             servers
                 .iter()
                 .any(|server| server.country.eq_ignore_ascii_case(country))

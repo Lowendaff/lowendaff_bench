@@ -454,9 +454,13 @@ async fn spawn(mut command: Command, cpus: Option<Vec<usize>>) -> io::Result<Chi
 /// inherits them while the runtime's own threads keep theirs.
 #[cfg(target_os = "linux")]
 async fn spawn_on(mut command: Command, cpus: Vec<usize>) -> io::Result<Child> {
-    let runtime = tokio::runtime::Handle::current();
-    let (sender, receiver) = tokio::sync::oneshot::channel();
-    std::thread::Builder::new()
+    use std::thread::Builder;
+    use tokio::runtime::Handle;
+    use tokio::sync::oneshot;
+
+    let runtime = Handle::current();
+    let (sender, receiver) = oneshot::channel();
+    Builder::new()
         .name("tool-placement".to_owned())
         .spawn(move || {
             let _runtime = runtime.enter();

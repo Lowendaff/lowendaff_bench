@@ -6,8 +6,8 @@
 use std::time::Duration;
 use std::time::Instant;
 
-use bench_api::CfStunSpec;
-use bench_api::CfTransferSpec;
+use bench_api::CloudflareStunSpec;
+use bench_api::CloudflareTransferSpec;
 use bench_api::Context;
 use bench_api::HttpError;
 use bench_api::HttpRequest;
@@ -145,7 +145,7 @@ async fn run_family(
         stage: "download",
         ipv6,
     });
-    let dl_spec = CfTransferSpec {
+    let dl_spec = CloudflareTransferSpec {
         family,
         base_url: base_url.to_owned(),
         meas_id: meas_id.to_owned(),
@@ -155,7 +155,10 @@ async fn run_family(
         probe_interval,
         probe_timeout: PROBE_TIMEOUT,
     };
-    let dl_raw = ctx.cf_download(&dl_spec).await.map_err(map_net_err)?;
+    let dl_raw = ctx
+        .cloudflare_download(&dl_spec)
+        .await
+        .map_err(map_net_err)?;
     if dl_raw.bytes == 0 {
         return Err(FamilyStop::Failed("download measured 0 bytes".to_owned()));
     }
@@ -168,11 +171,11 @@ async fn run_family(
         stage: "upload",
         ipv6,
     });
-    let ul_spec = CfTransferSpec {
+    let ul_spec = CloudflareTransferSpec {
         bytes_per_req: ul_bytes_per_req,
         ..dl_spec
     };
-    let ul_raw = ctx.cf_upload(&ul_spec).await.map_err(map_net_err)?;
+    let ul_raw = ctx.cloudflare_upload(&ul_spec).await.map_err(map_net_err)?;
     if ul_raw.bytes == 0 {
         return Err(FamilyStop::Failed("upload measured 0 bytes".to_owned()));
     }
@@ -183,7 +186,7 @@ async fn run_family(
 
     let (udp, udp_note) = if settings.udp {
         ctx.progress(Step::Cloudflare { stage: "udp", ipv6 });
-        let stun_spec = CfStunSpec {
+        let stun_spec = CloudflareStunSpec {
             family,
             host: stun_host.to_owned(),
             port: stun_port,
@@ -195,7 +198,7 @@ async fn run_family(
             },
             timeout: UDP_TIMEOUT,
         };
-        match ctx.cf_udp_loss(&stun_spec).await {
+        match ctx.cloudflare_udp_loss(&stun_spec).await {
             Ok(raw) => (Some(parse::compute_udp_stats(&raw)), None),
             Err(NetError::Cancelled) => return Err(FamilyStop::Cancelled),
             Err(err) => (None, Some(net_err_reason(err))),
