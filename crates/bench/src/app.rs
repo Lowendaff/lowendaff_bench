@@ -276,10 +276,6 @@ pub struct Cli {
     )]
     pub taier_operators: Vec<TaierOperator>,
 
-    // Skips 64B and 1400B packet probes in network.taier.
-    #[arg(long, help = locale::words().help_no_taier_probes())]
-    pub no_taier_probes: bool,
-
     // Target groups for route tracing.
     #[arg(
         long,
@@ -423,13 +419,8 @@ pub fn prepare(cli: &Cli, registry: &[Entry]) -> Result<Vec<Planned<Measured>>, 
     if !cli.countries.is_empty() {
         countries(&mut settings, &cli.countries);
     }
-    if !cli.taier_cities.is_empty() || !cli.taier_operators.is_empty() || cli.no_taier_probes {
-        taier_settings(
-            &mut settings,
-            &cli.taier_cities,
-            &cli.taier_operators,
-            !cli.no_taier_probes,
-        );
+    if !cli.taier_cities.is_empty() || !cli.taier_operators.is_empty() {
+        taier_settings(&mut settings, &cli.taier_cities, &cli.taier_operators);
     }
     if !cli.trace_groups.is_empty() {
         trace_groups(&mut settings, &cli.trace_groups);
@@ -513,12 +504,11 @@ pub fn countries(settings: &mut BTreeMap<String, serde_json::Value>, countries: 
     }
 }
 
-/// Sets `--taier-cities`, `--taier-operators`, and `--no-taier-probes` in `network.taier`'s table.
+/// Sets `--taier-cities` and `--taier-operators` in `network.taier`'s table.
 pub fn taier_settings(
     settings: &mut BTreeMap<String, serde_json::Value>,
     cities: &[String],
     operators: &[TaierOperator],
-    probes: bool,
 ) {
     let table = plugin_table(settings, Taier::DESCRIPTOR.id);
     if let Some(table) = table.as_object_mut() {
@@ -535,9 +525,6 @@ pub fn taier_settings(
                 .map(|op| serde_json::Value::String(op.code().to_owned()))
                 .collect();
             table.insert("operators".to_owned(), serde_json::Value::Array(values));
-        }
-        if !probes {
-            table.insert("probes".to_owned(), serde_json::Value::Bool(false));
         }
     }
 }

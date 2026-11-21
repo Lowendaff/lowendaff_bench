@@ -1438,11 +1438,6 @@ impl TaierWords for English {
             "CAICT GlobalSpeed (Taier): {streams}, {} s each way, HTTP/1.1",
             choice.seconds
         );
-        if choice.probes {
-            method.push_str(", 64B & 1400B TCP probes");
-        } else {
-            method.push_str("; without packet probes");
-        }
         if !choice.cities.is_empty() {
             method.push_str(&format!("; cities {}", choice.cities.join(", ")));
         }
@@ -1459,19 +1454,8 @@ impl TaierWords for English {
         format!("no location in the Taier list for {}", names.join(", "))
     }
 
-    fn taier_headers(&self, probes: bool) -> Vec<&'static str> {
-        if probes {
-            vec![
-                "Location",
-                "Carrier",
-                "Download",
-                "Upload",
-                "64B RTT / Loss",
-                "1400B RTT / Loss",
-            ]
-        } else {
-            vec!["Location", "Carrier", "Download", "Upload"]
-        }
+    fn taier_headers(&self) -> [&'static str; 4] {
+        ["Location", "Carrier", "Download", "Upload"]
     }
 
     fn taier_place(&self, city: &str, province: &str) -> String {
@@ -1500,32 +1484,6 @@ impl TaierWords for English {
             TaierCell::AuthRejected => "auth rejected",
             TaierCell::TimedOut => "timed out",
             TaierCell::Error => "error",
-        }
-    }
-
-    fn taier_probe_cell(
-        &self,
-        rtt_digits: Option<&str>,
-        jitter_digits: Option<&str>,
-        lost: u8,
-        sent: u8,
-    ) -> String {
-        if sent == 0 {
-            return "—".to_owned();
-        }
-        let Some(rtt) = rtt_digits else {
-            return "100% loss".to_owned();
-        };
-        let loss = if lost == 0 {
-            "0%".to_owned()
-        } else if (u16::from(lost) * 100) % u16::from(sent) == 0 {
-            format!("{}%", (u16::from(lost) * 100) / u16::from(sent))
-        } else {
-            format!("{:.1}%", (f64::from(lost) * 100.0) / f64::from(sent))
-        };
-        match jitter_digits {
-            Some(jitter) => format!("{rtt} ± {jitter} ms / {loss}"),
-            None => format!("{rtt} ms / {loss}"),
         }
     }
 

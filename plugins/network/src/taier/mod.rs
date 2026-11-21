@@ -1,6 +1,6 @@
 //! China carrier speed (`network.taier`): pure-Rust multi-stream HTTP/1.1 download and upload
-//! throughput plus `64 B` / `1400 B` TCP RTT, jitter, and packet-loss probes against CAICT
-//! GlobalSpeed (`com.cnspeedtest.globalspeed`) carrier nodes across mainland China.
+//! throughput measurements against CAICT GlobalSpeed (`com.cnspeedtest.globalspeed`) carrier nodes
+//! across mainland China.
 
 pub mod measure;
 pub mod nodes;
@@ -61,8 +61,6 @@ pub struct Taier {
     pub seconds: NonZeroU16,
     /// Parallel TCP streams per direction (`1..=32`; `8` by default).
     pub streams: NonZeroU8,
-    /// Whether `64 B` and `1400 B` latency/jitter/packet-loss probes run (`true` by default).
-    pub probes: bool,
 }
 
 impl Default for Taier {
@@ -73,7 +71,6 @@ impl Default for Taier {
             list: None,
             seconds: NonZeroU16::new(Settings::DEFAULT_SECONDS).expect("default seconds > 0"),
             streams: NonZeroU8::new(Settings::DEFAULT_STREAMS).expect("default streams > 0"),
-            probes: true,
         }
     }
 }
@@ -116,7 +113,6 @@ impl Plugin for Taier {
         let settings = Settings {
             seconds: self.seconds.get().min(60),
             streams: self.streams.get().min(32),
-            probes: self.probes,
             cities: self.cities.clone(),
             operators: chosen.operators.clone(),
             custom_list: self.list.is_some(),

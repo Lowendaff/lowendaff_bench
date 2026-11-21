@@ -12,7 +12,7 @@
 | [CPU 性能检测](cpu.md) | `[CPU performance]` | `cpu.bench`（统一调度 `sysbench`、`7zip`、`unixbench`、`hpl`、`passmark`、`ycruncher`、`prime95`、`geekbench` 共 8 项可选子基准） |
 | [内存与缓存性能检测](memory.md) | `[Memory performance]` | 共享工作集规划器、`memory.sysbench`（顺序读写）、`memory.stream`（STREAM 四核函数）、`memory.latency`（各级缓存与主存延迟）、`memory.numa`（跨节点带宽与延迟矩阵） |
 | [磁盘健康与性能检测](disk.md) | `[Disks]` | `disk.health`（物理盘只读 SMART 与硬件 RAID 穿透）、`disk.fio`（对齐 YABS 的四块大小混合随机读写） |
-| [网络吞吐、中国三网测速、路由追踪与 BGP 拓扑](network.md) | `[Network]` | `network.iperf3`（全球公网测速）、`network.taier`（纯 Rust 原生中国信通院泰尔三网上下行测速与大小包探测）、`network.trace`（最小权限 ICMP 路由追踪与 IX 识别）、`network.bgp`（全球 RIS 采集点 BGP 自治域路径拓扑、RPKI 校验与三端图形绘制） |
+| [网络吞吐、中国三网测速、路由追踪与 BGP 拓扑](network.md) | `[Network]` | `network.iperf3`（全球公网测速）、`network.taier`（纯 Rust 原生中国信通院泰尔三网上下行带宽测速）、`network.trace`（最小权限 ICMP 路由追踪与 IX 识别）、`network.bgp`（全球 RIS 采集点 BGP 自治域路径拓扑、RPKI 校验与三端图形绘制） |
 | [IP 信誉度与流媒体解锁](ip.md) | `[IP]` | `ip.quality`（9 源情报聚合、原生/广播判定、DNSBL 黑名单与 25 端口邮局连通性）、`ip.media`（五大洲 68 平台双栈直连解锁检测） |
 
 ## 统一执行生命周期

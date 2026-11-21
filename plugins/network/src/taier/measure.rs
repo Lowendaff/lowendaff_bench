@@ -1,7 +1,7 @@
 //! Measurement loop for `network.taier`: acquires a queue lease (`dovalid`) with automatic
 //! busy/unreachable candidate fallback inside each `(location, operator)` slot, measures multi-
-//! stream download and upload throughput plus optional `64 B` / `1400 B` packet-loss probes,
-//! releases the lease, and publishes partial results after each slot.
+//! stream download and upload throughput, releases the lease, and publishes partial results after
+//! each slot.
 
 use std::net::Ipv4Addr;
 use std::time::Duration;
@@ -26,7 +26,6 @@ use super::result::TestedNode;
 const ACQUIRE_TIMEOUT: Duration = Duration::from_millis(3_500);
 const FALLBACK_ACQUIRE_TIMEOUT: Duration = Duration::from_millis(2_500);
 const RELEASE_TIMEOUT: Duration = Duration::from_secs(3);
-const PACKET_SAMPLES: u8 = 8;
 const MAX_CANDIDATES_PER_SLOT: usize = 3;
 
 /// Runs `chosen` slots sequentially, publishing partial results after every finished slot.
@@ -213,34 +212,8 @@ async fn measure_admitted(
     });
     let up = ctx.taier_upload(&spec).await?;
 
-    let (small_probe, large_probe) = if settings.probes {
-        ctx.progress(Step::Taier {
-            location,
-            operator,
-            stage: "probes",
-        });
-        let small = match ctx
-            .taier_packet_probe(ip, port, false, PACKET_SAMPLES)
-            .await
-        {
-            Ok(stats) => Some(stats),
-            Err(NetError::Cancelled) => return Err(SlotStop::Cancelled),
-            Err(_) => None,
-        };
-        let large = match ctx.taier_packet_probe(ip, port, true, PACKET_SAMPLES).await {
-            Ok(stats) => Some(stats),
-            Err(NetError::Cancelled) => return Err(SlotStop::Cancelled),
-            Err(_) => None,
-        };
-        (small, large)
-    } else {
-        (None, None)
-    };
-
     Ok(NodeMeasured {
         download_bps: down.bits_per_sec,
         upload_bps: up.bits_per_sec,
-        small_probe,
-        large_probe,
     })
 }

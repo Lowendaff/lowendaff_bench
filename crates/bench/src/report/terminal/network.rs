@@ -4,7 +4,6 @@
 
 use std::net::IpAddr;
 
-use bench_api::TaierPacketStats;
 use bench_tool::NEXTTRACE;
 use bench_tool::job;
 use plugin_network::bgp;
@@ -236,7 +235,6 @@ pub(super) fn taier(out: &mut Out, report: &Report<taier::Output, taier::Failure
     let choice = TaierChoice {
         streams: settings.streams,
         seconds: settings.seconds,
-        probes: settings.probes,
         cities: settings.cities.clone(),
         operators: non_default_ops,
         custom_list: settings.custom_list,
@@ -252,16 +250,8 @@ pub(super) fn taier(out: &mut Out, report: &Report<taier::Output, taier::Failure
     if output.results.is_empty() {
         return;
     }
-    let headers: Vec<String> = words
-        .taier_headers(settings.probes)
-        .into_iter()
-        .map(str::to_owned)
-        .collect();
-    let rows: Vec<Vec<String>> = output
-        .results
-        .iter()
-        .map(|node| taier_row(node, settings.probes))
-        .collect();
+    let headers = words.taier_headers().map(str::to_owned);
+    let rows: Vec<Vec<String>> = output.results.iter().map(taier_row).collect();
     out.table_left(indent, &headers, &rows);
     for node in &output.results {
         let place = words.taier_place(&node.city, &node.province);
@@ -286,17 +276,12 @@ pub(super) fn taier(out: &mut Out, report: &Report<taier::Output, taier::Failure
     }
 }
 
-fn taier_row(node: &TestedNode, show_probes: bool) -> Vec<String> {
+fn taier_row(node: &TestedNode) -> Vec<String> {
     let words = locale::words();
     let place = words.taier_place(&node.city, &node.province);
     let operator = words.taier_operator(node.operator.code()).to_owned();
-    let (down, up, small, large) = match &node.outcome {
-        NodeOutcome::Measured(measured) => (
-            bits(measured.download_bps),
-            bits(measured.upload_bps),
-            format_taier_probe(measured.small_probe.as_ref()),
-            format_taier_probe(measured.large_probe.as_ref()),
-        ),
+    let (down, up) = match &node.outcome {
+        NodeOutcome::Measured(measured) => (bits(measured.download_bps), bits(measured.upload_bps)),
         other => {
             let kind = match other {
                 NodeOutcome::Busy => TaierCell::Busy,
@@ -307,23 +292,10 @@ fn taier_row(node: &TestedNode, show_probes: bool) -> Vec<String> {
                 NodeOutcome::Measured(_) => unreachable!(),
             };
             let text = words.taier_cell(kind).to_owned();
-            (text.clone(), text, MISSING.to_owned(), MISSING.to_owned())
+            (text.clone(), text)
         }
     };
-    if show_probes {
-        vec![place, operator, down, up, small, large]
-    } else {
-        vec![place, operator, down, up]
-    }
-}
-
-fn format_taier_probe(stats: Option<&TaierPacketStats>) -> String {
-    let Some(stats) = stats else {
-        return MISSING.to_owned();
-    };
-    let rtt = stats.avg_micros.map(|us| digits(us as f64 / 1000.0));
-    let jitter = stats.jitter_micros.map(|us| digits(us as f64 / 1000.0));
-    locale::words().taier_probe_cell(rtt.as_deref(), jitter.as_deref(), stats.lost, stats.sent)
+    vec![place, operator, down, up]
 }
 
 /// Why `network.taier` stopped short.

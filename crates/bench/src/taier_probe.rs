@@ -1,6 +1,5 @@
 //! Direct IPv4 socket client for CAICT GlobalSpeed (`network.taier`): queue admission (`dovalid`),
-//! lease release, multi-stream HTTP/1.1 download and upload throughput measurements, and `64 B` /
-//! `1400 B` direct TCP round-trip, jitter, and packet-loss probing.
+//! lease release, and multi-stream HTTP/1.1 download and upload throughput measurements.
 //!
 //! Kept in `bench` so plugins never open sockets of their own; every socket binds directly to
 //! `0.0.0.0:0` and ignores all download proxy settings and environment variables.
@@ -22,7 +21,6 @@ use std::time::UNIX_EPOCH;
 use bench_api::CancellationToken;
 use bench_api::NetError;
 use bench_api::TaierAdmission;
-use bench_api::TaierPacketStats;
 use bench_api::TaierStreamSpec;
 use bench_api::TaierTransfer;
 use tokio::io::AsyncReadExt;
@@ -40,12 +38,8 @@ const STREAM_BUF: u32 = 524_288;
 const CONNECT_LIMIT: Duration = Duration::from_secs(3);
 const HEADER_LIMIT: Duration = Duration::from_secs(4);
 const CHUNK_WRITE_LIMIT: Duration = Duration::from_secs(3);
-const PROBE_LIMIT: Duration = Duration::from_millis(1_500);
-const PROBE_INTERVAL: Duration = Duration::from_millis(100);
 const UPLOAD_CONTENT_LENGTH: u64 = 900_000_000;
 const UPLOAD_CHUNK_BYTES: usize = 65_536;
-/// Single-MSS TCP payload length (`1348 B` + `52 B` IPv4/TCP headers = `1400 B` IP packet).
-const LARGE_PAYLOAD_BYTES: usize = 1_348;
 
 fn unix_secs() -> u64 {
     SystemTime::now()
@@ -512,150 +506,11 @@ fn find_header_end(buf: &[u8]) -> Option<usize> {
         .map(|idx| idx + 4)
 }
 
-/// Measures `samples` paced TCP RTTs (`64 B` handshake when `large == false`, or `1400 B` single
-/// MSS HTTP payload exchange when `large == true`), returning latency, jitter, and packet loss.
-pub async fn packet_probe(
-    ip: Ipv4Addr,
-    port: u16,
-    large: bool,
-    samples: u8,
-    cancel: &CancellationToken,
-) -> Result<TaierPacketStats, NetError> {
-    let total = samples.max(1);
-    let large_payload = large.then(|| build_large_probe_request(ip, port));
-    let mut rtts_micros = Vec::with_capacity(usize::from(total));
-    let mut lost: u8 = 0;
-
-    for idx in 0..total {
-        if cancel.is_cancelled() {
-            return Err(NetError::Cancelled);
-        }
-        if idx > 0 {
-            tokio::select! {
-                biased;
-                () = cancel.cancelled() => return Err(NetError::Cancelled),
-                () = tokio::time::sleep(PROBE_INTERVAL) => {}
-            }
-        }
-        let sample_fut = async {
-            match &large_payload {
-                None => probe_small_once(ip, port).await,
-                Some(payload) => probe_large_once(ip, port, payload).await,
-            }
-        };
-        let outcome = tokio::select! {
-            biased;
-            () = cancel.cancelled() => return Err(NetError::Cancelled),
-            res = tokio::time::timeout(PROBE_LIMIT, sample_fut) => res,
-        };
-        match outcome {
-            Ok(Ok(rtt)) => rtts_micros.push(rtt),
-            Ok(Err(_)) | Err(_) => lost = lost.saturating_add(1),
-        }
-    }
-
-    Ok(summarize_rtts(total, lost, &rtts_micros))
-}
-
-async fn probe_small_once(ip: Ipv4Addr, port: u16) -> Result<u64, NetError> {
-    let sock = TcpSocket::new_v4().map_err(|err| NetError::Transport(err.to_string()))?;
-    sock.bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0))
-        .map_err(|err| NetError::Transport(err.to_string()))?;
-    let started = Instant::now();
-    let mut stream = sock
-        .connect(SocketAddr::new(IpAddr::V4(ip), port))
-        .await
-        .map_err(|err| NetError::Transport(err.to_string()))?;
-    let rtt = u64::try_from(started.elapsed().as_micros()).unwrap_or(u64::MAX);
-    let _ = stream.shutdown().await;
-    Ok(rtt.max(1))
-}
-
-async fn probe_large_once(ip: Ipv4Addr, port: u16, payload: &[u8]) -> Result<u64, NetError> {
-    let mut stream = connect_direct(ip, port, false).await?;
-    let started = Instant::now();
-    stream
-        .write_all(payload)
-        .await
-        .map_err(|err| NetError::Transport(err.to_string()))?;
-    let mut reply = [0_u8; 16];
-    let n = stream
-        .read(&mut reply)
-        .await
-        .map_err(|err| NetError::Transport(err.to_string()))?;
-    if n < 5 || !reply[..n].starts_with(b"HTTP/") {
-        return Err(NetError::Transport(
-            "no HTTP reply to large probe".to_owned(),
-        ));
-    }
-    let rtt = u64::try_from(started.elapsed().as_micros()).unwrap_or(u64::MAX);
-    let _ = stream.shutdown().await;
-    Ok(rtt.max(1))
-}
-
-fn build_large_probe_request(ip: Ipv4Addr, port: u16) -> Vec<u8> {
-    let prefix = format!(
-        "GET /speed/dovalid?key= HTTP/1.1\r\n\
-         Host: {ip}:{port}\r\n\
-         User-Agent: Mozilla/5.0\r\n\
-         Connection: close\r\n\
-         X-Pad: "
-    );
-    let suffix = "\r\n\r\n";
-    let pad_len = LARGE_PAYLOAD_BYTES.saturating_sub(prefix.len() + suffix.len());
-    let mut out = Vec::with_capacity(LARGE_PAYLOAD_BYTES);
-    out.extend_from_slice(prefix.as_bytes());
-    out.resize(out.len() + pad_len, b'A');
-    out.extend_from_slice(suffix.as_bytes());
-    out
-}
-
-fn summarize_rtts(sent: u8, lost: u8, rtts: &[u64]) -> TaierPacketStats {
-    if rtts.is_empty() {
-        return TaierPacketStats {
-            sent,
-            lost,
-            avg_micros: None,
-            min_micros: None,
-            max_micros: None,
-            jitter_micros: None,
-        };
-    }
-    let count = rtts.len() as u128;
-    let sum: u128 = rtts.iter().copied().map(u128::from).sum();
-    let avg = sum / count;
-    let min = rtts.iter().copied().min().unwrap_or(0);
-    let max = rtts.iter().copied().max().unwrap_or(0);
-    let jitter = if rtts.len() >= 2 {
-        let var_sum: u128 = rtts
-            .iter()
-            .map(|&val| {
-                let v = u128::from(val);
-                let diff = v.abs_diff(avg);
-                diff * diff
-            })
-            .sum();
-        let variance = var_sum / (count - 1);
-        Some(u64::try_from(variance.isqrt()).unwrap_or(u64::MAX))
-    } else {
-        None
-    };
-    TaierPacketStats {
-        sent,
-        lost,
-        avg_micros: Some(u64::try_from(avg).unwrap_or(u64::MAX)),
-        min_micros: Some(min),
-        max_micros: Some(max),
-        jitter_micros: jitter,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::net::Ipv4Addr;
     use std::sync::Arc;
     use std::sync::atomic::AtomicBool;
-    use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering;
     use std::time::Duration;
 
@@ -666,21 +521,16 @@ mod tests {
     use tokio::io::AsyncWriteExt;
     use tokio::net::TcpListener;
 
-    use super::LARGE_PAYLOAD_BYTES;
-
     #[tokio::test]
-    async fn taier_prober_handles_dovalid_streams_probes_and_release() {
+    async fn taier_prober_handles_dovalid_streams_and_release() {
         let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
         let port = listener.local_addr().expect("addr").port();
         let released = Arc::new(AtomicBool::new(false));
-        let large_seen = Arc::new(AtomicUsize::new(0));
         let rel_clone = Arc::clone(&released);
-        let large_clone = Arc::clone(&large_seen);
 
         tokio::spawn(async move {
             while let Ok((mut sock, _)) = listener.accept().await {
                 let rel = Arc::clone(&rel_clone);
-                let lseen = Arc::clone(&large_clone);
                 tokio::spawn(async move {
                     let mut buf = vec![0_u8; 4096];
                     let Ok(mut n) = sock.read(&mut buf).await else {
@@ -700,12 +550,7 @@ mod tests {
                     }
                     let head = String::from_utf8_lossy(&buf[..n]);
                     if head.starts_with("GET /speed/dovalid?") {
-                        if head.contains("X-Pad: ") {
-                            lseen.fetch_add(n, Ordering::Relaxed);
-                            let _ = sock
-                                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n0-")
-                                .await;
-                        } else if head.contains("token=busy") {
+                        if head.contains("token=busy") {
                             let _ = sock
                                 .write_all(
                                     b"HTTP/1.1 200 \r\nTransfer-Encoding: chunked\r\n\r\n\
@@ -769,22 +614,6 @@ mod tests {
         let up = super::upload(&spec, &cancel).await.expect("upload");
         assert!(up.bytes > 0 && up.bits_per_sec > 0);
         assert!(up.active_streams >= 1);
-
-        let small = super::packet_probe(ip, port, false, 4, &cancel)
-            .await
-            .expect("small probe");
-        assert_eq!((small.sent, small.lost), (4, 0));
-        assert!(small.avg_micros.is_some() && small.jitter_micros.is_some());
-
-        let large = super::packet_probe(ip, port, true, 4, &cancel)
-            .await
-            .expect("large probe");
-        assert_eq!((large.sent, large.lost), (4, 0));
-        assert_eq!(
-            large_seen.load(Ordering::Relaxed),
-            4 * LARGE_PAYLOAD_BYTES,
-            "each large probe sent a single 1348-byte HTTP payload"
-        );
 
         super::release(ip, port, "uuid-smoke-123", limit).await;
         tokio::time::sleep(Duration::from_millis(30)).await;

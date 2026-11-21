@@ -260,7 +260,6 @@ fn defaults_match_standard_cli_and_every_customized_plugin_builds_cleanly() {
         .unwrap();
     cfg.apply_item_edit(taier_idx, 9, "6").unwrap();
     cfg.apply_item_edit(taier_idx, 10, "4").unwrap();
-    assert_eq!(cfg.activate_item_field(taier_idx, 11), None); // probes -> false
     assert!(cfg.apply_item_edit(taier_idx, 9, "0").is_err());
     assert!(cfg.apply_item_edit(taier_idx, 10, "99").is_err());
 
@@ -273,7 +272,6 @@ fn defaults_match_standard_cli_and_every_customized_plugin_builds_cleanly() {
             "cities": ["Beijing", "Jiangsu"],
             "seconds": 6,
             "streams": 4,
-            "probes": false,
         })
     );
     assert_eq!(

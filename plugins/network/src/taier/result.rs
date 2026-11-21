@@ -3,7 +3,6 @@
 use std::net::Ipv4Addr;
 
 use bench_api::Measurement;
-use bench_api::TaierPacketStats;
 use bench_api::ToolVersion;
 use serde::Deserialize;
 use serde::Serialize;
@@ -83,8 +82,6 @@ pub struct Settings {
     pub seconds: u16,
     /// Parallel TCP streams per direction (`8` by default).
     pub streams: u8,
-    /// Whether `64 B` and `1400 B` packet-loss/RTT probes were enabled.
-    pub probes: bool,
     /// Requested city/province filters (empty when defaults were used).
     pub cities: Vec<String>,
     /// Resolved carrier filter in execution order.
@@ -94,23 +91,19 @@ pub struct Settings {
 }
 
 impl Settings {
-    /// Standard default parameters (`4` s each way, `8` parallel streams, `64 B`/`1400 B` probes).
+    /// Standard default parameters (`4` s each way, `8` parallel streams).
     pub const DEFAULT_SECONDS: u16 = 4;
     /// Standard default stream count.
     pub const DEFAULT_STREAMS: u8 = 8;
 }
 
-/// Successful throughput and packet-probe readings for one `(location, operator)` slot.
+/// Successful throughput readings for one `(location, operator)` slot.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct NodeMeasured {
     /// Sustained download throughput in bits per second.
     pub download_bps: u64,
     /// Sustained upload throughput in bits per second.
     pub upload_bps: u64,
-    /// Small-packet (`64 B` TCP handshake) RTT, jitter, and packet-loss statistics.
-    pub small_probe: Option<TaierPacketStats>,
-    /// Large-packet (`1400 B` single-MSS HTTP segment) RTT, jitter, and packet-loss statistics.
-    pub large_probe: Option<TaierPacketStats>,
 }
 
 /// Outcome of testing one `(location, operator)` slot across its candidate nodes.
