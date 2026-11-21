@@ -1606,6 +1606,8 @@ fn the_list_keeps_each_group_together_in_the_reports_order() {
             "disk.fio",
             "network.iperf3",
             "network.taier",
+            "network.cloudflare",
+            "network.inetspeed",
             "network.trace",
             "network.bgp",
             "ip.quality",
@@ -1659,6 +1661,8 @@ fn the_list_keeps_each_group_together_in_the_reports_order() {
         [
             "  network.iperf3  Network speed (tools: iperf3 3.22)",
             "  network.taier  China carrier speed",
+            "  network.cloudflare  Cloudflare speed",
+            "  network.inetspeed  Apple CDN speed",
             "  network.trace  Route tracing (tools: nexttrace 1.7.6)",
             "  network.bgp  BGP paths"
         ]
@@ -1733,7 +1737,7 @@ fn the_items_that_do_not_apply_here_are_named_as_the_report_names_them() {
     let (applicable, names) = orchestrator::for_host(planned, &vm);
 
     assert_eq!(names, ["Disk health", "Memory NUMA"]);
-    assert_eq!(applicable.len(), 11, "the others run");
+    assert_eq!(applicable.len(), 13, "the others run");
 }
 
 #[test]
@@ -1752,14 +1756,14 @@ fn zero_args_selects_tui_flag_is_gone_and_all_runs_full_cli_suite() {
     assert!(via_flag.all);
     let all = registry::all();
     let planned_flag = app::prepare(&via_flag, &all).unwrap();
-    assert_eq!(planned_flag.len(), 13);
+    assert_eq!(planned_flag.len(), 15);
 
     let planned_short = app::prepare(&cli(&["-a", "--skip", "network.trace"]), &all).unwrap();
-    assert_eq!(planned_short.len(), 12);
+    assert_eq!(planned_short.len(), 14);
 
     let planned_only_all =
         app::prepare(&cli(&["--only", "all", "--skip", "ip.media"]), &all).unwrap();
-    assert_eq!(planned_only_all.len(), 12);
+    assert_eq!(planned_only_all.len(), 14);
 
     let planned_skip_all = app::prepare(&cli(&["--skip", "all"]), &all).unwrap();
     assert!(planned_skip_all.is_empty());
@@ -1768,6 +1772,32 @@ fn zero_args_selects_tui_flag_is_gone_and_all_runs_full_cli_suite() {
         Cli::try_parse_from(["lowendaff-bench", "--all", "--only", "cpu"]).is_err(),
         "--all must conflict with --only"
     );
+
+    let ok_cf_inet = app::prepare(
+        &cli(&[
+            "--only",
+            "network.cloudflare,network.inetspeed",
+            "--no-cloudflare-udp",
+            "--inetspeed-threads",
+            "8",
+            "--inetspeed-endpoint",
+            "198.51.100.25",
+        ]),
+        &all,
+    )
+    .expect("valid cloudflare and inetspeed flags");
+    assert_eq!(ok_cf_inet.len(), 2);
+
+    let bad_ep = app::prepare(
+        &cli(&[
+            "--only",
+            "network.inetspeed",
+            "--inetspeed-endpoint",
+            "not-an-ip",
+        ]),
+        &all,
+    );
+    assert!(bad_ep.is_err(), "non-IP --inetspeed-endpoint must fail");
 }
 
 #[tokio::test]

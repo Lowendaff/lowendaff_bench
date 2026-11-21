@@ -49,6 +49,8 @@ impl ReportWords for English {
             "disk.fio" => Some("Disk performance"),
             "network.iperf3" => Some("Network speed"),
             "network.taier" => Some("China carrier speed"),
+            "network.cloudflare" => Some("Cloudflare speed"),
+            "network.inetspeed" => Some("Apple CDN speed"),
             "network.trace" => Some("Route tracing"),
             "network.bgp" => Some("BGP paths"),
             "ip.quality" => Some("IP reputation"),

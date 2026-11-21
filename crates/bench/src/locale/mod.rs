@@ -25,9 +25,14 @@ pub use host::NoEcc;
 pub use host::NoModules;
 pub use items::BgpField;
 pub use items::BgpWords;
+pub use items::CloudflareChoice;
+pub use items::CloudflareField;
+pub use items::CloudflareWords;
 pub use items::CpuWords;
 pub use items::DiskWords;
 pub use items::FioRow;
+pub use items::InetspeedChoice;
+pub use items::InetspeedWords;
 pub use items::IpChoice;
 pub use items::IpField;
 pub use items::IpTable;
@@ -72,6 +77,8 @@ pub trait Words:
     + DiskWords
     + NetworkWords
     + TaierWords
+    + CloudflareWords
+    + InetspeedWords
     + TraceWords
     + BgpWords
     + IpWords
@@ -92,6 +99,8 @@ impl<T> Words for T where
         + DiskWords
         + NetworkWords
         + TaierWords
+        + CloudflareWords
+        + InetspeedWords
         + TraceWords
         + BgpWords
         + IpWords

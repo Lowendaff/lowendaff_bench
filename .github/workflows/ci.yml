@@ -283,6 +283,18 @@ jobs:
       - name: Local Taier server
         if: steps.scope.outputs.run != 'false'
         run: scripts/smoke-taier.sh "$RUNNER_TEMP/taier" "$RUNNER_TEMP/iperf3/overrides.json"
+      # Cloudflare speed probes a local HTTP + STUN UDP responder on 127.0.0.1.
+      - name: Local Cloudflare server
+        if: steps.scope.outputs.run != 'false'
+        run: >-
+          scripts/smoke-cloudflare.sh "$RUNNER_TEMP/cloudflare"
+          "$RUNNER_TEMP/iperf3/overrides.json"
+      # Apple CDN speed probes a local mensura responder on 127.0.0.1.
+      - name: Local iNetSpeed server
+        if: steps.scope.outputs.run != 'false'
+        run: >-
+          scripts/smoke-inetspeed.sh "$RUNNER_TEMP/inetspeed"
+          "$RUNNER_TEMP/iperf3/overrides.json"
       # Geekbench, PassMark, UnixBench, y-cruncher and Prime95 take minutes or publish online;
       # smoke exercises unified cpu.bench with sysbench, 7-Zip and HPL.
       - name: Smoke

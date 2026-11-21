@@ -43,6 +43,14 @@ pub trait ProgramWords {
     fn help_taier_cities(&self) -> String;
     /// The help of `--taier-operators`.
     fn help_taier_operators(&self) -> String;
+    /// The help of `--no-cloudflare-udp`.
+    fn help_no_cloudflare_udp(&self) -> String;
+    /// The help of `--inetspeed-threads`.
+    fn help_inetspeed_threads(&self) -> String;
+    /// The help of `--inetspeed-endpoint`.
+    fn help_inetspeed_endpoint(&self) -> String;
+    /// An invalid `--inetspeed-endpoint` IP literal.
+    fn invalid_inetspeed_endpoint(&self, raw: &str) -> String;
     /// The help of `--trace-groups`.
     fn help_trace_groups(&self) -> String;
     /// The help of `--media-groups`.

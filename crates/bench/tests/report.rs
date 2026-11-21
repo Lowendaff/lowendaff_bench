@@ -1025,3 +1025,240 @@ fn taier_renders_text_markdown_json_fallbacks_and_stop_reasons() {
         "{skip_text}"
     );
 }
+
+#[test]
+fn cloudflare_and_inetspeed_render_text_markdown_json_and_mask_client_ip() {
+    use plugin_network::cloudflare;
+    use plugin_network::inetspeed;
+
+    let cf_fam = cloudflare::FamilyCloudflare {
+        client_ip: Some("198.51.100.77".parse().expect("doc ip")),
+        colo: Some("LAX".to_owned()),
+        server: Some("LAX - Los Angeles, United States".to_owned()),
+        asn: Some(64500),
+        as_org: Some("ExampleISP".to_owned()),
+        idle_latency: cloudflare::LatencyStats {
+            sent: 8,
+            received: 8,
+            loss_pct: 0.0,
+            min_ms: Some(11.2),
+            mean_ms: Some(12.0),
+            median_ms: Some(11.8),
+            p25_ms: Some(11.5),
+            p75_ms: Some(12.4),
+            p95_ms: Some(13.1),
+            p99_ms: Some(13.4),
+            max_ms: Some(13.5),
+            jitter_ms: Some(0.85),
+        },
+        download: cloudflare::ThroughputStats {
+            bytes: 950_000_000,
+            duration_ms: 8_000,
+            bps: 950_000_000,
+            mbps: 950.0,
+            mean_mbps: 950.0,
+            median_mbps: 955.0,
+            p25_mbps: 920.0,
+            p75_mbps: 970.0,
+            p95_mbps: 985.0,
+            p99_mbps: 990.0,
+        },
+        upload: cloudflare::ThroughputStats {
+            bytes: 420_000_000,
+            duration_ms: 8_000,
+            bps: 420_000_000,
+            mbps: 420.0,
+            mean_mbps: 420.0,
+            median_mbps: 422.0,
+            p25_mbps: 405.0,
+            p75_mbps: 430.0,
+            p95_mbps: 440.0,
+            p99_mbps: 445.0,
+        },
+        loaded_download_latency: cloudflare::LatencyStats {
+            sent: 16,
+            received: 16,
+            loss_pct: 0.0,
+            min_ms: Some(18.0),
+            mean_ms: Some(22.0),
+            median_ms: Some(21.5),
+            max_ms: Some(28.0),
+            jitter_ms: Some(2.1),
+            ..cloudflare::LatencyStats::default()
+        },
+        loaded_upload_latency: cloudflare::LatencyStats {
+            sent: 16,
+            received: 16,
+            loss_pct: 0.0,
+            min_ms: Some(20.0),
+            mean_ms: Some(25.0),
+            median_ms: Some(24.8),
+            max_ms: Some(32.0),
+            jitter_ms: Some(2.6),
+            ..cloudflare::LatencyStats::default()
+        },
+        udp: Some(cloudflare::UdpLossStats {
+            target: "stun:stun.example:3478".to_owned(),
+            sent: 50,
+            received: 50,
+            loss_pct: 0.0,
+            out_of_order: 0,
+            out_of_order_pct: 0.0,
+            median_ms: Some(11.9),
+            jitter_ms: Some(0.9),
+            mos: Some(4.40),
+            quality: "Excellent".to_owned(),
+        }),
+        udp_note: None,
+        quality: Some(cloudflare::QualityStats {
+            bufferbloat_grade: "A".to_owned(),
+            bufferbloat_ms: Some(13.0),
+            stability_grade: "A".to_owned(),
+            stability_cv_pct: Some(2.4),
+        }),
+    };
+
+    let cf_run = run(
+        "network.cloudflare",
+        Status::Completed,
+        Some(24.0),
+        Some(Measured::NetworkCloudflare(Report {
+            output: Some(cloudflare::Output {
+                settings: cloudflare::Settings::default(),
+                ipv4: Some(Box::new(cf_fam)),
+                ipv6: None,
+                notes: Vec::new(),
+            }),
+            stop: None,
+        })),
+    );
+
+    let inet_run = run(
+        "network.inetspeed",
+        Status::Completed,
+        Some(18.5),
+        Some(Measured::NetworkInetspeed(Report {
+            output: Some(inetspeed::Output {
+                settings: inetspeed::Settings::default(),
+                selected: inetspeed::SelectedEndpoint {
+                    host: "cdn.example".to_owned(),
+                    ip: Some("192.0.2.55".parse().expect("doc ip")),
+                    source: inetspeed::EndpointSource::Doh,
+                    rtt_ms: Some(8.42),
+                },
+                candidates: Vec::new(),
+                idle_latency: Some(inetspeed::LatencyStats {
+                    samples: 20,
+                    min_ms: 7.90,
+                    avg_ms: 8.55,
+                    median_ms: 8.40,
+                    max_ms: 10.10,
+                    jitter_ms: 0.35,
+                }),
+                rounds: vec![
+                    inetspeed::RoundResult {
+                        direction: inetspeed::TransferDirection::Download,
+                        threads: 1,
+                        bytes: 500_000_000,
+                        duration_ms: 5_000,
+                        bps: 800_000_000,
+                        mbps: 800.0,
+                        fault_count: 0,
+                        loaded_latency: Some(inetspeed::LatencyStats {
+                            samples: 12,
+                            min_ms: 10.0,
+                            avg_ms: 12.2,
+                            median_ms: 12.0,
+                            max_ms: 15.0,
+                            jitter_ms: 0.80,
+                        }),
+                        error: None,
+                    },
+                    inetspeed::RoundResult {
+                        direction: inetspeed::TransferDirection::Upload,
+                        threads: 4,
+                        bytes: 300_000_000,
+                        duration_ms: 5_000,
+                        bps: 480_000_000,
+                        mbps: 480.0,
+                        fault_count: 0,
+                        loaded_latency: None,
+                        error: None,
+                    },
+                ],
+                total_bytes: 800_000_000,
+                warnings: Vec::new(),
+            }),
+            stop: None,
+        })),
+    );
+
+    let host_profile = host();
+    let runs = [cf_run, inet_run];
+    let masked_page = Page {
+        version: "0.1.0",
+        host: &host_profile,
+        show_ip: false,
+        not_applicable: &[],
+        runs: &runs,
+        total: Duration::from_millis(42_500),
+    };
+
+    let text = report::render(&masked_page, Format::Text, None);
+    assert!(
+        text.contains("Cloudflare Speed: 6 workers, 10 s each way"),
+        "{text}"
+    );
+    assert!(text.contains("LAX - Los Angeles, United States"), "{text}");
+    assert!(
+        text.contains("198.51.*.*"),
+        "masks Cloudflare client IP:\n{text}"
+    );
+    assert!(
+        !text.contains("198.51.100.77"),
+        "leaks no raw client IP:\n{text}"
+    );
+    assert!(
+        text.contains("bufferbloat A (+13.0 ms), stability A (CV 2.4%)"),
+        "{text}"
+    );
+    assert!(
+        text.contains("Apple CDN (iNetSpeed): 1 & 4 threads, 2G / 10 s cap"),
+        "{text}"
+    );
+    assert!(
+        text.contains("192.0.2.55 (cdn.example, 8.42 ms via Dual DoH)"),
+        "{text}"
+    );
+    assert!(text.contains("Download (single)"), "{text}");
+    assert!(text.contains("Upload (multi)"), "{text}");
+
+    let md = report::render(&masked_page, Format::Markdown, None);
+    assert!(md.contains("| Metric | IPv4 | IPv6 |"), "{md}");
+    assert!(
+        md.contains("| Round | Threads | Speed | Data | Loaded latency |"),
+        "{md}"
+    );
+    assert!(!md.contains("198.51.100.77"), "{md}");
+
+    let json_raw = report::render(&masked_page, Format::Json, None);
+    assert!(!json_raw.contains("198.51.100.77"), "{json_raw}");
+    let json: serde_json::Value = serde_json::from_str(&json_raw).expect("valid JSON");
+    assert_eq!(json["runs"][0]["output"]["ipv4"]["client_ip"], "198.51.*.*");
+    assert_eq!(json["runs"][1]["id"], "network.inetspeed");
+    assert_eq!(json["runs"][1]["title"], "Apple CDN speed");
+
+    let unmasked_json: serde_json::Value = serde_json::from_str(&report::render(
+        &Page {
+            show_ip: true,
+            ..masked_page
+        },
+        Format::Json,
+        None,
+    ))
+    .expect("valid JSON");
+    assert_eq!(
+        unmasked_json["runs"][0]["output"]["ipv4"]["client_ip"],
+        "198.51.100.77"
+    );
+}

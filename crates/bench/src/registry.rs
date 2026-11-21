@@ -40,6 +40,12 @@ pub fn all() -> Vec<Entry> {
         // China carrier speed: native multi-stream CAICT GlobalSpeed HTTP/1.1 download and upload
         // across mainland China carriers.
         entry::<plugin_network::taier::Taier>(Measured::NetworkTaier),
+        // Cloudflare speed: native multi-worker HTTPS throughput, idle/loaded latency, bufferbloat
+        // and stability grades, and STUN UDP packet-loss probing against speed.cloudflare.com.
+        entry::<plugin_network::cloudflare::Cloudflare>(Measured::NetworkCloudflare),
+        // Apple CDN speed: native Dual DoH endpoint discovery, IP-pinned RTT, and 1T/NT transfer
+        // rounds against mensura.cdn-apple.com.
+        entry::<plugin_network::inetspeed::Inetspeed>(Measured::NetworkInetspeed),
         // Route tracing: after network speed, so that its probes do not share the link with
         // iperf3's streams.
         entry::<plugin_network::trace::Trace>(Measured::NetworkTrace),
@@ -264,6 +270,8 @@ mod tests {
                 "disk.fio",
                 "network.iperf3",
                 "network.taier",
+                "network.cloudflare",
+                "network.inetspeed",
                 "network.trace",
                 "network.bgp",
                 "ip.quality",

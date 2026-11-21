@@ -21,6 +21,8 @@ use plugin_cpu::bench::CpuBench;
 use plugin_ip::media::Media;
 use plugin_ip::quality::Quality;
 use plugin_network::bgp::Bgp;
+use plugin_network::cloudflare::Cloudflare;
+use plugin_network::inetspeed::Inetspeed;
 use plugin_network::iperf3::Iperf3;
 use plugin_network::taier::Taier;
 use plugin_network::trace::Trace;
@@ -276,6 +278,22 @@ pub struct Cli {
     )]
     pub taier_operators: Vec<TaierOperator>,
 
+    // Skips the RFC 5389 STUN UDP packet-loss probe in network.cloudflare.
+    #[arg(long, help = locale::words().help_no_cloudflare_udp())]
+    pub no_cloudflare_udp: bool,
+
+    // Concurrent worker threads for multi-thread rounds in network.inetspeed.
+    #[arg(
+        long,
+        value_parser = clap::value_parser!(u8).range(1..=64),
+        help = locale::words().help_inetspeed_threads()
+    )]
+    pub inetspeed_threads: Option<u8>,
+
+    // Optional pinned Apple CDN endpoint IP for network.inetspeed.
+    #[arg(long, help = locale::words().help_inetspeed_endpoint())]
+    pub inetspeed_endpoint: Option<String>,
+
     // Target groups for route tracing.
     #[arg(
         long,
@@ -422,6 +440,31 @@ pub fn prepare(cli: &Cli, registry: &[Entry]) -> Result<Vec<Planned<Measured>>, 
     if !cli.taier_cities.is_empty() || !cli.taier_operators.is_empty() {
         taier_settings(&mut settings, &cli.taier_cities, &cli.taier_operators);
     }
+    if cli.no_cloudflare_udp {
+        cloudflare_settings(&mut settings, false);
+    }
+    let inet_endpoint = match cli
+        .inetspeed_endpoint
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        Some(raw) => match raw.parse::<std::net::IpAddr>() {
+            Ok(ip) => Some(ip.to_string()),
+            Err(_) => {
+                errors.push(locale::words().invalid_inetspeed_endpoint(raw));
+                None
+            }
+        },
+        None => None,
+    };
+    if cli.inetspeed_threads.is_some() || inet_endpoint.is_some() {
+        inetspeed_settings(
+            &mut settings,
+            cli.inetspeed_threads,
+            inet_endpoint.as_deref(),
+        );
+    }
     if !cli.trace_groups.is_empty() {
         trace_groups(&mut settings, &cli.trace_groups);
     }
@@ -525,6 +568,34 @@ pub fn taier_settings(
                 .map(|op| serde_json::Value::String(op.code().to_owned()))
                 .collect();
             table.insert("operators".to_owned(), serde_json::Value::Array(values));
+        }
+    }
+}
+
+/// Sets `--no-cloudflare-udp` in `network.cloudflare`'s table.
+pub fn cloudflare_settings(settings: &mut BTreeMap<String, serde_json::Value>, udp: bool) {
+    let table = plugin_table(settings, Cloudflare::DESCRIPTOR.id);
+    if let Some(table) = table.as_object_mut() {
+        table.insert("udp".to_owned(), serde_json::Value::Bool(udp));
+    }
+}
+
+/// Sets `--inetspeed-threads` and `--inetspeed-endpoint` in `network.inetspeed`'s table.
+pub fn inetspeed_settings(
+    settings: &mut BTreeMap<String, serde_json::Value>,
+    threads: Option<u8>,
+    endpoint: Option<&str>,
+) {
+    let table = plugin_table(settings, Inetspeed::DESCRIPTOR.id);
+    if let Some(table) = table.as_object_mut() {
+        if let Some(n) = threads {
+            table.insert("threads".to_owned(), serde_json::Value::from(n));
+        }
+        if let Some(ip) = endpoint {
+            table.insert(
+                "endpoint".to_owned(),
+                serde_json::Value::String(ip.to_owned()),
+            );
         }
     }
 }

@@ -1,0 +1,275 @@
+//! Size parser, DoH answer parser, candidate ordering, and latency statistics for
+//! `network.inetspeed`, matching `iNetSpeed-CLI`.
+
+use std::cmp::Ordering;
+use std::net::IpAddr;
+
+use serde_json::Value;
+
+use super::result::CandidateEndpoint;
+use super::result::LatencyStats;
+
+/// Parses human-readable transfer cap strings (`2G`, `500M`, `1GiB`, `1048576`) into positive byte
+/// counts, matching `iNetSpeed-CLI/internal/config/config.go`.
+#[must_use = "returns the parsed byte cap or an error message"]
+pub fn parse_size(raw: &str) -> Result<u64, String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err("empty size".to_owned());
+    }
+    let split_at = trimmed
+        .find(|ch: char| !(ch.is_ascii_digit() || ch == '.'))
+        .unwrap_or(trimmed.len());
+    let num_part = trimmed[..split_at].trim();
+    let unit_part = trimmed[split_at..].trim().to_ascii_lowercase();
+    if num_part.is_empty() {
+        return Err(format!("cannot parse size {raw:?}"));
+    }
+    let num: f64 = num_part
+        .parse()
+        .map_err(|_| format!("cannot parse number in size {raw:?}"))?;
+    if !num.is_finite() || num <= 0.0 {
+        return Err("size must be positive".to_owned());
+    }
+    let mul: f64 = match unit_part.as_str() {
+        "" | "b" => 1.0,
+        "k" | "kb" => 1_000.0,
+        "m" | "mb" => 1_000_000.0,
+        "g" | "gb" => 1_000_000_000.0,
+        "t" | "tb" => 1_000_000_000_000.0,
+        "kib" => 1_024.0,
+        "mib" => 1_048_576.0,
+        "gib" => 1_073_741_824.0,
+        "tib" => 1_099_511_627_776.0,
+        other => return Err(format!("unknown size unit {other:?}")),
+    };
+    let product = num * mul;
+    if !product.is_finite() || product < 1.0 || product > (u64::MAX as f64) {
+        return Err(format!("size out of range: {raw:?}"));
+    }
+    Ok(product as u64)
+}
+
+/// Extracts hostname from an `http://` or `https://` URL without brackets.
+#[must_use]
+pub fn host_from_url(raw_url: &str) -> Option<String> {
+    let (_, rest) = raw_url.split_once("://")?;
+    let authority = rest.split(['/', '?', '#']).next()?;
+    let host_port = authority.rsplit('@').next().unwrap_or(authority);
+    let host = if let Some(stripped) = host_port.strip_prefix('[') {
+        stripped.split(']').next()?
+    } else {
+        host_port.split(':').next()?
+    };
+    (!host.is_empty()).then(|| host.to_ascii_lowercase())
+}
+
+/// Extracts deduplicated `IpAddr`s from a Cloudflare or AliDNS DoH response body (`Answer[].data`
+/// JSON or plain-text IP lines), filtered by `ipv4` and `ipv6`.
+#[must_use]
+pub fn extract_doh_ips(body: &[u8], ipv4: bool, ipv6: bool) -> Vec<IpAddr> {
+    let mut out = Vec::new();
+    if let Ok(val) = serde_json::from_slice::<Value>(body) {
+        if let Some(answers) = val.get("Answer").and_then(Value::as_array) {
+            for item in answers {
+                if let Some(data) = item.get("data").and_then(Value::as_str) {
+                    push_filtered_ip(&mut out, data.trim(), ipv4, ipv6);
+                }
+            }
+        } else if let Some(arr) = val.as_array() {
+            for item in arr {
+                if let Some(data) = item.as_str() {
+                    push_filtered_ip(&mut out, data.trim(), ipv4, ipv6);
+                }
+            }
+        }
+        if !out.is_empty() {
+            return out;
+        }
+    }
+
+    let text = String::from_utf8_lossy(body);
+    for token in text.split(|ch: char| !(ch.is_ascii_hexdigit() || ch == '.' || ch == ':')) {
+        push_filtered_ip(&mut out, token, ipv4, ipv6);
+    }
+    out
+}
+
+/// Merges multiple IP slices preserving first-seen discovery order.
+#[must_use]
+pub fn merge_unique_ips(lists: &[Vec<IpAddr>]) -> Vec<IpAddr> {
+    let mut out = Vec::new();
+    for list in lists {
+        for &ip in list {
+            if !out.contains(&ip) {
+                out.push(ip);
+            }
+        }
+    }
+    out
+}
+
+fn push_filtered_ip(out: &mut Vec<IpAddr>, raw: &str, ipv4: bool, ipv6: bool) {
+    let Ok(ip) = raw.parse::<IpAddr>() else {
+        return;
+    };
+    let allowed = (ip.is_ipv4() && ipv4) || (ip.is_ipv6() && ipv6);
+    if allowed && !out.contains(&ip) {
+        out.push(ip);
+    }
+}
+
+/// Orders candidates with healthy (`ok == true`) first sorted by ascending RTT, preserving
+/// discovery order for ties and failed candidates.
+#[must_use]
+pub fn order_candidates(candidates: &[CandidateEndpoint]) -> Vec<CandidateEndpoint> {
+    let mut ordered = candidates.to_vec();
+    ordered.sort_by(|left, right| match (left.ok, right.ok) {
+        (true, false) => Ordering::Less,
+        (false, true) => Ordering::Greater,
+        (true, true) => left
+            .rtt_ms
+            .unwrap_or(f64::INFINITY)
+            .partial_cmp(&right.rtt_ms.unwrap_or(f64::INFINITY))
+            .unwrap_or(Ordering::Equal),
+        (false, false) => Ordering::Equal,
+    });
+    ordered
+}
+
+/// Auto-selects the lowest-RTT healthy candidate, or falls back to the first discovered candidate
+/// in original order when all probes failed.
+#[must_use]
+pub fn choose_auto<'a>(
+    original: &'a [CandidateEndpoint],
+    ordered: &'a [CandidateEndpoint],
+) -> Option<&'a CandidateEndpoint> {
+    ordered.iter().find(|c| c.ok).or_else(|| original.first())
+}
+
+/// Computes `min`, `avg`, `median`, `max`, and `jitter` in milliseconds (rounded to 2 decimals)
+/// from microsecond RTT samples, matching `iNetSpeed-CLI/internal/latency/latency.go`.
+#[must_use]
+pub fn compute_latency(rtts_micros: &[u64]) -> Option<LatencyStats> {
+    if rtts_micros.is_empty() {
+        return None;
+    }
+    let mut sorted: Vec<f64> = rtts_micros
+        .iter()
+        .map(|&u| ((u as f64) / 1000.0).max(0.01))
+        .collect();
+    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
+
+    let n = sorted.len();
+    let sum: f64 = sorted.iter().sum();
+    let avg = sum / (n as f64);
+    let min = sorted[0];
+    let max = sorted[n - 1];
+    let median = if n % 2 == 1 {
+        sorted[n / 2]
+    } else {
+        (sorted[n / 2 - 1] + sorted[n / 2]) / 2.0
+    };
+    let jitter = if n > 1 {
+        let mut diff_sum = 0.0;
+        for idx in 1..n {
+            diff_sum += (sorted[idx] - sorted[idx - 1]).abs();
+        }
+        diff_sum / ((n - 1) as f64)
+    } else {
+        0.0
+    };
+
+    Some(LatencyStats {
+        samples: n,
+        min_ms: round2(min),
+        avg_ms: round2(avg),
+        median_ms: round2(median),
+        max_ms: round2(max),
+        jitter_ms: round2(jitter),
+    })
+}
+
+fn round2(val: f64) -> f64 {
+    (val * 100.0).round() / 100.0
+}
+
+#[cfg(test)]
+mod tests {
+    use std::net::IpAddr;
+
+    use super::CandidateEndpoint;
+    use crate::inetspeed::EndpointSource;
+
+    #[test]
+    fn parse_size_handles_decimal_and_binary_units() {
+        assert_eq!(super::parse_size("2G"), Ok(2_000_000_000));
+        assert_eq!(super::parse_size("500M"), Ok(500_000_000));
+        assert_eq!(super::parse_size("1GiB"), Ok(1_073_741_824));
+        assert_eq!(super::parse_size("64KiB"), Ok(65_536));
+        assert!(super::parse_size("0").is_err());
+        assert!(super::parse_size("abc").is_err());
+        assert!(super::parse_size("10XB").is_err());
+    }
+
+    #[test]
+    fn doh_extraction_candidate_ordering_and_latency_stats_match_reference() {
+        let cf_json = concat!(
+            r#"{"Answer":[{"data":"cname.example."},"#,
+            r#"{"data":"198.51.100.10"},{"data":"2001:db8::10"}]}"#
+        )
+        .as_bytes();
+        let v4_only = super::extract_doh_ips(cf_json, true, false);
+        assert_eq!(
+            v4_only,
+            vec!["198.51.100.10".parse::<IpAddr>().expect("v4")]
+        );
+        let dual = super::extract_doh_ips(cf_json, true, true);
+        assert_eq!(dual.len(), 2);
+
+        let ali_short = br#"["198.51.100.11","198.51.100.10"]"#;
+        let ali_ips = super::extract_doh_ips(ali_short, true, false);
+        let merged = super::merge_unique_ips(&[v4_only, ali_ips]);
+        assert_eq!(
+            merged,
+            vec![
+                "198.51.100.10".parse::<IpAddr>().expect("10"),
+                "198.51.100.11".parse::<IpAddr>().expect("11"),
+            ]
+        );
+
+        let raw_cands = vec![
+            CandidateEndpoint {
+                ip: "198.51.100.10".parse().expect("ip"),
+                source: EndpointSource::Doh,
+                rtt_ms: None,
+                ok: false,
+                error: Some("timed out".to_owned()),
+            },
+            CandidateEndpoint {
+                ip: "198.51.100.11".parse().expect("ip"),
+                source: EndpointSource::Doh,
+                rtt_ms: Some(18.5),
+                ok: true,
+                error: None,
+            },
+            CandidateEndpoint {
+                ip: "198.51.100.12".parse().expect("ip"),
+                source: EndpointSource::Doh,
+                rtt_ms: Some(9.2),
+                ok: true,
+                error: None,
+            },
+        ];
+        let ordered = super::order_candidates(&raw_cands);
+        let chosen = super::choose_auto(&raw_cands, &ordered).expect("chosen");
+        assert_eq!(chosen.ip, "198.51.100.12".parse::<IpAddr>().expect("12"));
+
+        let lat = super::compute_latency(&[10_000, 20_000, 30_000, 40_000]).expect("lat");
+        assert_eq!(lat.samples, 4);
+        assert_eq!(lat.min_ms, 10.0);
+        assert_eq!(lat.median_ms, 25.0);
+        assert_eq!(lat.max_ms, 40.0);
+        assert_eq!(lat.jitter_ms, 10.0);
+    }
+}

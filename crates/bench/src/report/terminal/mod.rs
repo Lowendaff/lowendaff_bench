@@ -138,6 +138,10 @@ fn plugin(out: &mut Out, run: &Run<Measured>, indent: &str, page: &Page) {
         Some(Measured::DiskFio(report)) => disk::fio(out, report, indent),
         Some(Measured::NetworkIperf3(report)) => network::iperf3(out, report, indent),
         Some(Measured::NetworkTaier(report)) => network::taier(out, report, indent),
+        Some(Measured::NetworkCloudflare(report)) => {
+            network::cloudflare(out, report, indent, page.show_ip);
+        }
+        Some(Measured::NetworkInetspeed(report)) => network::inetspeed(out, report, indent),
         Some(Measured::NetworkTrace(report)) => {
             let own = own_addresses(page.host);
             network::trace(out, report, indent, &own, page.show_ip);

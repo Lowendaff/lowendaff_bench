@@ -91,6 +91,14 @@ pub(in crate::report) fn stop_reason(run: &Run<Measured>) -> Option<String> {
             .stop
             .as_ref()
             .map(|stop| network::taier_failure(failure(stop))),
+        Some(Measured::NetworkCloudflare(report)) => report
+            .stop
+            .as_ref()
+            .map(|stop| network::cloudflare_failure(failure(stop))),
+        Some(Measured::NetworkInetspeed(report)) => report
+            .stop
+            .as_ref()
+            .map(|stop| network::inetspeed_failure(failure(stop))),
         Some(Measured::NetworkTrace(report)) => report
             .stop
             .as_ref()

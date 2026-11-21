@@ -3,7 +3,9 @@
 
 pub mod app;
 pub mod bgp_upload;
+pub mod cf_probe;
 pub mod fetcher;
+pub mod inet_probe;
 pub mod locale;
 pub mod netprobe;
 pub mod network;

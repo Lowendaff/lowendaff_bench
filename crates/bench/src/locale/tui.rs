@@ -76,6 +76,20 @@ pub trait TuiWords {
     fn tui_field_taier_operator(&self, operator: &str) -> String;
     /// `network.taier` field: city/province filter or `all`.
     fn tui_field_taier_cities(&self) -> &'static str;
+    /// `network.cloudflare` field: concurrent HTTP workers.
+    fn tui_field_cf_concurrency(&self) -> &'static str;
+    /// `network.cloudflare` field: STUN UDP packet-loss probe toggle.
+    fn tui_field_cf_udp(&self) -> &'static str;
+    /// `network.inetspeed` field: multi-thread worker count.
+    fn tui_field_inet_threads(&self) -> &'static str;
+    /// `network.inetspeed` field: per-thread timeout in seconds.
+    fn tui_field_inet_timeout(&self) -> &'static str;
+    /// `network.inetspeed` field: per-thread byte cap (`2G`, `500M`, `1GiB`).
+    fn tui_field_inet_max(&self) -> &'static str;
+    /// `network.inetspeed` field: idle latency sample count.
+    fn tui_field_inet_latency_count(&self) -> &'static str;
+    /// `network.inetspeed` field: pinned endpoint IP override.
+    fn tui_field_inet_endpoint(&self) -> &'static str;
     /// `network.trace` field: target group toggle.
     fn tui_field_trace_group(&self, group: &str) -> String;
     /// `network.trace` field: specific target IDs.
@@ -112,6 +126,8 @@ pub trait TuiWords {
     fn tui_default_locations(&self) -> &'static str;
     /// Placeholder value for default Taier cities.
     fn tui_default_taier_cities(&self) -> &'static str;
+    /// Placeholder value for automatic Dual DoH Apple CDN discovery.
+    fn tui_default_inet_endpoint(&self) -> &'static str;
     /// Placeholder value when an override list is unset.
     fn tui_default_none(&self) -> &'static str;
     /// Placeholder value when rate limit is unset.
@@ -120,6 +136,10 @@ pub trait TuiWords {
     fn tui_default_cpu_note(&self) -> &'static str;
     /// Note explaining `network.taier` default cities and carriers.
     fn tui_default_taier_note(&self) -> &'static str;
+    /// Note explaining `network.cloudflare` test phases.
+    fn tui_default_cloudflare_note(&self) -> &'static str;
+    /// Note explaining `network.inetspeed` Dual DoH discovery and 1T/NT rounds.
+    fn tui_default_inetspeed_note(&self) -> &'static str;
     /// Placeholder value when trace groups use default cache + carrier list.
     fn tui_default_trace_note(&self) -> &'static str;
     /// Note explaining `network.bgp` topology SVG upload in `text` mode.

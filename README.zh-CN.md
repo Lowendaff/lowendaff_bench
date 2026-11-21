@@ -35,7 +35,7 @@ sudo ./lowendaff-bench-x86_64        # 无参数默认进入交互式 TUI（加 
 下面演示实际买机器、验机时最常用的几种跑法（假设已将二进制重命名为 `lowendaff-bench`）：
 
 ```sh
-# 1. 查看支持的所有 13 个测试项目列表（无需 root 权限）
+# 1. 查看支持的所有 15 个测试项目列表（无需 root 权限）
 ./lowendaff-bench --list
 
 # 2. 启动全交互式终端界面（不带任何参数时的默认模式：勾选项目与子项联动、改参数、看实时进度与报告）
@@ -88,7 +88,7 @@ sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-
 | 参数 | 写法 | 默认行为 | 通俗说明 |
 |---|---|---|---|
 | *（无参数）* | — | 默认进入 TUI | 不带任何参数运行 `sudo ./lowendaff-bench` 时默认进入交互式终端界面（支持总开关与子项双向联动、参数编辑、实时进度面板与多格式报告浏览） |
-| `-a, --all` | 无需带值 | 关闭 | 在命令行非交互模式下运行全部 13 个测试项（等效于 `--only all`） |
+| `-a, --all` | 无需带值 | 关闭 | 在命令行非交互模式下运行全部 15 个测试项（等效于 `--only all`） |
 | `--only` | `<名称,...>` | 测试全部项目 | 命令行模式下只运行指定的分类、单项 ID 或 `all`（多个名称用英文逗号隔开） |
 | `--skip` | `<名称,...>` | 不跳过任何项 | 跳过指定的分类、单项 ID 或 `all`（可与 `--all` 或 `--only` 搭配做减法） |
 | `-o, --output` | `<文件路径>` | 屏幕 + `/tmp` 归档 | 将最终报告仅写入指定文件（未指定 `-o` 时，输出到终端/预览器并自动归档保存至 `/tmp/lowendaff-bench-<时间戳>.<ext>`） |
@@ -98,6 +98,9 @@ sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-
 | `--countries` | `<国家代码,...>` | 默认精选节点 | 限制 `network.iperf3` 只测指定国家/地区的节点（如 `JP,SG,US`），填 `all` 测全部节点 |
 | `--taier-cities` | `<城市/省份,...>` | 北上广默认节点 | 限制 `network.taier` 仅测指定城市、省份英文名或节点 ID（如 `Beijing,Jiangsu`），填 `all` 测全部节点 |
 | `--taier-operators` | `<运营商,...>` | `telecom,unicom,mobile` | 选择 `network.taier` 要测的运营商（可选 `telecom`、`unicom`、`mobile`、`cernet`、`cbn`、`other` 或 `all`） |
+| `--no-cloudflare-udp` | 无需带值 | 关闭 | 在 `network.cloudflare` 中跳过 RFC 5389 STUN UDP 丢包与抖动探测 |
+| `--inetspeed-threads` | `<1..=64>` | `4` | 设置 `network.inetspeed` 多线程轮次的并发工作线程数 |
+| `--inetspeed-endpoint` | `<节点 IP>` | 双 DoH 自动优选 | 在 `network.inetspeed` 中强制指定固定 Apple CDN 节点 IP（跳过 DoH 发现） |
 | `--trace-groups` | `<分组,...>` | 缓存节点 + 默认线路 | 选择 `network.trace` 要追踪哪些方向的路由目标 |
 | `--media-groups` | `<区域,...>` | `all`（全部区域） | 选择 `ip.media` 要测试哪些地区的流媒体与在线服务 |
 | `--no-dnsbl` | 无需带值 | 关闭 | 在 `ip.quality` 中跳过 25 个邮件/垃圾信息黑名单（DNSBL）查询 |
@@ -119,9 +122,9 @@ sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-
 | `--only` / `--skip` *（按大类）* | `cpu` | 统一 CPU 综合基准套件：`cpu.bench` |
 | | `memory` | 包含全部 4 项内存测试：`memory.sysbench`、`memory.stream`、`memory.latency`、`memory.numa` |
 | | `disk` | 包含全部 2 项硬盘测试：`disk.health`、`disk.fio` |
-| | `network` | 包含全部 4 项网络测试：`network.iperf3`、`network.taier`、`network.trace`、`network.bgp` |
+| | `network` | 包含全部 6 项网络测试：`network.iperf3`、`network.taier`、`network.cloudflare`、`network.inetspeed`、`network.trace`、`network.bgp` |
 | | `ip` | 包含全部 2 项 IP 测试：`ip.quality`、`ip.media` |
-| `--only` / `--skip` *（按单项）* | `disk.health`、`memory.sysbench`、`memory.stream`、`memory.latency`、`memory.numa`、`disk.fio`、`network.iperf3`、`network.taier`、`network.trace`、`network.bgp`、`ip.quality`、`ip.media`、`cpu.bench` | 精确指定某一个测试项目（无论怎么填，都会按固定的合理顺序依次执行） |
+| `--only` / `--skip` *（按单项）* | `disk.health`、`memory.sysbench`、`memory.stream`、`memory.latency`、`memory.numa`、`disk.fio`、`network.iperf3`、`network.taier`、`network.cloudflare`、`network.inetspeed`、`network.trace`、`network.bgp`、`ip.quality`、`ip.media`、`cpu.bench` | 精确指定某一个测试项目（无论怎么填，都会按固定的合理顺序依次执行） |
 | `-f, --format` | `text` | 适合直接在 SSH 终端阅读的对齐纯文本表格 |
 | | `markdown` *（或 `md`）* | GitHub 风格 Markdown 文档，复制即可直接发到支持 Markdown 的社区或工单 |
 | | `json` | 结构化 JSON 数据，适合自动化汇总、监控脚本或二次开发读取 |
@@ -159,7 +162,7 @@ sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-
 
 在正式跑分前，程序会先快速读取 **系统概览（`[System]`）**：帮你看清这台机器是独立服务器、KVM 虚拟机还是容器，CPU 具体型号与缓存大小、真实内存与 Swap 容量、系统内核与 TCP 拥塞算法（如 BBR）、硬盘分区、网卡速率（含 PCIe 插槽是否降速提示）以及 IPv4/IPv6 联网状态；如果是独立物理服务器，还会列出每根内存条插槽信息、ECC 内存报错统计、IPMI 带外管理与硬件 RAID 卡型号（详见 [`docs/system.md`](docs/system.md)）。
 
-随后按顺序运行以下 13 个测试项目：
+随后按顺序运行以下 15 个测试项目：
 
 | 分类 | 项目名称 (`ID`) | 适用环境 | 这项测试能帮你看出什么？ | 原理详解 |
 |---|---|---|---|---|
@@ -171,6 +174,8 @@ sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-
 | `disk` | `disk.fio`<br>硬盘随机读写 | 所有服务器 | 采用与 YABS 相同的测试标准（50% 读 + 50% 写），测试 `4K`、`64K`、`512K`、`1M` 四种块大小下的真实读写速度与 IOPS，建站跑数据库重点看 `4K`，大文件吞吐看 `512K`/`1M` | [`docs/disk.md`](docs/disk.md) |
 | `network` | `network.iperf3`<br>全球带宽测速 | 所有联网机器 | 默认连接美西、美东、东京、法兰克福 5 个公共节点，用多线程同时测 IPv4 和 IPv6 的上传、下载真实带宽与延迟 | [`docs/network.md`](docs/network.md) |
 | `network` | `network.taier`<br>中国三网测速（泰尔） | 有 IPv4 公网连接的机器 | 纯 Rust 原生实现的中国信通院“全球网测（泰尔测速）”多线程 HTTP/1.1 上下行带宽测速（默认测北京、上海、广州 × 电信、联通、移动，繁忙节点自动降级候选） | [`docs/network.md`](docs/network.md) |
+| `network` | `network.cloudflare`<br>Cloudflare 测速 | 所有联网机器 | 纯 Rust 原生实现的双栈 `speed.cloudflare.com` 稳态上下行吞吐、空载与负载延迟、Waveform 缓冲膨胀（Bufferbloat）/ 稳定性评级及 STUN UDP 丢包与语音 MOS 评估 | [`docs/network.md`](docs/network.md) |
+| `network` | `network.inetspeed`<br>Apple CDN 测速 | 所有联网机器 | 纯 Rust 原生实现的 `mensura.cdn-apple.com` 测速，支持双 DoH（Cloudflare + 阿里 DNS）最低 RTT 边缘节点优选绑定、空载延迟与单线程/多线程上下行吞吐测试 | [`docs/network.md`](docs/network.md) |
 | `network` | `network.trace`<br>去程路由追踪 | 支持原始套接字的机器 | 追踪本机到 YouTube/Netflix 节点、国内三网（163/CN2/9929/CMIN2）及国际骨干网的每一跳路径，看清线路是直连还是绕路 | [`docs/network.md`](docs/network.md) |
 | `network` | `network.bgp`<br>BGP 上游拓扑图 | 有公网 IP 的机器 | 查询本机 IP 所在网段的 BGP 宣告前缀、RPKI 签名状态与直连上游占比，在终端模式生成 `imageupload.app` 高清 SVG 拓扑图链接（不含本机 IP；Markdown 模式生成 Mermaid 矢量图，JSON 模式内置独立 SVG 源码） | [`docs/network.md`](docs/network.md) |
 | `ip` | `ip.quality`<br>IP 质量与纯净度 | 有公网 IP 的机器 | 汇总 9 家风控数据库结果，判断 IP 是**原生 IP** 还是**广播 IP**、属于机房还是家宽、欺诈风险高低、历史暴露端口、是否在 25 个黑名单里，以及 25 邮件端口是否开放 | [`docs/ip.md`](docs/ip.md) |
@@ -202,4 +207,6 @@ cargo build --release --locked --target x86_64-unknown-linux-musl --bin lowendaf
 - **[NextTrace (`nxtrace/NTrace-core`)](https://github.com/nxtrace/NTrace-core)**：为 `network.trace` 提供精准轻量的路由追踪引擎与节点归属地信息。
 - **[peer.as (`Archeb/peer.as`)](https://github.com/Archeb/peer.as)**：`network.bgp` 自治域路径分层无交叉布局算法、Tier-1 截断、Prepend 折叠与 SVG 拓扑图绘制的重要参考。
 - **[speedtaier (`transflo/speedtaier`)](https://github.com/transflo/speedtaier)**：`network.taier` 中国信通院全球网测（泰尔测速）`dovalid` 鉴权协议、多线程 HTTP/1.1 上下行测速以及全国三网节点列表的重要参考。
+- **[cloudflare-speed-cli (`kavehtehrani/cloudflare-speed-cli`)](https://github.com/kavehtehrani/cloudflare-speed-cli)**：`network.cloudflare` 稳态 HTTPS 上下行测速、负载延迟采样、Waveform Bufferbloat / 吞吐稳定性评级以及 STUN UDP 丢包与 MOS 计算的重要参考。
+- **[iNetSpeed-CLI (`nxtrace/iNetSpeed-CLI`)](https://github.com/nxtrace/iNetSpeed-CLI)**：`network.inetspeed` 双 DoH 节点优选绑定与 Apple CDN（`mensura.cdn-apple.com`）单线程/多线程测速协议的重要参考。
 - **上游测试程序与公开数据源**：[`sysbench`](https://github.com/akopytov/sysbench)（Alexey Kopytov）、[`7-Zip`](https://www.7-zip.org/)（Igor Pavlov）、[`Byte-UnixBench`](https://github.com/kdlucas/byte-unixbench)、[`HPL`](https://www.netlib.org/benchmark/hpl/) 与 [`OpenBLAS`](https://www.openblas.net/)、[`PassMark PerformanceTest`](https://www.passmark.com/products/pt_linux/)、[`y-cruncher`](http://www.numberworld.org/y-cruncher/)（Alexander J. Yee）、[`Prime95 / GIMPS`](https://www.mersenne.org/)、[`Geekbench`](https://www.geekbench.com/)（Primate Labs）、[`STREAM`](https://www.cs.virginia.edu/stream/)（John D. McCalpin）、[`multichase`](https://github.com/google/multichase)（Google）、[`smartmontools`](https://www.smartmontools.org/)（`smartctl`）、[`fio`](https://github.com/axboe/fio)（Jens Axboe）、[`iperf3`](https://github.com/esnet/iperf)（ESnet）、[`RIPEstat`](https://stat.ripe.net/)（RIPE NCC）、[`iperf3serverlist.net`](https://iperf3serverlist.net/) 以及 [`PeeringDB`](https://www.peeringdb.com/)。
