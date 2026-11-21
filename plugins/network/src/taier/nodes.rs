@@ -231,7 +231,7 @@ pub fn parse(bytes: &[u8]) -> Result<Vec<Location>, ListError> {
 #[must_use]
 pub fn choose(locations: &[Location], cities: &[String], operators: &[OperatorChoice]) -> Chosen {
     let resolved_ops = resolve_operators(operators);
-    let mut unknown = Vec::new();
+    let mut unknown: Vec<String> = Vec::new();
     let chosen_locs: Vec<&Location> = if cities.is_empty() {
         let mut defaults: Vec<&Location> = locations.iter().filter(|loc| loc.default).collect();
         defaults.sort_by_key(|loc| {
@@ -251,9 +251,7 @@ pub fn choose(locations: &[Location], cities: &[String], operators: &[OperatorCh
             if trimmed.eq_ignore_ascii_case("all") {
                 want_all = true;
             } else if !locations.iter().any(|loc| matches_token(loc, trimmed))
-                && !unknown
-                    .iter()
-                    .any(|u: &String| u.eq_ignore_ascii_case(trimmed))
+                && !unknown.iter().any(|u| u.eq_ignore_ascii_case(trimmed))
             {
                 unknown.push(trimmed.to_owned());
             }

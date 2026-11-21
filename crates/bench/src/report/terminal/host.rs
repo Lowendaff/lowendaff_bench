@@ -375,9 +375,17 @@ fn filesystem_row(filesystem: &Filesystem, work_dir: Option<(u32, u32)>) -> Vec<
 
 fn system(out: &mut Out, system: &SystemFacts, arch: &str) {
     let words = locale::words();
-    let known = |value: &Option<String>| value.clone().unwrap_or_else(unavailable);
-    out.field(INDENT, label(HostLabel::Os), &known(&system.distribution));
-    out.field(INDENT, label(HostLabel::Kernel), &known(&system.kernel));
+    let known = |value: Option<&str>| value.map_or_else(unavailable, str::to_owned);
+    out.field(
+        INDENT,
+        label(HostLabel::Os),
+        &known(system.distribution.as_deref()),
+    );
+    out.field(
+        INDENT,
+        label(HostLabel::Kernel),
+        &known(system.kernel.as_deref()),
+    );
     out.field(INDENT, label(HostLabel::Arch), &self::arch(arch));
     let mark = |host: bool| if host { words.of_the_host() } else { "" };
     let uptime_text = system.uptime.map_or_else(unavailable, |seen| {
@@ -546,7 +554,9 @@ fn text(line: &Line, detail: Option<String>) -> Option<String> {
 
 /// A date of the form month/day/year as year-month-day; other forms as they are.
 fn date(text: &str) -> String {
-    let digits = |part: &str, lengths: std::ops::RangeInclusive<usize>| {
+    use std::ops::RangeInclusive;
+
+    let digits = |part: &str, lengths: RangeInclusive<usize>| {
         lengths.contains(&part.len()) && part.bytes().all(|byte| byte.is_ascii_digit())
     };
     match text.split('/').collect::<Vec<_>>().as_slice() {

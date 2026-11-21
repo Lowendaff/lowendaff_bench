@@ -96,7 +96,7 @@ fn main() -> ExitCode {
             .await
             .map_err(|err| locale::words().network_failed(&err))?;
         progress::network(&host.network);
-        let fetchers = Fetchers::with_proxy(&proxy)?;
+        let fetchers = Fetchers::try_new_with_proxy(&proxy)?;
         let auto_copy = cli
             .output
             .is_none()

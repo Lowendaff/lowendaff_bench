@@ -1,0 +1,10 @@
+id: no-poison-into-inner
+language: rust
+severity: error
+message: Never unwrap a poisoned mutex via `PoisonError::into_inner`; panic with `.expect(...)` or avoid poisoning.
+note: >-
+  CONTRIBUTING "Code" (Google Rust Style Guide, "Handling poison": never reach inside a poisoned
+  mutex to get at its insides).
+rule:
+  kind: scoped_identifier
+  regex: (^|::)PoisonError::into_inner$

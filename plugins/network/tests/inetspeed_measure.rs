@@ -17,10 +17,10 @@ use bench_api::HttpError;
 use bench_api::HttpFuture;
 use bench_api::HttpRequest;
 use bench_api::HttpResponse;
-use bench_api::InetDirection;
-use bench_api::InetTarget;
-use bench_api::InetTransferRaw;
-use bench_api::InetTransferSpec;
+use bench_api::InetspeedDirection;
+use bench_api::InetspeedTarget;
+use bench_api::InetspeedTransfer;
+use bench_api::InetspeedTransferSpec;
 use bench_api::IpFamily;
 use bench_api::NetClient;
 use bench_api::NetError;
@@ -62,11 +62,11 @@ impl HttpClient for MockDohHttp {
 }
 
 #[derive(Default)]
-struct MockInetNet {
-    pinned_transfers: Mutex<Vec<(InetDirection, u8, Option<IpAddr>)>>,
+struct MockInetspeedNet {
+    pinned_transfers: Mutex<Vec<(InetspeedDirection, u8, Option<IpAddr>)>>,
 }
 
-impl NetClient for MockInetNet {
+impl NetClient for MockInetspeedNet {
     fn dns_a<'a>(
         &'a self,
         _qname: &'a str,
@@ -86,9 +86,9 @@ impl NetClient for MockInetNet {
         Box::pin(async { Err(NetError::TimedOut) })
     }
 
-    fn inet_probe_rtt<'a>(
+    fn inetspeed_probe_rtt<'a>(
         &'a self,
-        target: &'a InetTarget,
+        target: &'a InetspeedTarget,
         count: u8,
         _timeout: Duration,
         _cancel: &'a CancellationToken,
@@ -108,11 +108,11 @@ impl NetClient for MockInetNet {
         })
     }
 
-    fn inet_transfer<'a>(
+    fn inetspeed_transfer<'a>(
         &'a self,
-        spec: &'a InetTransferSpec,
+        spec: &'a InetspeedTransferSpec,
         _cancel: &'a CancellationToken,
-    ) -> NetFuture<'a, InetTransferRaw> {
+    ) -> NetFuture<'a, InetspeedTransfer> {
         self.pinned_transfers.lock().expect("lock").push((
             spec.direction,
             spec.threads,
@@ -120,7 +120,7 @@ impl NetClient for MockInetNet {
         ));
         let mult = u64::from(spec.threads);
         Box::pin(async move {
-            Ok(InetTransferRaw {
+            Ok(InetspeedTransfer {
                 bytes: 125_000_000 * mult,
                 elapsed_micros: 1_000_000,
                 fault_count: 0,
@@ -144,7 +144,7 @@ async fn inetspeed_discovers_lowest_rtt_candidate_via_dual_doh_and_runs_four_rou
         ..HostProfile::default()
     };
 
-    let net = Arc::new(MockInetNet::default());
+    let net = Arc::new(MockInetspeedNet::default());
     let (ctx, channels) = Context::<Output>::new(
         Arc::new(host),
         Arc::new(BTreeMap::new()),

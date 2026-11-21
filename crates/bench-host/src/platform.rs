@@ -133,13 +133,13 @@ pub struct Cpuid {
 #[cfg(target_arch = "x86_64")]
 #[must_use]
 pub fn cpuid() -> Option<Cpuid> {
-    use std::arch::x86_64::__cpuid;
+    use std::arch::x86_64;
 
     // Bit 31 of ECX in leaf 1 is reserved for hypervisors to announce themselves.
-    if __cpuid(1).ecx & (1 << 31) == 0 {
+    if x86_64::__cpuid(1).ecx & (1 << 31) == 0 {
         return Some(Cpuid { hypervisor: None });
     }
-    let leaf = __cpuid(0x4000_0000);
+    let leaf = x86_64::__cpuid(0x4000_0000);
     let mut signature = Vec::with_capacity(12);
     for register in [leaf.ebx, leaf.ecx, leaf.edx] {
         signature.extend_from_slice(&register.to_le_bytes());

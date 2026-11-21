@@ -1,0 +1,10 @@
+id: lowercase-hex-literals
+valid:
+  - "const BASE: u64 = 0xf_0000;"
+  - "const MASK: u16 = 0xffff;"
+  - "const BYTE: u8 = 0x1f_u8;"
+  - "const DEC: u64 = 65_536;"
+invalid:
+  - "const BASE: u64 = 0xF_0000;"
+  - "const MASK: u16 = 0xFFFF;"
+  - "const BYTE: u8 = 0x1F_u8;"

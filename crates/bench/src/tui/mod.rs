@@ -40,6 +40,7 @@ use tokio::runtime;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::mpsc::UnboundedSender;
+use tokio::time::MissedTickBehavior;
 
 use crate::app;
 use crate::app::Outcome;
@@ -159,7 +160,7 @@ async fn event_loop(
     let mut session = Session::new(registry);
     let mut active_run: Option<ActiveRun> = None;
     let mut tick = tokio::time::interval(Duration::from_millis(80));
-    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    tick.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
     let _ = terminal.draw(|frame| ui::draw(frame, &mut session));
 
@@ -368,7 +369,7 @@ async fn run_worker(
     let summary = format!("{platform}, {}  |  IPv4: {v4}  |  IPv6: {v6}", host.arch);
     let _ = tx.send(WorkerEvent::HostSummary(summary));
 
-    let fetchers = Fetchers::with_proxy(&proxy)?;
+    let fetchers = Fetchers::try_new_with_proxy(&proxy)?;
     let mut observer = TuiObserver { tx, log: Log };
     let mut outcome = app::execute_with_observer(
         planned,

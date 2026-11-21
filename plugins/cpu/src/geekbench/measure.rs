@@ -6,7 +6,6 @@ use std::future::Future;
 use std::io;
 use std::path::Path;
 use std::sync::Mutex;
-use std::sync::PoisonError;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
@@ -120,7 +119,9 @@ where
         if let Some(adjustment) = &ran.outcome.adjustment
             && *adjustment != Adjustment::Done
         {
-            let mut guard = shared.lock().unwrap_or_else(PoisonError::into_inner);
+            let mut guard = shared
+                .lock()
+                .expect("sequential Geekbench retry state is never poisoned");
             if guard.0.first_to_go.is_none() {
                 guard.0.first_to_go = Some(adjustment.clone());
                 let snapshot = guard.0.clone();
@@ -132,7 +133,9 @@ where
     let upload = |reason: &Try| matches!(reason, Try::Upload(_));
     let cancel = ctx.cancel_token();
     let retried = Retried::run(ATTEMPTS, RETRY_WAIT, &cancel, upload, once).await;
-    let (mut output, _) = shared.into_inner().unwrap_or_else(PoisonError::into_inner);
+    let (mut output, _) = shared
+        .into_inner()
+        .expect("sequential Geekbench retry state is never poisoned");
     output.uploads = retried
         .failures
         .into_iter()

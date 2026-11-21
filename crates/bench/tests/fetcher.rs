@@ -459,7 +459,7 @@ async fn provisioning_through_github_mirror_rewrites_github_tool_urls_and_verifi
     ];
     let dir = tempfile::tempdir().unwrap();
     let proxy = DownloadProxy::try_new(None, Some(&mirror)).unwrap();
-    let fetchers = Fetchers::with_proxy(&proxy).unwrap();
+    let fetchers = Fetchers::try_new_with_proxy(&proxy).unwrap();
 
     let provisioned = provision::provision_all(
         &tools,

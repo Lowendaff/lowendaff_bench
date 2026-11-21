@@ -1,0 +1,6 @@
+id: no-poison-into-inner
+valid:
+  - 'let guard = state.lock().expect("state mutex is never poisoned");'
+invalid:
+  - "let guard = state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);"
+  - "let guard = state.lock().unwrap_or_else(PoisonError::into_inner);"

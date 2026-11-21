@@ -4,6 +4,7 @@
 use std::cmp::Ordering;
 use std::net::IpAddr;
 
+use bench_api::FamilyFilter;
 use serde_json::Value;
 
 use super::result::CandidateEndpoint;
@@ -65,21 +66,21 @@ pub fn host_from_url(raw_url: &str) -> Option<String> {
 }
 
 /// Extracts deduplicated `IpAddr`s from a Cloudflare or AliDNS DoH response body (`Answer[].data`
-/// JSON or plain-text IP lines), filtered by `ipv4` and `ipv6`.
+/// JSON or plain-text IP lines), filtered by `families`.
 #[must_use]
-pub fn extract_doh_ips(body: &[u8], ipv4: bool, ipv6: bool) -> Vec<IpAddr> {
+pub fn extract_doh_ips(body: &[u8], families: FamilyFilter) -> Vec<IpAddr> {
     let mut out = Vec::new();
     if let Ok(val) = serde_json::from_slice::<Value>(body) {
         if let Some(answers) = val.get("Answer").and_then(Value::as_array) {
             for item in answers {
                 if let Some(data) = item.get("data").and_then(Value::as_str) {
-                    push_filtered_ip(&mut out, data.trim(), ipv4, ipv6);
+                    push_filtered_ip(&mut out, data.trim(), families);
                 }
             }
         } else if let Some(arr) = val.as_array() {
             for item in arr {
                 if let Some(data) = item.as_str() {
-                    push_filtered_ip(&mut out, data.trim(), ipv4, ipv6);
+                    push_filtered_ip(&mut out, data.trim(), families);
                 }
             }
         }
@@ -90,7 +91,7 @@ pub fn extract_doh_ips(body: &[u8], ipv4: bool, ipv6: bool) -> Vec<IpAddr> {
 
     let text = String::from_utf8_lossy(body);
     for token in text.split(|ch: char| !(ch.is_ascii_hexdigit() || ch == '.' || ch == ':')) {
-        push_filtered_ip(&mut out, token, ipv4, ipv6);
+        push_filtered_ip(&mut out, token, families);
     }
     out
 }
@@ -109,11 +110,12 @@ pub fn merge_unique_ips(lists: &[Vec<IpAddr>]) -> Vec<IpAddr> {
     out
 }
 
-fn push_filtered_ip(out: &mut Vec<IpAddr>, raw: &str, ipv4: bool, ipv6: bool) {
-    let Ok(ip) = raw.parse::<IpAddr>() else {
+fn push_filtered_ip(out: &mut Vec<IpAddr>, raw: &str, families: FamilyFilter) {
+    let parsed: Result<IpAddr, _> = raw.parse();
+    let Ok(ip) = parsed else {
         return;
     };
-    let allowed = (ip.is_ipv4() && ipv4) || (ip.is_ipv6() && ipv6);
+    let allowed = (ip.is_ipv4() && families.ipv4) || (ip.is_ipv6() && families.ipv6);
     if allowed && !out.contains(&ip) {
         out.push(ip);
     }
@@ -198,6 +200,8 @@ fn round2(val: f64) -> f64 {
 mod tests {
     use std::net::IpAddr;
 
+    use bench_api::FamilyFilter;
+
     use super::CandidateEndpoint;
     use crate::inetspeed::EndpointSource;
 
@@ -219,42 +223,45 @@ mod tests {
             r#"{"data":"198.51.100.10"},{"data":"2001:db8::10"}]}"#
         )
         .as_bytes();
-        let v4_only = super::extract_doh_ips(cf_json, true, false);
-        assert_eq!(
-            v4_only,
-            vec!["198.51.100.10".parse::<IpAddr>().expect("v4")]
-        );
-        let dual = super::extract_doh_ips(cf_json, true, true);
+        let v4_filter = FamilyFilter {
+            ipv4: true,
+            ipv6: false,
+        };
+        let dual_filter = FamilyFilter {
+            ipv4: true,
+            ipv6: true,
+        };
+        let ip_10: IpAddr = "198.51.100.10".parse().expect("10");
+        let ip_11: IpAddr = "198.51.100.11".parse().expect("11");
+        let ip_12: IpAddr = "198.51.100.12".parse().expect("12");
+
+        let v4_only = super::extract_doh_ips(cf_json, v4_filter);
+        assert_eq!(v4_only, vec![ip_10]);
+        let dual = super::extract_doh_ips(cf_json, dual_filter);
         assert_eq!(dual.len(), 2);
 
         let ali_short = br#"["198.51.100.11","198.51.100.10"]"#;
-        let ali_ips = super::extract_doh_ips(ali_short, true, false);
+        let ali_ips = super::extract_doh_ips(ali_short, v4_filter);
         let merged = super::merge_unique_ips(&[v4_only, ali_ips]);
-        assert_eq!(
-            merged,
-            vec![
-                "198.51.100.10".parse::<IpAddr>().expect("10"),
-                "198.51.100.11".parse::<IpAddr>().expect("11"),
-            ]
-        );
+        assert_eq!(merged, vec![ip_10, ip_11]);
 
         let raw_cands = vec![
             CandidateEndpoint {
-                ip: "198.51.100.10".parse().expect("ip"),
+                ip: ip_10,
                 source: EndpointSource::Doh,
                 rtt_ms: None,
                 ok: false,
                 error: Some("timed out".to_owned()),
             },
             CandidateEndpoint {
-                ip: "198.51.100.11".parse().expect("ip"),
+                ip: ip_11,
                 source: EndpointSource::Doh,
                 rtt_ms: Some(18.5),
                 ok: true,
                 error: None,
             },
             CandidateEndpoint {
-                ip: "198.51.100.12".parse().expect("ip"),
+                ip: ip_12,
                 source: EndpointSource::Doh,
                 rtt_ms: Some(9.2),
                 ok: true,
@@ -263,7 +270,7 @@ mod tests {
         ];
         let ordered = super::order_candidates(&raw_cands);
         let chosen = super::choose_auto(&raw_cands, &ordered).expect("chosen");
-        assert_eq!(chosen.ip, "198.51.100.12".parse::<IpAddr>().expect("12"));
+        assert_eq!(chosen.ip, ip_12);
 
         let lat = super::compute_latency(&[10_000, 20_000, 30_000, 40_000]).expect("lat");
         assert_eq!(lat.samples, 4);

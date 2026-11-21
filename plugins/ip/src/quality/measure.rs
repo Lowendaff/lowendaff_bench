@@ -20,10 +20,12 @@ use super::parse::ProviderData;
 use super::parse::ProviderFailure;
 use super::providers;
 use super::providers::Provider;
+use super::result::DnsblSummary;
 use super::result::FactorSummary;
 use super::result::Failure;
 use super::result::FamilyReport;
 use super::result::GeoVote;
+use super::result::MailCheck;
 use super::result::Origin;
 use super::result::Output;
 use super::result::RiskFactor;
@@ -165,8 +167,8 @@ fn found_ip(address: &Address) -> Option<IpAddr> {
 pub fn aggregate(
     address: IpAddr,
     intel: &[(Provider, Result<ProviderData, ProviderFailure>)],
-    dnsbl: Option<super::result::DnsblSummary>,
-    mail: Vec<super::result::MailCheck>,
+    dnsbl: Option<DnsblSummary>,
+    mail: Vec<MailCheck>,
 ) -> FamilyReport {
     let find_ok = |id: &str| -> Option<&ProviderData> {
         intel

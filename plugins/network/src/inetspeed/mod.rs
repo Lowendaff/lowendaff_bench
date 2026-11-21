@@ -120,10 +120,12 @@ impl Plugin for Inetspeed {
             .map(str::trim)
             .filter(|s| !s.is_empty())
         {
-            Some(raw) => Some(
-                raw.parse::<IpAddr>()
-                    .map_err(|_| Stop::Failed(Failure::InvalidEndpoint(raw.to_owned())))?,
-            ),
+            Some(raw) => {
+                let ip: IpAddr = raw
+                    .parse()
+                    .map_err(|_| Stop::Failed(Failure::InvalidEndpoint(raw.to_owned())))?;
+                Some(ip)
+            }
             None => None,
         };
 

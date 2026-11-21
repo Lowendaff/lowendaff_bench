@@ -3,7 +3,6 @@
 use std::path::Path;
 
 use super::English;
-use super::count;
 use crate::locale::BgpField;
 use crate::locale::BgpWords;
 use crate::locale::CloudflareChoice;
@@ -207,7 +206,7 @@ impl CpuWords for English {
 
     fn hpl_parameters(&self, version: Option<&str>, n: u32, nb: u32, threads: usize) -> String {
         let ver = version.map_or_else(String::new, |v| format!(" {v}"));
-        let th = count(threads, "thread", "threads");
+        let th = super::count(threads, "thread", "threads");
         format!("HPL{ver} (OpenBLAS): dense FP64 LU, N={n}, NB={nb}, {th}")
     }
 
@@ -297,7 +296,7 @@ impl CpuWords for English {
         fft: Option<&str>,
     ) -> String {
         let ver = version.map_or_else(String::new, |v| format!(" {v}"));
-        let w = count(workers, "worker", "workers");
+        let w = super::count(workers, "worker", "workers");
         let kernel = fft.map_or_else(String::new, |f| format!(", {f}"));
         format!("Prime95{ver}: Small-FFT torture, {w}, {duration_secs} s{kernel}")
     }
@@ -309,7 +308,7 @@ impl CpuWords for English {
     fn prime95_passed(&self, warnings: u64) -> String {
         format!(
             "passed (0 errors, {})",
-            count(
+            super::count(
                 usize::try_from(warnings).unwrap_or(usize::MAX),
                 "warning",
                 "warnings"
@@ -458,7 +457,7 @@ impl MemoryWords for English {
         format!(
             "{}; bandwidth by multiload's stream-triad, the fastest of 3 samples per cell; \
              latency as above",
-            count(nodes, "node", "nodes")
+            super::count(nodes, "node", "nodes")
         )
     }
 
@@ -789,7 +788,7 @@ impl NetworkWords for English {
         rate: Option<u32>,
     ) -> String {
         let version = version.map_or_else(String::new, |version| format!(" {version}"));
-        let streams = count(usize::from(streams), "stream", "streams");
+        let streams = super::count(usize::from(streams), "stream", "streams");
         let rate = rate.map_or_else(String::new, |rate| {
             format!(", at most {rate} Mbit/s a stream")
         });
@@ -932,11 +931,11 @@ impl TraceWords for English {
     }
 
     fn reached(&self, hops: usize) -> String {
-        format!("reached in {}", count(hops, "hop", "hops"))
+        format!("reached in {}", super::count(hops, "hop", "hops"))
     }
 
     fn not_reached(&self, hops: usize) -> String {
-        format!("not reached after {}", count(hops, "hop", "hops"))
+        format!("not reached after {}", super::count(hops, "hop", "hops"))
     }
 
     fn trace_headers(&self) -> [&'static str; 5] {
@@ -1258,8 +1257,8 @@ impl IpWords for English {
         } else {
             "clean"
         };
-        let ports_text = count(ports, "port", "ports");
-        let vulns_text = count(vulns, "CVE", "CVEs");
+        let ports_text = super::count(ports, "port", "ports");
+        let vulns_text = super::count(vulns, "CVE", "CVEs");
         format!("{label} ({ports_text}, {vulns_text})")
     }
 
@@ -1392,8 +1391,8 @@ impl BgpWords for English {
     }
 
     fn bgp_visibility_cell(&self, peers: u32, distinct_paths: usize) -> String {
-        let peers_text = count(peers as usize, "peer", "peers");
-        let paths_text = count(distinct_paths, "distinct path", "distinct paths");
+        let peers_text = super::count(peers as usize, "peer", "peers");
+        let paths_text = super::count(distinct_paths, "distinct path", "distinct paths");
         format!("{peers_text}, {paths_text}")
     }
 
@@ -1438,7 +1437,7 @@ impl BgpWords for English {
 
 impl TaierWords for English {
     fn taier_method(&self, choice: &TaierChoice) -> String {
-        let streams = count(usize::from(choice.streams), "stream", "streams");
+        let streams = super::count(usize::from(choice.streams), "stream", "streams");
         let mut method = format!(
             "CAICT GlobalSpeed (Taier): {streams}, {} s each way, HTTP/1.1",
             choice.seconds
@@ -1566,7 +1565,7 @@ impl TaierWords for English {
 
 impl CloudflareWords for English {
     fn cloudflare_method(&self, choice: &CloudflareChoice) -> String {
-        let workers = count(usize::from(choice.concurrency), "worker", "workers");
+        let workers = super::count(usize::from(choice.concurrency), "worker", "workers");
         let mut method = format!(
             "Cloudflare Speed: {workers}, {} s each way, HTTPS",
             choice.seconds

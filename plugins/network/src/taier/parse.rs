@@ -154,7 +154,8 @@ pub fn md5_hex(input: &[u8]) -> String {
 #[must_use]
 pub fn luhn_check_digit(digits: &str) -> u8 {
     let mut total: u32 = 0;
-    for (idx, byte) in digits.bytes().rev().enumerate() {
+    let reversed = digits.bytes().rev().enumerate();
+    for (idx, byte) in reversed {
         let mut d = u32::from(byte.saturating_sub(b'0'));
         if idx % 2 == 0 {
             d *= 2;

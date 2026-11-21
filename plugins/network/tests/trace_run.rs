@@ -223,7 +223,8 @@ async fn the_plan_traces_each_cache_server_by_its_answer_then_the_lists_targets(
             "download failed: HTTP 404".to_owned()
         ))
     );
-    for traced in published.ipv4.iter().filter(|traced| traced.host.is_some()) {
+    let with_hosts = published.ipv4.iter().filter(|traced| traced.host.is_some());
+    for traced in with_hosts {
         assert!(
             matches!(
                 &traced.route,

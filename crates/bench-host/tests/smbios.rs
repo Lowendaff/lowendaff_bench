@@ -233,8 +233,8 @@ fn the_legacy_scan_prefers_a_3x_entry_point() {
         &dir,
         "/dev/mem",
         &[
-            (0xF_0010, &entry_2),
-            (0xF_8000, &entry_3),
+            (0xf_0010, &entry_2),
+            (0xf_8000, &entry_3),
             (0x10_0000, &table),
             (0x20_0000, &other),
         ],
@@ -245,7 +245,7 @@ fn the_legacy_scan_prefers_a_3x_entry_point() {
     common::add_sparse(
         &dir,
         "/dev/mem",
-        &[(0xF_0010, &entry_2), (0x20_0000, &other)],
+        &[(0xf_0010, &entry_2), (0x20_0000, &other)],
     );
     assert_eq!(read(&dir, "x86_64").expect("2.x").ecc, [Ecc::None]);
 }
@@ -291,13 +291,13 @@ fn tables_over_one_mebibyte_bad_entry_points_and_no_dev_mem_are_absent() {
 
     // A 2.x entry point whose `_DMI_` part alone has a bad checksum.
     let mut entry = common::entry_point_2(0x2000, 0x100, 2);
-    entry[0x1E] = entry[0x1E].wrapping_add(1);
-    entry[0x0B] = entry[0x0B].wrapping_sub(1);
+    entry[0x1e] = entry[0x1e].wrapping_add(1);
+    entry[0x0b] = entry[0x0b].wrapping_sub(1);
     let dir = common::host((&[("/sys/firmware/efi/systab", "SMBIOS=0x1000\n")], &[]));
     common::add_sparse(&dir, "/dev/mem", &[(0x1000, &entry)]);
     assert!(matches!(read(&dir, "x86_64"), Err(Unreadable::Absent)));
 
-    let big = vec![0x7F_u8; (1 << 20) + 1];
+    let big = vec![0x7f_u8; (1 << 20) + 1];
     let dir = common::host((SYSTAB, &[]));
     common::add_bytes(&dir, "/sys/firmware/dmi/tables/DMI", &big);
     assert!(matches!(read(&dir, "aarch64"), Err(Unreadable::Absent)));
@@ -320,16 +320,16 @@ fn an_unreadable_dev_mem_says_why() {
 fn synthetic() -> Smbios {
     let ddr5 = Device {
         array: 0x10,
-        size: 0x7FFF,
+        size: 0x7fff,
         extended_size: 64 << 10,
         locator: "DIMM 0",
         bank: "BANK 0",
         kind: 0x22,
         // Registered and LRDIMM: an LRDIMM.
-        detail: 0xA080,
-        speed: 0xFFFF,
+        detail: 0xa080,
+        speed: 0xffff,
         extended_speed: 8800,
-        configured_speed: 0xFFFF,
+        configured_speed: 0xffff,
         extended_configured_speed: 6400,
         manufacturer: "Samsung",
         part: " M321R8GA0BB0-CQK  ",
@@ -347,7 +347,7 @@ fn synthetic() -> Smbios {
                 size: 0x8000 | 512,
                 locator: "DIMM 0",
                 bank: "BANK 1",
-                kind: 0x1A,
+                kind: 0x1a,
                 detail: 0x4080,
                 speed: 2933,
                 configured_speed: 2666,
@@ -378,7 +378,7 @@ fn synthetic() -> Smbios {
             0x24,
             Device {
                 locator: "DIMM 2",
-                kind: 0x1A,
+                kind: 0x1a,
                 detail: 0x2080,
                 speed: 2933,
                 manufacturer: "Micron",
@@ -400,7 +400,7 @@ fn synthetic() -> Smbios {
             0x26,
             Device {
                 array: 0x12,
-                size: 0xFFFF,
+                size: 0xffff,
                 bank: "BANK 3",
                 ..Device::default()
             },

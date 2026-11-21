@@ -27,7 +27,6 @@ use bench_host::smbios::Ecc;
 use bench_host::storage::Use;
 
 use super::English;
-use super::count;
 use crate::locale::Cores;
 use crate::locale::HostHeader;
 use crate::locale::HostLabel;
@@ -171,35 +170,35 @@ impl HostWords for English {
                 topology: Some((sockets, cores)),
             } if sockets > 1 => format!(
                 "{} ({} CPUs, {} in all)",
-                count(threads, "thread", "threads"),
+                super::count(threads, "thread", "threads"),
                 sockets,
-                count(cores, "core", "cores")
+                super::count(cores, "core", "cores")
             ),
             Cores::Dedicated {
                 threads,
                 topology: Some((_, cores)),
             } => format!(
                 "{} ({})",
-                count(threads, "thread", "threads"),
-                count(cores, "core", "cores")
+                super::count(threads, "thread", "threads"),
+                super::count(cores, "core", "cores")
             ),
             Cores::Dedicated {
                 threads,
                 topology: None,
-            } => count(threads, "thread", "threads"),
-            Cores::Vm(vcpus) => count(vcpus, "vCPU", "vCPUs"),
+            } => super::count(threads, "thread", "threads"),
+            Cores::Vm(vcpus) => super::count(vcpus, "vCPU", "vCPUs"),
             Cores::Container {
                 usable,
                 quota: Some(quota),
             } => format!(
                 "{} (quota {})",
-                count(usable, "CPU", "CPUs"),
+                super::count(usable, "CPU", "CPUs"),
                 decimals(quota)
             ),
             Cores::Container {
                 usable,
                 quota: None,
-            } => count(usable, "CPU", "CPUs"),
+            } => super::count(usable, "CPU", "CPUs"),
         }
     }
 
@@ -455,7 +454,11 @@ impl HostWords for English {
         }
         if card.virtual_functions > 0 {
             let functions = usize::try_from(card.virtual_functions).unwrap_or(usize::MAX);
-            parts.push(count(functions, "virtual function", "virtual functions"));
+            parts.push(super::count(
+                functions,
+                "virtual function",
+                "virtual functions",
+            ));
         }
         if parts.is_empty() {
             "—".to_owned()
@@ -503,12 +506,15 @@ impl HostWords for English {
     fn uptime(&self, uptime: Duration) -> String {
         let minutes = usize::try_from(uptime.as_secs() / 60).unwrap_or(usize::MAX);
         let (days, hours, minutes) = (minutes / 1440, minutes / 60 % 24, minutes % 60);
-        let minutes = count(minutes, "minute", "minutes");
+        let minutes = super::count(minutes, "minute", "minutes");
         if days > 0 {
-            let days = count(days, "day", "days");
-            format!("{days}, {}, {minutes}", count(hours, "hour", "hours"))
+            let days = super::count(days, "day", "days");
+            format!(
+                "{days}, {}, {minutes}",
+                super::count(hours, "hour", "hours")
+            )
         } else if hours > 0 {
-            format!("{}, {minutes}", count(hours, "hour", "hours"))
+            format!("{}, {minutes}", super::count(hours, "hour", "hours"))
         } else {
             minutes
         }

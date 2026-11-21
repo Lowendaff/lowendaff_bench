@@ -27,6 +27,8 @@ use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpSocket;
 use tokio::net::TcpStream;
+use tokio::time::Instant as TokioInstant;
+use tokio::time::MissedTickBehavior;
 
 const UA_DOWN: &str = concat!(
     "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 ",
@@ -451,9 +453,9 @@ async fn wait_window(
     stop: &CancellationToken,
     cancel: &CancellationToken,
 ) {
-    let deadline = tokio::time::Instant::now() + duration;
+    let deadline = TokioInstant::now() + duration;
     let mut poll = tokio::time::interval(Duration::from_millis(50));
-    poll.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    poll.set_missed_tick_behavior(MissedTickBehavior::Skip);
     loop {
         tokio::select! {
             biased;

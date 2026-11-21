@@ -2,7 +2,6 @@
 //! Benchmark working directories and helper binaries never use `/tmp` (`work_dir` defaults to `.`),
 //! whereas finished plain-text, Markdown, and JSON reports are safe to archive in `/tmp`.
 
-use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
 use std::time::SystemTime;
@@ -78,6 +77,8 @@ pub fn auto_label(format: Format) -> String {
 
 /// Writes `contents` to `path`, returning a localized error string on failure.
 pub fn save_copy(path: &Path, contents: &str) -> Result<(), String> {
+    use std::io::Write;
+
     let mut file = app::create_output(path)?;
     file.write_all(contents.as_bytes())
         .and_then(|()| file.flush())

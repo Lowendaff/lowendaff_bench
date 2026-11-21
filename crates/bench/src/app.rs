@@ -6,6 +6,7 @@ use std::fs;
 use std::fs::Permissions;
 use std::future::Future;
 use std::io::Write;
+use std::net::IpAddr;
 use std::ops::Range;
 use std::path::Path;
 use std::path::PathBuf;
@@ -27,6 +28,7 @@ use plugin_network::iperf3::Iperf3;
 use plugin_network::taier::Taier;
 use plugin_network::trace::Trace;
 use tokio::io::AsyncRead;
+use tokio::time::Instant as TokioInstant;
 
 use crate::bgp_upload;
 use crate::fetcher::DownloadProxy;
@@ -388,7 +390,7 @@ pub fn download_proxy(cli: &Cli) -> Result<DownloadProxy, Vec<String>> {
         .map(str::trim)
         .filter(|s| !s.is_empty())
     {
-        Some(raw) => match Socks5Proxy::parse(raw) {
+        Some(raw) => match Socks5Proxy::try_new(raw) {
             Ok(proxy) => Some(proxy),
             Err(err) => {
                 errors.push(err);
@@ -403,7 +405,7 @@ pub fn download_proxy(cli: &Cli) -> Result<DownloadProxy, Vec<String>> {
         .map(str::trim)
         .filter(|s| !s.is_empty())
     {
-        Some(raw) => match GithubProxy::parse(raw) {
+        Some(raw) => match GithubProxy::try_new(raw) {
             Ok(proxy) => Some(proxy),
             Err(err) => {
                 errors.push(err);
@@ -449,13 +451,16 @@ pub fn prepare(cli: &Cli, registry: &[Entry]) -> Result<Vec<Planned<Measured>>, 
         .map(str::trim)
         .filter(|s| !s.is_empty())
     {
-        Some(raw) => match raw.parse::<std::net::IpAddr>() {
-            Ok(ip) => Some(ip.to_string()),
-            Err(_) => {
-                errors.push(locale::words().invalid_inetspeed_endpoint(raw));
-                None
+        Some(raw) => {
+            let parsed_ip: Result<IpAddr, _> = raw.parse();
+            match parsed_ip {
+                Ok(ip) => Some(ip.to_string()),
+                Err(_) => {
+                    errors.push(locale::words().invalid_inetspeed_endpoint(raw));
+                    None
+                }
             }
-        },
+        }
         None => None,
     };
     if cli.inetspeed_threads.is_some() || inet_endpoint.is_some() {
@@ -504,7 +509,7 @@ pub fn select(
     // A name is `all`, a whole id, or a whole group, never a part of one.
     let names =
         |name: &str, id: &str| name == "all" || name == id || name == orchestrator::group_of(id);
-    let known = |name: &String| registry.iter().any(|entry| names(name, entry.id));
+    let known = |name: &str| registry.iter().any(|entry| names(name, entry.id));
     let errors: Vec<String> = only
         .iter()
         .chain(skip)
@@ -870,7 +875,8 @@ where
     .filter_map(|(family, reachable)| reachable.then_some(family))
     .collect();
     let mut files = BTreeMap::new();
-    for planned in runnable().filter(|planned| !planned.files().is_empty()) {
+    let needing_files = runnable().filter(|planned| !planned.files().is_empty());
+    for planned in needing_files {
         let dir = run_dir.path().join("files").join(planned.id());
         let fetched =
             provision::fetch_files(planned.files(), &dir, &families, cancel, &fetch).await;
@@ -883,7 +889,7 @@ where
     let settings = Settings {
         grace: GRACE,
         work_root: run_dir.path().to_path_buf(),
-        origin: tokio::time::Instant::from_std(started),
+        origin: TokioInstant::from_std(started),
         tools: Arc::new(ready),
         failed_tools,
         files,

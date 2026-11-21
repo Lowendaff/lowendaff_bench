@@ -185,9 +185,9 @@ fn efi_address(root: &Root) -> Option<u64> {
     })
 }
 
-/// The first valid entry point at a 16-byte boundary of 0xF0000–0xFFFFF, the 3.x one first.
+/// The first valid entry point at a 16-byte boundary of 0xf0000–0xfffff, the 3.x one first.
 fn scan(memory: &mut File) -> io::Result<Option<EntryPoint>> {
-    let segment = read_at(memory, 0xF_0000, 0x1_0000)?;
+    let segment = read_at(memory, 0xf_0000, 0x1_0000)?;
     let find = |anchor: &[u8]| {
         (0..segment.len())
             .step_by(16)
@@ -224,14 +224,14 @@ fn entry_point(bytes: &[u8]) -> Option<EntryPoint> {
         }
         Some(EntryPoint {
             address: u64::from_le_bytes(entry[0x10..0x18].try_into().ok()?),
-            length: usize::try_from(u32::from_le_bytes(entry[0x0C..0x10].try_into().ok()?)).ok()?,
+            length: usize::try_from(u32::from_le_bytes(entry[0x0c..0x10].try_into().ok()?)).ok()?,
             version: SMBiosVersion::new(entry[7], entry[8], entry[9]),
         })
     } else if bytes.starts_with(b"_SM_") {
-        // Some firmware writes 0x1E for the 2.1 entry point's length of 0x1F, as dmidecode notes.
+        // Some firmware writes 0x1e for the 2.1 entry point's length of 0x1f, as dmidecode notes.
         let entry = bytes.get(..usize::from(*bytes.get(5)?))?;
-        let intermediate = bytes.get(0x10..0x1F)?;
-        if entry.len() < 0x1E
+        let intermediate = bytes.get(0x10..0x1f)?;
+        if entry.len() < 0x1e
             || !checksum(entry)
             || !intermediate.starts_with(b"_DMI_")
             || !checksum(intermediate)
@@ -239,7 +239,7 @@ fn entry_point(bytes: &[u8]) -> Option<EntryPoint> {
             return None;
         }
         Some(EntryPoint {
-            address: u64::from(u32::from_le_bytes(bytes[0x18..0x1C].try_into().ok()?)),
+            address: u64::from(u32::from_le_bytes(bytes[0x18..0x1c].try_into().ok()?)),
             length: usize::from(u16::from_le_bytes(bytes[0x16..0x18].try_into().ok()?)),
             version: SMBiosVersion::new(entry[6], entry[7], 0),
         })
@@ -347,7 +347,7 @@ fn parse(table: Vec<u8>, version: Option<SMBiosVersion>) -> Smbios {
             version: ipmi
                 .ipmi_specification_revision()
                 .filter(|revision| *revision != 0)
-                .map(|revision| (revision >> 4, revision & 0x0F)),
+                .map(|revision| (revision >> 4, revision & 0x0f)),
         });
     let system = data
         .defined_struct_iter::<SMBiosSystemInformation<'_>>()

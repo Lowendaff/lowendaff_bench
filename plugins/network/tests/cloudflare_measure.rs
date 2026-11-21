@@ -8,10 +8,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use bench_api::CancellationToken;
-use bench_api::CfStunRaw;
-use bench_api::CfStunSpec;
-use bench_api::CfTransferRaw;
-use bench_api::CfTransferSpec;
+use bench_api::CloudflareStun;
+use bench_api::CloudflareStunSpec;
+use bench_api::CloudflareTransfer;
+use bench_api::CloudflareTransferSpec;
 use bench_api::Context;
 use bench_api::DnsAnswer;
 use bench_api::HttpClient;
@@ -24,6 +24,7 @@ use bench_api::NetClient;
 use bench_api::NetError;
 use bench_api::NetFuture;
 use bench_api::SmtpBanner;
+use bench_api::ThroughputTick;
 use bench_host::network::Family;
 use bench_host::network::Network;
 use bench_host::network::Reach;
@@ -33,9 +34,9 @@ use plugin_network::cloudflare::Settings;
 use plugin_network::cloudflare::measure;
 use tokio::time::Instant;
 
-struct MockCfHttp;
+struct MockCloudflareHttp;
 
-impl HttpClient for MockCfHttp {
+impl HttpClient for MockCloudflareHttp {
     fn send<'a>(&'a self, request: &'a HttpRequest) -> HttpFuture<'a> {
         let url = request.url.clone();
         let ipv6 = request.family == IpFamily::Ipv6;
@@ -82,9 +83,9 @@ impl HttpClient for MockCfHttp {
     }
 }
 
-struct MockCfNet;
+struct MockCloudflareNet;
 
-impl NetClient for MockCfNet {
+impl NetClient for MockCloudflareNet {
     fn dns_a<'a>(
         &'a self,
         _qname: &'a str,
@@ -104,20 +105,32 @@ impl NetClient for MockCfNet {
         Box::pin(async { Err(NetError::TimedOut) })
     }
 
-    fn cf_download<'a>(
+    fn cloudflare_download<'a>(
         &'a self,
-        _spec: &'a CfTransferSpec,
+        _spec: &'a CloudflareTransferSpec,
         _cancel: &'a CancellationToken,
-    ) -> NetFuture<'a, CfTransferRaw> {
+    ) -> NetFuture<'a, CloudflareTransfer> {
         Box::pin(async {
-            Ok(CfTransferRaw {
+            Ok(CloudflareTransfer {
                 bytes: 125_000_000,
                 duration_ms: 2_000,
                 ticks: vec![
-                    (500, 25_000_000),
-                    (1_000, 62_500_000),
-                    (1_500, 93_750_000),
-                    (2_000, 125_000_000),
+                    ThroughputTick {
+                        elapsed_ms: 500,
+                        bytes: 25_000_000,
+                    },
+                    ThroughputTick {
+                        elapsed_ms: 1_000,
+                        bytes: 62_500_000,
+                    },
+                    ThroughputTick {
+                        elapsed_ms: 1_500,
+                        bytes: 93_750_000,
+                    },
+                    ThroughputTick {
+                        elapsed_ms: 2_000,
+                        bytes: 125_000_000,
+                    },
                 ],
                 loaded_sent: 4,
                 loaded_rtts_micros: vec![18_000, 20_000, 19_000, 21_000],
@@ -126,20 +139,32 @@ impl NetClient for MockCfNet {
         })
     }
 
-    fn cf_upload<'a>(
+    fn cloudflare_upload<'a>(
         &'a self,
-        _spec: &'a CfTransferSpec,
+        _spec: &'a CloudflareTransferSpec,
         _cancel: &'a CancellationToken,
-    ) -> NetFuture<'a, CfTransferRaw> {
+    ) -> NetFuture<'a, CloudflareTransfer> {
         Box::pin(async {
-            Ok(CfTransferRaw {
+            Ok(CloudflareTransfer {
                 bytes: 62_500_000,
                 duration_ms: 2_000,
                 ticks: vec![
-                    (500, 12_500_000),
-                    (1_000, 31_250_000),
-                    (1_500, 46_875_000),
-                    (2_000, 62_500_000),
+                    ThroughputTick {
+                        elapsed_ms: 500,
+                        bytes: 12_500_000,
+                    },
+                    ThroughputTick {
+                        elapsed_ms: 1_000,
+                        bytes: 31_250_000,
+                    },
+                    ThroughputTick {
+                        elapsed_ms: 1_500,
+                        bytes: 46_875_000,
+                    },
+                    ThroughputTick {
+                        elapsed_ms: 2_000,
+                        bytes: 62_500_000,
+                    },
                 ],
                 loaded_sent: 4,
                 loaded_rtts_micros: vec![24_000, 26_000, 25_000, 27_000],
@@ -148,18 +173,18 @@ impl NetClient for MockCfNet {
         })
     }
 
-    fn cf_udp_loss<'a>(
+    fn cloudflare_udp_loss<'a>(
         &'a self,
-        spec: &'a CfStunSpec,
+        spec: &'a CloudflareStunSpec,
         _cancel: &'a CancellationToken,
-    ) -> NetFuture<'a, CfStunRaw> {
+    ) -> NetFuture<'a, CloudflareStun> {
         let ipv6 = spec.family == IpFamily::Ipv6;
         let target = format!("stun:{}:{}", spec.host, spec.port);
         Box::pin(async move {
             if ipv6 {
                 Err(NetError::Transport("UDP blocked on IPv6".to_owned()))
             } else {
-                Ok(CfStunRaw {
+                Ok(CloudflareStun {
                     target,
                     sent: 10,
                     received: 10,
@@ -198,8 +223,8 @@ async fn cloudflare_measures_dual_stack_merges_trace_fallback_and_keeps_udp_bloc
         CancellationToken::new(),
     );
     let ctx = ctx
-        .with_http(Arc::new(MockCfHttp))
-        .with_net(Arc::new(MockCfNet));
+        .with_http(Arc::new(MockCloudflareHttp))
+        .with_net(Arc::new(MockCloudflareNet));
 
     let settings = Settings {
         seconds: 2,

@@ -75,7 +75,8 @@ pub fn trace(text: &str) -> Option<Trace> {
         .into_iter()
         .map(|probes| {
             let mut answers: Vec<Answer> = Vec::new();
-            for probe in probes.into_iter().filter(|probe| probe.success) {
+            let answered = probes.into_iter().filter(|probe| probe.success);
+            for probe in answered {
                 let Some(address) = probe
                     .address
                     .and_then(|address| address.ip.parse::<IpAddr>().ok())

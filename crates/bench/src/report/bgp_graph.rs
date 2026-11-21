@@ -562,7 +562,8 @@ fn assign_column_rows(
         }
     }
 
-    for (&asn, row) in members.iter().zip(rows) {
+    let assigned = members.iter().zip(rows);
+    for (&asn, row) in assigned {
         cell_row.insert((asn, col), row);
     }
 }
@@ -695,7 +696,8 @@ fn dfs_order(
         *leaf_counter += 1;
         v
     } else {
-        values.iter().sum::<f64>() / (values.len() as f64)
+        let sum: f64 = values.iter().sum();
+        sum / (values.len() as f64)
     };
     ord.insert(asn, mean);
     mean

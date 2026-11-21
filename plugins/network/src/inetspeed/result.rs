@@ -1,5 +1,6 @@
 //! Typed results and failure reasons for `network.inetspeed` (Apple CDN speedtest).
 
+use std::fmt;
 use std::net::IpAddr;
 
 use bench_api::Measurement;
@@ -76,6 +77,12 @@ impl EndpointSource {
             Self::SystemDns => "system_dns",
             Self::DefaultDns => "default_dns",
         }
+    }
+}
+
+impl fmt::Display for EndpointSource {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.code())
     }
 }
 

@@ -335,12 +335,12 @@ fn is_safe_key(key: &str) -> bool {
 }
 
 fn sanitize_reason(raw: &str) -> String {
-    raw.chars()
+    let preview: String = raw
+        .chars()
         .filter(|ch| !ch.is_control())
         .take(120)
-        .collect::<String>()
-        .trim()
-        .to_owned()
+        .collect();
+    preview.trim().to_owned()
 }
 
 #[cfg(test)]
@@ -358,6 +358,7 @@ mod tests {
     use tokio::io::AsyncReadExt;
     use tokio::io::AsyncWriteExt;
     use tokio::net::TcpListener;
+    use tokio::net::TcpStream;
 
     use crate::orchestrator::Run;
     use crate::orchestrator::Status;
@@ -560,7 +561,7 @@ mod tests {
         }
     }
 
-    async fn read_http_request(stream: &mut tokio::net::TcpStream) -> String {
+    async fn read_http_request(stream: &mut TcpStream) -> String {
         let mut buf = Vec::with_capacity(4096);
         let mut chunk = [0_u8; 2048];
         let mut expected_total = None;

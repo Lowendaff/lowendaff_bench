@@ -7,7 +7,6 @@ pub mod parse;
 pub mod result;
 
 use std::collections::hash_map::RandomState;
-use std::hash::BuildHasher;
 use std::num::NonZeroU8;
 use std::num::NonZeroU16;
 use std::time::Duration;
@@ -158,6 +157,8 @@ fn is_loopback_http(url: &str, prefix: &str) -> bool {
 }
 
 fn random_meas_id() -> String {
+    use std::hash::BuildHasher;
+
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_nanos());

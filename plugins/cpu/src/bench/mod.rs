@@ -4,10 +4,12 @@
 
 pub mod result;
 
+use std::path::Path;
 use std::time::Duration;
 
 use bench_api::Context;
 use bench_api::Descriptor;
+use bench_api::Measurement;
 use bench_api::Net;
 use bench_api::Plugin;
 use bench_api::Requirements;
@@ -372,10 +374,10 @@ impl Plugin for CpuBench {
     }
 }
 
-fn require_tool<'a, O: bench_api::Measurement>(
+fn require_tool<'a, O: Measurement>(
     ctx: &'a Context<O>,
     spec: &ToolSpec,
-) -> Result<&'a std::path::Path, SuiteSkip> {
+) -> Result<&'a Path, SuiteSkip> {
     ctx.tool(spec.name)
         .ok_or_else(|| SuiteSkip::ToolUnavailable {
             tool: spec.name,

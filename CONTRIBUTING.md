@@ -135,7 +135,9 @@ used), with these rules of this repository:
   `Display` instead of writing label helpers. Name a module after its primary type, without
   abbreviations.
 - No combinator chains in `for` headers; prefer `let`-`else`; `expect("why")` instead of
-  `unwrap()`, which only tests may use; an assertion's message says what was expected.
+  `unwrap()`, which only tests may use; never unwrap a poisoned mutex (`no-poison-into-inner`);
+  hex literals use lowercase digits (`lowercase-hex-literals`); an assertion's message says what
+  was expected.
 - Public enums are not `#[non_exhaustive]` (rule `no-non-exhaustive`): every consumer lives in
   the workspace, so a new variant is a compile error instead of a silent default.
 - `unsafe` is forbidden, except in `crates/swap-file`, whose two calls turn swap on and off.

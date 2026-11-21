@@ -153,7 +153,7 @@ impl ReportWords for English {
     }
 
     fn tool_fault(&self, tool: &str, fault: &job::Fault, unit: Unit) -> String {
-        let quoted = |last: &Option<String>| last.clone().unwrap_or_else(|| "no output".to_owned());
+        let quoted = |last: Option<&str>| last.unwrap_or("no output").to_owned();
         match fault {
             job::Fault::Spawn(error) => format!("cannot run {tool}: {error}"),
             job::Fault::Read(error) => format!("cannot read the output of {tool}: {error}"),
@@ -168,9 +168,11 @@ impl ReportWords for English {
                 };
                 format!("still running after {limit}, stopped")
             }
-            job::Fault::Exit { code, last } => format!("{tool} exit code {code}: {}", quoted(last)),
+            job::Fault::Exit { code, last } => {
+                format!("{tool} exit code {code}: {}", quoted(last.as_deref()))
+            }
             job::Fault::Signal { last } => {
-                format!("{tool} ended by a signal: {}", quoted(last))
+                format!("{tool} ended by a signal: {}", quoted(last.as_deref()))
             }
         }
     }

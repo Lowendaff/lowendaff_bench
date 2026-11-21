@@ -3,8 +3,9 @@
 use std::io;
 use std::sync::Arc;
 use std::sync::Mutex;
-use std::sync::MutexGuard;
-use std::sync::PoisonError;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
+use std::thread;
 
 use bench::progress;
 use tracing::subscriber::DefaultGuard;
@@ -14,7 +15,30 @@ use tracing::subscriber::DefaultGuard;
 /// another can leave that event unheard when tests share a process, as under `cargo test`. A test
 /// that logs without a capture is such another thread, so in a test binary that captures, every
 /// test that logs captures too, even when it reads nothing.
-static ONE_AT_A_TIME: Mutex<()> = Mutex::new(());
+///
+/// Uses an [`AtomicBool`] rather than a [`Mutex`] so a failing assertion inside one test never
+/// poisons subsequent tests or requires reaching inside a poisoned lock.
+static ONE_AT_A_TIME: AtomicBool = AtomicBool::new(false);
+
+struct Turn;
+
+impl Turn {
+    fn acquire() -> Self {
+        while ONE_AT_A_TIME
+            .compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed)
+            .is_err()
+        {
+            thread::yield_now();
+        }
+        Self
+    }
+}
+
+impl Drop for Turn {
+    fn drop(&mut self) {
+        ONE_AT_A_TIME.store(false, Ordering::Release);
+    }
+}
 
 /// What the program logged on this thread.
 #[derive(Clone, Default)]
@@ -23,7 +47,7 @@ pub struct Captured(Arc<Mutex<Vec<u8>>>);
 /// Ends a capture when dropped: first the subscriber, then the turn of the next capture.
 pub struct Capturing {
     _subscriber: DefaultGuard,
-    _turn: MutexGuard<'static, ()>,
+    _turn: Turn,
 }
 
 impl io::Write for Captured {
@@ -43,8 +67,7 @@ impl io::Write for Captured {
 impl Captured {
     /// Logs this thread's events as the program does, but into memory, until the guard drops.
     pub fn start(verbose: bool) -> (Self, Capturing) {
-        // A test that failed during its capture leaves the lock poisoned; the next may go on.
-        let turn = ONE_AT_A_TIME.lock().unwrap_or_else(PoisonError::into_inner);
+        let turn = Turn::acquire();
         let captured = Self::default();
         let writer = captured.clone();
         let subscriber = progress::subscriber(move || writer.clone(), verbose);

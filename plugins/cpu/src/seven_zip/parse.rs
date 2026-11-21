@@ -86,7 +86,8 @@ fn parse_tot(text: &str) -> Option<(u64, u64, u64)> {
 
 /// Extracts `26.06` from `7-Zip (z) 26.06 (arm64) : ...` or `7-Zip 26.06 ...`.
 fn version(text: &str) -> Option<String> {
-    for line in text.lines().take(5) {
+    let header_lines = text.lines().take(5);
+    for line in header_lines {
         let Some(after) = line.trim().strip_prefix("7-Zip") else {
             continue;
         };

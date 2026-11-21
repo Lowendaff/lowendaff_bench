@@ -7,11 +7,12 @@ use std::net::IpAddr;
 use std::time::Duration;
 
 use bench_api::Context;
+use bench_api::FamilyFilter;
 use bench_api::HttpError;
 use bench_api::HttpRequest;
-use bench_api::InetDirection;
-use bench_api::InetTarget;
-use bench_api::InetTransferSpec;
+use bench_api::InetspeedDirection;
+use bench_api::InetspeedTarget;
+use bench_api::InetspeedTransferSpec;
 use bench_api::IpFamily;
 use bench_api::NetError;
 use bench_api::Step;
@@ -53,9 +54,11 @@ pub async fn measure(
     settings: Settings,
     endpoints: &Endpoints<'_>,
 ) -> Result<Output, Stop<Failure>> {
-    let v4_ok = ctx.host().network.ipv4.reachable();
-    let v6_ok = ctx.host().network.ipv6.reachable();
-    if !v4_ok && !v6_ok {
+    let families = FamilyFilter {
+        ipv4: ctx.host().network.ipv4.reachable(),
+        ipv6: ctx.host().network.ipv6.reachable(),
+    };
+    if !families.ipv4 && !families.ipv6 {
         return Err(Stop::Skipped(Failure::NoFamily));
     }
 
@@ -65,7 +68,7 @@ pub async fn measure(
     });
 
     let (selected, candidates, mut warnings) =
-        discover_endpoint(ctx, &settings, endpoints, v4_ok, v6_ok).await?;
+        discover_endpoint(ctx, &settings, endpoints, families).await?;
 
     let mut output = Output {
         settings: settings.clone(),
@@ -85,12 +88,12 @@ pub async fn measure(
         stage: "latency",
         threads: 0,
     });
-    let idle_target = InetTarget {
+    let idle_target = InetspeedTarget {
         url: endpoints.latency_url.to_owned(),
         pin_ip,
     };
     match ctx
-        .inet_probe_rtt(&idle_target, settings.latency_count, PROBE_TIMEOUT)
+        .inetspeed_probe_rtt(&idle_target, settings.latency_count, PROBE_TIMEOUT)
         .await
     {
         Err(NetError::Cancelled) => return Err(Stop::Failed(Failure::Cancelled)),
@@ -110,18 +113,22 @@ pub async fn measure(
     }
     ctx.publish(&output);
 
-    let mut schedule = vec![(InetDirection::Download, TransferDirection::Download, 1_u8)];
+    let mut schedule = vec![(
+        InetspeedDirection::Download,
+        TransferDirection::Download,
+        1_u8,
+    )];
     if settings.threads > 1 {
         schedule.push((
-            InetDirection::Download,
+            InetspeedDirection::Download,
             TransferDirection::Download,
             settings.threads,
         ));
     }
-    schedule.push((InetDirection::Upload, TransferDirection::Upload, 1_u8));
+    schedule.push((InetspeedDirection::Upload, TransferDirection::Upload, 1_u8));
     if settings.threads > 1 {
         schedule.push((
-            InetDirection::Upload,
+            InetspeedDirection::Upload,
             TransferDirection::Upload,
             settings.threads,
         ));
@@ -141,7 +148,7 @@ pub async fn measure(
             TransferDirection::Download => endpoints.dl_url,
             TransferDirection::Upload => endpoints.ul_url,
         };
-        let spec = InetTransferSpec {
+        let spec = InetspeedTransferSpec {
             direction: api_dir,
             transfer_url: transfer_url.to_owned(),
             latency_url: endpoints.latency_url.to_owned(),
@@ -151,7 +158,7 @@ pub async fn measure(
             timeout: Duration::from_secs(u64::from(settings.timeout_secs)),
         };
 
-        let round = match ctx.inet_transfer(&spec).await {
+        let round = match ctx.inetspeed_transfer(&spec).await {
             Err(NetError::Cancelled) => return Err(Stop::Failed(Failure::Cancelled)),
             Ok(raw) => {
                 let secs = (raw.elapsed_micros.max(1) as f64) / 1_000_000.0;
@@ -207,8 +214,7 @@ async fn discover_endpoint(
     ctx: &Context<Output>,
     settings: &Settings,
     endpoints: &Endpoints<'_>,
-    v4_ok: bool,
-    v6_ok: bool,
+    families: FamilyFilter,
 ) -> Result<(SelectedEndpoint, Vec<CandidateEndpoint>, Vec<String>), Stop<Failure>> {
     let mut warnings = Vec::new();
     let dl_host = parse::host_from_url(endpoints.dl_url).unwrap_or_default();
@@ -234,7 +240,8 @@ async fn discover_endpoint(
     }
 
     // Literal IP host (such as 127.0.0.1 in smoke tests) needs no DoH lookup.
-    if let Ok(literal_ip) = dl_host.parse::<IpAddr>() {
+    let parsed_literal: Result<IpAddr, _> = dl_host.parse();
+    if let Ok(literal_ip) = parsed_literal {
         let cand =
             probe_candidate(ctx, endpoints.latency_url, literal_ip, EndpointSource::User).await?;
         let selected = SelectedEndpoint {
@@ -265,7 +272,7 @@ async fn discover_endpoint(
     }
 
     // Dual DoH (Cloudflare + AliDNS) for reachable families.
-    let doh_family = if v4_ok {
+    let doh_family = if families.ipv4 {
         IpFamily::Ipv4
     } else {
         IpFamily::Ipv6
@@ -276,14 +283,14 @@ async fn discover_endpoint(
         &dl_host,
         endpoints.cf_doh_url,
         endpoints.ali_doh_url,
-        v4_ok,
-        v6_ok,
+        families,
     )
     .await?;
 
     if !doh_ips.is_empty() {
         let mut original = Vec::with_capacity(doh_ips.len().min(MAX_PROBED_CANDIDATES));
-        for &ip in doh_ips.iter().take(MAX_PROBED_CANDIDATES) {
+        let probed_doh = doh_ips.iter().take(MAX_PROBED_CANDIDATES);
+        for &ip in probed_doh {
             original
                 .push(probe_candidate(ctx, endpoints.latency_url, ip, EndpointSource::Doh).await?);
         }
@@ -302,13 +309,14 @@ async fn discover_endpoint(
     // Fallback to system DNS when Dual DoH returned no usable addresses.
     warnings.push("Dual DoH returned no candidate IPs; falling back to system DNS".to_owned());
     match ctx
-        .inet_resolve(&dl_host, v4_ok, v6_ok, SYSTEM_DNS_TIMEOUT)
+        .inetspeed_resolve(&dl_host, families, SYSTEM_DNS_TIMEOUT)
         .await
     {
         Err(NetError::Cancelled) => return Err(Stop::Failed(Failure::Cancelled)),
         Ok(sys_ips) if !sys_ips.is_empty() => {
             let mut original = Vec::with_capacity(sys_ips.len().min(MAX_PROBED_CANDIDATES));
-            for &ip in sys_ips.iter().take(MAX_PROBED_CANDIDATES) {
+            let probed_sys = sys_ips.iter().take(MAX_PROBED_CANDIDATES);
+            for &ip in probed_sys {
                 original.push(
                     probe_candidate(ctx, endpoints.latency_url, ip, EndpointSource::SystemDns)
                         .await?,
@@ -347,15 +355,14 @@ async fn query_dual_doh(
     host: &str,
     cf_base: &str,
     ali_base: &str,
-    v4_ok: bool,
-    v6_ok: bool,
+    families: FamilyFilter,
 ) -> Result<Vec<IpAddr>, Stop<Failure>> {
     let mut queries: Vec<(String, bool)> = Vec::with_capacity(4);
-    if v4_ok {
+    if families.ipv4 {
         queries.push((format!("{cf_base}?name={host}&type=A"), true));
         queries.push((format!("{ali_base}?name={host}&type=A&short=1"), false));
     }
-    if v6_ok {
+    if families.ipv6 {
         queries.push((format!("{cf_base}?name={host}&type=AAAA"), true));
         queries.push((format!("{ali_base}?name={host}&type=AAAA&short=1"), false));
     }
@@ -371,7 +378,7 @@ async fn query_dual_doh(
         match ctx.probe(&req).await {
             Err(HttpError::Cancelled) => return Err(Stop::Failed(Failure::Cancelled)),
             Ok(resp) if resp.status == 200 => {
-                lists.push(parse::extract_doh_ips(&resp.body, v4_ok, v6_ok));
+                lists.push(parse::extract_doh_ips(&resp.body, families));
             }
             Ok(_) | Err(_) => {}
         }
@@ -385,11 +392,11 @@ async fn probe_candidate(
     ip: IpAddr,
     source: EndpointSource,
 ) -> Result<CandidateEndpoint, Stop<Failure>> {
-    let target = InetTarget {
+    let target = InetspeedTarget {
         url: latency_url.to_owned(),
         pin_ip: Some(ip),
     };
-    match ctx.inet_probe_rtt(&target, 1, PROBE_TIMEOUT).await {
+    match ctx.inetspeed_probe_rtt(&target, 1, PROBE_TIMEOUT).await {
         Err(NetError::Cancelled) => Err(Stop::Failed(Failure::Cancelled)),
         Ok(samples) if !samples.is_empty() => {
             let rtt_ms = ((samples[0] as f64) / 10.0).round() / 100.0;

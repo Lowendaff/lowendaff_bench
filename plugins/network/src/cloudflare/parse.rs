@@ -4,8 +4,9 @@
 use std::cmp::Ordering;
 use std::net::IpAddr;
 
-use bench_api::CfStunRaw;
+use bench_api::CloudflareStun;
 use bench_api::HttpResponse;
+use bench_api::ThroughputTick;
 use serde_json::Value;
 
 use super::result::LatencyStats;
@@ -259,7 +260,8 @@ pub fn compute_latency_stats(sent: u64, rtts_micros: &[u64]) -> LatencyStats {
     let mut sorted = samples_ms.clone();
     sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
 
-    let mean = samples_ms.iter().sum::<f64>() / (samples_ms.len() as f64);
+    let sum_ms: f64 = samples_ms.iter().sum();
+    let mean = sum_ms / (samples_ms.len() as f64);
     let jitter = sample_stddev(&samples_ms);
 
     LatencyStats {
@@ -284,7 +286,7 @@ pub fn compute_latency_stats(sent: u64, rtts_micros: &[u64]) -> LatencyStats {
 pub fn compute_throughput_stats(
     total_bytes: u64,
     duration_ms: u64,
-    ticks: &[(u64, u64)],
+    ticks: &[ThroughputTick],
 ) -> (ThroughputStats, Vec<f64>) {
     let interval_mbps = tick_rates_mbps(ticks);
     let (bytes, win_ms, steady_mbps) = steady_state_window(ticks, &interval_mbps, duration_ms)
@@ -307,7 +309,8 @@ pub fn compute_throughput_stats(
     } else {
         let mut sorted = steady_mbps.clone();
         sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
-        let mean_val = steady_mbps.iter().sum::<f64>() / (steady_mbps.len() as f64);
+        let sum_mbps: f64 = steady_mbps.iter().sum();
+        let mean_val = sum_mbps / (steady_mbps.len() as f64);
         (
             mean_val,
             percentile_sorted(&sorted, 0.50),
@@ -336,24 +339,24 @@ pub fn compute_throughput_stats(
     )
 }
 
-fn tick_rates_mbps(ticks: &[(u64, u64)]) -> Vec<f64> {
+fn tick_rates_mbps(ticks: &[ThroughputTick]) -> Vec<f64> {
     let mut out = Vec::with_capacity(ticks.len());
     let mut prev_ms = 0_u64;
     let mut prev_bytes = 0_u64;
-    for &(ms, bytes) in ticks {
-        let dt_ms = ms.saturating_sub(prev_ms).max(1);
-        let dbytes = bytes.saturating_sub(prev_bytes);
+    for &tick in ticks {
+        let dt_ms = tick.elapsed_ms.saturating_sub(prev_ms).max(1);
+        let dbytes = tick.bytes.saturating_sub(prev_bytes);
         let secs = (dt_ms as f64) / 1000.0;
         let mbps = ((dbytes as f64) * 8.0) / (secs * 1_000_000.0);
         out.push(mbps);
-        prev_ms = ms;
-        prev_bytes = bytes;
+        prev_ms = tick.elapsed_ms;
+        prev_bytes = tick.bytes;
     }
     out
 }
 
 fn steady_state_window(
-    ticks: &[(u64, u64)],
+    ticks: &[ThroughputTick],
     mbps_samples: &[f64],
     total_ms: u64,
 ) -> Option<(u64, u64, Vec<f64>)> {
@@ -362,16 +365,16 @@ fn steady_state_window(
     }
     let ramp_ms =
         (((total_ms as f64) * STEADY_RAMP_FRACTION).round() as u64).max(STEADY_MIN_RAMP_MS);
-    let start_idx = ticks.iter().position(|&(t_ms, _)| t_ms >= ramp_ms)?;
-    let (t_start, b_start) = ticks[start_idx];
-    let &(t_end, b_end) = ticks.last()?;
-    let window_ms = t_end.saturating_sub(t_start);
+    let start_idx = ticks.iter().position(|tick| tick.elapsed_ms >= ramp_ms)?;
+    let start_tick = ticks[start_idx];
+    let end_tick = *ticks.last()?;
+    let window_ms = end_tick.elapsed_ms.saturating_sub(start_tick.elapsed_ms);
     if window_ms < MIN_SAMPLE_WINDOW_MS {
         return None;
     }
     let slice_start = (start_idx + 1).min(mbps_samples.len());
     Some((
-        b_end.saturating_sub(b_start),
+        end_tick.bytes.saturating_sub(start_tick.bytes),
         window_ms,
         mbps_samples[slice_start..].to_vec(),
     ))
@@ -379,7 +382,7 @@ fn steady_state_window(
 
 /// Computes [`UdpLossStats`] (loss %, out-of-order %, ITU-T G.107 E-model MOS, quality label).
 #[must_use]
-pub fn compute_udp_stats(raw: &CfStunRaw) -> UdpLossStats {
+pub fn compute_udp_stats(raw: &CloudflareStun) -> UdpLossStats {
     let lat = compute_latency_stats(raw.sent, &raw.rtts_micros);
     let out_of_order_pct = if raw.received == 0 {
         0.0
@@ -466,7 +469,8 @@ fn cv_percent(samples: &[f64]) -> Option<f64> {
     if samples.len() < MIN_STABILITY_SAMPLES {
         return None;
     }
-    let mean = samples.iter().sum::<f64>() / (samples.len() as f64);
+    let sum: f64 = samples.iter().sum();
+    let mean = sum / (samples.len() as f64);
     if mean.abs() < f64::EPSILON {
         return None;
     }
@@ -479,8 +483,10 @@ fn sample_stddev(samples: &[f64]) -> Option<f64> {
         return None;
     }
     let n = samples.len() as f64;
-    let mean = samples.iter().sum::<f64>() / n;
-    let var = samples.iter().map(|&x| (x - mean).powi(2)).sum::<f64>() / (n - 1.0);
+    let sum: f64 = samples.iter().sum();
+    let mean = sum / n;
+    let sq_diff_sum: f64 = samples.iter().map(|&x| (x - mean).powi(2)).sum();
+    let var = sq_diff_sum / (n - 1.0);
     Some(var.sqrt())
 }
 
@@ -536,8 +542,9 @@ fn loss_quality_label(loss_pct: f64) -> &'static str {
 mod tests {
     use std::net::IpAddr;
 
-    use bench_api::CfStunRaw;
+    use bench_api::CloudflareStun;
     use bench_api::HttpResponse;
+    use bench_api::ThroughputTick;
 
     #[test]
     fn meta_trace_headers_and_locations_parse_and_merge_cleanly() {
@@ -547,10 +554,8 @@ mod tests {
         )
         .as_bytes();
         let mut meta = super::parse_meta_json(meta_raw);
-        assert_eq!(
-            meta.client_ip,
-            Some("198.51.100.7".parse::<IpAddr>().expect("ip"))
-        );
+        let expected_ip: IpAddr = "198.51.100.7".parse().expect("ip");
+        assert_eq!(meta.client_ip, Some(expected_ip));
         assert_eq!(meta.colo.as_deref(), Some("SJC"));
         assert_eq!(meta.asn, Some(64500));
 
@@ -583,16 +588,46 @@ mod tests {
     fn steady_state_throughput_mos_and_quality_grades_match_reference_thresholds() {
         // 10 x 1000 ms ticks: slow ramp in first 2 s, then steady 1_000_000 bytes/s (8 Mbit/s).
         let ticks = vec![
-            (1_000, 50_000),
-            (2_000, 200_000),
-            (3_000, 1_200_000),
-            (4_000, 2_200_000),
-            (5_000, 3_200_000),
-            (6_000, 4_200_000),
-            (7_000, 5_200_000),
-            (8_000, 6_200_000),
-            (9_000, 7_200_000),
-            (10_000, 8_200_000),
+            ThroughputTick {
+                elapsed_ms: 1_000,
+                bytes: 50_000,
+            },
+            ThroughputTick {
+                elapsed_ms: 2_000,
+                bytes: 200_000,
+            },
+            ThroughputTick {
+                elapsed_ms: 3_000,
+                bytes: 1_200_000,
+            },
+            ThroughputTick {
+                elapsed_ms: 4_000,
+                bytes: 2_200_000,
+            },
+            ThroughputTick {
+                elapsed_ms: 5_000,
+                bytes: 3_200_000,
+            },
+            ThroughputTick {
+                elapsed_ms: 6_000,
+                bytes: 4_200_000,
+            },
+            ThroughputTick {
+                elapsed_ms: 7_000,
+                bytes: 5_200_000,
+            },
+            ThroughputTick {
+                elapsed_ms: 8_000,
+                bytes: 6_200_000,
+            },
+            ThroughputTick {
+                elapsed_ms: 9_000,
+                bytes: 7_200_000,
+            },
+            ThroughputTick {
+                elapsed_ms: 10_000,
+                bytes: 8_200_000,
+            },
         ];
         let (stats, steady) = super::compute_throughput_stats(8_200_000, 10_000, &ticks);
         assert_eq!(stats.bytes, 8_000_000);
@@ -604,7 +639,7 @@ mod tests {
         assert_eq!(q.bufferbloat_grade, "A");
         assert_eq!(q.stability_grade, "A");
 
-        let udp = super::compute_udp_stats(&CfStunRaw {
+        let udp = super::compute_udp_stats(&CloudflareStun {
             target: "stun:stun.example:3478".to_owned(),
             sent: 10,
             received: 10,

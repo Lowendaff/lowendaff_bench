@@ -1,5 +1,8 @@
 //! Niconico Japan-restricted watch page probe.
 
+use std::time;
+use std::time::SystemTime;
+
 use bench_api::Context;
 use bench_api::HttpRequest;
 use bench_api::HttpResponse;
@@ -26,8 +29,8 @@ pub fn probe<'a>(
 ) -> ProbeFuture<'a> {
     Box::pin(async move {
         let url = |real: &str| parse::endpoint(base_url, SPEC.id, "check", real);
-        let track = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
+        let track = SystemTime::now()
+            .duration_since(time::UNIX_EPOCH)
             .map_or(0, |elapsed| elapsed.as_secs());
         let real = format!(
             "https://www.nicovideo.jp/api/watch/v3_guest/so23017073\
