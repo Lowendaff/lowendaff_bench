@@ -357,7 +357,7 @@ pub enum Step {
         location: &'static str,
         /// Carrier code (`telecom`, `unicom`, `mobile`, `cernet`, `cbn`, or `other`).
         operator: &'static str,
-        /// Phase code (`download`, `upload`, or `probes`).
+        /// Phase code (`download` or `upload`).
         stage: &'static str,
     },
 }
@@ -606,23 +606,6 @@ pub struct TaierTransfer {
     pub active_streams: u8,
 }
 
-/// Latency, jitter, and packet-loss statistics for `64 B` or `1400 B` direct TCP probes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-pub struct TaierPacketStats {
-    /// Total probes sent.
-    pub sent: u8,
-    /// Probes that timed out or reset before answering.
-    pub lost: u8,
-    /// Mean round-trip time in microseconds (`None` when `lost == sent`).
-    pub avg_micros: Option<u64>,
-    /// Minimum round-trip time in microseconds (`None` when `lost == sent`).
-    pub min_micros: Option<u64>,
-    /// Maximum round-trip time in microseconds (`None` when `lost == sent`).
-    pub max_micros: Option<u64>,
-    /// Standard deviation of round-trip times in microseconds (`None` when `< 2` answered).
-    pub jitter_micros: Option<u64>,
-}
-
 /// Why a DNS or SMTP socket probe failed.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub enum NetError {
@@ -706,22 +689,6 @@ pub trait NetClient: Send + Sync {
         _spec: &'a TaierStreamSpec,
         _cancel: &'a CancellationToken,
     ) -> NetFuture<'a, TaierTransfer> {
-        Box::pin(async {
-            Err(NetError::Transport(
-                "no network client configured".to_owned(),
-            ))
-        })
-    }
-
-    /// Measures `64 B` (`large == false`) or `1400 B` (`large == true`) RTT, jitter, and loss.
-    fn taier_packet_probe<'a>(
-        &'a self,
-        _ip: Ipv4Addr,
-        _port: u16,
-        _large: bool,
-        _samples: u8,
-        _cancel: &'a CancellationToken,
-    ) -> NetFuture<'a, TaierPacketStats> {
         Box::pin(async {
             Err(NetError::Transport(
                 "no network client configured".to_owned(),
@@ -1070,22 +1037,6 @@ impl<O: Measurement> Context<O> {
             return Err(NetError::Cancelled);
         }
         self.net.taier_upload(spec, &self.cancel).await
-    }
-
-    /// Measures small (`64 B`) or large (`1400 B`) TCP RTT, jitter, and loss against a Taier node.
-    pub async fn taier_packet_probe(
-        &self,
-        ip: Ipv4Addr,
-        port: u16,
-        large: bool,
-        samples: u8,
-    ) -> Result<TaierPacketStats, NetError> {
-        if self.cancel.is_cancelled() {
-            return Err(NetError::Cancelled);
-        }
-        self.net
-            .taier_packet_probe(ip, port, large, samples, &self.cancel)
-            .await
     }
 
     /// Replaces the last partial result. The report shows the last one published when the

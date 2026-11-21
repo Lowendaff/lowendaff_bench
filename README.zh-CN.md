@@ -98,7 +98,6 @@ sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-
 | `--countries` | `<国家代码,...>` | 默认精选节点 | 限制 `network.iperf3` 只测指定国家/地区的节点（如 `JP,SG,US`），填 `all` 测全部节点 |
 | `--taier-cities` | `<城市/省份,...>` | 北上广默认节点 | 限制 `network.taier` 仅测指定城市、省份英文名或节点 ID（如 `Beijing,Jiangsu`），填 `all` 测全部节点 |
 | `--taier-operators` | `<运营商,...>` | `telecom,unicom,mobile` | 选择 `network.taier` 要测的运营商（可选 `telecom`、`unicom`、`mobile`、`cernet`、`cbn`、`other` 或 `all`） |
-| `--no-taier-probes` | 无需带值 | 关闭 | 在 `network.taier` 中跳过 `64B` 小包与 `1400B` 大包延迟/抖动/丢包探测 |
 | `--trace-groups` | `<分组,...>` | 缓存节点 + 默认线路 | 选择 `network.trace` 要追踪哪些方向的路由目标 |
 | `--media-groups` | `<区域,...>` | `all`（全部区域） | 选择 `ip.media` 要测试哪些地区的流媒体与在线服务 |
 | `--no-dnsbl` | 无需带值 | 关闭 | 在 `ip.quality` 中跳过 25 个邮件/垃圾信息黑名单（DNSBL）查询 |
@@ -171,7 +170,7 @@ sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-
 | `memory` | `memory.numa`<br>多路内存互通 | 双路/多 NUMA 节点机器 | 在多颗 CPU 或多 NUMA 节点的机器上，测试访问“本地内存”与“另一颗 CPU 旁边的内存”之间的速度和延迟差距 | [`docs/memory.md`](docs/memory.md) |
 | `disk` | `disk.fio`<br>硬盘随机读写 | 所有服务器 | 采用与 YABS 相同的测试标准（50% 读 + 50% 写），测试 `4K`、`64K`、`512K`、`1M` 四种块大小下的真实读写速度与 IOPS，建站跑数据库重点看 `4K`，大文件吞吐看 `512K`/`1M` | [`docs/disk.md`](docs/disk.md) |
 | `network` | `network.iperf3`<br>全球带宽测速 | 所有联网机器 | 默认连接美西、美东、东京、法兰克福 5 个公共节点，用多线程同时测 IPv4 和 IPv6 的上传、下载真实带宽与延迟 | [`docs/network.md`](docs/network.md) |
-| `network` | `network.taier`<br>中国三网测速（泰尔） | 有 IPv4 公网连接的机器 | 纯 Rust 原生实现的中国信通院“全球网测（泰尔测速）”多线程上下行带宽测试与 `64B` 小包 / `1400B` 大包延迟、抖动、丢包率探测（默认测北京、上海、广州 × 电信、联通、移动，繁忙节点自动降级候选） | [`docs/network.md`](docs/network.md) |
+| `network` | `network.taier`<br>中国三网测速（泰尔） | 有 IPv4 公网连接的机器 | 纯 Rust 原生实现的中国信通院“全球网测（泰尔测速）”多线程 HTTP/1.1 上下行带宽测速（默认测北京、上海、广州 × 电信、联通、移动，繁忙节点自动降级候选） | [`docs/network.md`](docs/network.md) |
 | `network` | `network.trace`<br>去程路由追踪 | 支持原始套接字的机器 | 追踪本机到 YouTube/Netflix 节点、国内三网（163/CN2/9929/CMIN2）及国际骨干网的每一跳路径，看清线路是直连还是绕路 | [`docs/network.md`](docs/network.md) |
 | `network` | `network.bgp`<br>BGP 上游拓扑图 | 有公网 IP 的机器 | 查询本机 IP 所在网段的 BGP 宣告前缀、RPKI 签名状态与直连上游占比，在终端模式生成 `imageupload.app` 高清 SVG 拓扑图链接（不含本机 IP；Markdown 模式生成 Mermaid 矢量图，JSON 模式内置独立 SVG 源码） | [`docs/network.md`](docs/network.md) |
 | `ip` | `ip.quality`<br>IP 质量与纯净度 | 有公网 IP 的机器 | 汇总 9 家风控数据库结果，判断 IP 是**原生 IP** 还是**广播 IP**、属于机房还是家宽、欺诈风险高低、历史暴露端口、是否在 25 个黑名单里，以及 25 邮件端口是否开放 | [`docs/ip.md`](docs/ip.md) |

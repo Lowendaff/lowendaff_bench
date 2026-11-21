@@ -17,7 +17,6 @@ use bench_api::NetError;
 use bench_api::NetFuture;
 use bench_api::SmtpBanner;
 use bench_api::TaierAdmission;
-use bench_api::TaierPacketStats;
 use bench_api::TaierStreamSpec;
 use bench_api::TaierTransfer;
 use tokio::io::AsyncReadExt;
@@ -165,17 +164,6 @@ impl NetClient for NetProbers {
         cancel: &'a CancellationToken,
     ) -> NetFuture<'a, TaierTransfer> {
         Box::pin(async move { taier_probe::upload(spec, cancel).await })
-    }
-
-    fn taier_packet_probe<'a>(
-        &'a self,
-        ip: Ipv4Addr,
-        port: u16,
-        large: bool,
-        samples: u8,
-        cancel: &'a CancellationToken,
-    ) -> NetFuture<'a, TaierPacketStats> {
-        Box::pin(async move { taier_probe::packet_probe(ip, port, large, samples, cancel).await })
     }
 }
 

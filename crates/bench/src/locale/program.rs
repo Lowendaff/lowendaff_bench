@@ -43,8 +43,6 @@ pub trait ProgramWords {
     fn help_taier_cities(&self) -> String;
     /// The help of `--taier-operators`.
     fn help_taier_operators(&self) -> String;
-    /// The help of `--no-taier-probes`.
-    fn help_no_taier_probes(&self) -> String;
     /// The help of `--trace-groups`.
     fn help_trace_groups(&self) -> String;
     /// The help of `--media-groups`.

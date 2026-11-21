@@ -1,8 +1,8 @@
 #!/bin/sh
 # A local CAICT GlobalSpeed responder on 127.0.0.1 for the smoke test, answering dovalid queue
-# admission and release, multi-stream HTTP/1.1 downloads and uploads, and 64 B / 1400 B TCP probes,
-# and updating network.taier in the smoke overrides JSON. The smoke run then exercises
-# network.taier end to end without contacting external carrier servers.
+# admission and release and multi-stream HTTP/1.1 downloads and uploads, and updating network.taier
+# in the smoke overrides JSON. The smoke run then exercises network.taier end to end without
+# contacting external carrier servers.
 #
 # Usage: scripts/smoke-taier.sh <directory> <overrides json>
 # Starts the server on 127.0.0.1:18084, writes server.pid and taier.json into the directory, and
@@ -45,10 +45,7 @@ class Handler(socketserver.BaseRequestHandler):
 
         try:
             if first.startswith("GET /speed/dovalid?"):
-                if "X-Pad:" in head:
-                    body = b"0-"
-                else:
-                    body = b"1-smoke-taier-uuid-123"
+                body = b"1-smoke-taier-uuid-123"
                 chunk = f"{len(body):x}\r\n".encode("ascii") + body + b"\r\n0\r\n\r\n"
                 resp = (
                     b"HTTP/1.1 200 \r\n"

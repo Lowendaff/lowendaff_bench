@@ -98,7 +98,6 @@ sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-
 | `--countries` | `<国コード,...>` | 既定の 5 拠点 | `network.iperf3` の測定先を 2 文字の国コード（`JP,US,SG` など）または `all` で絞り込みます |
 | `--taier-cities` | `<都市/省,...>` | 北京・上海・広州 | `network.taier` の測定先を都市・省名・拠点 ID（`Beijing,Jiangsu` など）または `all` で絞り込みます |
 | `--taier-operators` | `<キャリア,...>` | `telecom,unicom,mobile` | `network.taier` で測定する通信キャリアを選びます（`telecom`、`unicom`、`mobile`、`cernet`、`cbn`、`other`、または `all`） |
-| `--no-taier-probes` | 値なし | オフ | `network.taier` 内の `64B` / `1400B` TCP 遅延・ジッター・ロス測定を省略します |
 | `--trace-groups` | `<グループ,...>` | キャッシュ + 既定拠点 | `network.trace` で追跡する宛先グループを選びます |
 | `--media-groups` | `<地域,...>` | `all`（全地域） | `ip.media` でチェックする動画配信サービスの地域を選びます |
 | `--no-dnsbl` | 値なし | オフ | `ip.quality` 内の 25 カ所のブラックリスト（DNSBL）照会を省略します |
@@ -171,7 +170,7 @@ sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-
 | `memory` | `memory.numa`<br>マルチ CPU メモリ速度 | 複数 NUMA 搭載機 | デュアル CPU などの環境で、手元のメモリと別ソケット側のメモリの速度差・遅延差を測定します | [`docs/memory.md`](docs/memory.md) |
 | `disk` | `disk.fio`<br>ディスク読み書き速度 | 全サーバー | YABS 互換条件（ランダム読込 50% / 書込 50%）で `4K`・`64K`・`512K`・`1M` の速度と IOPS を測定します。DB 用途は `4K`、大容量転送は `512K`/`1M` が目安になります | [`docs/disk.md`](docs/disk.md) |
 | `network` | `network.iperf3`<br>グローバル回線速度 | 通信可能な環境 | 既定でロサンゼルス・ニューヨーク・バージニア・東京・フランクフルトの公開サーバーと接続し、IPv4 / IPv6 の上り・下り速度と遅延を測定します | [`docs/network.md`](docs/network.md) |
-| `network` | `network.taier`<br>中国キャリア回線速度 | IPv4 通信可能な環境 | 純 Rust 実装による中国 CAICT GlobalSpeed（泰爾測速）拠点とのマルチストリーム HTTP/1.1 上り・下り速度測定および `64B` / `1400B` TCP 遅延・ジッター・ロス測定を行います（既定：北京・上海・広州 × 電信・聯通・移動） | [`docs/network.md`](docs/network.md) |
+| `network` | `network.taier`<br>中国キャリア回線速度 | IPv4 通信可能な環境 | 純 Rust 実装による中国 CAICT GlobalSpeed（泰爾測速）拠点とのマルチストリーム HTTP/1.1 上り・下り速度測定を行います（既定：北京・上海・広州 × 電信・聯通・移動） | [`docs/network.md`](docs/network.md) |
 | `network` | `network.trace`<br>ネットワーク経路追跡 | Raw ソケット対応環境 | YouTube / Netflix キャッシュや中国主要キャリア、海外バックボーンまでの経路を一跳びずつ追跡し、直通か迂回ルートかを可視化します | [`docs/network.md`](docs/network.md) |
 | `network` | `network.bgp`<br>BGP 経路トポロジー | グローバル IP 保有機 | 世界の BGP 収集拠点から広告プレフィックス・RPKI 状態・直接の上流キャリアを取得し、`text` 形式では限定公開の `imageupload.app` SVG トポロジー URL、Markdown では Mermaid 図、JSON ではスタンドアロン SVG コードを出力します | [`docs/network.md`](docs/network.md) |
 | `ip` | `ip.quality`<br>IP 品質・リスク診断 | グローバル IP 保有機 | 9 つの評価データベースを照合し、**ネイティブ IP / ブロードキャスト IP** の判別、データセンター / 家庭用回線の区分、不正リスク、公開ポート、25 種のブラックリスト、25 番メールポートの疎通を診断します | [`docs/ip.md`](docs/ip.md) |

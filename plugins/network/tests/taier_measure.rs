@@ -14,7 +14,6 @@ use bench_api::NetClient;
 use bench_api::NetError;
 use bench_api::NetFuture;
 use bench_api::TaierAdmission;
-use bench_api::TaierPacketStats;
 use bench_api::TaierStreamSpec;
 use bench_api::TaierTransfer;
 use bench_host::profile::HostProfile;
@@ -122,26 +121,6 @@ impl NetClient for MockTaier {
             })
         })
     }
-
-    fn taier_packet_probe<'a>(
-        &'a self,
-        _ip: Ipv4Addr,
-        _port: u16,
-        large: bool,
-        samples: u8,
-        _cancel: &'a CancellationToken,
-    ) -> NetFuture<'a, TaierPacketStats> {
-        Box::pin(async move {
-            Ok(TaierPacketStats {
-                sent: samples,
-                lost: u8::from(large),
-                avg_micros: Some(if large { 35_000 } else { 31_000 }),
-                min_micros: Some(30_000),
-                max_micros: Some(42_000),
-                jitter_micros: Some(2_500),
-            })
-        })
-    }
 }
 
 #[tokio::test]
@@ -177,7 +156,6 @@ async fn busy_node_falls_back_to_next_candidate_and_empty_token_retries_and_rele
     let settings = Settings {
         seconds: 4,
         streams: 8,
-        probes: true,
         cities: Vec::new(),
         operators: chosen.operators.clone(),
         custom_list: false,
@@ -198,8 +176,6 @@ async fn busy_node_falls_back_to_next_candidate_and_empty_token_retries_and_rele
     };
     assert_eq!(measured.download_bps, 1_000_000_000);
     assert_eq!(measured.upload_bps, 500_000_000);
-    assert_eq!(measured.small_probe.unwrap().lost, 0);
-    assert_eq!(measured.large_probe.unwrap().lost, 1);
 
     // Slot 1 (Unicom): .3 returned Busy -> recorded as Busy without failing the plugin!
     assert_eq!(output.results[1].outcome, NodeOutcome::Busy);

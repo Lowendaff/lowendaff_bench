@@ -76,8 +76,6 @@ pub trait TuiWords {
     fn tui_field_taier_operator(&self, operator: &str) -> String;
     /// `network.taier` field: city/province filter or `all`.
     fn tui_field_taier_cities(&self) -> &'static str;
-    /// `network.taier` field: `64 B` and `1400 B` packet probes toggle.
-    fn tui_field_taier_probes(&self) -> &'static str;
     /// `network.trace` field: target group toggle.
     fn tui_field_trace_group(&self, group: &str) -> String;
     /// `network.trace` field: specific target IDs.

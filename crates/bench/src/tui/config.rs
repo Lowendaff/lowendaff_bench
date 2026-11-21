@@ -72,8 +72,6 @@ pub enum ItemParams {
         seconds: u16,
         /// Parallel TCP streams (`1..=32`).
         streams: u8,
-        /// Whether `64 B` and `1400 B` packet probes run.
-        probes: bool,
     },
     /// `network.trace` route tracing parameters.
     Trace {
@@ -125,7 +123,6 @@ impl ItemParams {
                 cities: String::new(),
                 seconds: TaierSettings::DEFAULT_SECONDS,
                 streams: TaierSettings::DEFAULT_STREAMS,
-                probes: true,
             },
             "network.trace" => Self::Trace {
                 groups: [false; 4],
@@ -162,7 +159,6 @@ impl ItemParams {
                 cities: String::new(),
                 seconds: TaierSettings::DEFAULT_SECONDS,
                 streams: TaierSettings::DEFAULT_STREAMS,
-                probes: false,
             },
             "network.trace" => Self::Trace {
                 groups: [false; 4],
@@ -206,13 +202,11 @@ impl ItemParams {
                 cities,
                 seconds,
                 streams,
-                probes,
             } => {
                 *operators == DEFAULT_TAIER_OPERATORS
                     && split_csv(cities).is_empty()
                     && *seconds == TaierSettings::DEFAULT_SECONDS
                     && *streams == TaierSettings::DEFAULT_STREAMS
-                    && *probes
             }
             Self::Trace {
                 groups,
@@ -272,7 +266,6 @@ impl ItemParams {
                 cities,
                 seconds,
                 streams,
-                probes,
             } => {
                 if *operators != DEFAULT_TAIER_OPERATORS {
                     let chosen: Vec<String> = if operators[6] {
@@ -296,9 +289,6 @@ impl ItemParams {
                 }
                 if *streams != TaierSettings::DEFAULT_STREAMS {
                     map.insert("streams".to_owned(), serde_json::Value::from(*streams));
-                }
-                if !probes {
-                    map.insert("probes".to_owned(), serde_json::Value::Bool(false));
                 }
             }
             Self::Trace {
@@ -687,7 +677,6 @@ impl TuiConfig {
                 cities,
                 seconds,
                 streams,
-                probes,
             } => {
                 for ((code, on), def_on) in TAIER_OPERATORS
                     .iter()
@@ -725,10 +714,6 @@ impl TuiConfig {
                         dimmed: false,
                         edit_raw: Some(streams.to_string()),
                     },
-                    inactive,
-                ));
-                rows.push(sub_row(
-                    bool_row(words.tui_field_taier_probes(), *probes, true),
                     inactive,
                 ));
             }
@@ -920,7 +905,6 @@ impl TuiConfig {
             operators,
             seconds,
             streams,
-            probes,
             ..
         } = &mut item.params
         {
@@ -931,7 +915,6 @@ impl TuiConfig {
                         item.enabled = true;
                         if !operators[..6].iter().any(|on| *on) {
                             *operators = DEFAULT_TAIER_OPERATORS;
-                            *probes = true;
                         }
                     }
                     return;
@@ -942,7 +925,6 @@ impl TuiConfig {
                         item.enabled = true;
                         if !operators[..6].iter().any(|on| *on) {
                             *operators = DEFAULT_TAIER_OPERATORS;
-                            *probes = true;
                         }
                     }
                     return;
@@ -970,13 +952,8 @@ impl TuiConfig {
                     item.enabled = suites.iter().any(|on| *on);
                 }
             }
-            ItemParams::Taier {
-                operators, probes, ..
-            } => match field_idx {
-                1..=7 => {
-                    if was_disabled {
-                        *probes = true;
-                    }
+            ItemParams::Taier { operators, .. } => {
+                if (1..=7).contains(&field_idx) {
                     toggle_taier_operator(operators, field_idx - 1);
                     if operators[..6].iter().any(|on| *on) {
                         item.enabled = true;
@@ -984,17 +961,7 @@ impl TuiConfig {
                         item.set_enabled(false);
                     }
                 }
-                11 => {
-                    if was_disabled {
-                        item.enabled = true;
-                        *operators = DEFAULT_TAIER_OPERATORS;
-                        *probes = true;
-                    } else {
-                        *probes = !*probes;
-                    }
-                }
-                _ => {}
-            },
+            }
             ItemParams::Trace {
                 groups,
                 targets,
@@ -1142,7 +1109,6 @@ impl TuiConfig {
                 cities,
                 seconds,
                 streams,
-                probes,
             } => match field_idx {
                 8 => {
                     let norm = normalize_csv(trimmed);
@@ -1150,7 +1116,6 @@ impl TuiConfig {
                         item.enabled = true;
                         if !operators[..6].iter().any(|on| *on) {
                             *operators = DEFAULT_TAIER_OPERATORS;
-                            *probes = true;
                         }
                     }
                     *cities = norm;
@@ -1167,7 +1132,6 @@ impl TuiConfig {
                             item.enabled = true;
                             if !operators[..6].iter().any(|on| *on) {
                                 *operators = DEFAULT_TAIER_OPERATORS;
-                                *probes = true;
                             }
                         }
                     }
@@ -1184,7 +1148,6 @@ impl TuiConfig {
                             item.enabled = true;
                             if !operators[..6].iter().any(|on| *on) {
                                 *operators = DEFAULT_TAIER_OPERATORS;
-                                *probes = true;
                             }
                         }
                     }

@@ -815,7 +815,6 @@ fn config_flag_is_rejected_and_enum_parameters_configure_plugins() {
         "Beijing,Jiangsu",
         "--taier-operators",
         "telecom,unicom",
-        "--no-taier-probes",
         "--trace-groups",
         "services,china",
         "--media-groups",
@@ -833,7 +832,6 @@ fn config_flag_is_rejected_and_enum_parameters_configure_plugins() {
         parsed.taier_operators,
         [TaierOperator::Telecom, TaierOperator::Unicom]
     );
-    assert!(parsed.no_taier_probes);
     assert_eq!(
         parsed.trace_groups,
         [TraceGroup::Services, TraceGroup::China]

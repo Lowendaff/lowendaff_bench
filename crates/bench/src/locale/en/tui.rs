@@ -175,10 +175,6 @@ impl TuiWords for English {
         "Cities / provinces"
     }
 
-    fn tui_field_taier_probes(&self) -> &'static str {
-        "64B & 1400B packet probes"
-    }
-
     fn tui_field_trace_group(&self, group: &str) -> String {
         format!("Group: {group}")
     }

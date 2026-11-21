@@ -17,7 +17,6 @@ use bench::results::Measured;
 use bench::results::Report;
 use bench_api::Net;
 use bench_api::Stop;
-use bench_api::TaierPacketStats;
 use bench_host::cards::Bus;
 use bench_host::cards::Link;
 use bench_host::cards::NetworkCard;
@@ -886,7 +885,7 @@ fn bgp_renders_text_imageupload_url_mermaid_and_json_svg_with_ip_masking() {
 }
 
 #[test]
-fn taier_renders_text_markdown_json_probes_fallbacks_and_stop_reasons() {
+fn taier_renders_text_markdown_json_fallbacks_and_stop_reasons() {
     use plugin_network::taier;
     use plugin_network::taier::NodeMeasured;
     use plugin_network::taier::NodeOutcome;
@@ -898,7 +897,6 @@ fn taier_renders_text_markdown_json_probes_fallbacks_and_stop_reasons() {
         settings: Settings {
             seconds: 4,
             streams: 8,
-            probes: true,
             cities: vec!["Beijing".to_owned(), "Guangzhou".to_owned()],
             operators: vec![Operator::Telecom, Operator::Unicom],
             custom_list: false,
@@ -916,22 +914,6 @@ fn taier_renders_text_markdown_json_probes_fallbacks_and_stop_reasons() {
                 outcome: NodeOutcome::Measured(NodeMeasured {
                     download_bps: 945_000_000,
                     upload_bps: 312_000_000,
-                    small_probe: Some(TaierPacketStats {
-                        sent: 10,
-                        lost: 0,
-                        avg_micros: Some(12_400),
-                        min_micros: Some(11_800),
-                        max_micros: Some(13_900),
-                        jitter_micros: Some(850),
-                    }),
-                    large_probe: Some(TaierPacketStats {
-                        sent: 10,
-                        lost: 1,
-                        avg_micros: Some(14_200),
-                        min_micros: Some(13_100),
-                        max_micros: Some(16_500),
-                        jitter_micros: Some(1_100),
-                    }),
                 }),
             },
             TestedNode {
@@ -992,7 +974,7 @@ fn taier_renders_text_markdown_json_probes_fallbacks_and_stop_reasons() {
     let text = report::render(&page, Format::Text, None);
     assert!(
         text.contains(
-            "CAICT GlobalSpeed (Taier): 8 streams, 4 s each way, HTTP/1.1, 64B & 1400B TCP probes; \
+            "CAICT GlobalSpeed (Taier): 8 streams, 4 s each way, HTTP/1.1; \
              cities Beijing, Guangzhou; carriers telecom, unicom"
         ),
         "{text}"
@@ -1003,8 +985,6 @@ fn taier_renders_text_markdown_json_probes_fallbacks_and_stop_reasons() {
     );
     assert!(text.contains("945 Mbit/s"), "{text}");
     assert!(text.contains("312 Mbit/s"), "{text}");
-    assert!(text.contains("12.4 ± 0.85 ms / 0%"), "{text}");
-    assert!(text.contains("14.2 ± 1.10 ms / 10%"), "{text}");
     assert!(text.contains("Guangzhou, Guangdong"), "{text}");
     assert!(text.contains("busy"), "{text}");
     assert!(
@@ -1018,9 +998,7 @@ fn taier_renders_text_markdown_json_probes_fallbacks_and_stop_reasons() {
 
     let md = report::render(&page, Format::Markdown, None);
     assert!(
-        md.contains(
-            "| Location | Carrier | Download | Upload | 64B RTT / Loss | 1400B RTT / Loss |"
-        ),
+        md.contains("| Location | Carrier | Download | Upload |"),
         "{md}"
     );
 

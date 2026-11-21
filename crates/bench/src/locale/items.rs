@@ -762,8 +762,6 @@ pub struct TaierChoice {
     pub streams: u8,
     /// Duration per direction in seconds.
     pub seconds: u16,
-    /// Whether `64 B` and `1400 B` TCP packet probes ran.
-    pub probes: bool,
     /// Non-empty when city/province filters were requested.
     pub cities: Vec<String>,
     /// Non-empty when non-default carrier filters were requested.
@@ -837,22 +835,14 @@ pub trait TaierWords {
     fn taier_method(&self, choice: &TaierChoice) -> String;
     /// Note when requested city/province tokens matched no location.
     fn taier_unknown_cities(&self, names: &[String]) -> String;
-    /// Table headers (`4` columns when `probes == false`, `6` columns when `probes == true`).
-    fn taier_headers(&self, probes: bool) -> Vec<&'static str>;
+    /// Table headers (`Location`, `Carrier`, `Download`, `Upload`).
+    fn taier_headers(&self) -> [&'static str; 4];
     /// Human-readable location cell (`Beijing` or `Guangzhou, Guangdong`).
     fn taier_place(&self, city: &str, province: &str) -> String;
     /// Human-readable carrier cell (`Telecom`, `Unicom`, `Mobile`, `CERNET`, `Broadnet`, `Other`).
     fn taier_operator(&self, code: &str) -> &'static str;
     /// Non-measured throughput cell (`busy`, `unreachable`, `auth rejected`, `timed out`, `error`).
     fn taier_cell(&self, cell: TaierCell) -> &'static str;
-    /// Packet probe cell (`12.4 ± 0.85 ms / 0%`, `12.4 ms / 10%`, `100% loss`, or `—`).
-    fn taier_probe_cell(
-        &self,
-        rtt_digits: Option<&str>,
-        jitter_digits: Option<&str>,
-        lost: u8,
-        sent: u8,
-    ) -> String;
     /// Note when a `(location, operator)` slot fell back past busy/unreachable candidate nodes.
     fn taier_fallback(&self, place: &str, operator: &str, tried: u8) -> String;
     /// Note when a `(location, operator)` slot failed with a protocol/stream error.
