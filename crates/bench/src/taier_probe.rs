@@ -120,10 +120,10 @@ pub async fn acquire(
 }
 
 fn parse_dovalid_http(raw: &[u8]) -> Result<TaierAdmission, NetError> {
-    let text = String::from_utf8_lossy(raw);
-    let Some((head, body)) = text.split_once("\r\n\r\n") else {
+    let Some(body_offset) = find_header_end(raw) else {
         return Err(NetError::Transport("incomplete HTTP response".to_owned()));
     };
+    let head = String::from_utf8_lossy(&raw[..body_offset - 4]);
     let first = head.lines().next().unwrap_or_default();
     if !first.starts_with("HTTP/1.1 200") && !first.starts_with("HTTP/1.0 200") {
         return Err(NetError::Transport(format!(
@@ -131,7 +131,47 @@ fn parse_dovalid_http(raw: &[u8]) -> Result<TaierAdmission, NetError> {
             first.chars().take(60).collect::<String>()
         )));
     }
-    Ok(parse_dovalid_body(body))
+    let is_chunked = head.lines().skip(1).any(|line| {
+        line.split_once(':').is_some_and(|(name, val)| {
+            name.trim().eq_ignore_ascii_case("transfer-encoding")
+                && val.to_ascii_lowercase().contains("chunked")
+        })
+    });
+    let raw_body = &raw[body_offset..];
+    let decoded;
+    let body_bytes = if is_chunked {
+        decoded = decode_chunked(raw_body)?;
+        decoded.as_slice()
+    } else {
+        raw_body
+    };
+    let body = String::from_utf8_lossy(body_bytes);
+    Ok(parse_dovalid_body(&body))
+}
+
+fn decode_chunked(mut rest: &[u8]) -> Result<Vec<u8>, NetError> {
+    let mut out = Vec::with_capacity(rest.len());
+    loop {
+        let Some(crlf) = rest.windows(2).position(|w| w == b"\r\n") else {
+            return Err(NetError::Transport(
+                "malformed chunked dovalid response".to_owned(),
+            ));
+        };
+        let size_line = std::str::from_utf8(&rest[..crlf])
+            .map_err(|_| NetError::Transport("invalid chunk size encoding".to_owned()))?;
+        let hex = size_line.split(';').next().unwrap_or_default().trim();
+        let size = usize::from_str_radix(hex, 16)
+            .map_err(|_| NetError::Transport("invalid chunk size hex".to_owned()))?;
+        rest = &rest[crlf + 2..];
+        if size == 0 {
+            return Ok(out);
+        }
+        if rest.len() < size + 2 || &rest[size..size + 2] != b"\r\n" {
+            return Err(NetError::Transport("truncated chunked body".to_owned()));
+        }
+        out.extend_from_slice(&rest[..size]);
+        rest = &rest[size + 2..];
+    }
 }
 
 fn parse_dovalid_body(body: &str) -> TaierAdmission {
@@ -667,16 +707,18 @@ mod tests {
                                 .await;
                         } else if head.contains("token=busy") {
                             let _ = sock
-                                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\n-1-")
+                                .write_all(
+                                    b"HTTP/1.1 200 \r\nTransfer-Encoding: chunked\r\n\r\n\
+                                      3\r\n-1-\r\n0\r\n\r\n",
+                                )
                                 .await;
                         } else {
-                            let body = b"1-uuid-smoke-123";
-                            let resp = format!(
-                                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n",
-                                body.len()
-                            );
-                            let _ = sock.write_all(resp.as_bytes()).await;
-                            let _ = sock.write_all(body).await;
+                            let _ = sock
+                                .write_all(
+                                    b"HTTP/1.1 200 \r\nTransfer-Encoding: chunked\r\n\r\n\
+                                      10\r\n1-uuid-smoke-123\r\n0\r\n\r\n",
+                                )
+                                .await;
                         }
                     } else if head.starts_with("POST /speed/dovalid?key=uuid-smoke-123") {
                         rel.store(true, Ordering::Relaxed);
@@ -747,5 +789,38 @@ mod tests {
         super::release(ip, port, "uuid-smoke-123", limit).await;
         tokio::time::sleep(Duration::from_millis(30)).await;
         assert!(released.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn dovalid_http_parser_decodes_tomcat_chunked_and_content_length_bodies() {
+        let chunked_ok = b"HTTP/1.1 200 \r\nCache-Control: no-cache\r\n\
+            Transfer-Encoding: chunked\r\nConnection: close\r\n\r\n\
+            26;ext=1\r\n1-71e94fc6-f92a-490d-88ce-782ea7c0f872\r\n0\r\n\r\n";
+        assert_eq!(
+            super::parse_dovalid_http(chunked_ok),
+            Ok(TaierAdmission::Admitted(
+                "71e94fc6-f92a-490d-88ce-782ea7c0f872".to_owned()
+            ))
+        );
+
+        let chunked_busy =
+            b"HTTP/1.1 200 \r\nTransfer-Encoding: chunked\r\n\r\n3\r\n-1-\r\n0\r\n\r\n";
+        assert_eq!(
+            super::parse_dovalid_http(chunked_busy),
+            Ok(TaierAdmission::Busy)
+        );
+
+        let chunked_zero =
+            b"HTTP/1.1 200 \r\nTransfer-Encoding: chunked\r\n\r\n2\r\n0-\r\n0\r\n\r\n";
+        assert_eq!(
+            super::parse_dovalid_http(chunked_zero),
+            Ok(TaierAdmission::AuthRejected)
+        );
+
+        let plain_ok = b"HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\n1-uuid-abc";
+        assert_eq!(
+            super::parse_dovalid_http(plain_ok),
+            Ok(TaierAdmission::Admitted("uuid-abc".to_owned()))
+        );
     }
 }
