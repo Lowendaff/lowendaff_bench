@@ -49,11 +49,12 @@ class Handler(socketserver.BaseRequestHandler):
                     body = b"0-"
                 else:
                     body = b"1-smoke-taier-uuid-123"
+                chunk = f"{len(body):x}\r\n".encode("ascii") + body + b"\r\n0\r\n\r\n"
                 resp = (
-                    b"HTTP/1.1 200 OK\r\n"
+                    b"HTTP/1.1 200 \r\n"
                     b"Content-Type: text/plain\r\n"
-                    b"Connection: close\r\n"
-                    b"Content-Length: " + str(len(body)).encode("ascii") + b"\r\n\r\n" + body
+                    b"Transfer-Encoding: chunked\r\n"
+                    b"Connection: close\r\n\r\n" + chunk
                 )
                 self.request.sendall(resp)
             elif first.startswith("POST /speed/dovalid?"):
