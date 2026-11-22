@@ -23,12 +23,12 @@ pub fn uptime(root: &Root) -> Option<Duration> {
 #[must_use]
 pub fn load(root: &Root) -> Option<[f64; 3]> {
     let line = root.read_line("/proc/loadavg")?;
-    let mut fields = line.split_whitespace().map(str::parse::<f64>);
-    Some([
-        fields.next()?.ok()?,
-        fields.next()?.ok()?,
-        fields.next()?.ok()?,
-    ])
+    let mut fields = line.split_whitespace().map(|word| {
+        word.parse::<f64>()
+            .ok()
+            .filter(|val| val.is_finite() && *val >= 0.0)
+    });
+    Some([fields.next()??, fields.next()??, fields.next()??])
 }
 
 /// The uptime and load the running kernel reports itself, which tell whether a container's

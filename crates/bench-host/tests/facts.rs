@@ -417,6 +417,53 @@ fn kernel_uptime_load_and_tcp_settings() {
 }
 
 #[test]
+fn overflow_and_non_finite_floats_in_proc_and_sysfs_are_rejected_without_panic() {
+    let dir = common::host((
+        &[
+            (
+                "/proc/meminfo",
+                "MemTotal: 1048576 kB\n\
+                 MemAvailable: 524288 kB\n\
+                 VmallocTotal: 18446744073709551615 kB\n",
+            ),
+            ("/proc/loadavg", "NaN 0.10 0.05 1/100 200\n"),
+            ("/proc/uptime", "inf 0.0\n"),
+            (
+                "/proc/cpuinfo",
+                "processor\t: 0\ncpu MHz\t\t: NaN\ncache size\t: 99999999999999999G\n",
+            ),
+            (
+                "/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq",
+                "-1000\n",
+            ),
+            ("/sys/fs/cgroup/cpu.max", "-50000 100000\n"),
+        ],
+        &[],
+    ));
+    let root = Root::new(dir.path());
+    let mem = memory::read(&root).expect("MemTotal remains readable despite VmallocTotal overflow");
+    assert_eq!(mem.total, 1_048_576 * 1024);
+    assert_eq!(mem.available, 524_288 * 1024);
+    assert_eq!(system::load(&root), None);
+    assert_eq!(system::uptime(&root), None);
+
+    let cpu_facts = cpu::read(&root);
+    assert_eq!(cpu_facts.mhz, None);
+    assert!(cpu_facts.caches.is_empty());
+    assert_eq!(memory::cgroup_limits(&root).cpus, None);
+
+    let inf_load = common::host((&[("/proc/loadavg", "inf 0.10 0.05 1/100 200\n")], &[]));
+    assert_eq!(system::load(&Root::new(inf_load.path())), None);
+    let neg_load = common::host((&[("/proc/loadavg", "-0.01 0.10 0.05 1/100 200\n")], &[]));
+    assert_eq!(system::load(&Root::new(neg_load.path())), None);
+    let nan_cgroup = common::host((&[("/sys/fs/cgroup/cpu.max", "100000 NaN\n")], &[]));
+    assert_eq!(
+        memory::cgroup_limits(&Root::new(nan_cgroup.path())).cpus,
+        None
+    );
+}
+
+#[test]
 fn the_kernels_own_counters_tell_the_hosts_values_from_a_containers() {
     // /proc/loadavg rounds each average to hundredths: 4914 / 2048 shows as 2.40.
     let kernel = Counters {

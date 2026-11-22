@@ -367,7 +367,8 @@ fn block_devices(root: &Root) -> Vec<BlockDevice> {
             size: root
                 .read_line(&format!("{dir}/size"))
                 .and_then(|sectors| sectors.parse::<u64>().ok())
-                .map_or(0, |sectors| sectors * 512),
+                .and_then(|sectors| sectors.checked_mul(512))
+                .unwrap_or(0),
             partition: root.exists(&format!("{dir}/partition")),
             slaves: root.list(&format!("{dir}/slaves")),
             rotational: root

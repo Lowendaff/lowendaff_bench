@@ -143,16 +143,28 @@ fn sysfs(root: &Root) -> Option<Table> {
 fn entries(root: &Root) -> Option<Table> {
     let base = "/sys/firmware/dmi/entries";
     let mut parts = Vec::new();
+    let mut total_bytes: usize = 0;
     for name in root.list(base) {
         let position: u64 = root
             .read_line(&format!("{base}/{name}/position"))?
             .parse()
             .ok()?;
-        parts.push((position, root.read_bytes(&format!("{base}/{name}/raw"))?));
+        let raw = root.read_bytes(&format!("{base}/{name}/raw"))?;
+        total_bytes = total_bytes.checked_add(raw.len())?;
+        if total_bytes > LIMIT {
+            return None;
+        }
+        parts.push((position, raw));
+    }
+    if total_bytes == 0 {
+        return None;
     }
     parts.sort_by_key(|(position, _)| *position);
-    let table: Vec<u8> = parts.into_iter().flat_map(|(_, raw)| raw).collect();
-    (1..=LIMIT).contains(&table.len()).then_some((table, None))
+    let mut table = Vec::with_capacity(total_bytes);
+    for (_, raw) in parts {
+        table.extend_from_slice(&raw);
+    }
+    Some((table, None))
 }
 
 /// The table in the firmware's memory: at the address in the EFI system table, else at the
@@ -390,7 +402,7 @@ fn string(text: &SMBiosString) -> Option<String> {
 
 /// `module` says whether the slot names a module's manufacturer and part number.
 fn capacity(device: &SMBiosMemoryDevice<'_>, module: bool) -> Capacity {
-    let megabytes = |megabytes: u64| Capacity::Kilobytes(megabytes << 10);
+    let megabytes = |megabytes: u64| Capacity::Kilobytes(megabytes.saturating_mul(1024));
     match device.size() {
         Some(MemorySize::NotInstalled) if module => Capacity::Disabled,
         Some(MemorySize::NotInstalled) => Capacity::Empty,

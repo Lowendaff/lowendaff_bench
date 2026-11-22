@@ -301,6 +301,23 @@ fn tables_over_one_mebibyte_bad_entry_points_and_no_dev_mem_are_absent() {
     let dir = common::host((SYSTAB, &[]));
     common::add_bytes(&dir, "/sys/firmware/dmi/tables/DMI", &big);
     assert!(matches!(read(&dir, "aarch64"), Err(Unreadable::Absent)));
+
+    // Oversized dmi-sysfs entries stop accumulating as soon as their sum crosses 1 MiB.
+    let entries_dir = common::host((&[], &[]));
+    let chunk = vec![0x7f_u8; 600_000];
+    for idx in 0..2 {
+        let base = format!("/sys/firmware/dmi/entries/17-{idx}");
+        common::add_bytes(
+            &entries_dir,
+            &format!("{base}/position"),
+            format!("{idx}\n").as_bytes(),
+        );
+        common::add_bytes(&entries_dir, &format!("{base}/raw"), &chunk);
+    }
+    assert!(matches!(
+        read(&entries_dir, "aarch64"),
+        Err(Unreadable::Absent)
+    ));
     assert!(matches!(
         read(&common::host((&[], &[])), "x86_64"),
         Err(Unreadable::Absent)

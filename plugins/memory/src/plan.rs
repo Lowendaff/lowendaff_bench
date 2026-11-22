@@ -190,7 +190,7 @@ impl Plan {
 /// Bytes of one STREAM array of `millions` million doubles.
 #[must_use]
 pub fn array_bytes(millions: u64) -> u64 {
-    millions * 8_000_000
+    millions.saturating_mul(8_000_000)
 }
 
 /// The smallest power of two of at least `bytes`.
@@ -230,7 +230,7 @@ fn last_level(caches: &[Cache], cpus: Option<&[usize]>) -> Option<u64> {
         .filter(|cache| cache.level == level)
         .filter(|cache| cpus.is_none_or(|cpus| cache.cpus.iter().any(|cpu| cpus.contains(cpu))))
         .map(|cache| cache.size)
-        .sum();
+        .fold(0_u64, u64::saturating_add);
     (total > 0).then_some(total)
 }
 
@@ -270,7 +270,7 @@ fn stream(cache: u64, budget: u64) -> Option<u64> {
         .iter()
         .rev()
         .copied()
-        .find(|&millions| 3 * array_bytes(millions) <= budget)
+        .find(|&millions| array_bytes(millions).saturating_mul(3) <= budget)
 }
 
 /// The NUMA matrix: a row for each node with CPUs this process may use, a column for each node

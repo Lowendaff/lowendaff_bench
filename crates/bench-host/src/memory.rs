@@ -49,7 +49,7 @@ pub fn read(root: &Root) -> Option<Memory> {
             let estimate = ["MemFree", "Buffers", "Cached"]
                 .iter()
                 .filter_map(|key| get(key))
-                .sum();
+                .fold(0_u64, u64::saturating_add);
             (estimate, true)
         }
     };
@@ -89,9 +89,11 @@ pub(crate) fn meminfo(text: &str) -> BTreeMap<&str, u64> {
         let Some(Ok(number)) = words.next().map(str::parse::<u64>) else {
             continue;
         };
-        let bytes = match words.next() {
-            Some("kB") => number * 1024,
-            _ => number,
+        let Some(bytes) = (match words.next() {
+            Some("kB") => number.checked_mul(1024),
+            _ => Some(number),
+        }) else {
+            continue;
         };
         fields.insert(key.trim(), bytes);
     }
@@ -125,20 +127,29 @@ pub fn cgroup_limits(root: &Root) -> CgroupLimits {
         .read_line("/sys/fs/cgroup/cpu.max")
         .and_then(|line| {
             let (quota, period) = line.split_once(' ')?;
-            Some((quota.parse::<f64>().ok()?, period.parse::<f64>().ok()?))
+            let quota = quota
+                .parse::<f64>()
+                .ok()
+                .filter(|v| v.is_finite() && *v > 0.0)?;
+            let period = period
+                .parse::<f64>()
+                .ok()
+                .filter(|v| v.is_finite() && *v > 0.0)?;
+            Some(quota / period)
         })
-        .filter(|(_, period)| *period > 0.0)
-        .map(|(quota, period)| quota / period);
+        .filter(|cpus| cpus.is_finite() && *cpus > 0.0);
     let v1_cpus = || {
-        let quota: f64 = root
+        let quota = root
             .read_line("/sys/fs/cgroup/cpu/cpu.cfs_quota_us")?
-            .parse()
-            .ok()?;
-        let period: f64 = root
+            .parse::<f64>()
+            .ok()
+            .filter(|v| v.is_finite() && *v > 0.0)?;
+        let period = root
             .read_line("/sys/fs/cgroup/cpu/cpu.cfs_period_us")?
-            .parse()
-            .ok()?;
-        (quota > 0.0 && period > 0.0).then(|| quota / period)
+            .parse::<f64>()
+            .ok()
+            .filter(|v| v.is_finite() && *v > 0.0)?;
+        Some(quota / period).filter(|cpus| cpus.is_finite() && *cpus > 0.0)
     };
     let memory = root
         .read_line("/sys/fs/cgroup/memory.max")
