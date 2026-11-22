@@ -23,6 +23,7 @@ use bench_tool::job::Fault;
 use bench_tool::job::Job;
 use bench_tool::job::Output;
 use bench_tool::job::RunError;
+use bench_tool::job::STREAM_LIMIT;
 use bench_tool::job::User;
 use serde::Serialize;
 #[cfg(target_os = "linux")]
@@ -91,6 +92,57 @@ async fn a_run_gives_its_output_then_its_errors_and_its_exit_code() {
         })
     );
     assert_eq!(outcome.adjustment, None, "the job did not ask to go first");
+}
+
+#[tokio::test]
+async fn runaway_stdout_and_stderr_are_capped_at_stream_limit_without_blocking_child() {
+    let (ctx, _channels) = context(CancellationToken::new());
+    // Write 5 MiB to stdout and 5 MiB to stderr (> 4 MiB STREAM_LIMIT each), then exit 0.
+    let script = "dd if=/dev/zero bs=1048576 count=5 2>/dev/null; \
+                  dd if=/dev/zero bs=1048576 count=5 >&2 2>/dev/null";
+    let outcome = shell(script, Duration::from_secs(30)).run(&ctx).await;
+    let Ok(output) = outcome.ended else {
+        panic!(
+            "oversized output run should still complete cleanly: {:?}",
+            outcome.ended
+        );
+    };
+    assert_eq!(output.code, Some(0));
+    assert_eq!(output.text.len(), STREAM_LIMIT * 2);
+}
+
+#[tokio::test]
+async fn exited_child_with_inherited_background_pipe_returns_after_drain_grace() {
+    let (ctx, _channels) = context(CancellationToken::new());
+    let dir = tempfile::tempdir().expect("temp dir");
+    let pid_file = dir.path().join("bg.pid");
+    // Background sleep inherits stdout/stderr without closing them while the direct shell exits 0.
+    let script = format!(
+        "echo ready; sleep 30 & echo $! > '{}'; exit 0",
+        pid_file.display()
+    );
+    let started = std::time::Instant::now();
+    let outcome = shell(&script, Duration::from_secs(15)).run(&ctx).await;
+    let elapsed = started.elapsed();
+
+    if let Ok(raw_pid) = std::fs::read_to_string(&pid_file)
+        && let Ok(num) = raw_pid.trim().parse::<i32>()
+        && let Some(pid) = rustix::process::Pid::from_raw(num)
+    {
+        let _ = rustix::process::kill_process(pid, rustix::process::Signal::KILL);
+    }
+
+    assert_eq!(
+        outcome.ended,
+        Ok(Output {
+            code: Some(0),
+            text: "ready\n".to_owned(),
+        })
+    );
+    assert!(
+        elapsed < Duration::from_secs(5),
+        "must not block until the 15s limit when a grandchild keeps pipes open (took {elapsed:?})"
+    );
 }
 
 #[tokio::test]

@@ -1,9 +1,10 @@
 //! Running a tool once, as every test item does: without a shell, in the C locale, with what it
-//! prints read in full, within a time limit, and stopped when the plugin is cancelled. A tool that
-//! starts workers of its own runs in a process group of its own, which is killed as a whole; a
-//! tool that may exhaust memory starts as the kernel's first choice to kill; a tool that measures
-//! one part of the machine runs on that part's CPUs; a tool that talks to third parties runs as an
-//! unprivileged user. Each run is reported to the plugin's context, for the progress log with `-v`.
+//! prints read up to [`STREAM_LIMIT`], within a time limit, and stopped when the plugin is
+//! cancelled. A tool that starts workers of its own runs in a process group of its own, which is
+//! killed as a whole; a tool that may exhaust memory starts as the kernel's first choice to kill;
+//! a tool that measures one part of the machine runs on that part's CPUs; a tool that talks to
+//! third parties runs as an unprivileged user. Each run is reported to the plugin's context, for
+//! the progress log with `-v`.
 
 use std::ffi::OsString;
 use std::fs::File;
@@ -21,6 +22,8 @@ use bench_api::ToolRun;
 use rustix::process::Pid;
 use rustix::process::Signal;
 use serde::Serialize;
+use tokio::io::AsyncRead;
+use tokio::io::AsyncReadExt;
 use tokio::process::Child;
 use tokio::process::Command;
 
@@ -29,6 +32,16 @@ const OOM_SCORE_ADJ: &str = "/proc/self/oom_score_adj";
 
 /// The lines of a failed run's output that the log quotes.
 const TAIL: usize = 3;
+
+/// Maximum bytes retained from each of a tool's standard output and standard error (`4 MiB`).
+/// Bytes beyond this cap are drained and discarded so a runaway or compromised child cannot
+/// exhaust memory in the parent process.
+pub const STREAM_LIMIT: usize = 4 * 1024 * 1024;
+
+/// Grace window to finish draining `stdout` and `stderr` after the direct child process exits, so
+/// a leaked background grandchild holding inherited pipe descriptors cannot stall the parent until
+/// [`Job::limit`].
+const PIPE_DRAIN_GRACE: Duration = Duration::from_millis(200);
 
 /// Inherited proxy environment variables cleared before running external benchmark tools so host
 /// shell proxies never interfere with speed, route, or Geekbench measurements.
@@ -257,16 +270,9 @@ impl Job {
             })
         });
         let ended = tokio::select! {
-            finished = tokio::time::timeout(self.limit, child.wait_with_output()) => {
+            finished = tokio::time::timeout(self.limit, wait_with_bounded_output(child)) => {
                 match finished {
-                    Ok(Ok(output)) => {
-                        let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
-                        text.push_str(&String::from_utf8_lossy(&output.stderr));
-                        Ok(Output {
-                            code: output.status.code(),
-                            text,
-                        })
-                    }
+                    Ok(Ok(output)) => Ok(output),
                     Ok(Err(err)) => Err(RunError::Fault(Fault::Read(err.to_string()))),
                     Err(_) => Err(RunError::Fault(Fault::TimedOut(self.limit))),
                 }
@@ -284,6 +290,128 @@ impl Job {
             group.disarm();
         }
         ended
+    }
+}
+
+/// Drains `child`'s `stdout` and `stderr` concurrently while waiting for it to exit, retaining at
+/// most [`STREAM_LIMIT`] bytes per stream and bounding post-exit pipe draining to
+/// [`PIPE_DRAIN_GRACE`].
+async fn wait_with_bounded_output(mut child: Child) -> io::Result<Output> {
+    let stdout = child.stdout.take();
+    let stderr = child.stderr.take();
+    let mut out_bytes = Vec::new();
+    let mut err_bytes = Vec::new();
+    let mut out_truncated = false;
+    let mut err_truncated = false;
+    let mut out_done = false;
+    let mut err_done = false;
+
+    let status = {
+        let out_fut = drain_stream(stdout, &mut out_bytes, &mut out_truncated, STREAM_LIMIT);
+        let err_fut = drain_stream(stderr, &mut err_bytes, &mut err_truncated, STREAM_LIMIT);
+        tokio::pin!(out_fut);
+        tokio::pin!(err_fut);
+
+        let status = loop {
+            tokio::select! {
+                res = child.wait() => break res?,
+                res = &mut out_fut, if !out_done => {
+                    res?;
+                    out_done = true;
+                }
+                res = &mut err_fut, if !err_done => {
+                    res?;
+                    err_done = true;
+                }
+            }
+        };
+
+        if !out_done || !err_done {
+            let drain_rest = async {
+                while !out_done || !err_done {
+                    tokio::select! {
+                        res = &mut out_fut, if !out_done => {
+                            res?;
+                            out_done = true;
+                        }
+                        res = &mut err_fut, if !err_done => {
+                            res?;
+                            err_done = true;
+                        }
+                    }
+                }
+                Ok::<(), io::Error>(())
+            };
+            if let Ok(res) = tokio::time::timeout(PIPE_DRAIN_GRACE, drain_rest).await {
+                res?;
+            }
+        }
+        status
+    };
+
+    let mut text = decode_stream(out_bytes, out_truncated);
+    if !err_bytes.is_empty() {
+        let err_text = decode_stream(err_bytes, err_truncated);
+        text.push_str(&err_text);
+    }
+    Ok(Output {
+        code: status.code(),
+        text,
+    })
+}
+
+async fn drain_stream<R: AsyncRead + Unpin>(
+    mut stream: Option<R>,
+    out: &mut Vec<u8>,
+    truncated: &mut bool,
+    limit: usize,
+) -> io::Result<()> {
+    let Some(reader) = stream.as_mut() else {
+        return Ok(());
+    };
+    let mut scratch = [0_u8; 8192];
+    loop {
+        let n = reader.read(&mut scratch).await?;
+        if n == 0 {
+            return Ok(());
+        }
+        let remaining = limit.saturating_sub(out.len());
+        if remaining > 0 {
+            let take = remaining.min(n);
+            if out.len() + take > out.capacity() {
+                let next_cap = out
+                    .capacity()
+                    .max(4096)
+                    .saturating_mul(2)
+                    .max(out.len() + take)
+                    .min(limit);
+                out.reserve_exact(next_cap - out.len());
+            }
+            out.extend_from_slice(&scratch[..take]);
+            if take < n {
+                *truncated = true;
+            }
+        } else {
+            *truncated = true;
+        }
+    }
+}
+
+fn decode_stream(bytes: Vec<u8>, truncated: bool) -> String {
+    match String::from_utf8(bytes) {
+        Ok(valid) => valid,
+        Err(err) => {
+            let utf8_err = err.utf8_error();
+            let mut raw = err.into_bytes();
+            if truncated && utf8_err.error_len().is_none() {
+                raw.truncate(utf8_err.valid_up_to());
+                if let Ok(valid) = String::from_utf8(raw) {
+                    return valid;
+                }
+                return String::new();
+            }
+            String::from_utf8_lossy(&raw).into_owned()
+        }
     }
 }
 
