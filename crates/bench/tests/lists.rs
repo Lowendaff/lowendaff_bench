@@ -107,7 +107,8 @@ async fn live_bench_data_lists_parse_and_render() {
     let fetcher = Fetcher::try_new().expect("HTTPS client builds");
 
     let iperf3_raw = download_list(&fetcher, &git_ref, "iperf3.json").await;
-    let iperf3_servers = iperf3::servers::parse(&iperf3_raw).expect("iperf3.json parses");
+    let iperf3_servers =
+        iperf3::servers::parse_for_source(&iperf3_raw, false).expect("iperf3.json parses");
     assert!(!iperf3_servers.is_empty(), "iperf3.json has servers");
 
     let taier_raw = download_list(&fetcher, &git_ref, "taier.json").await;
@@ -129,7 +130,8 @@ async fn live_bench_data_lists_parse_and_render() {
     assert!(!guangdong.is_empty());
 
     let trace_raw = download_list(&fetcher, &git_ref, "traceroute.json").await;
-    let trace_targets = trace::targets::parse(&trace_raw).expect("traceroute.json parses");
+    let trace_targets =
+        trace::targets::parse_for_source(&trace_raw, false).expect("traceroute.json parses");
     assert!(!trace_targets.is_empty(), "traceroute.json has targets");
 
     let ix_raw = download_list(&fetcher, &git_ref, "netflix-ix.json").await;

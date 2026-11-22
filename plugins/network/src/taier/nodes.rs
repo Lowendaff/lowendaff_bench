@@ -138,8 +138,15 @@ pub struct Chosen {
     pub unknown: Vec<String>,
 }
 
-/// Parses and validates Taier server list bytes.
+/// Parses and validates a remote or embedded Taier server list, rejecting loopback, private,
+/// link-local, metadata, multicast, and reserved IPv4 addresses.
 pub fn parse(bytes: &[u8]) -> Result<Vec<Location>, ListError> {
+    parse_for_source(bytes, false)
+}
+
+/// Parses and validates Taier server list bytes; `allow_loopback` permits `127.0.0.0/8` only when
+/// reading an explicit local file path override (such as smoke tests).
+pub fn parse_for_source(bytes: &[u8], allow_loopback: bool) -> Result<Vec<Location>, ListError> {
     #[derive(Deserialize)]
     struct VersionOnly {
         version: u64,
@@ -208,6 +215,11 @@ pub fn parse(bytes: &[u8]) -> Result<Vec<Location>, ListError> {
             let Some(ip) = parse_canonical_ipv4(&node.ip) else {
                 return Err(ListError::Location(pos, Rule::Ip));
             };
+            let allowed_ip = (allow_loopback && ip.is_loopback())
+                || crate::endpoint::is_routable_ip(std::net::IpAddr::V4(ip));
+            if !allowed_ip {
+                return Err(ListError::Location(pos, Rule::Ip));
+            }
             if !(1024..=65535).contains(&node.port) {
                 return Err(ListError::Location(pos, Rule::Port));
             }

@@ -173,10 +173,15 @@ impl Plugin for Trace {
         let path = ctx
             .file(TARGETS)
             .expect("the orchestrator runs a plugin only when it has its files");
+        let local_list = self.list.as_deref().is_some_and(|s| !s.contains("://"));
+        let local_netflix = self
+            .netflix_api
+            .as_deref()
+            .is_some_and(|s| !s.contains("://"));
         let list = read(path)
             .await
             .map_err(|err| Stop::Failed(Failure::Unreadable(err)))?;
-        let list = targets::parse(&list).map_err(|error| match error {
+        let list = targets::parse_for_source(&list, local_list).map_err(|error| match error {
             ListError::Newer(_) => Stop::Skipped(Failure::List(error)),
             _ => Stop::Failed(Failure::List(error)),
         })?;
@@ -195,7 +200,7 @@ impl Plugin for Trace {
             if !reached[index] {
                 continue;
             }
-            let planned = planned(ctx, &chosen, family, index).await;
+            let planned = planned(ctx, &chosen, family, index, local_netflix).await;
             match family {
                 IpFamily::Ipv4 => plan.ipv4 = planned,
                 IpFamily::Ipv6 => plan.ipv6 = planned,
@@ -237,6 +242,7 @@ async fn planned(
     chosen: &Chosen,
     family: IpFamily,
     index: usize,
+    local_netflix: bool,
 ) -> Vec<Planned> {
     let mut planned = Vec::new();
     if chosen.youtube {
@@ -249,9 +255,13 @@ async fn planned(
         });
     }
     if chosen.netflix {
-        let cache = answer(ctx, NETFLIX[index])
-            .await
-            .and_then(|answer| lookup::netflix(&answer).map_err(Unavailable::Answer));
+        let cache = answer(ctx, NETFLIX[index]).await.and_then(|answer| {
+            let parsed = lookup::netflix(&answer).map_err(Unavailable::Answer)?;
+            if !local_netflix && !lists::is_remote_safe_host(&parsed.host) {
+                return Err(Unavailable::Answer(lookup::LookupError::Url));
+            }
+            Ok(parsed)
+        });
         let (target, host) = match cache {
             Ok(cache) => (
                 Target::Netflix(Some(Place {

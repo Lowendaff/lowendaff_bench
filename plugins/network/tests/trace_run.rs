@@ -156,6 +156,43 @@ async fn nothing_chosen_skips_the_item_with_what_was_asked_for_and_no_family_ski
 }
 
 #[tokio::test]
+async fn remote_target_list_rejects_loopback_localhost_and_private_ips_unless_local_override() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    for bad_v4 in ["127.0.0.1", "10.0.0.1", "169.254.169.254", "localhost"] {
+        let path = dir.path().join(format!("targets-{bad_v4}.json"));
+        std::fs::write(
+            &path,
+            serde_json::to_vec(&json!({
+                "version": 1,
+                "targets": [{
+                    "id": "test",
+                    "group": "international",
+                    "name": "Test",
+                    "asn": 64496,
+                    "ipv4": bad_v4,
+                    "default": true
+                }]
+            }))
+            .expect("json"),
+        )
+        .expect("write");
+
+        assert_eq!(
+            run(json!({}), &path).await,
+            Err(Stop::Failed(Failure::List(ListError::Entry(1, Rule::Ipv4)))),
+            "default remote target list must reject {bad_v4}"
+        );
+    }
+
+    let lo_path = dir.path().join("targets-127.0.0.1.json");
+    assert_eq!(
+        run(json!({ "list": lo_path.to_str().unwrap() }), &lo_path).await,
+        Err(Stop::Skipped(Failure::NoFamily)),
+        "local target list file override permits 127.0.0.1"
+    );
+}
+
+#[tokio::test]
 async fn the_plan_traces_each_cache_server_by_its_answer_then_the_lists_targets() {
     let files = BTreeMap::from([
         (

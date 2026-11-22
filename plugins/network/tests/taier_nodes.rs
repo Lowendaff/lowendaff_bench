@@ -251,3 +251,49 @@ fn unified_selectors_resolve_municipalities_province_city_homonyms_and_deduplica
         );
     }
 }
+
+#[test]
+fn remote_taier_list_rejects_internal_and_loopback_ips_while_local_override_allows_loopback() {
+    let make_list = |ip: &str| {
+        format!(
+            "{{\"version\":1,\"locations\":[{{\"id\":\"test\",\"province\":\"Beijing\",\
+             \"city\":\"Beijing\",\"default\":true,\"nodes\":[{{\"operator\":\"telecom\",\
+             \"ip\":\"{ip}\",\"port\":65499}}]}}]}}"
+        )
+        .into_bytes()
+    };
+
+    for forbidden in [
+        "0.0.0.0",
+        "10.0.0.1",
+        "172.16.0.1",
+        "192.168.1.1",
+        "169.254.169.254",
+        "100.100.100.200",
+        "224.0.0.1",
+        "255.255.255.255",
+    ] {
+        let bytes = make_list(forbidden);
+        assert_eq!(
+            nodes::parse(&bytes),
+            Err(ListError::Location(1, nodes::Rule::Ip)),
+            "remote list must reject {forbidden}"
+        );
+        assert_eq!(
+            nodes::parse_for_source(&bytes, true),
+            Err(ListError::Location(1, nodes::Rule::Ip)),
+            "local list must also reject {forbidden}"
+        );
+    }
+
+    let loopback = make_list("127.0.0.1");
+    assert_eq!(
+        nodes::parse(&loopback),
+        Err(ListError::Location(1, nodes::Rule::Ip)),
+        "remote list must reject 127.0.0.1"
+    );
+    assert!(
+        nodes::parse_for_source(&loopback, true).is_ok(),
+        "local file override may use 127.0.0.1 for smoke tests"
+    );
+}

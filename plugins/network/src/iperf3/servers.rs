@@ -116,12 +116,26 @@ struct WrittenServer {
     default: bool,
 }
 
-/// Reads a list, and checks every rule.
+/// Reads a list, and checks every schema rule.
 ///
 /// # Errors
 ///
 /// When the list is too large, not of the format, of another version, or breaks a rule.
 pub fn parse(bytes: &[u8]) -> Result<Vec<Server>, ListError> {
+    parse_inner(bytes, true)
+}
+
+/// Reads a list and enforces endpoint routing safety when `allow_local` is `false` (remote URLs),
+/// rejecting loopback, `localhost`, private, link-local, metadata, and non-global IPv6 addresses.
+///
+/// # Errors
+///
+/// When the list is too large, not of the format, of another version, or breaks a rule.
+pub fn parse_for_source(bytes: &[u8], allow_local: bool) -> Result<Vec<Server>, ListError> {
+    parse_inner(bytes, allow_local)
+}
+
+fn parse_inner(bytes: &[u8], allow_local: bool) -> Result<Vec<Server>, ListError> {
     if bytes.len() > LIMIT {
         return Err(ListError::TooLarge);
     }
@@ -144,7 +158,8 @@ pub fn parse(bytes: &[u8]) -> Result<Vec<Server>, ListError> {
     }
     let mut servers: Vec<Server> = Vec::with_capacity(written.servers.len());
     for (index, server) in written.servers.into_iter().enumerate() {
-        let server = check(server).map_err(|rule| ListError::Server(index + 1, rule))?;
+        let server =
+            check(server, allow_local).map_err(|rule| ListError::Server(index + 1, rule))?;
         if servers.iter().any(|known| known.id == server.id) {
             return Err(ListError::Duplicate(server.id));
         }
@@ -154,7 +169,7 @@ pub fn parse(bytes: &[u8]) -> Result<Vec<Server>, ListError> {
 }
 
 /// A written server, checked against every rule.
-fn check(server: WrittenServer) -> Result<Server, Rule> {
+fn check(server: WrittenServer, allow_local: bool) -> Result<Server, Rule> {
     if !id(&server.id) {
         return Err(Rule::Id);
     }
@@ -162,7 +177,7 @@ fn check(server: WrittenServer) -> Result<Server, Rule> {
     {
         return Err(Rule::Country);
     }
-    if !host(&server.host) {
+    if !host(&server.host) || (!allow_local && !remote_safe_host(&server.host)) {
         return Err(Rule::Host);
     }
     let ports = ports(&server.ports).ok_or(Rule::Ports)?;
@@ -211,6 +226,14 @@ fn host(host: &str) -> bool {
                 .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
     };
     (1..=253).contains(&host.len()) && host.split('.').all(label)
+}
+
+fn remote_safe_host(host: &str) -> bool {
+    if let Ok(ip) = host.parse::<IpAddr>() {
+        return crate::endpoint::is_routable_ip(ip);
+    }
+    let lower = host.to_ascii_lowercase();
+    lower != "localhost" && !lower.ends_with(".localhost")
 }
 
 /// `5201` or `5201-5210`: from 1024 to 65535, the first not after the last, at most

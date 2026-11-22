@@ -18,6 +18,7 @@ tokio = { workspace = true, features = ["fs", "io-util", "rt", "time"] }
 serde_json.workspace = true
 
 [dev-dependencies]
+tempfile.workspace = true
 tokio = { workspace = true, features = ["macros", "rt", "test-util"] }
 
 [lints]

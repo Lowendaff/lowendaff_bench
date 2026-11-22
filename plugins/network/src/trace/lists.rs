@@ -105,3 +105,15 @@ pub fn host(host: &str) -> bool {
     };
     (1..=253).contains(&host.len()) && host.split('.').all(label)
 }
+
+/// Whether `host` is permitted in an unpinned remote list or cache-lookup response: rejects
+/// `localhost`, `*.localhost`, and non-public IP literals (loopback, private, link-local, metadata,
+/// multicast, and non-global IPv6).
+#[must_use]
+pub fn is_remote_safe_host(host: &str) -> bool {
+    if let Ok(ip) = host.parse::<IpAddr>() {
+        return crate::endpoint::is_routable_ip(ip);
+    }
+    let lower = host.to_ascii_lowercase();
+    lower != "localhost" && !lower.ends_with(".localhost")
+}

@@ -99,3 +99,46 @@ async fn no_server_chosen_skips_the_item_with_what_was_asked_for() {
         "a host that reaches no family"
     );
 }
+
+#[tokio::test]
+async fn remote_server_list_rejects_loopback_localhost_and_private_ips_unless_local_override() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    for bad_host in ["127.0.0.1", "10.0.0.1", "169.254.169.254", "localhost"] {
+        let path = dir.path().join(format!("list-{bad_host}.json"));
+        std::fs::write(
+            &path,
+            serde_json::to_vec(&json!({
+                "version": 1,
+                "servers": [{
+                    "id": "test",
+                    "country": "US",
+                    "location": "Test",
+                    "provider": "Test",
+                    "host": bad_host,
+                    "ports": "5201",
+                    "families": ["ipv4"],
+                    "link": "1G",
+                    "default": true
+                }]
+            }))
+            .expect("json"),
+        )
+        .expect("write");
+
+        assert_eq!(
+            run(json!({}), &path).await,
+            Err(Stop::Failed(Failure::List(ListError::Server(
+                1,
+                Rule::Host
+            )))),
+            "default remote list mode must reject {bad_host}"
+        );
+    }
+
+    let lo_path = dir.path().join("list-127.0.0.1.json");
+    assert_eq!(
+        run(json!({ "list": lo_path.to_str().unwrap() }), &lo_path).await,
+        Err(Stop::Skipped(Failure::NoFamily)),
+        "local file list override permits 127.0.0.1 and advances past list validation"
+    );
+}
