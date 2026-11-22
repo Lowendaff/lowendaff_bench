@@ -56,7 +56,12 @@ esac
 # Not under /tmp: the run directory must sit on the tested disk.
 work=$(mktemp -d "$PWD/smoke.XXXXXX")
 log=$(mktemp)
-trap 'rm -f "$log"' EXIT
+cleanup() {
+    rm -f "$log"
+    # shellcheck disable=SC2086 # $as_root is one word or none
+    $as_root rm -rf "$work"
+}
+trap cleanup EXIT
 output=$($as_root "$bin" --work-dir "$work" "$@" 2>"$log") || {
     cat "$log" >&2
     fail "root run failed"
