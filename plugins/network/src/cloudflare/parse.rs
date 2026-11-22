@@ -353,7 +353,7 @@ fn tick_rates_mbps(ticks: &[ThroughputTick]) -> Vec<f64> {
         let mbps = ((dbytes as f64) * 8.0) / (secs * 1_000_000.0);
         out.push(mbps);
         prev_ms = tick.elapsed_ms;
-        prev_bytes = tick.bytes;
+        prev_bytes = prev_bytes.max(tick.bytes);
     }
     out
 }
@@ -675,5 +675,30 @@ mod tests {
         assert_eq!(udp.out_of_order_pct, 10.0);
         assert_eq!(udp.quality, super::UdpQuality::Excellent);
         assert!(udp.mos.expect("mos") > 4.0);
+    }
+
+    #[test]
+    fn tick_rates_track_high_water_mark_without_double_counting_rollbacks() {
+        let ticks = vec![
+            ThroughputTick {
+                elapsed_ms: 1_000,
+                bytes: 1_000_000,
+            },
+            ThroughputTick {
+                elapsed_ms: 2_000,
+                bytes: 500_000,
+            },
+            ThroughputTick {
+                elapsed_ms: 3_000,
+                bytes: 1_200_000,
+            },
+        ];
+        let rates = super::tick_rates_mbps(&ticks);
+        assert!((rates[0] - 8.0).abs() < 1e-6);
+        assert!((rates[1] - 0.0).abs() < 1e-6);
+        assert!(
+            (rates[2] - 1.6).abs() < 1e-6,
+            "must count only 200 KB above prior 1 MB high-water mark, got {rates:?}"
+        );
     }
 }
