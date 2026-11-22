@@ -46,4 +46,17 @@ async fn run_bounded_preserves_order_caps_concurrency_and_stops_spawning_on_canc
         polled.load(Ordering::SeqCst) <= 3,
         "queued tasks past the active window must never be polled after cancel"
     );
+
+    // Cancellation triggered as the sole active task resolves must still return empty.
+    let cancel3 = CancellationToken::new();
+    let tasks3 = (0..4).map(|idx| {
+        let cancel3 = cancel3.clone();
+        async move {
+            if idx == 0 {
+                cancel3.cancel();
+            }
+            idx
+        }
+    });
+    assert!(bench_api::run_bounded(1, &cancel3, tasks3).await.is_empty());
 }

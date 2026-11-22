@@ -107,7 +107,7 @@ pub enum IpFamily {
 pub fn is_routable_endpoint_ip(address: IpAddr) -> bool {
     match address {
         IpAddr::V4(v4) => {
-            let [a, b, ..] = v4.octets();
+            let [a, b, c, _] = v4.octets();
             !(v4.is_unspecified()
                 || v4.is_loopback()
                 || v4.is_private()
@@ -115,11 +115,19 @@ pub fn is_routable_endpoint_ip(address: IpAddr) -> bool {
                 || v4.is_multicast()
                 || a == 0
                 || a >= 224
-                || (a == 100 && (64..128).contains(&b)))
+                || (a == 100 && (64..128).contains(&b))
+                || (a == 192 && b == 0 && c == 0)
+                || (a == 192 && b == 88 && c == 99)
+                || (a == 198 && (b == 18 || b == 19)))
         }
         IpAddr::V6(v6) => {
-            let [first, ..] = v6.segments();
+            let [first, second, third, ..] = v6.segments();
             first & 0xe000 == 0x2000
+                && first != 0x2002
+                && !(first == 0x2001
+                    && (second == 0
+                        || (second == 2 && third == 0)
+                        || (0x0010..=0x002f).contains(&second)))
         }
     }
 }
@@ -248,7 +256,7 @@ pub fn validate_endpoint_url(raw: &str, strip_trailing_slash: bool) -> Option<St
     if trimmed.is_empty()
         || trimmed
             .bytes()
-            .any(|b| b <= b' ' || b == 0x7f || matches!(b, b'?' | b'#' | b'\\' | b'@'))
+            .any(|b| !b.is_ascii_graphic() || matches!(b, b'?' | b'#' | b'\\' | b'@'))
     {
         return None;
     }
@@ -305,7 +313,7 @@ fn is_valid_authority(authority: &str, loopback_only: bool) -> bool {
         return is_routable_endpoint_ip(IpAddr::V4(v4));
     }
     let lower = host.to_ascii_lowercase();
-    if lower == "localhost" || lower.ends_with(".localhost") {
+    if lower == "localhost" || lower.ends_with(".localhost") || ends_in_ipv4_number(host) {
         return false;
     }
     (1..=253).contains(&host.len())
@@ -317,6 +325,19 @@ fn is_valid_authority(authority: &str, loopback_only: bool) -> bool {
                     .bytes()
                     .all(|b| b.is_ascii_alphanumeric() || b == b'-')
         })
+}
+
+fn ends_in_ipv4_number(host: &str) -> bool {
+    let last = host.rsplit('.').next().unwrap_or_default();
+    if last.is_empty() {
+        return false;
+    }
+    if last.bytes().all(|b| b.is_ascii_digit()) {
+        return true;
+    }
+    last.strip_prefix("0x")
+        .or_else(|| last.strip_prefix("0X"))
+        .is_some_and(|hex| hex.bytes().all(|b| b.is_ascii_hexdigit()))
 }
 
 fn is_valid_port_suffix(port_rest: &str) -> bool {
@@ -1387,7 +1408,11 @@ impl<O: Measurement> Context<O> {
         if self.cancel.is_cancelled() {
             return Err(NetError::Cancelled);
         }
-        self.net.taier_download(spec, &self.cancel).await
+        tokio::select! {
+            biased;
+            () = self.cancel.cancelled() => Err(NetError::Cancelled),
+            outcome = self.net.taier_download(spec, &self.cancel) => outcome,
+        }
     }
 
     /// Measures multi-stream upload throughput to a Taier node.
@@ -1395,7 +1420,11 @@ impl<O: Measurement> Context<O> {
         if self.cancel.is_cancelled() {
             return Err(NetError::Cancelled);
         }
-        self.net.taier_upload(spec, &self.cancel).await
+        tokio::select! {
+            biased;
+            () = self.cancel.cancelled() => Err(NetError::Cancelled),
+            outcome = self.net.taier_upload(spec, &self.cancel) => outcome,
+        }
     }
 
     /// Runs a Cloudflare multi-worker download phase with concurrent loaded-latency probes.
@@ -1406,7 +1435,11 @@ impl<O: Measurement> Context<O> {
         if self.cancel.is_cancelled() {
             return Err(NetError::Cancelled);
         }
-        self.net.cloudflare_download(spec, &self.cancel).await
+        tokio::select! {
+            biased;
+            () = self.cancel.cancelled() => Err(NetError::Cancelled),
+            outcome = self.net.cloudflare_download(spec, &self.cancel) => outcome,
+        }
     }
 
     /// Runs a Cloudflare multi-worker upload phase with concurrent loaded-latency probes.
@@ -1417,7 +1450,11 @@ impl<O: Measurement> Context<O> {
         if self.cancel.is_cancelled() {
             return Err(NetError::Cancelled);
         }
-        self.net.cloudflare_upload(spec, &self.cancel).await
+        tokio::select! {
+            biased;
+            () = self.cancel.cancelled() => Err(NetError::Cancelled),
+            outcome = self.net.cloudflare_upload(spec, &self.cancel) => outcome,
+        }
     }
 
     /// Runs an RFC 5389 STUN UDP packet-loss probe for `network.cloudflare`.
@@ -1428,7 +1465,11 @@ impl<O: Measurement> Context<O> {
         if self.cancel.is_cancelled() {
             return Err(NetError::Cancelled);
         }
-        self.net.cloudflare_udp_loss(spec, &self.cancel).await
+        tokio::select! {
+            biased;
+            () = self.cancel.cancelled() => Err(NetError::Cancelled),
+            outcome = self.net.cloudflare_udp_loss(spec, &self.cancel) => outcome,
+        }
     }
 
     /// Resolves `host` via the system DNS resolver, stopping early when cancelled.
@@ -1458,9 +1499,11 @@ impl<O: Measurement> Context<O> {
         if self.cancel.is_cancelled() {
             return Err(NetError::Cancelled);
         }
-        self.net
-            .inetspeed_probe_rtt(target, count, timeout, &self.cancel)
-            .await
+        tokio::select! {
+            biased;
+            () = self.cancel.cancelled() => Err(NetError::Cancelled),
+            outcome = self.net.inetspeed_probe_rtt(target, count, timeout, &self.cancel) => outcome,
+        }
     }
 
     /// Runs an Apple CDN (`network.inetspeed`) download or upload transfer round.
@@ -1471,7 +1514,11 @@ impl<O: Measurement> Context<O> {
         if self.cancel.is_cancelled() {
             return Err(NetError::Cancelled);
         }
-        self.net.inetspeed_transfer(spec, &self.cancel).await
+        tokio::select! {
+            biased;
+            () = self.cancel.cancelled() => Err(NetError::Cancelled),
+            outcome = self.net.inetspeed_transfer(spec, &self.cancel) => outcome,
+        }
     }
 
     /// Replaces the last partial result. The report shows the last one published when the
@@ -1508,6 +1555,9 @@ where
                 break;
             };
             active.push((idx, Box::pin(fut)));
+        }
+        if cancel.is_cancelled() {
+            return Vec::new();
         }
         if active.is_empty() {
             break;
