@@ -69,11 +69,23 @@ pub fn attempt(output: &job::Output, download: bool) -> Attempt {
         (rtt, retransmits)
     };
     // Rounded to the nearest bit per second, which no speed of a network needs finer.
-    let bits = bits.round() as u64;
+    let bits = f64_to_u64_sat(bits.round());
     Attempt::Measured {
         bits,
         rtt,
         retransmits,
+    }
+}
+
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+fn f64_to_u64_sat(value: f64) -> u64 {
+    const UPPER_EXCLUSIVE: f64 = 18_446_744_073_709_551_616.0;
+    if !value.is_finite() || value <= 0.0 {
+        0
+    } else if value >= UPPER_EXCLUSIVE {
+        u64::MAX
+    } else {
+        value as u64
     }
 }
 

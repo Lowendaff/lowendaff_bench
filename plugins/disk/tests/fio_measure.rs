@@ -52,6 +52,7 @@ fn fixture(name: &str) -> String {
     fs::read_to_string(&path).expect("fixture is readable")
 }
 
+#[allow(clippy::unnecessary_wraps)]
 fn finished(code: i32, text: &str) -> Result<job::Output, RunError> {
     Ok(job::Output {
         code: Some(code),

@@ -1,0 +1,7 @@
+id: no-box-leak
+valid:
+  - "fn f() -> std::borrow::Cow<'static, str> { std::borrow::Cow::Owned(String::from(\"tokyo\")) }"
+  - 'fn g() -> Box<str> { String::from("ok").into_boxed_str() }'
+invalid:
+  - "fn f(s: String) -> &'static str { Box::leak(s.into_boxed_str()) }"
+  - "fn g(v: Vec<u8>) -> &'static [u8] { std::boxed::Box::leak(v.into_boxed_slice()) }"

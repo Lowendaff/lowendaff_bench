@@ -182,8 +182,26 @@ pub trait TuiWords {
     fn tui_invalid_number(&self, field: &str, min: u32, max: u32) -> String;
     /// Validation error when `work_dir` is empty.
     fn tui_empty_work_dir(&self) -> String;
+    /// Target name when resetting all items and global options at once.
+    fn tui_all_items_and_options(&self) -> &'static str;
     /// Status message when an item or global options were reset to defaults.
     fn tui_reset_done(&self, target: &str) -> String;
+    /// Gauge label showing how many items have completed out of the total.
+    fn tui_gauge_completed(&self, done: usize, total: usize) -> String;
+    /// `network.taier` picker badge showing selected slots and estimated runtime.
+    fn tui_taier_picker_badge(&self, selected: usize, est_secs: u64) -> String;
+    /// `network.taier` picker active search prefix (`"Filter: "`).
+    fn tui_taier_filter_prefix(&self) -> &'static str;
+    /// `network.taier` picker inactive filter banner when a filter string is set.
+    fn tui_taier_filter_active(&self, filter: &str) -> String;
+    /// `network.taier` picker empty-list message when no location matches the filter.
+    fn tui_taier_no_matches(&self) -> &'static str;
+    /// `network.taier` picker live target selector preview line.
+    fn tui_taier_targets_preview(&self, targets: Option<&str>) -> String;
+    /// `network.taier` picker region kind suffix (`(municipality)`, `(3 cities)`, etc.).
+    fn tui_taier_region_meta(&self, municipality: bool, overseas: bool, cities: usize) -> String;
+    /// `network.taier` picker operator fallback node count suffix (`(1 node)`, etc.).
+    fn tui_taier_node_count(&self, count: usize) -> String;
     /// Keybar help on the configuration screen (left list focused).
     fn tui_keys_config_list(&self) -> &'static str;
     /// Keybar help on the configuration screen (right parameter pane focused).

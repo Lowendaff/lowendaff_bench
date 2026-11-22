@@ -27,6 +27,7 @@ use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpSocket;
 use tokio::net::TcpStream;
+use tokio::task::JoinSet;
 use tokio::time::Instant as TokioInstant;
 use tokio::time::MissedTickBehavior;
 
@@ -87,6 +88,11 @@ pub async fn acquire(
     query: &str,
     timeout: Duration,
 ) -> Result<TaierAdmission, NetError> {
+    if !is_valid_query(query) {
+        return Err(NetError::Transport(
+            "invalid Taier dovalid query".to_owned(),
+        ));
+    }
     let run = async {
         let mut stream = connect_direct(ip, port, false).await?;
         let req = format!(
@@ -180,18 +186,35 @@ fn parse_dovalid_body(body: &str) -> TaierAdmission {
         TaierAdmission::InvalidParams
     } else if let Some(rest) = trimmed.strip_prefix('1') {
         let key = rest.trim_start_matches('-').trim();
-        if key.is_empty() {
-            TaierAdmission::Unexpected(trimmed.chars().take(120).collect())
-        } else {
+        if is_valid_lease_key(key) {
             TaierAdmission::Admitted(key.to_owned())
+        } else {
+            TaierAdmission::Unexpected(trimmed.chars().take(120).collect())
         }
     } else {
         TaierAdmission::Unexpected(trimmed.chars().take(120).collect())
     }
 }
 
+fn is_valid_query(query: &str) -> bool {
+    (1..=512).contains(&query.len())
+        && query
+            .bytes()
+            .all(|b| b > b' ' && b < 0x7f && !matches!(b, b'#'))
+}
+
+fn is_valid_lease_key(key: &str) -> bool {
+    (1..=64).contains(&key.len())
+        && key
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_'))
+}
+
 /// Best-effort `POST /speed/dovalid?key={key}` releasing a node's queue lease.
 pub async fn release(ip: Ipv4Addr, port: u16, key: &str, timeout: Duration) {
+    if !is_valid_lease_key(key) {
+        return;
+    }
     let run = async {
         let Ok(mut stream) = connect_direct(ip, port, false).await else {
             return;
@@ -216,6 +239,9 @@ pub async fn download(
     spec: &TaierStreamSpec,
     cancel: &CancellationToken,
 ) -> Result<TaierTransfer, NetError> {
+    if !is_valid_lease_key(&spec.key) {
+        return Err(NetError::Transport("invalid Taier lease key".to_owned()));
+    }
     let streams = spec.streams.max(1);
     let ts = unix_secs();
     let req = Arc::new(format!(
@@ -233,7 +259,7 @@ pub async fn download(
     let stop = cancel.child_token();
 
     let started = Instant::now();
-    let mut handles = Vec::with_capacity(usize::from(streams));
+    let mut tasks = JoinSet::new();
     for _ in 0..streams {
         let ip = spec.ip;
         let port = spec.port;
@@ -243,7 +269,7 @@ pub async fn download(
         let failed = Arc::clone(&failed);
         let first_err = Arc::clone(&first_err);
         let stop = stop.clone();
-        handles.push(tokio::spawn(async move {
+        tasks.spawn(async move {
             if let Err(err) = download_one(ip, port, &req, &stop, &bytes, &active).await {
                 failed.fetch_add(1, Ordering::Relaxed);
                 if let Ok(mut slot) = first_err.lock()
@@ -252,20 +278,18 @@ pub async fn download(
                     *slot = Some(err);
                 }
             }
-        }));
+        });
     }
 
     wait_window(spec.duration, streams, &failed, &stop, cancel).await;
     let elapsed = started.elapsed();
     stop.cancel();
-    for handle in handles {
-        let _ = tokio::time::timeout(Duration::from_millis(800), handle).await;
-    }
+    drain_or_abort(&mut tasks, Duration::from_millis(800)).await;
 
     if cancel.is_cancelled() {
         return Err(NetError::Cancelled);
     }
-    finish_transfer(total_bytes, active, first_err, elapsed)
+    finish_transfer(&total_bytes, &active, &first_err, elapsed)
 }
 
 async fn download_one(
@@ -343,6 +367,9 @@ pub async fn upload(
     spec: &TaierStreamSpec,
     cancel: &CancellationToken,
 ) -> Result<TaierTransfer, NetError> {
+    if !is_valid_lease_key(&spec.key) {
+        return Err(NetError::Transport("invalid Taier lease key".to_owned()));
+    }
     let streams = spec.streams.max(1);
     let ts = unix_secs();
     let header = Arc::new(format!(
@@ -367,7 +394,7 @@ pub async fn upload(
     let stop = cancel.child_token();
 
     let started = Instant::now();
-    let mut handles = Vec::with_capacity(usize::from(streams));
+    let mut tasks = JoinSet::new();
     for _ in 0..streams {
         let ip = spec.ip;
         let port = spec.port;
@@ -377,7 +404,7 @@ pub async fn upload(
         let failed = Arc::clone(&failed);
         let first_err = Arc::clone(&first_err);
         let stop = stop.clone();
-        handles.push(tokio::spawn(async move {
+        tasks.spawn(async move {
             if let Err(err) = upload_one(ip, port, &header, &stop, &bytes, &active).await {
                 failed.fetch_add(1, Ordering::Relaxed);
                 if let Ok(mut slot) = first_err.lock()
@@ -386,20 +413,18 @@ pub async fn upload(
                     *slot = Some(err);
                 }
             }
-        }));
+        });
     }
 
     wait_window(spec.duration, streams, &failed, &stop, cancel).await;
     let elapsed = started.elapsed();
     stop.cancel();
-    for handle in handles {
-        let _ = tokio::time::timeout(Duration::from_millis(800), handle).await;
-    }
+    drain_or_abort(&mut tasks, Duration::from_millis(800)).await;
 
     if cancel.is_cancelled() {
         return Err(NetError::Cancelled);
     }
-    finish_transfer(total_bytes, active, first_err, elapsed)
+    finish_transfer(&total_bytes, &active, &first_err, elapsed)
 }
 
 async fn upload_one(
@@ -473,10 +498,18 @@ async fn wait_window(
     }
 }
 
+async fn drain_or_abort(tasks: &mut JoinSet<()>, grace: Duration) {
+    let drain = async { while tasks.join_next().await.is_some() {} };
+    if tokio::time::timeout(grace, drain).await.is_err() {
+        tasks.abort_all();
+        while tasks.join_next().await.is_some() {}
+    }
+}
+
 fn finish_transfer(
-    total_bytes: Arc<AtomicU64>,
-    active: Arc<AtomicU8>,
-    first_err: Arc<Mutex<Option<String>>>,
+    total_bytes: &AtomicU64,
+    active: &AtomicU8,
+    first_err: &Mutex<Option<String>>,
     elapsed: Duration,
 ) -> Result<TaierTransfer, NetError> {
     let bytes = total_bytes.load(Ordering::Relaxed);
@@ -596,6 +629,12 @@ mod tests {
             super::acquire(ip, port, "token=busy", limit).await,
             Ok(TaierAdmission::Busy)
         );
+        assert!(
+            super::acquire(ip, port, "token=evil\r\nX-Injected: 1", limit)
+                .await
+                .is_err(),
+            "CRLF or whitespace in dovalid query must be rejected before socket write"
+        );
         assert_eq!(
             super::acquire(ip, port, "token=good", limit).await,
             Ok(TaierAdmission::Admitted("uuid-smoke-123".to_owned()))
@@ -653,5 +692,12 @@ mod tests {
             super::parse_dovalid_http(plain_ok),
             Ok(TaierAdmission::Admitted("uuid-abc".to_owned()))
         );
+
+        let crlf_injected =
+            b"HTTP/1.1 200 OK\r\nContent-Length: 26\r\n\r\n1-uuid\r\nEvil: injected\r\n\r\n";
+        assert!(matches!(
+            super::parse_dovalid_http(crlf_injected),
+            Ok(TaierAdmission::Unexpected(_))
+        ));
     }
 }

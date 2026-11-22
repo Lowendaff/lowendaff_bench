@@ -285,8 +285,8 @@ fn parse(table: Vec<u8>, version: Option<SMBiosVersion>) -> Smbios {
         .iter()
         .map(|device| {
             (
-                string(device.device_locator()),
-                string(device.bank_locator()),
+                string(&device.device_locator()),
+                string(&device.bank_locator()),
             )
         })
         .collect();
@@ -304,8 +304,8 @@ fn parse(table: Vec<u8>, version: Option<SMBiosVersion>) -> Smbios {
                 (Some(locator), _) => Some(locator.clone()),
                 (None, bank) => bank.clone(),
             };
-            let manufacturer = string(device.manufacturer());
-            let part_number = string(device.part_number());
+            let manufacturer = string(&device.manufacturer());
+            let part_number = string(&device.part_number());
             Slot {
                 name,
                 capacity: capacity(device, manufacturer.is_some() && part_number.is_some()),
@@ -353,25 +353,25 @@ fn parse(table: Vec<u8>, version: Option<SMBiosVersion>) -> Smbios {
         .defined_struct_iter::<SMBiosSystemInformation<'_>>()
         .next()
         .map(|system| Line {
-            vendor: string(system.manufacturer()),
-            name: string(system.product_name()),
+            vendor: string(&system.manufacturer()),
+            name: string(&system.product_name()),
             detail: None,
         });
     let board = data
         .defined_struct_iter::<SMBiosBaseboardInformation<'_>>()
         .next()
         .map(|board| Line {
-            vendor: string(board.manufacturer()),
-            name: string(board.product()),
-            detail: string(board.version()),
+            vendor: string(&board.manufacturer()),
+            name: string(&board.product()),
+            detail: string(&board.version()),
         });
     let bios = data
         .defined_struct_iter::<SMBiosInformation<'_>>()
         .next()
         .map(|bios| Line {
-            vendor: string(bios.vendor()),
-            name: string(bios.version()),
-            detail: string(bios.release_date()),
+            vendor: string(&bios.vendor()),
+            name: string(&bios.version()),
+            detail: string(&bios.release_date()),
         });
     Smbios {
         slots,
@@ -383,7 +383,7 @@ fn parse(table: Vec<u8>, version: Option<SMBiosVersion>) -> Smbios {
     }
 }
 
-fn string(text: SMBiosString) -> Option<String> {
+fn string(text: &SMBiosString) -> Option<String> {
     text.to_utf8_lossy()
         .and_then(|text| crate::firmware_string(&text))
 }

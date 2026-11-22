@@ -122,7 +122,7 @@ impl Observer<Measured> for Log {
         tracing::info!("{}", locale::words().item_started(id));
     }
 
-    fn on_progress(&mut self, id: &'static str, step: Step) {
+    fn on_progress(&mut self, id: &'static str, step: &Step) {
         tracing::info!("{}", locale::words().item_progress(id, step));
     }
 

@@ -248,7 +248,7 @@ pub enum Progress {
 
 /// A step of a plugin's run, for the progress log. It holds no words: the program writes them,
 /// in its user's language.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Step {
     /// A test with this many threads; with one, the single-thread test.
     Test {
@@ -301,25 +301,25 @@ pub enum Step {
     /// The upload to a server of the network test.
     Upload {
         /// The server's place, as its list names it.
-        location: &'static str,
+        location: Cow<'static, str>,
         /// The country of the server's place, as its list names it.
-        country: &'static str,
+        country: Cow<'static, str>,
         /// Whether the test runs over IPv6, else over IPv4.
         ipv6: bool,
     },
     /// The download from a server of the network test.
     Download {
         /// The server's place, as its list names it.
-        location: &'static str,
+        location: Cow<'static, str>,
         /// The country of the server's place, as its list names it.
-        country: &'static str,
+        country: Cow<'static, str>,
         /// Whether the test runs over IPv6, else over IPv4.
         ipv6: bool,
     },
     /// The trace of a target of route tracing.
     Trace {
         /// The target's name, as its list names it, or the cache server's service.
-        target: &'static str,
+        target: Cow<'static, str>,
         /// Whether the trace runs over IPv6, else over IPv4.
         ipv6: bool,
     },
@@ -355,7 +355,7 @@ pub enum Step {
     /// Measuring a China carrier node in `network.taier`.
     Taier {
         /// Location display name (e.g. `Beijing` or `Nanjing, Jiangsu`).
-        location: &'static str,
+        location: Cow<'static, str>,
         /// Carrier code (`telecom`, `unicom`, `mobile`, `cernet`, `cbn`, or `other`).
         operator: &'static str,
         /// Phase code (`download` or `upload`).

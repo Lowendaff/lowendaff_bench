@@ -15,6 +15,7 @@ use std::net::Ipv6Addr;
 use std::net::SocketAddr;
 use std::time::Duration;
 
+use bench_api::CancellationToken;
 use bench_host::network::Address;
 use bench_host::network::Family;
 use bench_host::network::Network;
@@ -105,33 +106,72 @@ pub fn whole(body: &str) -> Option<&str> {
 
 /// Probes both families at once, with the program's targets and sources.
 pub async fn probe() -> Network {
-    probe_with(&IPV4_TARGETS, &IPV6_TARGETS, &SOURCES).await
+    probe_until(&CancellationToken::new()).await
+}
+
+/// Probes both families at once, stopping early when `cancel` fires.
+pub async fn probe_until(cancel: &CancellationToken) -> Network {
+    probe_with_until(&IPV4_TARGETS, &IPV6_TARGETS, &SOURCES, cancel).await
 }
 
 /// Probes both families at once.
 pub async fn probe_with(ipv4: &[SocketAddr], ipv6: &[SocketAddr], sources: &[Source]) -> Network {
-    let (ipv4, ipv6) = tokio::join!(family(false, ipv4, sources), family(true, ipv6, sources));
+    probe_with_until(ipv4, ipv6, sources, &CancellationToken::new()).await
+}
+
+/// Probes both families at once, stopping early when `cancel` fires.
+pub async fn probe_with_until(
+    ipv4: &[SocketAddr],
+    ipv6: &[SocketAddr],
+    sources: &[Source],
+    cancel: &CancellationToken,
+) -> Network {
+    let (ipv4, ipv6) = tokio::join!(
+        family(false, ipv4, sources, cancel),
+        family(true, ipv6, sources, cancel)
+    );
     Network { ipv4, ipv6 }
 }
 
-async fn family(v6: bool, targets: &[SocketAddr], sources: &[Source]) -> Family {
-    let targets = reach(targets).await;
-    let address = if targets.iter().any(|(_, reach)| *reach == Reach::Connected) {
-        address(v6, sources).await
-    } else {
-        Address::NotAsked
-    };
+async fn family(
+    v6: bool,
+    targets: &[SocketAddr],
+    sources: &[Source],
+    cancel: &CancellationToken,
+) -> Family {
+    let targets = reach_until(targets, cancel).await;
+    let address =
+        if !cancel.is_cancelled() && targets.iter().any(|(_, reach)| *reach == Reach::Connected) {
+            address(v6, sources, cancel).await
+        } else {
+            Address::NotAsked
+        };
     Family { targets, address }
 }
 
 /// Tries the targets one after another, until a handshake completes.
 pub async fn reach(targets: &[SocketAddr]) -> Vec<(SocketAddr, Reach)> {
+    reach_until(targets, &CancellationToken::new()).await
+}
+
+async fn reach_until(
+    targets: &[SocketAddr],
+    cancel: &CancellationToken,
+) -> Vec<(SocketAddr, Reach)> {
     let mut results = Vec::new();
     for target in targets {
-        let reach = match tokio::time::timeout(CONNECT_TIMEOUT, TcpStream::connect(target)).await {
-            Ok(Ok(_)) => Reach::Connected,
-            Err(_) => Reach::TimedOut,
-            Ok(Err(err)) => failure(err.kind()),
+        if cancel.is_cancelled() {
+            break;
+        }
+        let attempt = tokio::time::timeout(CONNECT_TIMEOUT, TcpStream::connect(target));
+        let reach = tokio::select! {
+            biased;
+            () = cancel.cancelled() => break,
+            res = attempt => match res {
+                Ok(Ok(_)) => Reach::Connected,
+                Err(_) => Reach::TimedOut,
+                Ok(Err(err)) => failure(err.kind()),
+            },
         };
         results.push((*target, reach));
         if reach == Reach::Connected {
@@ -156,15 +196,22 @@ pub fn failure(kind: ErrorKind) -> Reach {
 }
 
 /// Asks the sources of a family in order, until one gives a public address.
-async fn address(v6: bool, sources: &[Source]) -> Address {
+async fn address(v6: bool, sources: &[Source], cancel: &CancellationToken) -> Address {
     let client = client(v6);
     let mut failed = Vec::new();
     for source in sources {
+        if cancel.is_cancelled() {
+            break;
+        }
         let Some(url) = (if v6 { source.ipv6 } else { source.ipv4 }) else {
             continue;
         };
         let answer = match &client {
-            Some(client) => ask(client, url, source.read, v6).await,
+            Some(client) => tokio::select! {
+                biased;
+                () = cancel.cancelled() => break,
+                res = ask(client, url, source.read, v6) => res,
+            },
             None => Err(Why::Unreachable),
         };
         let name = if v6 { "IPv6" } else { "IPv4" };
@@ -201,6 +248,7 @@ fn client(v6: bool) -> Option<Client> {
     fetcher::builder()
         .ok()?
         .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
         .local_address(local)
         .build()
         .ok()
@@ -236,12 +284,15 @@ async fn fetch(client: &Client, url: &str, v6: bool) -> Result<String, Why> {
     let mut body = Vec::new();
     while body.len() < BODY_LIMIT {
         match response.chunk().await {
-            Ok(Some(chunk)) => body.extend_from_slice(&chunk),
+            Ok(Some(chunk)) => {
+                let remaining = BODY_LIMIT - body.len();
+                let take = remaining.min(chunk.len());
+                body.extend_from_slice(&chunk[..take]);
+            }
             Ok(None) => break,
             Err(_) => return Err(Why::Unreachable),
         }
     }
-    body.truncate(BODY_LIMIT);
     Ok(String::from_utf8_lossy(&body).into_owned())
 }
 

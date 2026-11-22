@@ -2,6 +2,7 @@
 //! downloads, each plugin's start and end in the report's words, the debug events of `-v` with
 //! each tool's run, and nothing from the libraries.
 
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -107,7 +108,7 @@ fn plugins_are_logged_by_id_in_the_reports_words() {
     let lines = logged(false, || {
         let mut log = Log;
         log.on_start("memory.stream");
-        log.on_progress("memory.stream", Step::Test { threads: 1 });
+        log.on_progress("memory.stream", &Step::Test { threads: 1 });
         log.on_finish(&finished("memory.stream", Status::Completed, Some(21.3)));
         log.on_finish(&finished(
             "cpu.bench",
@@ -153,23 +154,23 @@ fn each_step_has_its_words() {
         (Step::RunAgain { run: 2 }, "the upload failed; run 2"),
         (
             Step::Upload {
-                location: "Tokyo",
-                country: "JP",
+                location: Cow::Borrowed("Tokyo"),
+                country: Cow::Borrowed("JP"),
                 ipv6: false,
             },
             "upload to Tokyo, JP over IPv4",
         ),
         (
             Step::Download {
-                location: "Frankfurt",
-                country: "DE",
+                location: Cow::Borrowed("Frankfurt"),
+                country: Cow::Borrowed("DE"),
                 ipv6: true,
             },
             "download from Frankfurt, DE over IPv6",
         ),
         (
             Step::Trace {
-                target: "Tokyo",
+                target: Cow::Borrowed("Tokyo"),
                 ipv6: false,
             },
             "trace to Tokyo over IPv4",
@@ -200,7 +201,7 @@ fn each_step_has_its_words() {
     ];
     let lines = logged(false, || {
         let mut log = Log;
-        for (step, _) in steps {
+        for (step, _) in &steps {
             log.on_progress("test.item", step);
         }
     });

@@ -1,0 +1,9 @@
+id: no-for-combinators
+valid:
+  - 'fn f(items: &[u8]) { for item in items {} }'
+  - 'fn g(items: &[u8]) { for (idx, item) in items.iter().enumerate() { let _ = (idx, item); } }'
+  - 'fn h(items: &[u8]) { let rev = items.iter().rev(); for item in rev { let _ = item; } }'
+invalid:
+  - 'fn f(items: &[u8]) { for item in items.iter().rev() { let _ = item; } }'
+  - 'fn g(items: &[u8]) { for item in items.iter().filter(|x| **x > 0) { let _ = item; } }'
+  - 'fn h(n: usize) { for col in (0..n).rev() { let _ = col; } }'

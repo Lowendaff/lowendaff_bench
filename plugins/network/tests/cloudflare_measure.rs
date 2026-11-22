@@ -29,6 +29,7 @@ use bench_host::network::Family;
 use bench_host::network::Network;
 use bench_host::network::Reach;
 use bench_host::profile::HostProfile;
+use plugin_network::cloudflare::FamilyIssue;
 use plugin_network::cloudflare::Output;
 use plugin_network::cloudflare::Settings;
 use plugin_network::cloudflare::measure;
@@ -260,6 +261,9 @@ async fn cloudflare_measures_dual_stack_merges_trace_fallback_and_keeps_udp_bloc
     let v6 = out.ipv6.as_ref().expect("v6 result");
     assert_eq!(v6.server.as_deref(), Some("NRT - Tokyo, Japan"));
     assert!(v6.udp.is_none());
-    assert_eq!(v6.udp_note.as_deref(), Some("UDP blocked on IPv6"));
+    assert_eq!(
+        v6.udp_note,
+        Some(FamilyIssue::Transport("UDP blocked on IPv6".to_owned()))
+    );
     assert!(channels.published.borrow().is_some());
 }

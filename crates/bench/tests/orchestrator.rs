@@ -419,7 +419,7 @@ impl Observer<Left> for Recorder {
         self.0.push(format!("start {id}"));
     }
 
-    fn on_progress(&mut self, id: &'static str, step: Step) {
+    fn on_progress(&mut self, id: &'static str, step: &Step) {
         self.0.push(format!("{id} {step:?}"));
     }
 
@@ -436,7 +436,7 @@ impl Observer<Left> for Recorder {
 struct Shows(CancellationToken);
 
 impl Observer<Left> for Shows {
-    fn on_progress(&mut self, _id: &'static str, _step: Step) {
+    fn on_progress(&mut self, _id: &'static str, _step: &Step) {
         self.0.cancel();
     }
 }
@@ -483,6 +483,7 @@ async fn run(plan: Vec<Planned<Left>>, cancel: &CancellationToken) -> (Vec<Run<L
     (runs, recorder)
 }
 
+#[allow(clippy::unnecessary_wraps)]
 fn left(output: Option<u32>, stop: Option<Stop<Why>>) -> Option<Left> {
     Some(Left::Counter(Report {
         output: output.map(Count),

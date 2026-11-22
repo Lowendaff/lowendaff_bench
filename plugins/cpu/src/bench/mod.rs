@@ -120,7 +120,7 @@ impl TryFrom<RawCpuBench> for CpuBench {
 impl CpuBench {
     /// Builds a `CpuBench` from explicit boolean flags in [`SUITE_CODES`] order.
     #[must_use]
-    pub fn from_flags(enabled: [bool; 8]) -> Self {
+    pub fn new(enabled: [bool; 8]) -> Self {
         let custom_codes = if enabled == DEFAULT_SUITES {
             Vec::new()
         } else {
@@ -145,8 +145,6 @@ impl CpuBench {
 
     fn suite_precondition(idx: usize, host: &HostProfile) -> Result<(), SuiteSkip> {
         match idx {
-            // sysbench, 7zip, unixbench, hpl: static musl builds on x86_64 & aarch64, offline.
-            0..=3 => Ok(()),
             // passmark: x86_64 & aarch64, needs glibc >= 2.28.
             4 => check_glibc(passmark::MIN_GLIBC, host),
             // ycruncher: static x86_64 only.
@@ -173,6 +171,7 @@ impl CpuBench {
                     Err(SuiteSkip::Ipv4Unavailable)
                 }
             }
+            // sysbench, 7zip, unixbench, hpl: static musl builds on x86_64 & aarch64, offline.
             _ => Ok(()),
         }
     }

@@ -1,0 +1,32 @@
+id: no-env-in-libs
+snapshots:
+  "fn f() -> Option<String> { std::env::var(\"LANG\").ok() }":
+    labels:
+    - source: std::env::var("LANG")
+      style: primary
+      start: 27
+      end: 48
+    - source: std::env::var
+      style: secondary
+      start: 27
+      end: 40
+  "fn g() -> Option<std::ffi::OsString> { std::env::var_os(\"LD_LIBRARY_PATH\") }":
+    labels:
+    - source: std::env::var_os("LD_LIBRARY_PATH")
+      style: primary
+      start: 39
+      end: 74
+    - source: std::env::var_os
+      style: secondary
+      start: 39
+      end: 55
+  "fn h() { let _ = env::args_os(); }":
+    labels:
+    - source: env::args_os()
+      style: primary
+      start: 17
+      end: 31
+    - source: env::args_os
+      style: secondary
+      start: 17
+      end: 29

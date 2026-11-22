@@ -133,6 +133,7 @@ fn bare() -> Hardware {
     }
 }
 
+#[allow(clippy::unnecessary_wraps)]
 fn smbios(slots: Vec<Slot>, ecc: Vec<Ecc>) -> Result<Smbios, Unreadable> {
     Ok(Smbios {
         slots,
@@ -144,6 +145,7 @@ fn smbios(slots: Vec<Slot>, ecc: Vec<Ecc>) -> Result<Smbios, Unreadable> {
     })
 }
 
+#[allow(clippy::unnecessary_wraps)]
 fn edac(corrected: u64, uncorrected: u64, modes: Vec<Ecc>) -> Option<Edac> {
     Some(Edac {
         corrected,

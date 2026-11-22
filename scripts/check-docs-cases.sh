@@ -171,6 +171,13 @@ cp "$here/check-docs-cases.sh" scripts/check-docs-cases.sh
 git add scripts
 check accept 'the checker and its cases, which hold the patterns'
 
+col100=$(printf '%100s' '' | tr ' ' 'a')
+write crates/bench/src/lib.rs "// $col100"
+check reject 'a Rust source line of 103 columns' 'crates/bench/src/lib.rs:1:'
+col97=$(printf '%97s' '' | tr ' ' 'a')
+write crates/bench/src/lib.rs "// $col97"
+check accept 'a Rust source line of exactly 100 columns'
+
 # A git whose grep fails, as one without Perl-compatible patterns would, must stop the check.
 mkdir "$scratch/bin"
 real_git=$(command -v git)

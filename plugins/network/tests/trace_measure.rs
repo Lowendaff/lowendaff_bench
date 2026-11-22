@@ -2,6 +2,7 @@
 //! each run's command, the routes that real output gives with their exchanges named, every way a
 //! trace can fail, what it publishes and logs, and a cancellation.
 
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::collections::VecDeque;
 use std::ffi::OsString;
@@ -55,6 +56,7 @@ fn fixture(name: &str) -> String {
     std::fs::read_to_string(&path).unwrap_or_else(|err| panic!("{path}: {err}"))
 }
 
+#[allow(clippy::unnecessary_wraps)]
 fn finished(code: Option<i32>, text: &str) -> Result<job::Output, RunError> {
     Ok(job::Output {
         code,
@@ -229,15 +231,15 @@ async fn each_target_is_traced_in_order_over_ipv4_then_ipv6_with_the_items_flags
         measured.steps,
         [
             Step::Trace {
-                target: "YouTube",
+                target: Cow::Borrowed("YouTube"),
                 ipv6: false
             },
             Step::Trace {
-                target: "Beijing Telecom CN2",
+                target: Cow::Borrowed("Beijing Telecom CN2"),
                 ipv6: false
             },
             Step::Trace {
-                target: "Beijing Telecom CN2",
+                target: Cow::Borrowed("Beijing Telecom CN2"),
                 ipv6: true
             },
         ],

@@ -471,10 +471,9 @@ impl HostWords for English {
         match bus {
             Bus::Pci { vendor, device } => format!("PCI {vendor:04x}:{device:04x}"),
             Bus::Usb => "USB adapter".to_owned(),
-            Bus::Platform(Some(name)) => name.clone(),
             Bus::Platform(None) => "built into the board".to_owned(),
             Bus::Other(name) if name.is_empty() => "—".to_owned(),
-            Bus::Other(name) => name.clone(),
+            Bus::Platform(Some(name)) | Bus::Other(name) => name.clone(),
         }
     }
 

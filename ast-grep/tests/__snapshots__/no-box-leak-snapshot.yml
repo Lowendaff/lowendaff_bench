@@ -1,0 +1,22 @@
+id: no-box-leak
+snapshots:
+  "fn f(s: String) -> &'static str { Box::leak(s.into_boxed_str()) }":
+    labels:
+    - source: Box::leak(s.into_boxed_str())
+      style: primary
+      start: 34
+      end: 63
+    - source: Box::leak
+      style: secondary
+      start: 34
+      end: 43
+  "fn g(v: Vec<u8>) -> &'static [u8] { std::boxed::Box::leak(v.into_boxed_slice()) }":
+    labels:
+    - source: std::boxed::Box::leak(v.into_boxed_slice())
+      style: primary
+      start: 36
+      end: 79
+    - source: std::boxed::Box::leak
+      style: secondary
+      start: 36
+      end: 57

@@ -17,13 +17,13 @@ use bench_api::TaierAdmission;
 use bench_api::TaierStreamSpec;
 use bench_api::TaierTransfer;
 use bench_host::profile::HostProfile;
+use plugin_network::taier;
 use plugin_network::taier::Failure;
 use plugin_network::taier::NodeOutcome;
 use plugin_network::taier::Operator;
 use plugin_network::taier::Output;
 use plugin_network::taier::SERVERS;
 use plugin_network::taier::Settings;
-use plugin_network::taier::load_servers;
 use plugin_network::taier::measure;
 use plugin_network::taier::nodes;
 use tokio::time::Instant;
@@ -67,7 +67,7 @@ impl NetClient for MockTaier {
             .push((ip, query.to_owned()));
         Box::pin(async move {
             match ip.octets()[3] {
-                1 => Ok(TaierAdmission::Busy),
+                1 | 3 => Ok(TaierAdmission::Busy),
                 2 => {
                     if query.contains("&token=&") {
                         Ok(TaierAdmission::Admitted("lease-fallback-2".to_owned()))
@@ -75,7 +75,6 @@ impl NetClient for MockTaier {
                         Ok(TaierAdmission::AuthRejected)
                     }
                 }
-                3 => Ok(TaierAdmission::Busy),
                 _ => Err(NetError::TimedOut),
             }
         })
@@ -200,7 +199,11 @@ async fn load_servers_prefers_live_file_and_falls_back_to_embedded_only_for_defa
     let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/taier-lists/good-basic.json");
     let live_bytes = std::fs::read(&fixture).expect("read fixture");
-    let embedded = br#"{"version":1,"locations":[{"id":"embedded","province":"Beijing","city":"Beijing","nodes":[{"operator":"telecom","ip":"198.51.100.99","port":65499}]}]}"#;
+    let embedded = concat!(
+        r#"{"version":1,"locations":[{"id":"embedded","province":"Beijing","city":"Beijing","#,
+        r#""nodes":[{"operator":"telecom","ip":"198.51.100.99","port":65499}]}]}"#,
+    )
+    .as_bytes();
 
     // 1. When the orchestrator fetched the live file, live bytes win over the embedded snapshot.
     let mut with_live = BTreeMap::new();
@@ -213,7 +216,7 @@ async fn load_servers_prefers_live_file_and_falls_back_to_embedded_only_for_defa
         ".".into(),
         CancellationToken::new(),
     );
-    let resolved_live = load_servers(&ctx_live, false, Some(embedded))
+    let resolved_live = taier::load_servers(&ctx_live, false, Some(embedded))
         .await
         .expect("live list loads");
     assert_eq!(resolved_live, live_bytes);
@@ -229,13 +232,13 @@ async fn load_servers_prefers_live_file_and_falls_back_to_embedded_only_for_defa
         ".".into(),
         CancellationToken::new(),
     );
-    let resolved_fallback = load_servers(&ctx_missing, false, Some(embedded))
+    let resolved_fallback = taier::load_servers(&ctx_missing, false, Some(embedded))
         .await
         .expect("embedded snapshot loads");
     assert_eq!(resolved_fallback, embedded);
 
     // 3. An explicit custom `list` failure is never masked by the default embedded snapshot.
-    let custom_err = load_servers(&ctx_missing, true, Some(embedded))
+    let custom_err = taier::load_servers(&ctx_missing, true, Some(embedded))
         .await
         .expect_err("custom list failure must surface");
     assert_eq!(

@@ -397,8 +397,62 @@ impl TuiWords for English {
         "Work directory cannot be empty (use . for the current directory)".to_owned()
     }
 
+    fn tui_all_items_and_options(&self) -> &'static str {
+        "all items and options"
+    }
+
     fn tui_reset_done(&self, target: &str) -> String {
         format!("Reset {target} to defaults")
+    }
+
+    fn tui_gauge_completed(&self, done: usize, total: usize) -> String {
+        format!("{done} / {total} completed")
+    }
+
+    fn tui_taier_picker_badge(&self, selected: usize, est_secs: u64) -> String {
+        let est_text = if est_secs >= 60 {
+            format!("~{}m {:02}s", est_secs / 60, est_secs % 60)
+        } else {
+            format!("~{est_secs}s")
+        };
+        format!("{} ({est_text})", super::count(selected, "slot", "slots"))
+    }
+
+    fn tui_taier_filter_prefix(&self) -> &'static str {
+        "Filter: "
+    }
+
+    fn tui_taier_filter_active(&self, filter: &str) -> String {
+        format!("Filter: \"{filter}\"  (/: edit, Esc: clear)")
+    }
+
+    fn tui_taier_no_matches(&self) -> &'static str {
+        "No matching locations (press Esc to clear filter)"
+    }
+
+    fn tui_taier_targets_preview(&self, targets: Option<&str>) -> String {
+        match targets {
+            Some(text) => format!("Targets: {text}"),
+            None => "Targets: (none selected)".to_owned(),
+        }
+    }
+
+    fn tui_taier_region_meta(&self, municipality: bool, overseas: bool, cities: usize) -> String {
+        if municipality {
+            "  (municipality)".to_owned()
+        } else if overseas {
+            format!("  ({cities} overseas)")
+        } else {
+            format!("  ({})", super::count(cities, "city", "cities"))
+        }
+    }
+
+    fn tui_taier_node_count(&self, count: usize) -> String {
+        if count == 1 {
+            "1 node".to_owned()
+        } else {
+            format!("{count} fallback nodes")
+        }
     }
 
     fn tui_keys_config_list(&self) -> &'static str {

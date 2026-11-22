@@ -92,8 +92,8 @@ impl<O: Measurement, F> SuiteOutcome<O, F> {
     #[must_use]
     pub fn tools(&self) -> Vec<ToolVersion> {
         match self {
-            Self::Done { output } => output.tools(),
-            Self::Failed {
+            Self::Done { output }
+            | Self::Failed {
                 partial: Some(output),
                 ..
             } => output.tools(),

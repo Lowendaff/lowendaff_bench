@@ -322,7 +322,7 @@ impl Selector {
                 if op_tok.is_empty() {
                     return Err(SelectorError::EmptyOperators(trimmed.to_owned()));
                 }
-                let Some(choice) = OperatorChoice::parse_token(op_tok) else {
+                let Some(choice) = OperatorChoice::try_new(op_tok) else {
                     return Err(SelectorError::UnknownOperator {
                         selector: trimmed.to_owned(),
                         operator: op_tok.to_owned(),
@@ -583,14 +583,14 @@ fn resolve_operators(choices: &[OperatorChoice]) -> Vec<Operator> {
     }
     let mapped: Vec<Operator> = choices
         .iter()
-        .map(|choice| match choice {
-            OperatorChoice::Telecom => Operator::Telecom,
-            OperatorChoice::Unicom => Operator::Unicom,
-            OperatorChoice::Mobile => Operator::Mobile,
-            OperatorChoice::Cernet => Operator::Cernet,
-            OperatorChoice::Cbn => Operator::Cbn,
-            OperatorChoice::Other => Operator::Other,
-            OperatorChoice::All => unreachable!(),
+        .filter_map(|choice| match choice {
+            OperatorChoice::Telecom => Some(Operator::Telecom),
+            OperatorChoice::Unicom => Some(Operator::Unicom),
+            OperatorChoice::Mobile => Some(Operator::Mobile),
+            OperatorChoice::Cernet => Some(Operator::Cernet),
+            OperatorChoice::Cbn => Some(Operator::Cbn),
+            OperatorChoice::Other => Some(Operator::Other),
+            OperatorChoice::All => None,
         })
         .collect();
     Operator::ALL

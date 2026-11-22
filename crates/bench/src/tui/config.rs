@@ -581,7 +581,7 @@ pub struct TuiConfig {
 impl TuiConfig {
     /// Initializes configuration from `registry` with every item enabled and default parameters.
     #[must_use]
-    pub fn from_registry(registry: &[Entry]) -> Self {
+    pub fn new(registry: &[Entry]) -> Self {
         let words = locale::words();
         let items = registry
             .iter()

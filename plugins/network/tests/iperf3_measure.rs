@@ -2,6 +2,7 @@
 //! each run's command, the tries on other ports with their waits, a server that cannot be reached,
 //! what it returns, publishes and logs, its failures and a cancellation.
 
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::collections::VecDeque;
 use std::path::Path;
@@ -50,27 +51,31 @@ fn fixture(name: &str) -> String {
     std::fs::read_to_string(&path).unwrap_or_else(|err| panic!("{path}: {err}"))
 }
 
-fn finished(code: i32, name: &str) -> Result<job::Output, RunError> {
-    Ok(job::Output {
+fn finished(code: i32, name: &str) -> job::Output {
+    job::Output {
         code: Some(code),
         text: fixture(name),
-    })
+    }
 }
 
+#[allow(clippy::unnecessary_wraps)]
 fn upload() -> Result<job::Output, RunError> {
-    finished(0, "upload.json")
+    Ok(finished(0, "upload.json"))
 }
 
+#[allow(clippy::unnecessary_wraps)]
 fn download() -> Result<job::Output, RunError> {
-    finished(0, "download.json")
+    Ok(finished(0, "download.json"))
 }
 
+#[allow(clippy::unnecessary_wraps)]
 fn busy() -> Result<job::Output, RunError> {
-    finished(1, "busy.json")
+    Ok(finished(1, "busy.json"))
 }
 
+#[allow(clippy::unnecessary_wraps)]
 fn refused() -> Result<job::Output, RunError> {
-    finished(1, "refused.json")
+    Ok(finished(1, "refused.json"))
 }
 
 /// The upload of `upload.json`, on try `tries`.
@@ -276,14 +281,14 @@ async fn each_server_gets_an_upload_a_pause_and_a_download_over_ipv4_then_ipv6()
     let step = |upload: bool, location: &'static str, country: &'static str, ipv6: bool| {
         if upload {
             Step::Upload {
-                location,
-                country,
+                location: Cow::Borrowed(location),
+                country: Cow::Borrowed(country),
                 ipv6,
             }
         } else {
             Step::Download {
-                location,
-                country,
+                location: Cow::Borrowed(location),
+                country: Cow::Borrowed(country),
                 ipv6,
             }
         }

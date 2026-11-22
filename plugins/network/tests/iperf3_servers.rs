@@ -23,6 +23,7 @@ fn written(id: &str, country: &str, default: bool) -> Value {
     })
 }
 
+#[allow(clippy::needless_pass_by_value)]
 fn list(servers: Vec<Value>) -> Vec<u8> {
     serde_json::to_vec(&json!({ "version": 1, "servers": servers })).expect("JSON")
 }

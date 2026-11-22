@@ -86,6 +86,7 @@ async fn measure(threads: usize, script: Vec<Result<job::Output, RunError>>) -> 
     }
 }
 
+#[allow(clippy::unnecessary_wraps)]
 fn ran(rate: &str) -> Result<job::Output, RunError> {
     Ok(job::Output {
         code: Some(0),
@@ -95,6 +96,7 @@ fn ran(rate: &str) -> Result<job::Output, RunError> {
     })
 }
 
+#[allow(clippy::unnecessary_wraps)]
 fn exited(code: i32, last: &str) -> Result<job::Output, RunError> {
     Ok(job::Output {
         code: Some(code),
@@ -108,6 +110,7 @@ fn timed_out() -> Result<job::Output, RunError> {
     )))
 }
 
+#[allow(clippy::unnecessary_wraps)]
 fn no_rate() -> Result<job::Output, RunError> {
     Ok(job::Output {
         code: Some(0),

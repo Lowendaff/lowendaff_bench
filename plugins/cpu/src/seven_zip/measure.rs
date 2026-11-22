@@ -78,7 +78,7 @@ where
     };
     let mut output = Output {
         version: single_reading.version.clone(),
-        single: to_run(1, single_reading, single_retries),
+        single: to_run(1, &single_reading, single_retries),
         multi: None,
     };
     if threads <= 1 {
@@ -95,7 +95,7 @@ where
             if output.version.is_none() {
                 output.version = reading.version.clone();
             }
-            output.multi = Some(to_run(threads, reading, retries));
+            output.multi = Some(to_run(threads, &reading, retries));
             Ok(output)
         }
         Tried::Failed(faults) => Err((Some(Box::new(output)), Failure::Multi(faults))),
@@ -103,7 +103,7 @@ where
     }
 }
 
-fn to_run(threads: usize, reading: Reading, retries: Vec<Fault>) -> Run {
+fn to_run(threads: usize, reading: &Reading, retries: Vec<Fault>) -> Run {
     Run {
         threads,
         compress_kib_s: reading.compress_kib_s,

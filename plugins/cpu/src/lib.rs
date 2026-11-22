@@ -2,6 +2,8 @@
 //! `sysbench`, `7zip` (`seven_zip`), `unixbench`, `hpl`, `passmark`, `ycruncher`, `prime95`, and
 //! `geekbench`.
 
+#![warn(missing_docs)]
+
 pub mod bench;
 pub mod geekbench;
 pub mod hpl;

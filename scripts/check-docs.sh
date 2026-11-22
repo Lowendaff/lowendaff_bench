@@ -11,7 +11,8 @@
 # - no tracked file points into the design documents, which are kept outside the repository: no
 #   path under docs/design, no section sign, no decision id such as CP-07 and no parenthetical
 #   that starts with "design". Fixture data is recorded output and is left out; the READMEs and
-#   scripts beside it are checked.
+#   scripts beside it are checked;
+# - no tracked Rust source file (`*.rs`) has a line longer than 100 columns.
 #
 # A sentence such as "as the design says" cannot be told from other uses of the word without
 # false alarms, so it is not checked. This script and its cases define and test the patterns, so
@@ -61,6 +62,11 @@ if grep_found -n -I -P "$references" -- . ':(exclude,glob)**/tests/fixtures/**' 
         ':(glob)**/tests/fixtures/**/*.sh' >&2
 then
     fail "the lines above point into the design documents; explain the reason in place instead"
+fi
+
+if grep_found -n -I -P '(*UTF)^.{101,}$' -- ':(glob)**/*.rs' >&2
+then
+    fail "the Rust source lines above exceed 100 columns"
 fi
 
 if [ "$problems" -gt 0 ]; then

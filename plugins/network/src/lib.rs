@@ -10,6 +10,8 @@
 //! (`network.bgp`), the globally observed `AS_PATH` topology, direct upstreams and RPKI state of
 //! the host's public prefixes.
 
+#![warn(missing_docs)]
+
 pub mod bgp;
 pub mod cloudflare;
 pub mod inetspeed;

@@ -413,8 +413,32 @@ impl Drop for Group {
     }
 }
 
+struct OomScoreGuard {
+    previous: Option<String>,
+}
+
+impl OomScoreGuard {
+    fn restore(&mut self) -> Adjustment {
+        let Some(prev) = self.previous.take() else {
+            return Adjustment::Done;
+        };
+        match std::fs::write(OOM_SCORE_ADJ, prev.trim()) {
+            Ok(()) => Adjustment::Done,
+            Err(err) => Adjustment::NotRestored(err.to_string()),
+        }
+    }
+}
+
+impl Drop for OomScoreGuard {
+    fn drop(&mut self) {
+        if let Some(prev) = self.previous.take() {
+            let _ = std::fs::write(OOM_SCORE_ADJ, prev.trim());
+        }
+    }
+}
+
 /// Starts `command` with `oom_score_adj` 1000, which the tool and the workers it starts inherit,
-/// then restores the program's own value.
+/// then restores the program's own value (even if cancelled mid-await).
 async fn spawn_first_to_go(
     command: Command,
     cpus: Option<Vec<usize>>,
@@ -434,20 +458,28 @@ async fn spawn_first_to_go(
             Adjustment::NotSet(err.to_string()),
         );
     }
-    let child = spawn(command, cpus).await;
-    let adjustment = match std::fs::write(OOM_SCORE_ADJ, previous.trim()) {
-        Ok(()) => Adjustment::Done,
-        Err(err) => Adjustment::NotRestored(err.to_string()),
+    let mut guard = OomScoreGuard {
+        previous: Some(previous),
     };
+    let child = spawn(command, cpus).await;
+    let adjustment = guard.restore();
     (child, adjustment)
 }
 
 /// Starts `command`, on `cpus` when given.
+#[cfg(target_os = "linux")]
 async fn spawn(mut command: Command, cpus: Option<Vec<usize>>) -> io::Result<Child> {
     match cpus {
         Some(cpus) => spawn_on(command, cpus).await,
         None => command.spawn(),
     }
+}
+
+/// The tools run on Linux only; elsewhere, as in the tests on other systems, the scheduler
+/// places them.
+#[cfg(not(target_os = "linux"))]
+async fn spawn(mut command: Command, _cpus: Option<Vec<usize>>) -> io::Result<Child> {
+    std::future::ready(command.spawn()).await
 }
 
 /// Starts `command` from a new thread that first moves itself to `cpus`, so that the child
@@ -489,11 +521,4 @@ fn place(cpus: &[usize]) -> io::Result<()> {
         set.set(cpu);
     }
     rustix::thread::sched_setaffinity(None, &set).map_err(io::Error::from)
-}
-
-/// The tools run on Linux only; elsewhere, as in the tests on other systems, the scheduler
-/// places them.
-#[cfg(not(target_os = "linux"))]
-async fn spawn_on(mut command: Command, _cpus: Vec<usize>) -> io::Result<Child> {
-    command.spawn()
 }

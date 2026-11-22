@@ -1,0 +1,15 @@
+id: no-box-leak
+language: rust
+severity: error
+message: Never leak heap allocations with `Box::leak` in `src/`; pass borrowed slices or `Cow<'static, str>`.
+note: >-
+  Long-running TUI sessions and multi-target plugins execute repeatedly in one process; `Box::leak`
+  accumulates unfreeable allocations over time.
+files:
+  - crates/*/src/**/*.rs
+  - plugins/*/src/**/*.rs
+rule:
+  kind: call_expression
+  has:
+    field: function
+    regex: (^|::)Box::leak$

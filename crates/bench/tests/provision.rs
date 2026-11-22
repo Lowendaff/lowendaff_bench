@@ -3,6 +3,7 @@
 //! failure that may pass, and a plugin running the tool it was given; and the files that the
 //! plugins ask for.
 
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::fmt::Write;
 use std::io;
@@ -432,7 +433,14 @@ impl Served {
         }
     }
 
-    async fn open(&self, range: Option<Range<u64>>) -> Result<Part<Body>, DownloadError> {
+    fn open(
+        &self,
+        range: Option<Range<u64>>,
+    ) -> std::future::Ready<Result<Part<Body>, DownloadError>> {
+        std::future::ready(self.open_sync(range))
+    }
+
+    fn open_sync(&self, range: Option<Range<u64>>) -> Result<Part<Body>, DownloadError> {
         let answered = {
             let mut asked = self.asked.lock().expect("no test panics while holding it");
             asked.push(range.clone());
@@ -931,7 +939,8 @@ async fn failures_that_would_end_the_same_way_are_not_tried_again() {
 async fn ranges_that_do_not_add_up_to_the_pinned_file_fail_and_leave_nothing() {
     let body = contents(3 * MIN_RANGE);
     let mut other = body.to_vec();
-    other[MIN_RANGE as usize + 7] ^= 1;
+    let offset = usize::try_from(MIN_RANGE).expect("in memory") + 7;
+    other[offset] ^= 1;
     let served = Served::new(Box::leak(other.into_boxed_slice()));
     let tool = pinned_to(body);
     let outcome = provision_from(tool, &served, 32).await;
@@ -1377,11 +1386,11 @@ async fn a_file_is_tried_again_after_failures_that_may_pass() {
 async fn a_file_comes_over_its_family_and_one_of_a_family_the_host_lacks_is_not_fetched() {
     let dir = tempfile::tempdir().expect("a directory for the files");
     let asked = Mutex::new(Vec::new());
-    let fetch = |family: Option<IpFamily>, url: &'static str, _range| {
+    let fetch = |family: Option<IpFamily>, url: Cow<'static, str>, _range| {
         asked
             .lock()
             .expect("no test panics while holding it")
-            .push((family, url));
+            .push((family, url.into_owned()));
         async { Ok(Part::Whole(&b"{}\n"[..])) }
     };
     let over = |name, url: &str, family| FileSpec {
@@ -1427,8 +1436,11 @@ async fn a_file_comes_over_its_family_and_one_of_a_family_the_host_lacks_is_not_
             .into_inner()
             .expect("no test panicked while holding it"),
         [
-            (None, "https://lists.example/any.json"),
-            (Some(IpFamily::Ipv4), "https://lists.example/four.json"),
+            (None, "https://lists.example/any.json".to_owned()),
+            (
+                Some(IpFamily::Ipv4),
+                "https://lists.example/four.json".to_owned()
+            ),
         ],
         "each over its family, and the IPv6 file not at all"
     );
@@ -1440,11 +1452,11 @@ async fn ctrl_c_stops_a_file_download_and_the_files_after_it() {
     let cancel = CancellationToken::new();
     let asked = Mutex::new(Vec::new());
     // The first file never comes, and Ctrl-C comes meanwhile.
-    let fetch = |_family, url: &'static str, _range| {
+    let fetch = |_family, url: Cow<'static, str>, _range| {
         asked
             .lock()
             .expect("no test panics while holding it")
-            .push(url);
+            .push(url.into_owned());
         let cancel = &cancel;
         async move {
             cancel.cancel();

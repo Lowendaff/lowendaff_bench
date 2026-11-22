@@ -313,13 +313,14 @@ impl BlockDevice {
         } else if name.starts_with("mmcblk") {
             "MMC"
         } else {
-            match self.udev.get("ID_BUS").map(String::as_str) {
-                Some("ata") => "SATA",
-                Some("usb") => "USB",
-                Some(_) => "SCSI",
+            match (
+                self.udev.get("ID_BUS").map(String::as_str),
+                self.vendor.as_deref(),
+            ) {
                 // libata reports the vendor "ATA" for SATA disks.
-                None if self.vendor.as_deref() == Some("ATA") => "SATA",
-                None => "SCSI",
+                (Some("ata"), _) | (None, Some("ATA")) => "SATA",
+                (Some("usb"), _) => "USB",
+                (Some(_) | None, _) => "SCSI",
             }
         }
     }

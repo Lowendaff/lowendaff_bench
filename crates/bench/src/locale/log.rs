@@ -23,7 +23,7 @@ pub trait LogWords {
     /// A test item that starts.
     fn item_started(&self, id: &str) -> String;
     /// A step that a test item starts.
-    fn item_progress(&self, id: &str, step: Step) -> String;
+    fn item_progress(&self, id: &str, step: &Step) -> String;
     /// How a test item ended, in the report's words.
     fn item_ended(&self, id: &str, status: &str) -> String;
     /// `-v`: a tool that a test item ran, its command, and how it ended.

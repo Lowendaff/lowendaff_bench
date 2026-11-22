@@ -16,6 +16,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::sync::Once;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 use std::thread;
@@ -75,7 +76,7 @@ pub use taier_picker::TaierPickerModal;
 
 /// Runs the interactive TUI session until the user exits.
 #[must_use]
-pub fn run(registry: Vec<Entry>) -> ExitCode {
+pub fn run(registry: &[Entry]) -> ExitCode {
     if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
         eprintln!("{}", locale::words().tui_not_a_tty());
         return ExitCode::from(app::EXIT_USAGE);
@@ -97,8 +98,7 @@ pub fn run(registry: Vec<Entry>) -> ExitCode {
     let logs = LogSink::new();
     logs.install_global();
 
-    install_panic_hook();
-    let mut term = match TerminalGuard::enter() {
+    let mut term = match TerminalGuard::try_new() {
         Ok(term) => term,
         Err(err) => {
             eprintln!("{err}");
@@ -109,7 +109,7 @@ pub fn run(registry: Vec<Entry>) -> ExitCode {
     let stop_reader = Arc::new(AtomicBool::new(false));
     let ev_rx = spawn_event_reader(Arc::clone(&stop_reader));
 
-    let exit = runtime.block_on(event_loop(&registry, &mut term.terminal, ev_rx, &logs));
+    let exit = runtime.block_on(event_loop(registry, &mut term.terminal, ev_rx, &logs));
     stop_reader.store(true, Ordering::Relaxed);
     drop(term);
 
@@ -216,8 +216,10 @@ async fn event_loop(
                         }
                     }
                     Command::SaveReport { path, contents } => {
-                        let res = report_path::save_copy(&path, &contents);
-                        session.on_report_saved(&path, res);
+                        match report_path::save_user_report(&path, &contents) {
+                            Ok(written) => session.on_report_saved(&written, Ok(())),
+                            Err(err) => session.on_report_saved(&path, Err(err)),
+                        }
                     }
                     Command::Quit(code) => {
                         if let Some(run) = &active_run {
@@ -346,14 +348,20 @@ fn launch_run(
         .await;
         let saved_note = match &outcome {
             Ok(done) => {
-                let target_path = custom_output
-                    .clone()
-                    .unwrap_or_else(|| report_path::default_path(save_format));
                 let text = done.render(save_format, None, save_show_ip);
-                match report_path::save_copy(&target_path, &text) {
-                    Ok(()) => Some((
+                let saved_path = match &custom_output {
+                    Some(target_path) => {
+                        report_path::save_copy(target_path, &text).map(|()| target_path.clone())
+                    }
+                    None => {
+                        let base = report_path::default_path(save_format);
+                        report_path::save_archive(&base, &text)
+                    }
+                };
+                match saved_path {
+                    Ok(written) => Some((
                         session::NoteKind::Info,
-                        locale::words().tui_saved_to(&target_path),
+                        locale::words().tui_saved_to(&written),
                     )),
                     Err(err) => Some((session::NoteKind::Error, err)),
                 }
@@ -381,7 +389,8 @@ async fn run_worker(
     cancel: &CancellationToken,
     tx: UnboundedSender<WorkerEvent>,
 ) -> Result<Outcome, String> {
-    let net_task = tokio::spawn(network::probe());
+    let net_cancel = cancel.clone();
+    let net_task = tokio::spawn(async move { network::probe_until(&net_cancel).await });
     let dir_for_host = work_dir.clone();
     let mut host = tokio::task::spawn_blocking(move || HostProfile::collect(&dir_for_host))
         .await
@@ -390,7 +399,9 @@ async fn run_worker(
     host.network = net_task
         .await
         .map_err(|err| locale::words().network_failed(&err))?;
-    progress::network(&host.network);
+    if !cancel.is_cancelled() {
+        progress::network(&host.network);
+    }
 
     let platform = report::terminal::platform_text(host.platform);
     let v4 = report::terminal::family_text(&host.network.ipv4, "IPv4", false);
@@ -405,7 +416,10 @@ async fn run_worker(
         host,
         &work_dir,
         cancel,
-        |family, url, range| fetchers.open(family, url, range),
+        |family, url, range| {
+            let fetchers = &fetchers;
+            async move { fetchers.open(family, &url, range).await }
+        },
         connections,
         &mut observer,
     )
@@ -430,7 +444,7 @@ impl Observer<Measured> for TuiObserver {
         let _ = self.tx.send(WorkerEvent::ItemStart(id));
     }
 
-    fn on_progress(&mut self, id: &'static str, step: Step) {
+    fn on_progress(&mut self, id: &'static str, step: &Step) {
         self.log.on_progress(id, step);
         let full = locale::words().item_progress(id, step);
         let short = full
@@ -458,15 +472,28 @@ impl Observer<Measured> for TuiObserver {
     }
 }
 
-fn install_panic_hook() {
-    let prev = std::panic::take_hook();
-    std::panic::set_hook(Box::new(move |info| {
-        restore_terminal();
-        prev(info);
-    }));
+static PANIC_HOOK_ONCE: Once = Once::new();
+static ALT_SCREEN_ACTIVE: AtomicBool = AtomicBool::new(false);
+
+fn ensure_panic_hook() {
+    PANIC_HOOK_ONCE.call_once(|| {
+        let prev = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            if ALT_SCREEN_ACTIVE.swap(false, Ordering::SeqCst) {
+                restore_terminal_raw();
+            }
+            prev(info);
+        }));
+    });
 }
 
 fn restore_terminal() {
+    if ALT_SCREEN_ACTIVE.swap(false, Ordering::SeqCst) {
+        restore_terminal_raw();
+    }
+}
+
+fn restore_terminal_raw() {
     let _ = terminal::disable_raw_mode();
     let _ = crossterm::execute!(
         io::stdout(),
@@ -481,11 +508,13 @@ struct TerminalGuard {
 }
 
 impl TerminalGuard {
-    fn enter() -> Result<Self, String> {
+    fn try_new() -> Result<Self, String> {
+        ensure_panic_hook();
         terminal::enable_raw_mode().map_err(|_| locale::words().tui_not_a_tty())?;
+        ALT_SCREEN_ACTIVE.store(true, Ordering::SeqCst);
         let mut stdout = io::stdout();
         if crossterm::execute!(stdout, EnterAlternateScreen, EnableBracketedPaste).is_err() {
-            let _ = terminal::disable_raw_mode();
+            restore_terminal();
             return Err(locale::words().tui_not_a_tty());
         }
         let backend = CrosstermBackend::new(stdout);

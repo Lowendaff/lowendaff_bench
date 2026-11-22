@@ -39,6 +39,7 @@ use reqwest::header::HeaderValue;
 use reqwest::redirect::Policy;
 use tokio::net::UdpSocket;
 use tokio::sync::mpsc;
+use tokio::task::JoinSet;
 
 use crate::fetcher;
 
@@ -72,7 +73,7 @@ pub async fn download(
     let failed = Arc::new(AtomicU64::new(0));
     let workers = usize::from(spec.concurrency.max(1));
 
-    let mut handles = Vec::with_capacity(workers);
+    let mut worker_tasks = JoinSet::new();
     for _ in 0..workers {
         let http = client.clone();
         let url_base = down_url.clone();
@@ -83,7 +84,7 @@ pub async fn download(
         let failed_w = Arc::clone(&failed);
         let cancel_w = cancel.clone();
 
-        handles.push(tokio::spawn(async move {
+        worker_tasks.spawn(async move {
             while !stop_w.load(Ordering::Relaxed) && !cancel_w.is_cancelled() {
                 let mut url = url_base.clone();
                 url.query_pairs_mut()
@@ -133,7 +134,7 @@ pub async fn download(
                     }
                 }
             }
-        }));
+        });
     }
 
     let (lat_tx, mut lat_rx) = mpsc::channel(1);
@@ -144,7 +145,8 @@ pub async fn download(
     let lat_duration = spec.duration;
     let lat_interval = spec.probe_interval;
     let lat_timeout = spec.probe_timeout;
-    let lat_handle = tokio::spawn(async move {
+    let mut lat_tasks = JoinSet::new();
+    lat_tasks.spawn(async move {
         let stats = run_loaded_probes(
             &lat_client,
             &lat_url,
@@ -161,21 +163,21 @@ pub async fn download(
 
     let ticks_res = sample_ticks(spec.duration, &total, cancel).await;
     stop.store(true, Ordering::Relaxed);
-    for handle in &handles {
-        handle.abort();
-    }
-    for handle in handles {
-        let _ = handle.await;
-    }
+    worker_tasks.abort_all();
+    while worker_tasks.join_next().await.is_some() {}
 
+    if ticks_res.is_err() {
+        lat_tasks.abort_all();
+        while lat_tasks.join_next().await.is_some() {}
+    }
     let (active_ms, ticks) = ticks_res?;
     let (loaded_sent, loaded_rtts_micros) =
         match tokio::time::timeout(Duration::from_secs(5), lat_rx.recv()).await {
             Ok(Some(pair)) => pair,
             _ => (0, Vec::new()),
         };
-    lat_handle.abort();
-    let _ = lat_handle.await;
+    lat_tasks.abort_all();
+    while lat_tasks.join_next().await.is_some() {}
 
     Ok(CloudflareTransfer {
         bytes: total.load(Ordering::Relaxed),
@@ -212,7 +214,7 @@ pub async fn upload(
     let failed = Arc::new(AtomicU64::new(0));
     let workers = usize::from(spec.concurrency.max(1));
 
-    let mut handles = Vec::with_capacity(workers);
+    let mut worker_tasks = JoinSet::new();
     for _ in 0..workers {
         let http = client.clone();
         let url = up_url.clone();
@@ -222,7 +224,7 @@ pub async fn upload(
         let failed_w = Arc::clone(&failed);
         let cancel_w = cancel.clone();
 
-        handles.push(tokio::spawn(async move {
+        worker_tasks.spawn(async move {
             while !stop_w.load(Ordering::Relaxed) && !cancel_w.is_cancelled() {
                 let counted = Arc::new(AtomicU64::new(0));
                 let total_s = Arc::clone(&total_w);
@@ -280,7 +282,7 @@ pub async fn upload(
                     }
                 }
             }
-        }));
+        });
     }
 
     let (lat_tx, mut lat_rx) = mpsc::channel(1);
@@ -291,7 +293,8 @@ pub async fn upload(
     let lat_duration = spec.duration;
     let lat_interval = spec.probe_interval;
     let lat_timeout = spec.probe_timeout;
-    let lat_handle = tokio::spawn(async move {
+    let mut lat_tasks = JoinSet::new();
+    lat_tasks.spawn(async move {
         let stats = run_loaded_probes(
             &lat_client,
             &lat_url,
@@ -308,18 +311,27 @@ pub async fn upload(
 
     let ticks_res = sample_ticks(spec.duration, &total, cancel).await;
     stop.store(true, Ordering::Relaxed);
-    for handle in handles {
-        let _ = tokio::time::timeout(Duration::from_secs(2), handle).await;
+    let drain_workers = async { while worker_tasks.join_next().await.is_some() {} };
+    if tokio::time::timeout(Duration::from_secs(2), drain_workers)
+        .await
+        .is_err()
+    {
+        worker_tasks.abort_all();
+        while worker_tasks.join_next().await.is_some() {}
     }
 
+    if ticks_res.is_err() {
+        lat_tasks.abort_all();
+        while lat_tasks.join_next().await.is_some() {}
+    }
     let (active_ms, ticks) = ticks_res?;
     let (loaded_sent, loaded_rtts_micros) =
         match tokio::time::timeout(Duration::from_secs(5), lat_rx.recv()).await {
             Ok(Some(pair)) => pair,
             _ => (0, Vec::new()),
         };
-    lat_handle.abort();
-    let _ = lat_handle.await;
+    lat_tasks.abort_all();
+    while lat_tasks.join_next().await.is_some() {}
 
     Ok(CloudflareTransfer {
         bytes: total.load(Ordering::Relaxed),

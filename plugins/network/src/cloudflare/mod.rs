@@ -21,14 +21,18 @@ use bench_api::Requirements;
 use bench_api::Stop;
 use serde::Deserialize;
 
+pub use result::BufferbloatGrade;
 pub use result::Failure;
 pub use result::FamilyCloudflare;
+pub use result::FamilyIssue;
 pub use result::LatencyStats;
 pub use result::Output;
 pub use result::QualityStats;
 pub use result::Settings;
+pub use result::StabilityGrade;
 pub use result::ThroughputStats;
 pub use result::UdpLossStats;
+pub use result::UdpQuality;
 
 /// Default Cloudflare speedtest base URL.
 pub const DEFAULT_BASE_URL: &str = "https://speed.cloudflare.com";

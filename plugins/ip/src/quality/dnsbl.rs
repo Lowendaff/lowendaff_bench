@@ -217,7 +217,9 @@ pub fn query_name(ip: IpAddr, zone: &str) -> String {
         }
         IpAddr::V6(v6) => {
             let mut out = String::with_capacity(64 + zone.len());
-            for &byte in v6.octets().iter().rev() {
+            let octets = v6.octets();
+            let reversed = octets.iter().rev();
+            for &byte in reversed {
                 let low = byte & 0x0f;
                 let high = byte >> 4;
                 out.push(hex_nibble(low));

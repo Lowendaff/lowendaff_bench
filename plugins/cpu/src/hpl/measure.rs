@@ -35,8 +35,7 @@ pub fn choose_order(available_bytes: Option<u64>) -> u32 {
     let budget = available_bytes
         .map_or(256 << 20, |avail| avail / 4)
         .clamp(48 << 20, 1088 << 20);
-    let elements = (budget / 8) as f64;
-    let raw = elements.sqrt() as u32;
+    let raw = u32::try_from((budget / 8).isqrt()).unwrap_or(MAX_ORDER);
     let blocks = (raw / BLOCK_SIZE).max(1);
     (blocks * BLOCK_SIZE).clamp(MIN_ORDER, MAX_ORDER)
 }

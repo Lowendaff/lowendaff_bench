@@ -423,7 +423,7 @@ fn draw_running(frame: &mut Frame<'_>, session: &Session, area: Rect) {
     let gauge = Gauge::default()
         .gauge_style(Style::default().fg(accent).add_modifier(Modifier::BOLD))
         .ratio(ratio)
-        .label(format!("{done} / {total} completed"));
+        .label(words.tui_gauge_completed(done, total));
     frame.render_widget(gauge, chunks[1]);
 
     let host_line = run
@@ -924,18 +924,7 @@ fn draw_taier_picker_ready(frame: &mut Frame<'_>, picker: &TaierPicker, area: Re
 
     // 1. Breadcrumb + selected count & estimated runtime badge.
     let crumb = picker.breadcrumb();
-    let est_secs = picker.estimated_seconds();
-    let est_text = if est_secs >= 60 {
-        format!("~{}m {:02}s", est_secs / 60, est_secs % 60)
-    } else {
-        format!("~{est_secs}s")
-    };
-    let slot_word = if picker.selected.len() == 1 {
-        "slot"
-    } else {
-        "slots"
-    };
-    let badge = format!("{} {slot_word} ({est_text})", picker.selected.len());
+    let badge = words.tui_taier_picker_badge(picker.selected.len(), picker.estimated_seconds());
     let badge_w = u16::try_from(badge.width()).unwrap_or(0);
     let top_cols =
         Layout::horizontal([Constraint::Min(0), Constraint::Length(badge_w)]).split(sections[0]);
@@ -963,7 +952,7 @@ fn draw_taier_picker_ready(frame: &mut Frame<'_>, picker: &TaierPicker, area: Re
 
     // 2. Search filter bar or contextual tip.
     if picker.filtering {
-        let prefix = "Filter: ";
+        let prefix = words.tui_taier_filter_prefix();
         let max_q = usize::from(sections[1].width).saturating_sub(prefix.len() + 2);
         let q_cols = picker.filter.width();
         let skip = q_cols.saturating_sub(max_q.saturating_sub(1));
@@ -985,10 +974,7 @@ fn draw_taier_picker_ready(frame: &mut Frame<'_>, picker: &TaierPicker, area: Re
             frame.set_cursor_position(Position::new(cx, cy));
         }
     } else if !picker.filter.is_empty() {
-        let filter_line = format!(
-            "Filter: \"{}\"  (/: edit, Esc: clear)",
-            picker.filter.trim()
-        );
+        let filter_line = words.tui_taier_filter_active(picker.filter.trim());
         frame.render_widget(
             Paragraph::new(filter_line).style(Style::default().fg(Color::Yellow)),
             sections[1],
@@ -1006,7 +992,7 @@ fn draw_taier_picker_ready(frame: &mut Frame<'_>, picker: &TaierPicker, area: Re
     let total_rows = items.len();
     if total_rows == 0 {
         frame.render_widget(
-            Paragraph::new("No matching locations (press Esc to clear filter)")
+            Paragraph::new(words.tui_taier_no_matches())
                 .style(Style::default().add_modifier(Modifier::DIM)),
             sections[2],
         );
@@ -1042,14 +1028,10 @@ fn draw_taier_picker_ready(frame: &mut Frame<'_>, picker: &TaierPicker, area: Re
         );
     } else {
         let preview = if picker.is_default_selection() {
-            format!("Targets: {}", words.tui_default_taier_cities())
+            words.tui_taier_targets_preview(Some(words.tui_default_taier_cities()))
         } else {
             let csv = picker.to_selector_csv();
-            if csv.is_empty() {
-                "Targets: (none selected)".to_owned()
-            } else {
-                format!("Targets: {csv}")
-            }
+            words.tui_taier_targets_preview((!csv.is_empty()).then_some(csv.as_str()))
         };
         let clipped = slice_columns(&preview, 0, usize::from(sections[3].width));
         let style = if picker.is_default_selection() {
@@ -1085,18 +1067,11 @@ fn build_picker_list_items(picker: &TaierPicker) -> (Vec<ListItem<'static>>, usi
                 let (chosen, total, state) = picker.region_counts(region_idx);
                 let (mark, mark_style) = checkbox_span(state);
                 let ops: Vec<&str> = reg.operators.iter().map(|op| op.short_code()).collect();
-                let kind_meta = match reg.kind {
-                    RegionKind::Municipality => "  (municipality)".to_owned(),
-                    RegionKind::Province => {
-                        let c_len = reg.cities.len();
-                        let noun = if c_len == 1 { "city" } else { "cities" };
-                        format!("  ({c_len} {noun})")
-                    }
-                    RegionKind::Overseas => {
-                        let c_len = reg.cities.len();
-                        format!("  ({c_len} overseas)")
-                    }
-                };
+                let kind_meta = words.tui_taier_region_meta(
+                    reg.kind == RegionKind::Municipality,
+                    reg.kind == RegionKind::Overseas,
+                    reg.cities.len(),
+                );
                 let mut spans = vec![
                     Span::styled(mark, mark_style),
                     Span::styled(reg.name.clone(), row_name_style(state)),
@@ -1173,11 +1148,7 @@ fn build_picker_list_items(picker: &TaierPicker) -> (Vec<ListItem<'static>>, usi
                         CheckState::None
                     };
                     let (mark, mark_style) = checkbox_span(state);
-                    let noun = if node_count == 1 {
-                        "1 node".to_owned()
-                    } else {
-                        format!("{node_count} fallback nodes")
-                    };
+                    let noun = words.tui_taier_node_count(node_count);
                     items.push(ListItem::new(Line::from(vec![
                         Span::styled(mark, mark_style),
                         Span::styled(

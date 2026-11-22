@@ -75,10 +75,10 @@ pub const PROVIDERS: [MailTarget; 8] = [
 
 /// Classifies an [`SmtpBanner`] or [`NetError`] into [`MailStatus`].
 #[must_use]
-pub fn classify(result: Result<SmtpBanner, NetError>) -> MailStatus {
+pub fn classify(result: &Result<SmtpBanner, NetError>) -> MailStatus {
     match result {
-        Ok(SmtpBanner { code }) if (200..300).contains(&code) => MailStatus::Deliverable(code),
-        Ok(SmtpBanner { code }) if (400..600).contains(&code) => MailStatus::Rejected(code),
+        Ok(SmtpBanner { code }) if (200..300).contains(code) => MailStatus::Deliverable(*code),
+        Ok(SmtpBanner { code }) if (400..600).contains(code) => MailStatus::Rejected(*code),
         Ok(SmtpBanner { code }) => MailStatus::Unexpected(format!("SMTP {code}")),
         Err(NetError::NoAddress) => MailStatus::NoAddress,
         Err(NetError::TimedOut | NetError::Transport(_)) => MailStatus::Blocked,
@@ -108,6 +108,6 @@ pub async fn check_provider(
     MailCheck {
         id: target.id,
         name: target.name,
-        status: classify(outcome),
+        status: classify(&outcome),
     }
 }

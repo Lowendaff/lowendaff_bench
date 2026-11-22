@@ -170,12 +170,15 @@ async fn execute(client: &Client, request: &HttpRequest) -> Result<HttpResponse,
         let mut bytes = Vec::new();
         while bytes.len() < request.max_bytes {
             match response.chunk().await {
-                Ok(Some(chunk)) => bytes.extend_from_slice(&chunk),
+                Ok(Some(chunk)) => {
+                    let remaining = request.max_bytes - bytes.len();
+                    let take = remaining.min(chunk.len());
+                    bytes.extend_from_slice(&chunk[..take]);
+                }
                 Ok(None) => break,
                 Err(err) => return Err(HttpError::Transport(fetcher::causes(&err))),
             }
         }
-        bytes.truncate(request.max_bytes);
         return Ok(HttpResponse {
             status,
             final_url: url.into(),

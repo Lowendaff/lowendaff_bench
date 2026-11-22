@@ -20,6 +20,26 @@ snapshots:
       style: secondary
       start: 4
       end: 23
+  "use bench_host::memory::read;":
+    labels:
+    - source: use bench_host::memory::read;
+      style: primary
+      start: 0
+      end: 29
+    - source: bench_host::memory::read
+      style: secondary
+      start: 4
+      end: 28
+  "use bench_tool::job::spawn;":
+    labels:
+    - source: use bench_tool::job::spawn;
+      style: primary
+      start: 0
+      end: 27
+    - source: bench_tool::job::spawn
+      style: secondary
+      start: 4
+      end: 26
   "use crate::orchestrator::plan;":
     labels:
     - source: use crate::orchestrator::plan;
@@ -30,3 +50,23 @@ snapshots:
       style: secondary
       start: 4
       end: 29
+  "use plugin_ip::media::platforms::youtube::parse;":
+    labels:
+    - source: use plugin_ip::media::platforms::youtube::parse;
+      style: primary
+      start: 0
+      end: 48
+    - source: plugin_ip::media::platforms::youtube::parse
+      style: secondary
+      start: 4
+      end: 47
+  "use plugin_network::taier::measure::measure;":
+    labels:
+    - source: use plugin_network::taier::measure::measure;
+      style: primary
+      start: 0
+      end: 44
+    - source: plugin_network::taier::measure::measure
+      style: secondary
+      start: 4
+      end: 43
