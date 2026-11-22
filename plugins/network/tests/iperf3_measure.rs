@@ -564,3 +564,33 @@ async fn a_cancelled_run_stops_the_item_with_the_servers_done_before_it() {
     assert_eq!(published.ipv4.len(), 1, "Frankfurt did not end");
     assert_eq!(published.ipv4[0].download, downloaded(1));
 }
+
+#[tokio::test(start_paused = true)]
+async fn cancellation_preempts_pause_and_retry_wait_immediately() {
+    let during_pause = measure_with(
+        chosen(vec![tokyo()]),
+        (true, false),
+        Settings::YABS,
+        vec![upload()],
+        Some(1),
+    )
+    .await;
+    assert_eq!(during_pause.result, Err(Stop::Failed(Failure::Cancelled)));
+    assert_eq!(during_pause.jobs.len(), 1);
+    assert_eq!(during_pause.took, Duration::ZERO);
+
+    let during_retry_wait = measure_with(
+        chosen(vec![tokyo()]),
+        (true, false),
+        Settings::YABS,
+        vec![busy()],
+        Some(1),
+    )
+    .await;
+    assert_eq!(
+        during_retry_wait.result,
+        Err(Stop::Failed(Failure::Cancelled))
+    );
+    assert_eq!(during_retry_wait.jobs.len(), 1);
+    assert_eq!(during_retry_wait.took, Duration::ZERO);
+}

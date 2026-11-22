@@ -132,31 +132,11 @@ pub fn gate(response: &HttpResponse) -> Option<ProviderFailure> {
     None
 }
 
-/// Detects Cloudflare Turnstile, Cloudflare JS challenge, DataDome, PerimeterX and Imperva gates.
+/// Detects Cloudflare Turnstile, Cloudflare JS challenge, DataDome, PerimeterX, Imperva, and
+/// Akamai anti-bot gates.
 #[must_use]
 pub fn is_waf_challenge(response: &HttpResponse) -> bool {
-    if response
-        .header("cf-mitigated")
-        .is_some_and(|val| val.eq_ignore_ascii_case("challenge"))
-    {
-        return true;
-    }
-    if response.header("x-datadome").is_some() {
-        return true;
-    }
-    if !matches!(response.status, 403 | 503) {
-        return false;
-    }
-    let body = response.text();
-    let markers = [
-        "challenges.cloudflare.com/turnstile",
-        "/cdn-cgi/challenge-platform/",
-        "<title>Just a moment...</title>",
-        "Attention Required! | Cloudflare",
-        "_Incapsula_Resource",
-        "px-captcha",
-    ];
-    markers.iter().any(|marker| body.contains(marker))
+    crate::waf::is_challenge(response)
 }
 
 /// Parses the response body as JSON.
