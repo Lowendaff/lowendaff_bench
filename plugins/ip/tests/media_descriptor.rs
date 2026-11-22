@@ -131,6 +131,11 @@ fn validate_base_url_accepts_https_and_loopback_http_only() {
     for bad in [
         "",
         "https://",
+        "https://?",
+        "https:///path",
+        "https://user:pass@mock.example/api",
+        "https://mock.example/api?trap=",
+        "https://mock.example/api#frag",
         "http://example.com",
         "http://127.0.0.1.evil.example:8080",
         "http://192.168.1.1:8080",

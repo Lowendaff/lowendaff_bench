@@ -86,6 +86,18 @@ fn endpoint_validators_accept_https_and_loopback_only() {
         Ok("http://127.0.0.1:18081".to_owned())
     );
     assert!(quality::validate_base_url("http://example.com").is_err());
+    for bad in [
+        "https://?",
+        "https:///v1",
+        "https://user:pass@api.example/v1",
+        "https://api.example/v1?inject=",
+        "https://api.example/v1#frag",
+    ] {
+        assert!(
+            quality::validate_base_url(bad).is_err(),
+            "{bad} must fail base_url validation"
+        );
+    }
 
     assert_eq!(
         quality::validate_loopback_socket("127.0.0.1:18053"),
