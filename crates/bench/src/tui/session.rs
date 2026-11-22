@@ -1285,7 +1285,7 @@ fn extract_sections(lines: &[String], format: Format) -> Vec<SectionAnchor> {
             Format::Json => {
                 let trimmed = line.trim_start();
                 for (prefix, label) in [
-                    ("\"host\":", "host"),
+                    ("\"system\":", "system"),
                     ("\"runs\":", "runs"),
                     ("\"summary\":", "summary"),
                 ] {
