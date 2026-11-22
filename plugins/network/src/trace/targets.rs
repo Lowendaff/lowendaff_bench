@@ -74,12 +74,26 @@ struct WrittenTarget {
     default: bool,
 }
 
-/// Reads a list, and checks every rule.
+/// Reads a list, and checks every schema rule.
 ///
 /// # Errors
 ///
 /// When the list is too large, not of the format, of another version, or breaks a rule.
 pub fn parse(bytes: &[u8]) -> Result<Vec<Target>, ListError> {
+    parse_inner(bytes, true)
+}
+
+/// Reads a list and enforces endpoint routing safety when `allow_local` is `false` (remote URLs),
+/// rejecting loopback, `localhost`, private, link-local, metadata, and non-global IPv6 addresses.
+///
+/// # Errors
+///
+/// When the list is too large, not of the format, of another version, or breaks a rule.
+pub fn parse_for_source(bytes: &[u8], allow_local: bool) -> Result<Vec<Target>, ListError> {
+    parse_inner(bytes, allow_local)
+}
+
+fn parse_inner(bytes: &[u8], allow_local: bool) -> Result<Vec<Target>, ListError> {
     lists::versioned(bytes)?;
     let written: Written =
         serde_json::from_slice(bytes).map_err(|err| ListError::Format(err.to_string()))?;
@@ -88,7 +102,8 @@ pub fn parse(bytes: &[u8]) -> Result<Vec<Target>, ListError> {
     }
     let mut targets: Vec<Target> = Vec::with_capacity(written.targets.len());
     for (index, target) in written.targets.into_iter().enumerate() {
-        let target = check(target).map_err(|rule| ListError::Entry(index + 1, rule))?;
+        let target =
+            check(target, allow_local).map_err(|rule| ListError::Entry(index + 1, rule))?;
         if targets.iter().any(|known| known.id == target.id) {
             return Err(ListError::Duplicate(target.id));
         }
@@ -98,7 +113,7 @@ pub fn parse(bytes: &[u8]) -> Result<Vec<Target>, ListError> {
 }
 
 /// A written target, checked against every rule.
-fn check(target: WrittenTarget) -> Result<Target, Rule> {
+fn check(target: WrittenTarget, allow_local: bool) -> Result<Target, Rule> {
     let id_ok = (1..=LONGEST_ID).contains(&target.id.len())
         && target
             .id
@@ -120,11 +135,11 @@ fn check(target: WrittenTarget) -> Result<Target, Rule> {
         .ok()
         .filter(|asn| *asn > 0)
         .ok_or(Rule::Asn)?;
-    if !name_of(&target.ipv4, false) {
+    if !name_of(&target.ipv4, false, allow_local) {
         return Err(Rule::Ipv4);
     }
     if let Some(ipv6) = &target.ipv6
-        && !name_of(ipv6, true)
+        && !name_of(ipv6, true, allow_local)
     {
         return Err(Rule::Ipv6);
     }
@@ -140,10 +155,12 @@ fn check(target: WrittenTarget) -> Result<Target, Rule> {
 }
 
 /// A DNS name, or an address of the family that the name is traced over: IPv6 when `ipv6` is set.
-fn name_of(name: &str, ipv6: bool) -> bool {
+fn name_of(name: &str, ipv6: bool, allow_local: bool) -> bool {
     match name.parse::<IpAddr>() {
-        Ok(address) => address.is_ipv6() == ipv6,
-        Err(_) => lists::host(name),
+        Ok(address) => {
+            address.is_ipv6() == ipv6 && (allow_local || crate::endpoint::is_routable_ip(address))
+        }
+        Err(_) => lists::host(name) && (allow_local || lists::is_remote_safe_host(name)),
     }
 }
 

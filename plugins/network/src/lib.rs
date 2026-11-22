@@ -14,6 +14,7 @@
 
 pub mod bgp;
 pub mod cloudflare;
+pub(crate) mod endpoint;
 pub mod inetspeed;
 pub mod iperf3;
 pub mod taier;

@@ -138,8 +138,9 @@ impl Plugin for Taier {
     }
 
     async fn run(&self, ctx: &Context<Output>) -> Result<Output, Stop<Failure>> {
+        let local_list = self.list.as_deref().is_some_and(|s| !s.contains("://"));
         let raw = load_servers(ctx, self.list.is_some(), EMBEDDED_SERVERS).await?;
-        let locations = nodes::parse(&raw).map_err(|error| match error {
+        let locations = nodes::parse_for_source(&raw, local_list).map_err(|error| match error {
             ListError::Newer(_) => Stop::Skipped(Failure::List(error)),
             _ => Stop::Failed(Failure::List(error)),
         })?;

@@ -122,8 +122,9 @@ impl Plugin for Iperf3 {
         let path = ctx
             .file(SERVERS)
             .expect("the orchestrator runs a plugin only when it has its files");
+        let local_list = self.list.as_deref().is_some_and(|s| !s.contains("://"));
         let list = read(path).await?;
-        let list = servers::parse(&list).map_err(|error| match error {
+        let list = servers::parse_for_source(&list, local_list).map_err(|error| match error {
             ListError::Newer(_) => Stop::Skipped(Failure::List(error)),
             _ => Stop::Failed(Failure::List(error)),
         })?;

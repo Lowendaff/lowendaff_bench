@@ -1329,6 +1329,7 @@ dependencies = [
  "bench-tool",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
 ]
 
