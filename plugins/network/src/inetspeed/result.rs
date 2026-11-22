@@ -86,6 +86,52 @@ impl fmt::Display for EndpointSource {
     }
 }
 
+/// Why an HTTP RTT probe or transfer failed at the transport layer.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", content = "detail", rename_all = "snake_case")]
+pub enum ProbeFault {
+    /// RTT probe completed without returning a sample.
+    EmptySample,
+    /// Host or endpoint has no address for the requested IP family.
+    NoAddress,
+    /// Request or probe timed out.
+    TimedOut,
+    /// Host has no usable DNS resolver.
+    NoResolver,
+    /// Underlying HTTP/TCP transport error.
+    Transport(String),
+}
+
+/// Degradation or failure note attached to a single transfer round.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", content = "detail", rename_all = "snake_case")]
+pub enum RoundIssue {
+    /// Round completed with zero bytes transferred.
+    ZeroBytes,
+    /// Some worker streams reported transport faults while others succeeded.
+    WorkerFaults(u8),
+    /// Entire round failed with a transport error.
+    Transport(ProbeFault),
+}
+
+/// Non-fatal discovery or idle-latency warning emitted during an `Inetspeed` run.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", content = "detail", rename_all = "snake_case")]
+pub enum Warning {
+    /// Download, upload, and latency URLs do not share the same hostname.
+    HostMismatch,
+    /// User-forced `--inetspeed-endpoint` IP failed its RTT pre-probe.
+    ForcedProbeFailed(IpAddr),
+    /// Dual DoH returned no candidate IPs; fell back to system DNS.
+    DohEmpty,
+    /// Neither DoH nor system DNS yielded a candidate IP; using unpinned DNS.
+    UnpinnedFallback,
+    /// Unloaded latency phase returned zero RTT samples.
+    NoIdleSamples,
+    /// Unloaded latency phase failed with a transport error.
+    IdleFailed(ProbeFault),
+}
+
 /// Probed Apple CDN candidate IP during endpoint discovery.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct CandidateEndpoint {
@@ -98,7 +144,7 @@ pub struct CandidateEndpoint {
     /// Whether the RTT probe succeeded.
     pub ok: bool,
     /// Error summary when the RTT probe failed.
-    pub error: Option<String>,
+    pub error: Option<ProbeFault>,
 }
 
 /// Endpoint chosen for the speedtest run.
@@ -160,8 +206,8 @@ pub struct RoundResult {
     pub fault_count: u8,
     /// Loaded latency measured concurrently during this round.
     pub loaded_latency: Option<LatencyStats>,
-    /// Non-empty note when the round degraded or transferred zero bytes.
-    pub error: Option<String>,
+    /// Typed note when the round degraded or transferred zero bytes.
+    pub error: Option<RoundIssue>,
 }
 
 /// Complete output of `network.inetspeed`.
@@ -180,7 +226,7 @@ pub struct Output {
     /// Cumulative payload bytes transferred across all rounds.
     pub total_bytes: u64,
     /// Discovery or round degradation notes.
-    pub warnings: Vec<String>,
+    pub warnings: Vec<Warning>,
 }
 
 impl Measurement for Output {

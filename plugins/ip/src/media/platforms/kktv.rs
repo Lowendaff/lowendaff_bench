@@ -52,8 +52,7 @@ pub fn parse(response: &HttpResponse) -> Verdict {
             .and_then(parse::country_code);
         return match (allowed, country.as_deref()) {
             (Some(true), Some(code)) => Verdict::yes_in(code),
-            (Some(true), None) => Verdict::yes_in("TW"),
-            (None, Some("TW")) => Verdict::yes_in("TW"),
+            (Some(true), None) | (None, Some("TW")) => Verdict::yes_in("TW"),
             (Some(false), _) | (_, Some(_)) => Verdict::no(),
             (None, None) => Verdict::Unexpected("unrecognized KKTV payload".to_owned()),
         };

@@ -20,6 +20,7 @@ use super::parse;
 use super::parse::ParsedMeta;
 use super::result::Failure;
 use super::result::FamilyCloudflare;
+use super::result::FamilyIssue;
 use super::result::Output;
 use super::result::Settings;
 
@@ -65,7 +66,7 @@ pub async fn measure(
         families.push(IpFamily::Ipv6);
     }
 
-    let mut last_error = String::new();
+    let mut last_issue: Option<FamilyIssue> = None;
     for family in families {
         if ctx.cancel_token().is_cancelled() {
             return Err(Stop::Failed(Failure::Cancelled));
@@ -85,23 +86,23 @@ pub async fn measure(
                 ctx.publish(&output);
             }
             Err(FamilyStop::Cancelled) => return Err(Stop::Failed(Failure::Cancelled)),
-            Err(FamilyStop::Failed(reason)) => {
-                last_error.clone_from(&reason);
-                output.notes.push((ipv6, reason));
+            Err(FamilyStop::Failed(issue)) => {
+                last_issue = Some(issue.clone());
+                output.notes.push((ipv6, issue));
                 ctx.publish(&output);
             }
         }
     }
 
     if output.ipv4.is_none() && output.ipv6.is_none() {
-        return Err(Stop::Failed(Failure::NoResult(last_error)));
+        return Err(Stop::Failed(Failure::NoResult(last_issue)));
     }
     Ok(output)
 }
 
 enum FamilyStop {
     Cancelled,
-    Failed(String),
+    Failed(FamilyIssue),
 }
 
 async fn run_family(
@@ -160,7 +161,7 @@ async fn run_family(
         .await
         .map_err(map_net_err)?;
     if dl_raw.bytes == 0 {
-        return Err(FamilyStop::Failed("download measured 0 bytes".to_owned()));
+        return Err(FamilyStop::Failed(FamilyIssue::EmptyDownload));
     }
     let (download, dl_steady) =
         parse::compute_throughput_stats(dl_raw.bytes, dl_raw.duration_ms, &dl_raw.ticks);
@@ -177,7 +178,7 @@ async fn run_family(
     };
     let ul_raw = ctx.cloudflare_upload(&ul_spec).await.map_err(map_net_err)?;
     if ul_raw.bytes == 0 {
-        return Err(FamilyStop::Failed("upload measured 0 bytes".to_owned()));
+        return Err(FamilyStop::Failed(FamilyIssue::EmptyUpload));
     }
     let (upload, ul_steady) =
         parse::compute_throughput_stats(ul_raw.bytes, ul_raw.duration_ms, &ul_raw.ticks);
@@ -201,7 +202,7 @@ async fn run_family(
         match ctx.cloudflare_udp_loss(&stun_spec).await {
             Ok(raw) => (Some(parse::compute_udp_stats(&raw)), None),
             Err(NetError::Cancelled) => return Err(FamilyStop::Cancelled),
-            Err(err) => (None, Some(net_err_reason(err))),
+            Err(err) => (None, net_err_issue(err)),
         }
     } else {
         (None, None)
@@ -339,18 +340,18 @@ async fn measure_idle_latency(
 }
 
 fn map_net_err(err: NetError) -> FamilyStop {
-    match err {
-        NetError::Cancelled => FamilyStop::Cancelled,
-        other => FamilyStop::Failed(net_err_reason(other)),
+    match net_err_issue(err) {
+        Some(issue) => FamilyStop::Failed(issue),
+        None => FamilyStop::Cancelled,
     }
 }
 
-fn net_err_reason(err: NetError) -> String {
+fn net_err_issue(err: NetError) -> Option<FamilyIssue> {
     match err {
-        NetError::NoAddress => "no address for family".to_owned(),
-        NetError::TimedOut => "timed out".to_owned(),
-        NetError::NoResolver => "no DNS resolver".to_owned(),
-        NetError::Transport(why) => why,
-        NetError::Cancelled => "interrupted".to_owned(),
+        NetError::NoAddress => Some(FamilyIssue::NoAddress),
+        NetError::TimedOut => Some(FamilyIssue::TimedOut),
+        NetError::NoResolver => Some(FamilyIssue::NoResolver),
+        NetError::Transport(why) => Some(FamilyIssue::Transport(why)),
+        NetError::Cancelled => None,
     }
 }

@@ -329,7 +329,8 @@ pub fn layout(family: &FamilyBgp, max_paths: Option<usize>) -> Option<Positioned
                 );
             }
         } else {
-            for col in (0..max_col).rev() {
+            let cols = (0..max_col).rev();
+            for col in cols {
                 refine_column_order(
                     col,
                     &out_adj,
@@ -355,7 +356,8 @@ pub fn layout(family: &FamilyBgp, max_paths: Option<usize>) -> Option<Positioned
         &out_adj,
         &mut cell_row,
     );
-    for col in (0..anchor_col).rev() {
+    let left_cols = (0..anchor_col).rev();
+    for col in left_cols {
         assign_column_rows(
             col,
             max_count,
@@ -526,7 +528,7 @@ fn assign_column_rows(
             }
         }
         let ideal = if total_w > 0.0 {
-            let avg = (weighted_sum / total_w).round() as usize;
+            let avg = f64_to_usize_sat((weighted_sum / total_w).round());
             if nb_weights.contains_key(&avg) {
                 avg
             } else {
@@ -557,7 +559,8 @@ fn assign_column_rows(
     let max_target = max_count.saturating_sub(1);
     if k <= max_count && rows[k - 1] > max_target {
         rows[k - 1] = max_target;
-        for idx in (0..(k - 1)).rev() {
+        let back_indices = (0..(k - 1)).rev();
+        for idx in back_indices {
             rows[idx] = rows[idx].min(rows[idx + 1].saturating_sub(1));
         }
     }
@@ -577,7 +580,8 @@ fn collapse_prepends(path: &BgpPath, use_tier1: bool) -> Vec<HopCell> {
     if use_tier1 {
         let trimmed = asns::trunc_to_tier1(source);
         let mut seq: Vec<HopCell> = Vec::with_capacity(trimmed.len());
-        for &asn in trimmed.iter().rev() {
+        let reversed = trimmed.iter().rev();
+        for &asn in reversed {
             if let Some(last) = seq.last_mut()
                 && last.asn == asn
             {
@@ -713,6 +717,29 @@ const SVG_COLG: f64 = 56.0;
 const SVG_ROWG: f64 = 14.0;
 const SVG_HEAD: f64 = 26.0;
 
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+fn f64_to_u32_sat(value: f64) -> u32 {
+    if !value.is_finite() || value <= 0.0 {
+        0
+    } else if value >= f64::from(u32::MAX) {
+        u32::MAX
+    } else {
+        value as u32
+    }
+}
+
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+fn f64_to_usize_sat(value: f64) -> usize {
+    const UPPER_EXCLUSIVE: f64 = 18_446_744_073_709_551_616.0;
+    if !value.is_finite() || value <= 0.0 {
+        0
+    } else if value >= UPPER_EXCLUSIVE {
+        usize::MAX
+    } else {
+        usize::try_from(value as u64).unwrap_or(usize::MAX)
+    }
+}
+
 /// Renders `graph` as a standalone UTF-8 SVG document with baked inline styles, matching the
 /// visual geometry of `peer.as`.
 #[must_use]
@@ -724,8 +751,8 @@ pub fn render_svg(graph: &PositionedGraph) -> String {
 
     let width = ((graph.max_col + 1) as f64) * col_p + SVG_COLG;
     let height = SVG_HEAD + SVG_ROWG + ((graph.max_row + 1) as f64) * row_p;
-    let w_int = width.round() as u32;
-    let h_int = height.round() as u32;
+    let w_int = f64_to_u32_sat(width.round());
+    let h_int = f64_to_u32_sat(height.round());
 
     let mut out = String::with_capacity(2048);
     let _ = writeln!(out, "<?xml version=\"1.0\" encoding=\"UTF-8\"?>");

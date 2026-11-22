@@ -790,6 +790,8 @@ pub enum TaierCell {
 /// What makes the Taier server list unusable.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TaierListProblem<'a> {
+    /// Neither a downloaded list nor an embedded snapshot was available.
+    Missing,
     /// Could not be read from disk.
     Unreadable(&'a str),
     /// Larger than `usize` bytes.
@@ -897,6 +899,23 @@ pub enum CloudflareField {
     Quality,
 }
 
+/// Typed Cloudflare measurement or transport issue passed to [`CloudflareWords`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CloudflareIssueRef<'a> {
+    /// Download phase completed with zero payload bytes.
+    EmptyDownload,
+    /// Upload phase completed with zero payload bytes.
+    EmptyUpload,
+    /// Host or endpoint has no address for this IP family.
+    NoAddress,
+    /// Request or probe timed out.
+    TimedOut,
+    /// Host has no usable DNS resolver.
+    NoResolver,
+    /// Underlying HTTP or UDP transport error.
+    Transport(&'a str),
+}
+
 /// Cloudflare speed's words (`network.cloudflare`).
 pub trait CloudflareWords {
     /// Method line at the top of `[Cloudflare speed]`.
@@ -916,6 +935,8 @@ pub trait CloudflareWords {
     ) -> String;
     /// Throughput cell (`845 Mbit/s (p50 850, p95 910 Mbit/s)`).
     fn cloudflare_speed_cell(&self, speed: &str, p50_mbps: f64, p95_mbps: f64) -> String;
+    /// Localized STUN UDP quality word (`Excellent`, `Good`, `Acceptable`, `Poor`, `Bad`).
+    fn cloudflare_udp_quality(&self, code: &str) -> &'static str;
     /// STUN UDP packet-loss cell (`0.0% loss (50/50, 0.0% reordered, MOS 4.4 Excellent)`).
     fn cloudflare_udp_cell(
         &self,
@@ -934,6 +955,8 @@ pub trait CloudflareWords {
         stab_grade: &str,
         stab_cv: Option<f64>,
     ) -> String;
+    /// Renders a [`CloudflareIssueRef`] reason in the catalog's language.
+    fn cloudflare_issue(&self, issue: CloudflareIssueRef<'_>) -> String;
     /// Per-family note when STUN UDP probing failed or was blocked.
     fn cloudflare_udp_note(&self, ipv6: bool, reason: &str) -> String;
     /// Per-family note when one family failed while the other succeeded.
@@ -957,6 +980,49 @@ pub struct InetspeedChoice {
     pub forced_endpoint: bool,
     /// Whether custom URLs overrode `mensura.cdn-apple.com`.
     pub custom_endpoints: bool,
+}
+
+/// Typed `network.inetspeed` transport fault passed to [`InetspeedWords`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InetspeedProbeFaultRef<'a> {
+    /// RTT probe completed without returning a sample.
+    EmptySample,
+    /// Host or endpoint has no address for the requested IP family.
+    NoAddress,
+    /// Request or probe timed out.
+    TimedOut,
+    /// Host has no usable DNS resolver.
+    NoResolver,
+    /// Underlying HTTP/TCP transport error.
+    Transport(&'a str),
+}
+
+/// Typed `network.inetspeed` round issue passed to [`InetspeedWords`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InetspeedRoundIssueRef<'a> {
+    /// Round completed with zero bytes transferred.
+    ZeroBytes,
+    /// Some worker streams reported transport faults while others succeeded.
+    WorkerFaults(u8),
+    /// Entire round failed with a transport error.
+    Transport(InetspeedProbeFaultRef<'a>),
+}
+
+/// Typed `network.inetspeed` warning passed to [`InetspeedWords`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InetspeedWarningRef<'a> {
+    /// Download, upload, and latency URLs do not share the same hostname.
+    HostMismatch,
+    /// User-forced `--inetspeed-endpoint` IP failed its RTT pre-probe.
+    ForcedProbeFailed(&'a str),
+    /// Dual DoH returned no candidate IPs; fell back to system DNS.
+    DohEmpty,
+    /// Neither DoH nor system DNS yielded a candidate IP; using unpinned DNS.
+    UnpinnedFallback,
+    /// Unloaded latency phase returned zero RTT samples.
+    NoIdleSamples,
+    /// Unloaded latency phase failed with a transport error.
+    IdleFailed(InetspeedProbeFaultRef<'a>),
 }
 
 /// Apple CDN speed's words (`network.inetspeed`).
@@ -994,6 +1060,10 @@ pub trait InetspeedWords {
     fn inetspeed_round_name(&self, download: bool, single: bool) -> &'static str;
     /// Loaded latency cell (`14.20 ms (jitter 1.80 ms)`).
     fn inetspeed_loaded_cell(&self, median_ms: f64, jitter_ms: f64) -> String;
+    /// Renders a round degradation or failure note.
+    fn inetspeed_round_issue(&self, issue: InetspeedRoundIssueRef<'_>) -> String;
+    /// Renders a non-fatal discovery or idle-latency warning.
+    fn inetspeed_warning(&self, warning: InetspeedWarningRef<'_>) -> String;
     /// Failure reason when `max` byte-size string is invalid.
     fn inetspeed_invalid_max(&self, raw: &str) -> String;
     /// Failure reason when every transfer round failed.

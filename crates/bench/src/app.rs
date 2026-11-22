@@ -1,10 +1,12 @@
 //! Command-line flow: parse, select, configure, provision, run, summarize.
 //! `main` adds the root check, the runtime and Ctrl-C handling around it.
 
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::fs;
 use std::fs::Permissions;
 use std::future::Future;
+use std::io;
 use std::io::Write;
 use std::net::IpAddr;
 use std::ops::Range;
@@ -200,7 +202,9 @@ impl MediaGroup {
     }
 }
 
-// The help's words come from the catalog, as every other text that the program shows does.
+/// Command-line flags; user-facing help text comes from [`locale::words`] so `clap` does not
+/// synthesize `long_help` from field doc comments.
+#[allow(missing_docs)]
 #[derive(Debug, clap::Parser)]
 #[command(name = "lowendaff-bench", version, about = locale::words().about())]
 pub struct Cli {
@@ -627,7 +631,9 @@ pub async fn fetch_taier_locations(proxy: &DownloadProxy) -> Result<Vec<TaierLoc
     let live = if embedded.is_some() {
         match tokio::time::timeout(Duration::from_secs(5), fetch_taier_bytes(proxy)).await {
             Ok(result) => result,
-            Err(_) => Err("timed out fetching live Taier server list".to_owned()),
+            Err(_) => {
+                Err(locale::words().taier_list_problem(TaierListProblem::Unreadable("timed out")))
+            }
         }
     } else {
         fetch_taier_bytes(proxy).await
@@ -1008,9 +1014,21 @@ pub fn parse_overrides(raw: Option<&str>) -> Result<BTreeMap<String, serde_json:
     serde_json::from_str(raw).map_err(|err| locale::words().overrides_invalid(&err))
 }
 
-/// Opens `--output` before the run starts, so an unwritable path fails at once.
+/// Opens `--output` before the run starts (creating new files with `0600` permissions and refusing
+/// symlinks), so an unwritable path fails at once.
 pub fn create_output(path: &Path) -> Result<fs::File, String> {
-    fs::File::create(path).map_err(|err| locale::words().output_unwritable(path, &err))
+    use rustix::fs::Mode;
+    use rustix::fs::OFlags;
+
+    let flags =
+        OFlags::WRONLY | OFlags::CREATE | OFlags::TRUNC | OFlags::NOFOLLOW | OFlags::CLOEXEC;
+    let mode = Mode::RUSR | Mode::WUSR;
+    rustix::fs::openat(rustix::fs::CWD, path, flags, mode)
+        .map(fs::File::from)
+        .map_err(|err| {
+            let io_err = io::Error::from(err);
+            locale::words().output_unwritable(path, &io_err)
+        })
 }
 
 /// How the report is written.
@@ -1072,7 +1090,7 @@ pub async fn execute<F, Fut, R, W>(
     report: ReportOptions<W>,
 ) -> Result<u8, String>
 where
-    F: Fn(Option<IpFamily>, &'static str, Option<Range<u64>>) -> Fut,
+    F: Fn(Option<IpFamily>, Cow<'static, str>, Option<Range<u64>>) -> Fut,
     Fut: Future<Output = Result<Part<R>, DownloadError>>,
     R: AsyncRead + Unpin,
     W: Write,
@@ -1103,7 +1121,7 @@ pub async fn execute_with_copy<F, Fut, R, W>(
     copy_path: Option<&Path>,
 ) -> Result<u8, String>
 where
-    F: Fn(Option<IpFamily>, &'static str, Option<Range<u64>>) -> Fut,
+    F: Fn(Option<IpFamily>, Cow<'static, str>, Option<Range<u64>>) -> Fut,
     Fut: Future<Output = Result<Part<R>, DownloadError>>,
     R: AsyncRead + Unpin,
     W: Write,
@@ -1142,8 +1160,8 @@ where
         } else {
             outcome.render(format, None, show_ip)
         };
-        match crate::report_path::save_copy(path, &archive_text) {
-            Ok(()) => tracing::info!("{}", locale::words().tui_saved_to(path)),
+        match crate::report_path::save_archive(path, &archive_text) {
+            Ok(written) => tracing::info!("{}", locale::words().tui_saved_to(&written)),
             Err(err) => tracing::warn!("{err}"),
         }
     }
@@ -1162,7 +1180,7 @@ pub async fn execute_with_observer<F, Fut, R>(
     observer: &mut dyn Observer<Measured>,
 ) -> Result<Outcome, String>
 where
-    F: Fn(Option<IpFamily>, &'static str, Option<Range<u64>>) -> Fut,
+    F: Fn(Option<IpFamily>, Cow<'static, str>, Option<Range<u64>>) -> Fut,
     Fut: Future<Output = Result<Part<R>, DownloadError>>,
     R: AsyncRead + Unpin,
 {
@@ -1200,7 +1218,7 @@ where
         fs::set_permissions(&tools_dir, Permissions::from_mode(0o711))
             .map_err(|err| locale::words().tools_dir_failed(&err))?;
         // A tool comes over either family.
-        let any = |url, range| fetch(None, url, range);
+        let any = |url: &'static str, range| fetch(None, Cow::Borrowed(url), range);
         let provisioned =
             provision::provision_all(&tools, &host.arch, &tools_dir, connections, cancel, &any)
                 .await;

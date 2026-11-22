@@ -1,0 +1,56 @@
+id: no-for-combinators
+snapshots:
+  "fn f(items: &[u8]) { for item in items.iter().rev() { let _ = item; } }":
+    labels:
+    - source: for item in items.iter().rev() { let _ = item; }
+      style: primary
+      start: 21
+      end: 69
+    - source: rev
+      style: secondary
+      start: 46
+      end: 49
+    - source: items.iter().rev
+      style: secondary
+      start: 33
+      end: 49
+    - source: items.iter().rev()
+      style: secondary
+      start: 33
+      end: 51
+  "fn g(items: &[u8]) { for item in items.iter().filter(|x| **x > 0) { let _ = item; } }":
+    labels:
+    - source: for item in items.iter().filter(|x| **x > 0) { let _ = item; }
+      style: primary
+      start: 21
+      end: 83
+    - source: filter
+      style: secondary
+      start: 46
+      end: 52
+    - source: items.iter().filter
+      style: secondary
+      start: 33
+      end: 52
+    - source: items.iter().filter(|x| **x > 0)
+      style: secondary
+      start: 33
+      end: 65
+  "fn h(n: usize) { for col in (0..n).rev() { let _ = col; } }":
+    labels:
+    - source: for col in (0..n).rev() { let _ = col; }
+      style: primary
+      start: 17
+      end: 57
+    - source: rev
+      style: secondary
+      start: 35
+      end: 38
+    - source: (0..n).rev
+      style: secondary
+      start: 28
+      end: 38
+    - source: (0..n).rev()
+      style: secondary
+      start: 28
+      end: 40

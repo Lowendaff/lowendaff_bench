@@ -36,7 +36,7 @@ fn main() -> ExitCode {
         return ExitCode::from(app::EXIT_USAGE);
     }
     if default_tui {
-        return tui::run(registry);
+        return tui::run(&registry);
     }
     progress::init(cli.verbose);
     let planned = match app::prepare(&cli, &registry) {
@@ -89,7 +89,8 @@ fn main() -> ExitCode {
     runtime.spawn(watch_interrupt(cancel.clone()));
     let result = runtime.block_on(async {
         // The network takes longer than the files, so both start at once.
-        let network = tokio::spawn(network::probe());
+        let net_cancel = cancel.clone();
+        let network = tokio::spawn(async move { network::probe_until(&net_cancel).await });
         let work_dir = cli.work_dir.clone();
         let mut host = tokio::task::spawn_blocking(move || HostProfile::collect(&work_dir))
             .await
@@ -98,7 +99,9 @@ fn main() -> ExitCode {
         host.network = network
             .await
             .map_err(|err| locale::words().network_failed(&err))?;
-        progress::network(&host.network);
+        if !cancel.is_cancelled() {
+            progress::network(&host.network);
+        }
         let fetchers = Fetchers::try_new_with_proxy(&proxy)?;
         let auto_copy = cli
             .output
@@ -115,7 +118,10 @@ fn main() -> ExitCode {
             host,
             &cli.work_dir,
             &cancel,
-            |family, url, range| fetchers.open(family, url, range),
+            |family, url, range| {
+                let fetchers = &fetchers;
+                async move { fetchers.open(family, &url, range).await }
+            },
             usize::from(cli.download_connections),
             report,
             auto_copy.as_deref(),

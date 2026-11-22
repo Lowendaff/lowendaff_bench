@@ -46,7 +46,11 @@ use crate::locale;
 use crate::locale::BgpField;
 use crate::locale::CloudflareChoice;
 use crate::locale::CloudflareField;
+use crate::locale::CloudflareIssueRef;
 use crate::locale::InetspeedChoice;
+use crate::locale::InetspeedProbeFaultRef;
+use crate::locale::InetspeedRoundIssueRef;
+use crate::locale::InetspeedWarningRef;
 use crate::locale::ListRule;
 use crate::locale::LookupProblem;
 use crate::locale::TaierCell;
@@ -147,10 +151,18 @@ fn notes(tested: &Tested) -> Vec<String> {
                 continue;
             }
             Way::Error(error) => error.clone(),
-            Way::Fault(job::Fault::TimedOut(_)) => continue,
-            Way::Fault(fault) => tool::fault("iperf3", fault, Unit::Seconds),
+            Way::Fault(
+                fault @ (job::Fault::Exit { .. }
+                | job::Fault::Signal { .. }
+                | job::Fault::Spawn(_)
+                | job::Fault::Read(_)),
+            ) => tool::fault("iperf3", fault, Unit::Seconds),
             Way::Nothing => words.nothing_measured(),
-            Way::Measured(_) | Way::Busy | Way::Unreachable | Way::Skipped => continue,
+            Way::Measured(_)
+            | Way::Busy
+            | Way::Unreachable
+            | Way::Skipped
+            | Way::Fault(job::Fault::TimedOut(_)) => continue,
         };
         notes.push(words.way_failed(&place, download, &reason));
     }
@@ -291,26 +303,25 @@ fn taier_row(node: &TestedNode) -> Vec<String> {
     let operator = words.taier_operator(node.operator.code()).to_owned();
     let (down, up) = match &node.outcome {
         NodeOutcome::Measured(measured) => (bits(measured.download_bps), bits(measured.upload_bps)),
-        other => {
-            let kind = match other {
-                NodeOutcome::Busy => TaierCell::Busy,
-                NodeOutcome::Unreachable => TaierCell::Unreachable,
-                NodeOutcome::AuthRejected => TaierCell::AuthRejected,
-                NodeOutcome::TimedOut => TaierCell::TimedOut,
-                NodeOutcome::Failed(_) => TaierCell::Error,
-                NodeOutcome::Measured(_) => unreachable!(),
-            };
-            let text = words.taier_cell(kind).to_owned();
-            (text.clone(), text)
-        }
+        NodeOutcome::Busy => repeated_taier_cell(words.taier_cell(TaierCell::Busy)),
+        NodeOutcome::Unreachable => repeated_taier_cell(words.taier_cell(TaierCell::Unreachable)),
+        NodeOutcome::AuthRejected => repeated_taier_cell(words.taier_cell(TaierCell::AuthRejected)),
+        NodeOutcome::TimedOut => repeated_taier_cell(words.taier_cell(TaierCell::TimedOut)),
+        NodeOutcome::Failed(_) => repeated_taier_cell(words.taier_cell(TaierCell::Error)),
     };
     vec![place, operator, down, up]
+}
+
+fn repeated_taier_cell(label: &str) -> (String, String) {
+    let text = label.to_owned();
+    (text.clone(), text)
 }
 
 /// Why `network.taier` stopped short.
 pub(super) fn taier_failure(failure: &taier::Failure) -> String {
     let words = locale::words();
     match failure {
+        taier::Failure::MissingList => words.taier_list_problem(TaierListProblem::Missing),
         taier::Failure::Unreadable(reason) => {
             words.taier_list_problem(TaierListProblem::Unreadable(reason))
         }
@@ -708,7 +719,7 @@ fn build_bgp_summary_rows(
             let mut items = Vec::new();
             let shown = rep.upstreams.iter().take(SHOWN_UPSTREAMS);
             for up in shown {
-                let pct = ((f64::from(up.peers) * 100.0) / f64::from(total)).round() as u32;
+                let pct = (u64::from(up.peers) * 100 + u64::from(total) / 2) / u64::from(total);
                 let item = match asn_label(rep, up.asn) {
                     Some(name) => format!("AS{} {name} ({pct}%)", up.asn),
                     None => format!("AS{} ({pct}%)", up.asn),
@@ -812,21 +823,34 @@ pub(super) fn cloudflare(
 
     for (ipv6, maybe_fam) in [(false, v4), (true, v6)] {
         if let Some(fam) = maybe_fam
-            && let Some(reason) = &fam.udp_note
+            && let Some(issue) = &fam.udp_note
         {
+            let reason = words.cloudflare_issue(cloudflare_issue_ref(issue));
             out.field(
                 indent,
                 &words.note(),
-                &words.cloudflare_udp_note(ipv6, reason),
+                &words.cloudflare_udp_note(ipv6, &reason),
             );
         }
     }
-    for (ipv6, reason) in &output.notes {
+    for (ipv6, issue) in &output.notes {
+        let reason = words.cloudflare_issue(cloudflare_issue_ref(issue));
         out.field(
             indent,
             &words.note(),
-            &words.cloudflare_family_failed(*ipv6, reason),
+            &words.cloudflare_family_failed(*ipv6, &reason),
         );
+    }
+}
+
+fn cloudflare_issue_ref(issue: &cloudflare::FamilyIssue) -> CloudflareIssueRef<'_> {
+    match issue {
+        cloudflare::FamilyIssue::EmptyDownload => CloudflareIssueRef::EmptyDownload,
+        cloudflare::FamilyIssue::EmptyUpload => CloudflareIssueRef::EmptyUpload,
+        cloudflare::FamilyIssue::NoAddress => CloudflareIssueRef::NoAddress,
+        cloudflare::FamilyIssue::TimedOut => CloudflareIssueRef::TimedOut,
+        cloudflare::FamilyIssue::NoResolver => CloudflareIssueRef::NoResolver,
+        cloudflare::FamilyIssue::Transport(why) => CloudflareIssueRef::Transport(why),
     }
 }
 
@@ -910,7 +934,7 @@ fn build_cloudflare_rows(
                 u.sent,
                 u.out_of_order_pct,
                 u.mos,
-                &u.quality,
+                words.cloudflare_udp_quality(u.quality.code()),
             ),
             None => MISSING.to_owned(),
         }));
@@ -918,9 +942,9 @@ fn build_cloudflare_rows(
 
     rows.push(pair(CloudflareField::Quality, &|fam| match &fam.quality {
         Some(q) => words.cloudflare_quality_cell(
-            &q.bufferbloat_grade,
+            q.bufferbloat_grade.label(),
             q.bufferbloat_ms,
-            &q.stability_grade,
+            q.stability_grade.label(),
             q.stability_cv_pct,
         ),
         None => MISSING.to_owned(),
@@ -938,7 +962,12 @@ pub(super) fn cloudflare_failure(failure: &cloudflare::Failure) -> String {
     match failure {
         cloudflare::Failure::InvalidEndpoint(raw) => words.ip_invalid_endpoint(raw),
         cloudflare::Failure::NoFamily => words.no_family(),
-        cloudflare::Failure::NoResult(reason) => words.cloudflare_no_result(reason),
+        cloudflare::Failure::NoResult(issue) => {
+            let reason = issue.as_ref().map_or_else(String::new, |i| {
+                words.cloudflare_issue(cloudflare_issue_ref(i))
+            });
+            words.cloudflare_no_result(&reason)
+        }
         cloudflare::Failure::Cancelled => words.interrupted(),
     }
 }
@@ -1001,16 +1030,56 @@ pub(super) fn inetspeed(
     }
 
     for round in &output.rounds {
-        if let Some(err) = &round.error {
+        if let Some(issue) = &round.error {
             let label = words.inetspeed_round_name(
                 round.direction == TransferDirection::Download,
                 round.threads <= 1,
             );
-            out.field(indent, &words.note(), &format!("{label}: {err}"));
+            let detail = words.inetspeed_round_issue(inetspeed_round_issue_ref(issue));
+            out.field(indent, &words.note(), &format!("{label}: {detail}"));
         }
     }
     for warning in &output.warnings {
-        out.field(indent, &words.note(), warning);
+        let text = match warning {
+            inetspeed::Warning::HostMismatch => {
+                words.inetspeed_warning(InetspeedWarningRef::HostMismatch)
+            }
+            inetspeed::Warning::ForcedProbeFailed(ip) => {
+                let ip_s = ip.to_string();
+                words.inetspeed_warning(InetspeedWarningRef::ForcedProbeFailed(&ip_s))
+            }
+            inetspeed::Warning::DohEmpty => words.inetspeed_warning(InetspeedWarningRef::DohEmpty),
+            inetspeed::Warning::UnpinnedFallback => {
+                words.inetspeed_warning(InetspeedWarningRef::UnpinnedFallback)
+            }
+            inetspeed::Warning::NoIdleSamples => {
+                words.inetspeed_warning(InetspeedWarningRef::NoIdleSamples)
+            }
+            inetspeed::Warning::IdleFailed(fault) => {
+                words.inetspeed_warning(InetspeedWarningRef::IdleFailed(inetspeed_fault_ref(fault)))
+            }
+        };
+        out.field(indent, &words.note(), &text);
+    }
+}
+
+fn inetspeed_fault_ref(fault: &inetspeed::ProbeFault) -> InetspeedProbeFaultRef<'_> {
+    match fault {
+        inetspeed::ProbeFault::EmptySample => InetspeedProbeFaultRef::EmptySample,
+        inetspeed::ProbeFault::NoAddress => InetspeedProbeFaultRef::NoAddress,
+        inetspeed::ProbeFault::TimedOut => InetspeedProbeFaultRef::TimedOut,
+        inetspeed::ProbeFault::NoResolver => InetspeedProbeFaultRef::NoResolver,
+        inetspeed::ProbeFault::Transport(why) => InetspeedProbeFaultRef::Transport(why),
+    }
+}
+
+fn inetspeed_round_issue_ref(issue: &inetspeed::RoundIssue) -> InetspeedRoundIssueRef<'_> {
+    match issue {
+        inetspeed::RoundIssue::ZeroBytes => InetspeedRoundIssueRef::ZeroBytes,
+        inetspeed::RoundIssue::WorkerFaults(count) => InetspeedRoundIssueRef::WorkerFaults(*count),
+        inetspeed::RoundIssue::Transport(fault) => {
+            InetspeedRoundIssueRef::Transport(inetspeed_fault_ref(fault))
+        }
     }
 }
 

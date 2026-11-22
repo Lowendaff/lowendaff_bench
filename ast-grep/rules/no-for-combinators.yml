@@ -1,0 +1,17 @@
+id: no-for-combinators
+language: rust
+severity: error
+message: Bind iterator combinator chains to a `let` variable before the `for` header.
+note: >-
+  CONTRIBUTING "Code" (Google Rust Style Guide): no combinator chains in `for` headers.
+rule:
+  kind: for_expression
+  has:
+    field: value
+    kind: call_expression
+    has:
+      field: function
+      kind: field_expression
+      has:
+        field: field
+        regex: ^(map|filter|filter_map|flat_map|flatten|chain|take|take_while|skip|skip_while|step_by|rev|peekable|fuse|inspect|cycle|scan)$

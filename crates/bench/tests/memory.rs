@@ -187,6 +187,7 @@ fn latency_output() -> latency::Output {
     }
 }
 
+#[allow(clippy::unnecessary_wraps)]
 fn measured(text: &str) -> Option<numa::result::Measured> {
     Some(numa::result::Measured {
         value: value(text),

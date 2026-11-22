@@ -101,6 +101,126 @@ pub struct ThroughputStats {
     pub p99_mbps: f64,
 }
 
+/// Packet-loss quality classification for STUN UDP probes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub enum UdpQuality {
+    /// `0.0%` packet loss.
+    Excellent,
+    /// `< 1.0%` packet loss.
+    Good,
+    /// `< 2.5%` packet loss.
+    Acceptable,
+    /// `< 5.0%` packet loss.
+    Poor,
+    /// `>= 5.0%` packet loss.
+    Bad,
+    /// Indeterminate (`NaN` loss).
+    Unknown,
+}
+
+impl UdpQuality {
+    /// Canonical lowercase code passed to the locale catalog.
+    #[must_use]
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::Excellent => "excellent",
+            Self::Good => "good",
+            Self::Acceptable => "acceptable",
+            Self::Poor => "poor",
+            Self::Bad => "bad",
+            Self::Unknown => "unknown",
+        }
+    }
+}
+
+/// Waveform bufferbloat latency-increase grade.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub enum BufferbloatGrade {
+    /// `<= 5 ms` loaded median latency increase over idle median.
+    #[serde(rename = "A+")]
+    APlus,
+    /// `<= 30 ms` loaded median latency increase.
+    A,
+    /// `<= 60 ms` loaded median latency increase.
+    B,
+    /// `<= 200 ms` loaded median latency increase.
+    C,
+    /// `<= 400 ms` loaded median latency increase.
+    D,
+    /// `> 400 ms` loaded median latency increase.
+    F,
+    /// Insufficient idle or loaded latency samples.
+    #[serde(rename = "-")]
+    Unavailable,
+}
+
+impl BufferbloatGrade {
+    /// Standard grade symbol (`A+`, `A`, `B`, `C`, `D`, `F`, or `-`).
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::APlus => "A+",
+            Self::A => "A",
+            Self::B => "B",
+            Self::C => "C",
+            Self::D => "D",
+            Self::F => "F",
+            Self::Unavailable => "-",
+        }
+    }
+}
+
+/// Steady-state throughput coefficient-of-variation grade.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub enum StabilityGrade {
+    /// `<= 5%` CV.
+    A,
+    /// `<= 10%` CV.
+    B,
+    /// `<= 20%` CV.
+    C,
+    /// `<= 35%` CV.
+    D,
+    /// `> 35%` CV.
+    F,
+    /// Fewer than three steady-state samples.
+    #[serde(rename = "-")]
+    Unavailable,
+}
+
+impl StabilityGrade {
+    /// Standard grade symbol (`A`, `B`, `C`, `D`, `F`, or `-`).
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::A => "A",
+            Self::B => "B",
+            Self::C => "C",
+            Self::D => "D",
+            Self::F => "F",
+            Self::Unavailable => "-",
+        }
+    }
+}
+
+/// Typed measurement or transport issue for one IP family or STUN UDP probe.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", content = "detail", rename_all = "snake_case")]
+pub enum FamilyIssue {
+    /// Download phase completed with zero payload bytes.
+    EmptyDownload,
+    /// Upload phase completed with zero payload bytes.
+    EmptyUpload,
+    /// Host or endpoint has no address for this IP family.
+    NoAddress,
+    /// Request or probe timed out.
+    TimedOut,
+    /// Host has no usable DNS resolver.
+    NoResolver,
+    /// Underlying HTTP or UDP transport error.
+    Transport(String),
+}
+
 /// RFC 5389 STUN UDP packet-loss, reordering, and voice-quality MOS summary.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct UdpLossStats {
@@ -122,19 +242,19 @@ pub struct UdpLossStats {
     pub jitter_ms: Option<f64>,
     /// Simplified ITU-T G.107 E-model Mean Opinion Score (`1.0..=5.0`).
     pub mos: Option<f64>,
-    /// Packet-loss quality classification (`Excellent`, `Good`, `Acceptable`, `Poor`, `Bad`).
-    pub quality: String,
+    /// Packet-loss quality classification.
+    pub quality: UdpQuality,
 }
 
 /// Derived Waveform bufferbloat and steady-state CV stability grades.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct QualityStats {
     /// Waveform bufferbloat grade (`A+`, `A`, `B`, `C`, `D`, `F`, or `-`).
-    pub bufferbloat_grade: String,
+    pub bufferbloat_grade: BufferbloatGrade,
     /// Worst-direction loaded median latency increase over idle median in milliseconds.
     pub bufferbloat_ms: Option<f64>,
     /// Steady-state throughput coefficient-of-variation grade (`A`, `B`, `C`, `D`, `F`, or `-`).
-    pub stability_grade: String,
+    pub stability_grade: StabilityGrade,
     /// Worst-direction steady-state throughput CV percentage.
     pub stability_cv_pct: Option<f64>,
 }
@@ -165,7 +285,7 @@ pub struct FamilyCloudflare {
     /// Optional STUN UDP packet-loss and MOS summary.
     pub udp: Option<UdpLossStats>,
     /// Non-fatal note when the STUN UDP probe was blocked or unreachable.
-    pub udp_note: Option<String>,
+    pub udp_note: Option<FamilyIssue>,
     /// Derived bufferbloat and throughput stability grades.
     pub quality: Option<QualityStats>,
 }
@@ -179,8 +299,8 @@ pub struct Output {
     pub ipv4: Option<Box<FamilyCloudflare>>,
     /// IPv6 measurement when reachable and completed.
     pub ipv6: Option<Box<FamilyCloudflare>>,
-    /// Per-family failure notes `(ipv6, reason)` when the other family succeeded.
-    pub notes: Vec<(bool, String)>,
+    /// Per-family failure notes `(ipv6, issue)` when the other family succeeded.
+    pub notes: Vec<(bool, FamilyIssue)>,
 }
 
 impl Measurement for Output {
@@ -197,7 +317,7 @@ pub enum Failure {
     /// Neither IPv4 nor IPv6 was reachable on this host.
     NoFamily,
     /// Every reachable IP family failed to complete a speed test.
-    NoResult(String),
+    NoResult(Option<FamilyIssue>),
     /// Interrupted via `Ctrl-C` or timeout cancellation.
     Cancelled,
 }

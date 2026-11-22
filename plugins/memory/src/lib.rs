@@ -4,6 +4,8 @@
 //! them (`memory.numa`). They share the working-set plan, the way a run is tried again, and
 //! multichase, which the last two run.
 
+#![warn(missing_docs)]
+
 pub mod chase;
 pub mod latency;
 pub mod numa;

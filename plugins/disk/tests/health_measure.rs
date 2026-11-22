@@ -82,6 +82,7 @@ fn scan_args() -> Vec<String> {
     ["--scan-open", "--json"].map(str::to_owned).to_vec()
 }
 
+#[allow(clippy::unnecessary_wraps)]
 fn printed(text: String) -> Result<job::Output, RunError> {
     Ok(job::Output {
         code: Some(0),

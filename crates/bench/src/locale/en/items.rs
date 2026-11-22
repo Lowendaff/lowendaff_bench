@@ -7,11 +7,15 @@ use crate::locale::BgpField;
 use crate::locale::BgpWords;
 use crate::locale::CloudflareChoice;
 use crate::locale::CloudflareField;
+use crate::locale::CloudflareIssueRef;
 use crate::locale::CloudflareWords;
 use crate::locale::CpuWords;
 use crate::locale::DiskWords;
 use crate::locale::FioRow;
 use crate::locale::InetspeedChoice;
+use crate::locale::InetspeedProbeFaultRef;
+use crate::locale::InetspeedRoundIssueRef;
+use crate::locale::InetspeedWarningRef;
 use crate::locale::InetspeedWords;
 use crate::locale::IpChoice;
 use crate::locale::IpField;
@@ -1512,6 +1516,7 @@ impl TaierWords for English {
 
     fn taier_list_problem(&self, problem: TaierListProblem<'_>) -> String {
         match problem {
+            TaierListProblem::Missing => "the Taier server list is missing".to_owned(),
             TaierListProblem::Unreadable(reason) => {
                 format!("cannot read the Taier server list: {reason}")
             }
@@ -1634,6 +1639,17 @@ impl CloudflareWords for English {
         format!("{speed} (p50 {p50_mbps:.1}, p95 {p95_mbps:.1} Mbit/s)")
     }
 
+    fn cloudflare_udp_quality(&self, code: &str) -> &'static str {
+        match code {
+            "excellent" => "Excellent",
+            "good" => "Good",
+            "acceptable" => "Acceptable",
+            "poor" => "Poor",
+            "bad" => "Bad",
+            _ => "Unknown",
+        }
+    }
+
     fn cloudflare_udp_cell(
         &self,
         loss_pct: f64,
@@ -1670,6 +1686,17 @@ impl CloudflareWords for English {
             None => format!("stability {stab_grade}"),
         };
         format!("{bloat}, {stab}")
+    }
+
+    fn cloudflare_issue(&self, issue: CloudflareIssueRef<'_>) -> String {
+        match issue {
+            CloudflareIssueRef::EmptyDownload => "download measured 0 bytes".to_owned(),
+            CloudflareIssueRef::EmptyUpload => "upload measured 0 bytes".to_owned(),
+            CloudflareIssueRef::NoAddress => "no address for family".to_owned(),
+            CloudflareIssueRef::TimedOut => "timed out".to_owned(),
+            CloudflareIssueRef::NoResolver => "no DNS resolver".to_owned(),
+            CloudflareIssueRef::Transport(why) => why.to_owned(),
+        }
     }
 
     fn cloudflare_udp_note(&self, ipv6: bool, reason: &str) -> String {
@@ -1779,11 +1806,54 @@ impl InetspeedWords for English {
         format!("{median_ms:.2} ms (jitter {jitter_ms:.2} ms)")
     }
 
+    fn inetspeed_round_issue(&self, issue: InetspeedRoundIssueRef<'_>) -> String {
+        match issue {
+            InetspeedRoundIssueRef::ZeroBytes => "transfer completed with 0 bytes".to_owned(),
+            InetspeedRoundIssueRef::WorkerFaults(count) => format!(
+                "{} reported transport faults",
+                super::count(usize::from(count), "worker", "workers")
+            ),
+            InetspeedRoundIssueRef::Transport(fault) => inetspeed_fault_text(fault),
+        }
+    }
+
+    fn inetspeed_warning(&self, warning: InetspeedWarningRef<'_>) -> String {
+        match warning {
+            InetspeedWarningRef::HostMismatch => {
+                "download, upload, and latency hosts differ; shared endpoint pinning disabled"
+                    .to_owned()
+            }
+            InetspeedWarningRef::ForcedProbeFailed(ip) => {
+                format!("forced endpoint {ip} probe failed; continuing with requested IP")
+            }
+            InetspeedWarningRef::DohEmpty => {
+                "Dual DoH returned no candidate IPs; falling back to system DNS".to_owned()
+            }
+            InetspeedWarningRef::UnpinnedFallback => {
+                "endpoint discovery found no IP; continuing with unpinned DNS".to_owned()
+            }
+            InetspeedWarningRef::NoIdleSamples => "no idle latency samples collected".to_owned(),
+            InetspeedWarningRef::IdleFailed(fault) => {
+                format!("idle latency failed: {}", inetspeed_fault_text(fault))
+            }
+        }
+    }
+
     fn inetspeed_invalid_max(&self, raw: &str) -> String {
         format!("invalid transfer cap {raw:?}: expected a size such as 2G, 500M, or 1GiB")
     }
 
     fn inetspeed_no_result(&self) -> String {
         "Apple CDN speed test completed no transfer round".to_owned()
+    }
+}
+
+fn inetspeed_fault_text(fault: InetspeedProbeFaultRef<'_>) -> String {
+    match fault {
+        InetspeedProbeFaultRef::EmptySample => "probe returned no sample".to_owned(),
+        InetspeedProbeFaultRef::NoAddress => "no address for family".to_owned(),
+        InetspeedProbeFaultRef::TimedOut => "timed out".to_owned(),
+        InetspeedProbeFaultRef::NoResolver => "no DNS resolver".to_owned(),
+        InetspeedProbeFaultRef::Transport(why) => why.to_owned(),
     }
 }

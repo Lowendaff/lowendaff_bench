@@ -194,7 +194,7 @@ pub trait Observer<R>: Send {
     /// A plugin starts.
     fn on_start(&mut self, _id: &'static str) {}
     /// A plugin starts a step.
-    fn on_progress(&mut self, _id: &'static str, _step: Step) {}
+    fn on_progress(&mut self, _id: &'static str, _step: &Step) {}
     /// A plugin ran a tool.
     fn on_tool(&mut self, _id: &'static str, _run: &ToolRun) {}
     /// A plugin's run is over, or it never started.
@@ -632,7 +632,7 @@ impl<P: Plugin, R: Send + 'static> Runner<R> for PluginRunner<P, R> {
 /// Hands a plugin's progress to the observer.
 fn tell<R>(observer: &mut dyn Observer<R>, id: &'static str, progress: Progress) {
     match progress {
-        Progress::Step(step) => observer.on_progress(id, step),
+        Progress::Step(step) => observer.on_progress(id, &step),
         Progress::Tool(run) => observer.on_tool(id, &run),
     }
 }
@@ -650,13 +650,14 @@ async fn stop<T>(task: &mut JoinHandle<T>, token: &CancellationToken, grace: Dur
 
 fn fault(err: JoinError) -> Fault {
     if err.is_panic() {
-        Fault::Panic(panic_message(err.into_panic()))
+        let payload = err.into_panic();
+        Fault::Panic(panic_message(&*payload))
     } else {
         Fault::Aborted(err.to_string())
     }
 }
 
-fn panic_message(payload: Box<dyn Any + Send>) -> String {
+fn panic_message(payload: &(dyn Any + Send)) -> String {
     payload
         .downcast_ref::<&str>()
         .map(|message| (*message).to_owned())

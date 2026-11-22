@@ -40,7 +40,7 @@ impl LogWords for English {
         format!("{id} started")
     }
 
-    fn item_progress(&self, id: &str, step: Step) -> String {
+    fn item_progress(&self, id: &str, step: &Step) -> String {
         use crate::locale::CpuWords;
         use crate::locale::IpWords;
         use crate::locale::MediaWords;
@@ -59,48 +59,48 @@ impl LogWords for English {
             }
             Step::Cache { level } => format!("L{level} test"),
             Step::MainMemory => "memory test".to_owned(),
-            Step::NodeBandwidth { cpus, memory } => self.numa_run(cpus, memory, Probe::Bandwidth),
-            Step::NodeLatency { cpus, memory } => self.numa_run(cpus, memory, Probe::Latency),
+            Step::NodeBandwidth { cpus, memory } => self.numa_run(*cpus, *memory, Probe::Bandwidth),
+            Step::NodeLatency { cpus, memory } => self.numa_run(*cpus, *memory, Probe::Latency),
             Step::RunAgain { run } => format!("the upload failed; run {run}"),
             Step::Upload {
                 location,
                 country,
                 ipv6,
-            } => format!("upload to {location}, {country} over {}", family(ipv6)),
+            } => format!("upload to {location}, {country} over {}", family(*ipv6)),
             Step::Download {
                 location,
                 country,
                 ipv6,
-            } => format!("download from {location}, {country} over {}", family(ipv6)),
-            Step::Trace { target, ipv6 } => format!("trace to {target} over {}", family(ipv6)),
+            } => format!("download from {location}, {country} over {}", family(*ipv6)),
+            Step::Trace { target, ipv6 } => format!("trace to {target} over {}", family(*ipv6)),
             Step::Media { group, ipv6 } => {
-                format!("probing {} over {}", self.media_group(group), family(ipv6))
+                format!("probing {} over {}", self.media_group(group), family(*ipv6))
             }
             Step::IpQuality { stage, ipv6 } => {
-                format!("checking {} for {}", self.ip_stage(stage), family(ipv6))
+                format!("checking {} for {}", self.ip_stage(stage), family(*ipv6))
             }
-            Step::Bgp { ipv6 } => format!("querying BGP routes for {}", family(ipv6)),
+            Step::Bgp { ipv6 } => format!("querying BGP routes for {}", family(*ipv6)),
             Step::CpuSuite {
                 suite,
                 stage,
                 threads,
-            } => self.cpu_suite_step(suite, stage, threads),
+            } => self.cpu_suite_step(suite, *stage, *threads),
             Step::Taier {
                 location,
                 operator,
                 stage,
             } => format!("{location} ({operator}): {stage}"),
             Step::Cloudflare { stage, ipv6 } => {
-                let phase = match stage {
+                let phase = match *stage {
                     "latency" => "idle latency",
                     "download" => "download + loaded latency",
                     "upload" => "upload + loaded latency",
                     "udp" => "STUN UDP packet-loss probe",
                     other => other,
                 };
-                format!("{phase} over {}", family(ipv6))
+                format!("{phase} over {}", family(*ipv6))
             }
-            Step::Inetspeed { stage, threads } => match (stage, threads) {
+            Step::Inetspeed { stage, threads } => match (*stage, *threads) {
                 ("discover", _) => "discovering optimal Apple CDN endpoint".to_owned(),
                 ("latency", _) => "measuring idle latency".to_owned(),
                 (dir, 1) => format!("{dir} (single-thread)"),

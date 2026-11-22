@@ -2,6 +2,7 @@
 
 use std::fmt;
 use std::net::Ipv4Addr;
+use std::str::FromStr;
 
 use bench_api::Measurement;
 use bench_api::ToolVersion;
@@ -99,7 +100,7 @@ impl OperatorChoice {
     /// Parses a canonical carrier name or short alias (`ct`, `cu`, `cm`, `edu`, `cbn`, `other`,
     /// `all`), ignoring ASCII case.
     #[must_use]
-    pub fn parse_token(raw: &str) -> Option<Self> {
+    pub fn try_new(raw: &str) -> Option<Self> {
         let lower = raw.trim().to_ascii_lowercase();
         match lower.as_str() {
             "telecom" | "ct" => Some(Self::Telecom),
@@ -125,6 +126,14 @@ impl OperatorChoice {
             Self::Other => "other",
             Self::All => "all",
         }
+    }
+}
+
+impl FromStr for OperatorChoice {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::try_new(s).ok_or(())
     }
 }
 
@@ -222,6 +231,8 @@ impl Measurement for Output {
 /// Why `network.taier` skipped or failed as a whole.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub enum Failure {
+    /// Neither a downloaded node list nor an embedded snapshot was available.
+    MissingList,
     /// The downloaded or local node list file could not be read.
     Unreadable(String),
     /// The node list failed validation.

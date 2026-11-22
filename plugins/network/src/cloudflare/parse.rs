@@ -9,31 +9,34 @@ use bench_api::HttpResponse;
 use bench_api::ThroughputTick;
 use serde_json::Value;
 
+use super::result::BufferbloatGrade;
 use super::result::LatencyStats;
 use super::result::QualityStats;
+use super::result::StabilityGrade;
 use super::result::ThroughputStats;
 use super::result::UdpLossStats;
+use super::result::UdpQuality;
 
 const STEADY_RAMP_FRACTION: f64 = 0.20;
 const STEADY_MIN_RAMP_MS: u64 = 1_000;
 const MIN_SAMPLE_WINDOW_MS: u64 = 200;
 const MIN_STABILITY_SAMPLES: usize = 3;
 
-const BUFFERBLOAT_THRESHOLDS: &[(f64, &str)] = &[
-    (5.0, "A+"),
-    (30.0, "A"),
-    (60.0, "B"),
-    (200.0, "C"),
-    (400.0, "D"),
-    (f64::INFINITY, "F"),
+const BUFFERBLOAT_THRESHOLDS: &[(f64, BufferbloatGrade)] = &[
+    (5.0, BufferbloatGrade::APlus),
+    (30.0, BufferbloatGrade::A),
+    (60.0, BufferbloatGrade::B),
+    (200.0, BufferbloatGrade::C),
+    (400.0, BufferbloatGrade::D),
+    (f64::INFINITY, BufferbloatGrade::F),
 ];
 
-const STABILITY_THRESHOLDS: &[(f64, &str)] = &[
-    (5.0, "A"),
-    (10.0, "B"),
-    (20.0, "C"),
-    (35.0, "D"),
-    (f64::INFINITY, "F"),
+const STABILITY_THRESHOLDS: &[(f64, StabilityGrade)] = &[
+    (5.0, StabilityGrade::A),
+    (10.0, StabilityGrade::B),
+    (20.0, StabilityGrade::C),
+    (35.0, StabilityGrade::D),
+    (f64::INFINITY, StabilityGrade::F),
 ];
 
 /// Parsed Cloudflare edge and client metadata fields.
@@ -321,7 +324,7 @@ pub fn compute_throughput_stats(
         )
     };
 
-    let bps = (mean.max(0.0) * 1_000_000.0).round() as u64;
+    let bps = f64_to_u64_sat((mean.max(0.0) * 1_000_000.0).round());
     (
         ThroughputStats {
             bytes,
@@ -364,7 +367,7 @@ fn steady_state_window(
         return None;
     }
     let ramp_ms =
-        (((total_ms as f64) * STEADY_RAMP_FRACTION).round() as u64).max(STEADY_MIN_RAMP_MS);
+        f64_to_u64_sat(((total_ms as f64) * STEADY_RAMP_FRACTION).round()).max(STEADY_MIN_RAMP_MS);
     let start_idx = ticks.iter().position(|tick| tick.elapsed_ms >= ramp_ms)?;
     let start_tick = ticks[start_idx];
     let end_tick = *ticks.last()?;
@@ -404,7 +407,7 @@ pub fn compute_udp_stats(raw: &CloudflareStun) -> UdpLossStats {
         median_ms: lat.median_ms,
         jitter_ms: lat.jitter_ms,
         mos,
-        quality: loss_quality_label(lat.loss_pct).to_owned(),
+        quality: loss_quality(lat.loss_pct),
     }
 }
 
@@ -439,12 +442,18 @@ pub fn compute_quality(
     }
 
     let (bufferbloat_grade, bufferbloat_ms) = match bloat_ms {
-        Some(ms) => (grade_for(ms, BUFFERBLOAT_THRESHOLDS).to_owned(), Some(ms)),
-        None => ("-".to_owned(), None),
+        Some(ms) => (
+            grade_for(ms, BUFFERBLOAT_THRESHOLDS, BufferbloatGrade::F),
+            Some(ms),
+        ),
+        None => (BufferbloatGrade::Unavailable, None),
     };
     let (stability_grade, stability_cv_pct) = match cv_worst {
-        Some(cv) => (grade_for(cv, STABILITY_THRESHOLDS).to_owned(), Some(cv)),
-        None => ("-".to_owned(), None),
+        Some(cv) => (
+            grade_for(cv, STABILITY_THRESHOLDS, StabilityGrade::F),
+            Some(cv),
+        ),
+        None => (StabilityGrade::Unavailable, None),
     };
 
     Some(QualityStats {
@@ -455,14 +464,14 @@ pub fn compute_quality(
     })
 }
 
-fn grade_for(value: f64, thresholds: &[(f64, &'static str)]) -> &'static str {
+fn grade_for<T: Copy>(value: f64, thresholds: &[(f64, T)], fallback: T) -> T {
     let clamped = value.max(0.0);
     for &(limit, grade) in thresholds {
         if clamped <= limit {
             return grade;
         }
     }
-    "F"
+    fallback
 }
 
 fn cv_percent(samples: &[f64]) -> Option<f64> {
@@ -497,8 +506,8 @@ fn percentile_sorted(sorted: &[f64], p: f64) -> f64 {
     }
     let clamped = p.clamp(0.0, 1.0);
     let pos = clamped * ((n - 1) as f64);
-    let lower = pos.floor() as usize;
-    let upper = pos.ceil() as usize;
+    let lower = f64_to_usize_sat(pos.floor()).min(n - 1);
+    let upper = f64_to_usize_sat(pos.ceil()).min(n - 1);
     if lower == upper {
         sorted[lower]
     } else {
@@ -522,20 +531,36 @@ fn calculate_mos(rtt_ms: f64, jitter_ms: f64, loss_pct: f64) -> Option<f64> {
     Some(mos.clamp(1.0, 5.0))
 }
 
-fn loss_quality_label(loss_pct: f64) -> &'static str {
+fn loss_quality(loss_pct: f64) -> UdpQuality {
     if loss_pct.is_nan() {
-        "Unknown"
+        UdpQuality::Unknown
     } else if loss_pct == 0.0 {
-        "Excellent"
+        UdpQuality::Excellent
     } else if loss_pct < 1.0 {
-        "Good"
+        UdpQuality::Good
     } else if loss_pct < 2.5 {
-        "Acceptable"
+        UdpQuality::Acceptable
     } else if loss_pct < 5.0 {
-        "Poor"
+        UdpQuality::Poor
     } else {
-        "Bad"
+        UdpQuality::Bad
     }
+}
+
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+fn f64_to_u64_sat(value: f64) -> u64 {
+    const UPPER_EXCLUSIVE: f64 = 18_446_744_073_709_551_616.0;
+    if !value.is_finite() || value <= 0.0 {
+        0
+    } else if value >= UPPER_EXCLUSIVE {
+        u64::MAX
+    } else {
+        value as u64
+    }
+}
+
+fn f64_to_usize_sat(value: f64) -> usize {
+    usize::try_from(f64_to_u64_sat(value)).unwrap_or(usize::MAX)
 }
 
 #[cfg(test)]
@@ -636,8 +661,8 @@ mod tests {
 
         let q = super::compute_quality(Some(20.0), Some(24.0), Some(45.0), &steady, &steady)
             .expect("quality");
-        assert_eq!(q.bufferbloat_grade, "A");
-        assert_eq!(q.stability_grade, "A");
+        assert_eq!(q.bufferbloat_grade, super::BufferbloatGrade::A);
+        assert_eq!(q.stability_grade, super::StabilityGrade::A);
 
         let udp = super::compute_udp_stats(&CloudflareStun {
             target: "stun:stun.example:3478".to_owned(),
@@ -648,7 +673,7 @@ mod tests {
         });
         assert_eq!(udp.loss_pct, 0.0);
         assert_eq!(udp.out_of_order_pct, 10.0);
-        assert_eq!(udp.quality, "Excellent");
+        assert_eq!(udp.quality, super::UdpQuality::Excellent);
         assert!(udp.mos.expect("mos") > 4.0);
     }
 }

@@ -103,6 +103,7 @@ pub async fn populate_runs(runs: &mut [Run<Measured>], cancel: &CancellationToke
 
 fn build_client() -> Result<Client, String> {
     fetcher::builder()?
+        .redirect(reqwest::redirect::Policy::none())
         .connect_timeout(CONNECT_TIMEOUT)
         .timeout(UPLOAD_TIMEOUT)
         .build()

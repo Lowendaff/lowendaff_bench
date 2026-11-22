@@ -51,6 +51,7 @@ pub fn output(code: i32, text: &str) -> job::Output {
 }
 
 /// A run that ended with `code` after printing `text`.
+#[allow(clippy::unnecessary_wraps)]
 pub fn exited(code: i32, text: &str) -> Result<job::Output, RunError> {
     Ok(output(code, text))
 }

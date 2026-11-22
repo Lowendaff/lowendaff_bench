@@ -338,7 +338,7 @@ impl Session {
     #[must_use]
     pub fn new(registry: &[Entry]) -> Self {
         Self {
-            config: TuiConfig::from_registry(registry),
+            config: TuiConfig::new(registry),
             screen: Screen::Configure,
             focus: Pane::Left,
             nav_index: 0,
@@ -968,7 +968,7 @@ impl Session {
                     item.reset();
                 }
                 self.config.global = config::GlobalConfig::default();
-                let msg = words.tui_reset_done("all items and options");
+                let msg = words.tui_reset_done(words.tui_all_items_and_options());
                 self.set_note(NoteKind::Info, msg);
             }
             NavTarget::Item(idx) => {

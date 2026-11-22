@@ -29,6 +29,7 @@ use reqwest::Client;
 use reqwest::Url;
 use reqwest::header;
 use reqwest::redirect::Policy;
+use tokio::task::JoinSet;
 
 use crate::fetcher;
 
@@ -148,7 +149,8 @@ pub async fn transfer(
     let loaded_samples_bg = Arc::clone(&loaded_samples);
     let stop_loaded_bg = Arc::clone(&stop_loaded);
     let cancel_loaded = cancel.clone();
-    let lat_handle = tokio::spawn(async move {
+    let mut lat_tasks = JoinSet::new();
+    lat_tasks.spawn(async move {
         while !stop_loaded_bg.load(Ordering::Relaxed) && !cancel_loaded.is_cancelled() {
             let sample = tokio::select! {
                 biased;
@@ -168,7 +170,7 @@ pub async fn transfer(
     let workers = usize::from(spec.threads.max(1));
     let started = Instant::now();
 
-    let mut handles = Vec::with_capacity(workers);
+    let mut worker_tasks = JoinSet::new();
     for _ in 0..workers {
         let http = client.clone();
         let url = transfer_url.clone();
@@ -179,7 +181,7 @@ pub async fn transfer(
         let faults_ref = Arc::clone(&fault_count);
         let cancel_w = cancel.clone();
 
-        handles.push(tokio::spawn(async move {
+        worker_tasks.spawn(async move {
             let fault = match direction {
                 InetspeedDirection::Download => {
                     run_download_worker(&http, url, max_bytes, timeout, &bytes_ref, &cancel_w).await
@@ -191,25 +193,24 @@ pub async fn transfer(
             if fault && !cancel_w.is_cancelled() {
                 faults_ref.fetch_add(1, Ordering::Relaxed);
             }
-        }));
+        });
     }
 
     let round_cap = spec.timeout.saturating_add(Duration::from_secs(6));
-    for handle in handles {
-        match tokio::time::timeout(round_cap, handle).await {
-            Ok(_) => {}
-            Err(_) => {
-                fault_count.fetch_add(1, Ordering::Relaxed);
-            }
-        }
+    let wait_all = async { while worker_tasks.join_next().await.is_some() {} };
+    if tokio::time::timeout(round_cap, wait_all).await.is_err() {
+        let remaining = u8::try_from(worker_tasks.len()).unwrap_or(u8::MAX);
+        fault_count.fetch_add(remaining.max(1), Ordering::Relaxed);
+        worker_tasks.abort_all();
+        while worker_tasks.join_next().await.is_some() {}
     }
 
     let elapsed_micros = u64::try_from(started.elapsed().as_micros())
         .unwrap_or(u64::MAX)
         .max(1);
     stop_loaded.store(true, Ordering::Relaxed);
-    lat_handle.abort();
-    let _ = lat_handle.await;
+    lat_tasks.abort_all();
+    while lat_tasks.join_next().await.is_some() {}
 
     if cancel.is_cancelled() {
         return Err(NetError::Cancelled);
@@ -298,9 +299,8 @@ async fn run_download_worker(
                 worker_total = worker_total.saturating_add(len);
                 shared_bytes.fetch_add(len, Ordering::Relaxed);
             }
-            Ok(Ok(None)) => break,
+            Ok(Ok(None)) | Err(_) => break,
             Ok(Err(_)) => return worker_total == 0,
-            Err(_) => break,
         }
     }
     worker_total == 0
@@ -412,7 +412,7 @@ fn build_pinned_client(
     let mut builder = fetcher::builder()
         .map_err(NetError::Transport)?
         .user_agent(USER_AGENT)
-        .redirect(Policy::limited(3))
+        .redirect(Policy::none())
         .timeout(timeout)
         .connect_timeout(CONNECT_TIMEOUT)
         .no_proxy();

@@ -11,4 +11,7 @@ rule:
   has:
     field: argument
     kind: scoped_identifier
-    regex: ^((crate|bench)::[a-z_][a-z0-9_]*|bench_api)::[a-z_][a-z0-9_]*$
+    all:
+      - regex: ^((crate|bench|bench_host|bench_tool)::[a-z_][a-z0-9_]*|plugin_(cpu|disk|ip|memory|network)::[a-z_][a-z0-9_]*::[a-z_][a-z0-9_]*(::[a-z_][a-z0-9_]*)?|bench_api)::[a-z_][a-z0-9_]*$
+      - not:
+          regex: ^plugin_ip::(media::platforms|quality::providers)::[a-z_][a-z0-9_]*$

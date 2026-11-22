@@ -117,14 +117,15 @@ used), with these rules of this repository:
 - Name constructors `new` or `new_*`, or `try_new` when they return a `Result`. Implement
   `Display` instead of writing label helpers. Name a module after its primary type, without
   abbreviations.
-- No combinator chains in `for` headers; prefer `let`-`else`; `expect("why")` instead of
-  `unwrap()`, which only tests may use; never unwrap a poisoned mutex (`no-poison-into-inner`);
-  hex literals use lowercase digits (`lowercase-hex-literals`); an assertion's message says what
-  was expected.
+- No combinator chains in `for` headers (rule `no-for-combinators`); prefer `let`-`else`;
+  `expect("why")` instead of `unwrap()`, which only tests may use; never unwrap a poisoned mutex
+  (`no-poison-into-inner`); never leak heap allocations in `src/` (`no-box-leak`); hex literals
+  use lowercase digits (`lowercase-hex-literals`); an assertion's message says what was expected.
 - Public enums are not `#[non_exhaustive]` (rule `no-non-exhaustive`): every consumer lives in
   the workspace, so a new variant is a compile error instead of a silent default.
 - `unsafe` is forbidden, except in `crates/swap-file`, whose two calls turn swap on and off.
-- Lines are at most 100 columns; a CJK character counts as two.
+- Lines are at most 100 columns (`scripts/check-docs.sh` checks every `.rs` file); a CJK character
+  counts as two.
 - Library crates and plugins never print (rule `no-print-in-plugins`); they report through the
   plugin context.
 - No system temp directory in `src/` (rule `no-temp-dir`, except `crates/bench/src/report_path.rs`
@@ -132,8 +133,8 @@ used), with these rules of this repository:
 - No program from the host (rule `no-host-tools`): external tools are pinned builds, so that
   results do not depend on what a server has installed. Reading the host's files, such as
   `/proc`, is fine.
-- Code that reads the environment takes it as a parameter, so that tests need no
-  `std::env::set_var`, which is `unsafe` in Rust 2024.
+- Code that reads the environment takes it as a parameter (rule `no-env-in-libs`), so that tests
+  need no `std::env::set_var`, which is `unsafe` in Rust 2024.
 - Crates depend in one direction: `bench-host` ← `bench-api` ← `bench-tool` ← the plugin crates
   ← `bench`, and a plugin crate is used by `bench` alone. `deny.toml` names the crates that may
   depend on each of them; a new dependency along the direction is added there.
@@ -143,9 +144,11 @@ used), with these rules of this repository:
   system's own messages, and names the step it starts with a `Step`, which holds no words.
 - Only `bench` connects anywhere: it downloads the tools and asks for the public addresses, and
   `deny.toml` allows reqwest there only. Host facts are read from files.
-- Besides clippy's defaults, the lint gate checks `must_use_candidate`, `needless_for_each`,
-  `unwrap_used` (allowed in tests by `clippy.toml`) and `wildcard_imports`; `bench-api`,
-  `bench-host`, `bench-tool` and `swap-file` document every public item (`missing_docs`).
+- Besides clippy's defaults, `[workspace.lints.clippy]` enforces `must_use_candidate`,
+  `needless_for_each`, `unwrap_used` (allowed in tests by `clippy.toml`), `wildcard_imports`,
+  checked integer/float casts, `match_same_arms`, `needless_pass_by_value`, `unnecessary_wraps`,
+  `unused_async`, `undocumented_unsafe_blocks`, and `dbg_macro` / `todo` / `unimplemented`; every
+  workspace crate documents every public item (`missing_docs`).
 - A plugin's panic is contained by its task and reported as a failure: defense in depth, never
   control flow.
 

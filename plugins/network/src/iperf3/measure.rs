@@ -3,6 +3,7 @@
 //! tried again on another port of the server, 2 seconds later, up to three times. The result is
 //! published after each server, so that a timeout or an interrupt keeps what was measured.
 
+use std::borrow::Cow;
 use std::ffi::OsString;
 use std::future::Future;
 use std::path::Path;
@@ -150,14 +151,6 @@ where
     if plan.is_empty() {
         return Err(Stop::Skipped(Failure::NoFamily));
     }
-    let places: Vec<Place> = servers.iter().map(Place::of).collect();
-    let place = |server: &Server| {
-        servers
-            .iter()
-            .position(|known| known.id == server.id)
-            .map(|index| &places[index])
-            .expect("a server of the plan is a chosen server")
-    };
     let mut output = Output {
         version: None,
         settings,
@@ -173,11 +166,10 @@ where
     };
     for (family, servers) in &plan {
         for server in servers {
-            let Place { location, country } = *place(server);
             let ipv6 = *family == Family::Ipv6;
             ctx.progress(Step::Upload {
-                location,
-                country,
+                location: Cow::Owned(server.location.clone()),
+                country: Cow::Owned(server.country.clone()),
                 ipv6,
             });
             let upload = tries
@@ -188,8 +180,8 @@ where
             } else {
                 tokio::time::sleep(PAUSE).await;
                 ctx.progress(Step::Download {
-                    location,
-                    country,
+                    location: Cow::Owned(server.location.clone()),
+                    country: Cow::Owned(server.country.clone()),
                     ipv6,
                 });
                 tries
@@ -217,23 +209,6 @@ where
         return Err(Stop::Failed(Failure::NoResult));
     }
     Ok(output)
-}
-
-/// A server's place for the progress log, whose steps last as long as the program: kept to the
-/// end, a few short names of the list, once for each server.
-#[derive(Clone, Copy)]
-struct Place {
-    location: &'static str,
-    country: &'static str,
-}
-
-impl Place {
-    fn of(server: &Server) -> Self {
-        Self {
-            location: Box::leak(server.location.clone().into_boxed_str()),
-            country: Box::leak(server.country.clone().into_boxed_str()),
-        }
-    }
 }
 
 /// What every try needs.

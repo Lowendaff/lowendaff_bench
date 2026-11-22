@@ -30,7 +30,10 @@ pub mod smbios;
 pub mod storage;
 pub mod system;
 
-/// The filesystem host facts are read from: `/` on a real host, a captured copy in tests.
+/// Safety limit on bytes read from any single `/proc`, `/sys`, or `/etc` host file (4 MiB).
+const MAX_HOST_FILE_BYTES: u64 = 4 << 20;
+
+/// The filesystem host facts are read from: `/` on a real host, a captured fixture in tests.
 #[derive(Debug, Clone)]
 pub struct Root {
     path: PathBuf,
@@ -55,11 +58,11 @@ impl Root {
         self.path.join(path.trim_start_matches('/'))
     }
 
-    /// The file's contents, or `None` when it is missing or unreadable. Invalid UTF-8 is
-    /// replaced, because firmware strings such as DMI fields are not always valid.
+    /// The file's contents, or `None` when it is missing, unreadable, or exceeds 4 MiB. Invalid
+    /// UTF-8 is replaced, because firmware strings such as DMI fields are not always valid.
     #[must_use]
     pub fn read(&self, path: &str) -> Option<String> {
-        let bytes = fs::read(self.join(path)).ok()?;
+        let bytes = self.read_bytes(path)?;
         Some(String::from_utf8_lossy(&bytes).into_owned())
     }
 
@@ -99,10 +102,17 @@ impl Root {
         Some(target.to_string_lossy().into_owned())
     }
 
-    /// The file's bytes, or `None` when it is missing or unreadable.
+    /// The file's bytes (at most 4 MiB), or `None` when it is missing, unreadable, or larger.
     #[must_use]
     pub fn read_bytes(&self, path: &str) -> Option<Vec<u8>> {
-        fs::read(self.join(path)).ok()
+        use std::io::Read;
+
+        let file = fs::File::open(self.join(path)).ok()?;
+        let mut buf = Vec::new();
+        file.take(MAX_HOST_FILE_BYTES + 1)
+            .read_to_end(&mut buf)
+            .ok()?;
+        (u64::try_from(buf.len()).unwrap_or(u64::MAX) <= MAX_HOST_FILE_BYTES).then_some(buf)
     }
 }
 

@@ -1,0 +1,19 @@
+id: no-env-in-libs
+language: rust
+severity: error
+message: Pass environment lookups as parameters instead of reading or mutating `std::env` directly.
+note: >-
+  CONTRIBUTING "Code": code that reads the environment takes it as a parameter so tests never need
+  `std::env::set_var` (`unsafe` in Rust 2024) and child benchmark processes never inherit ambient
+  host variables such as `LD_LIBRARY_PATH`.
+files:
+  - crates/*/src/**/*.rs
+  - plugins/*/src/**/*.rs
+ignores:
+  - crates/bench/src/main.rs
+  - crates/bench/src/locale/mod.rs
+rule:
+  kind: call_expression
+  has:
+    field: function
+    regex: (^|::)env::(var|var_os|vars|vars_os|args|args_os|set_var|remove_var)$

@@ -3,6 +3,7 @@
 //! ICMP trace of 3 probes a hop and 30 hops at most. The result is published after each target,
 //! so that a timeout or an interrupt keeps what was traced.
 
+use std::borrow::Cow;
 use std::ffi::OsString;
 use std::future::Future;
 use std::path::Path;
@@ -191,12 +192,11 @@ fn route_of(finished: &job::Output, exchanges: &Exchanges) -> Route {
     Route::Failed(error)
 }
 
-/// A target's name for the progress log, whose steps last as long as the program: a list's name is
-/// kept to the end, once for each trace.
-fn name_of(target: &Target) -> &'static str {
+/// A target's name for the progress log.
+fn name_of(target: &Target) -> Cow<'static, str> {
     match target {
-        Target::YouTube => "YouTube",
-        Target::Netflix(_) => "Netflix",
-        Target::Listed { name, .. } => Box::leak(name.clone().into_boxed_str()),
+        Target::YouTube => Cow::Borrowed("YouTube"),
+        Target::Netflix(_) => Cow::Borrowed("Netflix"),
+        Target::Listed { name, .. } => Cow::Owned(name.clone()),
     }
 }

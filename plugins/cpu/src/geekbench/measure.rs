@@ -5,9 +5,6 @@
 use std::future::Future;
 use std::io;
 use std::path::Path;
-use std::sync::Mutex;
-use std::sync::atomic::AtomicUsize;
-use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use bench_api::Context;
@@ -17,7 +14,6 @@ use bench_tool::job;
 use bench_tool::job::Adjustment;
 use bench_tool::job::Job;
 use bench_tool::job::RunError;
-use bench_tool::retried::Retried;
 
 use super::parse;
 use super::parse::Verdict;
@@ -96,7 +92,7 @@ where
 /// records a non-trivial adjustment.
 pub async fn measure_in<O, F, Fut, P>(
     ctx: &Context<O>,
-    output: Output,
+    mut output: Output,
     program: &Path,
     work_dir: &Path,
     on_partial: &mut P,
@@ -108,43 +104,34 @@ where
     Fut: Future<Output = Ran>,
     P: FnMut(&Output),
 {
-    let shared = Mutex::new((output, on_partial));
-    let runs = AtomicUsize::new(0);
-    let once = || async {
-        let number = runs.fetch_add(1, Ordering::Relaxed) + 1;
+    let cancel = ctx.cancel_token();
+    let mut uploads = Vec::new();
+    let mut number: usize = 0;
+    let last = loop {
+        number += 1;
         if number > 1 {
             ctx.progress(Step::RunAgain { run: number });
         }
         let ran = run(attempt(program, work_dir)).await;
         if let Some(adjustment) = &ran.outcome.adjustment
             && *adjustment != Adjustment::Done
+            && output.first_to_go.is_none()
         {
-            let mut guard = shared
-                .lock()
-                .expect("sequential Geekbench retry state is never poisoned");
-            if guard.0.first_to_go.is_none() {
-                guard.0.first_to_go = Some(adjustment.clone());
-                let snapshot = guard.0.clone();
-                (guard.1)(&snapshot);
-            }
+            output.first_to_go = Some(adjustment.clone());
+            on_partial(&output);
         }
-        scores(ran)
+        let error = match scores(ran) {
+            Err(Try::Upload(reason)) if uploads.len() + 1 < ATTEMPTS => reason,
+            done => break done,
+        };
+        tokio::select! {
+            biased;
+            () = cancel.cancelled() => break Err(Try::Upload(error)),
+            () = tokio::time::sleep(RETRY_WAIT) => uploads.push(error),
+        }
     };
-    let upload = |reason: &Try| matches!(reason, Try::Upload(_));
-    let cancel = ctx.cancel_token();
-    let retried = Retried::run(ATTEMPTS, RETRY_WAIT, &cancel, upload, once).await;
-    let (mut output, _) = shared
-        .into_inner()
-        .expect("sequential Geekbench retry state is never poisoned");
-    output.uploads = retried
-        .failures
-        .into_iter()
-        .filter_map(|reason| match reason {
-            Try::Upload(reason) => Some(reason),
-            Try::Failed(_) | Try::OutOfMemory | Try::Cancelled => None,
-        })
-        .collect();
-    let result = match retried.last {
+    output.uploads = uploads;
+    let result = match last {
         Ok(scores) => {
             output.scores = Some(scores);
             Ok(())

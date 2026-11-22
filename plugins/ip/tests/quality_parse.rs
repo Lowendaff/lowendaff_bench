@@ -248,16 +248,19 @@ fn dnsbl_query_names_and_rfc5782_policy_filtering_prevent_false_positives() {
 #[test]
 fn mail_classifier_distinguishes_220_rejection_codes_blocks_and_missing_aaaa() {
     assert_eq!(
-        mail::classify(Ok(SmtpBanner { code: 220 })),
+        mail::classify(&Ok(SmtpBanner { code: 220 })),
         MailStatus::Deliverable(220)
     );
     assert_eq!(
-        mail::classify(Ok(SmtpBanner { code: 554 })),
+        mail::classify(&Ok(SmtpBanner { code: 554 })),
         MailStatus::Rejected(554)
     );
-    assert_eq!(mail::classify(Err(NetError::TimedOut)), MailStatus::Blocked);
     assert_eq!(
-        mail::classify(Err(NetError::NoAddress)),
+        mail::classify(&Err(NetError::TimedOut)),
+        MailStatus::Blocked
+    );
+    assert_eq!(
+        mail::classify(&Err(NetError::NoAddress)),
         MailStatus::NoAddress
     );
 }

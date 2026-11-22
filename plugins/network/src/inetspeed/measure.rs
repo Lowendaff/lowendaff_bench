@@ -23,10 +23,13 @@ use super::result::CandidateEndpoint;
 use super::result::EndpointSource;
 use super::result::Failure;
 use super::result::Output;
+use super::result::ProbeFault;
+use super::result::RoundIssue;
 use super::result::RoundResult;
 use super::result::SelectedEndpoint;
 use super::result::Settings;
 use super::result::TransferDirection;
+use super::result::Warning;
 
 const DOH_TIMEOUT: Duration = Duration::from_millis(1_500);
 const SYSTEM_DNS_TIMEOUT: Duration = Duration::from_secs(3);
@@ -100,15 +103,13 @@ pub async fn measure(
         Ok(samples) => {
             output.idle_latency = parse::compute_latency(&samples);
             if output.idle_latency.is_none() {
-                output
-                    .warnings
-                    .push("no idle latency samples collected".to_owned());
+                output.warnings.push(Warning::NoIdleSamples);
             }
         }
         Err(err) => {
-            output
-                .warnings
-                .push(format!("idle latency failed: {}", net_err_text(err)));
+            if let Some(fault) = net_err_fault(err) {
+                output.warnings.push(Warning::IdleFailed(fault));
+            }
         }
     }
     ctx.publish(&output);
@@ -161,17 +162,14 @@ pub async fn measure(
         let round = match ctx.inetspeed_transfer(&spec).await {
             Err(NetError::Cancelled) => return Err(Stop::Failed(Failure::Cancelled)),
             Ok(raw) => {
-                let secs = (raw.elapsed_micros.max(1) as f64) / 1_000_000.0;
-                let bps_f = ((raw.bytes as f64) * 8.0) / secs;
-                let mbps = bps_f / 1_000_000.0;
-                let bps = bps_f.max(0.0).round() as u64;
+                let micros = u128::from(raw.elapsed_micros.max(1));
+                let bps_u128 = (u128::from(raw.bytes) * 8 * 1_000_000 + micros / 2) / micros;
+                let bps = u64::try_from(bps_u128).unwrap_or(u64::MAX);
+                let mbps = (bps as f64) / 1_000_000.0;
                 let error = if raw.bytes == 0 {
-                    Some("transfer completed with 0 bytes".to_owned())
+                    Some(RoundIssue::ZeroBytes)
                 } else if raw.fault_count > 0 {
-                    Some(format!(
-                        "{} worker(s) reported transport faults",
-                        raw.fault_count
-                    ))
+                    Some(RoundIssue::WorkerFaults(raw.fault_count))
                 } else {
                     None
                 };
@@ -196,7 +194,7 @@ pub async fn measure(
                 mbps: 0.0,
                 fault_count: threads,
                 loaded_latency: None,
-                error: Some(net_err_text(err)),
+                error: net_err_fault(err).map(RoundIssue::Transport),
             },
         };
         output.total_bytes = output.total_bytes.saturating_add(round.bytes);
@@ -215,7 +213,7 @@ async fn discover_endpoint(
     settings: &Settings,
     endpoints: &Endpoints<'_>,
     families: FamilyFilter,
-) -> Result<(SelectedEndpoint, Vec<CandidateEndpoint>, Vec<String>), Stop<Failure>> {
+) -> Result<(SelectedEndpoint, Vec<CandidateEndpoint>, Vec<Warning>), Stop<Failure>> {
     let mut warnings = Vec::new();
     let dl_host = parse::host_from_url(endpoints.dl_url).unwrap_or_default();
     let ul_host = parse::host_from_url(endpoints.ul_url).unwrap_or_default();
@@ -223,10 +221,7 @@ async fn discover_endpoint(
     let consistent = !dl_host.is_empty() && dl_host == ul_host && dl_host == lat_host;
 
     if !consistent {
-        warnings.push(
-            "download, upload, and latency hosts differ; shared endpoint pinning disabled"
-                .to_owned(),
-        );
+        warnings.push(Warning::HostMismatch);
         return Ok((
             SelectedEndpoint {
                 host: dl_host,
@@ -258,9 +253,7 @@ async fn discover_endpoint(
         let cand =
             probe_candidate(ctx, endpoints.latency_url, forced_ip, EndpointSource::User).await?;
         if !cand.ok {
-            warnings.push(format!(
-                "forced endpoint {forced_ip} probe failed; continuing with requested IP"
-            ));
+            warnings.push(Warning::ForcedProbeFailed(forced_ip));
         }
         let selected = SelectedEndpoint {
             host: dl_host,
@@ -307,7 +300,7 @@ async fn discover_endpoint(
     }
 
     // Fallback to system DNS when Dual DoH returned no usable addresses.
-    warnings.push("Dual DoH returned no candidate IPs; falling back to system DNS".to_owned());
+    warnings.push(Warning::DohEmpty);
     match ctx
         .inetspeed_resolve(&dl_host, families, SYSTEM_DNS_TIMEOUT)
         .await
@@ -336,7 +329,7 @@ async fn discover_endpoint(
         Ok(_) | Err(_) => {}
     }
 
-    warnings.push("endpoint discovery found no IP; continuing with unpinned DNS".to_owned());
+    warnings.push(Warning::UnpinnedFallback);
     Ok((
         SelectedEndpoint {
             host: dl_host,
@@ -413,24 +406,24 @@ async fn probe_candidate(
             source,
             rtt_ms: None,
             ok: false,
-            error: Some("probe returned no sample".to_owned()),
+            error: Some(ProbeFault::EmptySample),
         }),
         Err(err) => Ok(CandidateEndpoint {
             ip,
             source,
             rtt_ms: None,
             ok: false,
-            error: Some(net_err_text(err)),
+            error: net_err_fault(err),
         }),
     }
 }
 
-fn net_err_text(err: NetError) -> String {
+fn net_err_fault(err: NetError) -> Option<ProbeFault> {
     match err {
-        NetError::NoAddress => "no address for family".to_owned(),
-        NetError::TimedOut => "timed out".to_owned(),
-        NetError::NoResolver => "no DNS resolver".to_owned(),
-        NetError::Transport(why) => why,
-        NetError::Cancelled => "interrupted".to_owned(),
+        NetError::NoAddress => Some(ProbeFault::NoAddress),
+        NetError::TimedOut => Some(ProbeFault::TimedOut),
+        NetError::NoResolver => Some(ProbeFault::NoResolver),
+        NetError::Transport(why) => Some(ProbeFault::Transport(why)),
+        NetError::Cancelled => None,
     }
 }

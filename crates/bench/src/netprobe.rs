@@ -1,6 +1,7 @@
 //! Direct DNS `A` lookups (for DNSBL checks) and non-intrusive TCP port-25 SMTP banner probes.
 //! Kept in `bench` so plugins never open sockets of their own.
 
+use std::collections::hash_map::RandomState;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::net::Ipv6Addr;
@@ -50,7 +51,19 @@ const BANNER_LIMIT: usize = 512;
 /// Maximum bytes accepted from a TCP DNS reply.
 const MAX_DNS_TCP: usize = 16 * 1024;
 
-static NEXT_TX_ID: AtomicU16 = AtomicU16::new(0x4100);
+/// Maximum bytes read from `/etc/resolv.conf`.
+const MAX_RESOLV_CONF: u64 = 64 * 1024;
+
+static TX_SEQ: AtomicU16 = AtomicU16::new(1);
+
+fn next_tx_id(qname: &str, resolver: SocketAddr) -> u16 {
+    use std::hash::BuildHasher;
+
+    let seq = TX_SEQ.fetch_add(1, Ordering::Relaxed);
+    let digest = RandomState::new().hash_one((qname, resolver, seq));
+    let folded = ((digest >> 16) ^ digest) & 0xffff;
+    u16::try_from(folded).unwrap_or(seq)
+}
 
 /// Direct DNS `A` and TCP SMTP banner prober.
 #[derive(Debug, Default, Clone, Copy)]
@@ -82,7 +95,7 @@ impl NetProbers {
             .min(timeout);
         let mut last_err = NetError::NoResolver;
         for resolver in resolvers {
-            let tx_id = NEXT_TX_ID.fetch_add(1, Ordering::Relaxed);
+            let tx_id = next_tx_id(qname, resolver);
             let query = encode_query(tx_id, qname)?;
             match tokio::time::timeout(per_try, query_resolver(resolver, &query, tx_id)).await {
                 Ok(Ok(answer)) => return Ok(answer),
@@ -229,9 +242,15 @@ impl NetClient for NetProbers {
 }
 
 async fn read_resolv_conf() -> Result<Vec<SocketAddr>, NetError> {
-    let text = tokio::fs::read_to_string("/etc/resolv.conf")
+    let file = tokio::fs::File::open("/etc/resolv.conf")
         .await
         .map_err(|_| NetError::NoResolver)?;
+    let mut raw = Vec::new();
+    file.take(MAX_RESOLV_CONF)
+        .read_to_end(&mut raw)
+        .await
+        .map_err(|_| NetError::NoResolver)?;
+    let text = String::from_utf8_lossy(&raw);
     Ok(parse_resolv_conf(&text))
 }
 

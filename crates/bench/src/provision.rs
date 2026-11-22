@@ -7,6 +7,7 @@
 //! way that may pass is tried again after a wait: a byte range from its first missing byte, a
 //! whole file from the start.
 
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::fmt;
@@ -220,7 +221,7 @@ pub async fn fetch_files<F, Fut, R>(
     fetch: &F,
 ) -> Provisioned
 where
-    F: Fn(Option<IpFamily>, &'static str, Option<Range<u64>>) -> Fut,
+    F: Fn(Option<IpFamily>, Cow<'static, str>, Option<Range<u64>>) -> Fut,
     Fut: Future<Output = Result<Part<R>, DownloadError>>,
     R: AsyncRead + Unpin,
 {
@@ -239,11 +240,9 @@ where
             }
             (FileSource::Url(url), _) => {
                 tracing::debug!("{}", locale::words().download(url));
-                // The fetch takes an address that lasts as long as the program, as a tool's
-                // pinned one does; a file's comes from the configuration, so it is kept to the end.
-                let url: &'static str = Box::leak(url.clone().into_boxed_str());
                 let path = dir.join(file.name);
-                let over = |url, range| fetch(file.family, url, range);
+                let over =
+                    |target: &str, range| fetch(file.family, Cow::Owned(target.to_owned()), range);
                 let fetched = tokio::select! {
                     fetched = fetch_file(&over, file.name, url, &path, dir) => fetched,
                     () = cancel.cancelled() => Err(locale::words().download_interrupted()),
@@ -271,12 +270,12 @@ where
 async fn fetch_file<F, Fut, R>(
     fetch: &F,
     name: &str,
-    url: &'static str,
+    url: &str,
     path: &Path,
     dir: &Path,
 ) -> Result<(), String>
 where
-    F: Fn(&'static str, Option<Range<u64>>) -> Fut,
+    F: Fn(&str, Option<Range<u64>>) -> Fut,
     Fut: Future<Output = Result<Part<R>, DownloadError>>,
     R: AsyncRead + Unpin,
 {

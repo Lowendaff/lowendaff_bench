@@ -70,11 +70,10 @@ pub async fn load_servers(
     if !custom_list && let Some(snapshot) = embedded {
         return Ok(snapshot.to_vec());
     }
-    let why = ctx
-        .missing(SERVERS)
-        .unwrap_or("missing Taier server list")
-        .to_owned();
-    Err(Stop::Failed(Failure::Unreadable(why)))
+    match ctx.missing(SERVERS) {
+        Some(why) => Err(Stop::Failed(Failure::Unreadable(why.to_owned()))),
+        None => Err(Stop::Failed(Failure::MissingList)),
+    }
 }
 
 /// China carrier speed (`network.taier`), as configured.

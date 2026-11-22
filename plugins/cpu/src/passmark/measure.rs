@@ -20,17 +20,14 @@ use super::result::Output;
 /// Time limit for one PassMark CPU suite run.
 pub const RUN_LIMIT: Duration = Duration::from_secs(15 * 60);
 
-/// Builds the PassMark `-r 1` job with `LD_LIBRARY_PATH`, `TERMINFO`, and `TERM=xterm`.
+/// Maximum bytes read from `results_cpu.yml`.
+const RESULTS_LIMIT: u64 = 256 * 1024;
+
+/// Builds the PassMark `-r 1` job with isolated `LD_LIBRARY_PATH`, `TERMINFO`, and `TERM=xterm`.
 #[must_use]
 pub fn attempt(program: &Path, libs_file: &Path, work_dir: &Path) -> Job {
     let libs_dir = libs_file.parent().unwrap_or_else(|| Path::new("."));
-    let mut ld_path = OsString::from(libs_dir.as_os_str());
-    if let Some(existing) = std::env::var_os("LD_LIBRARY_PATH")
-        && !existing.is_empty()
-    {
-        ld_path.push(":");
-        ld_path.push(existing);
-    }
+    let ld_path = OsString::from(libs_dir.as_os_str());
     let terminfo = libs_dir.join("terminfo");
     let mut job = Job::new(program, ["-r", "1"], RUN_LIMIT);
     job.envs = vec![
@@ -75,8 +72,23 @@ where
         return Err(Failure::Run(fault));
     }
     let yml_path = work_dir.join("results_cpu.yml");
-    let yml = tokio::fs::read_to_string(&yml_path)
+    let yml = read_bounded(&yml_path)
         .await
         .map_err(|_| Failure::Run(Fault::NoScores))?;
     parse::results_yml(&yml).map_err(Failure::Run)
+}
+
+async fn read_bounded(path: &Path) -> Result<String, std::io::Error> {
+    use tokio::io::AsyncReadExt;
+
+    let file = tokio::fs::File::open(path).await?;
+    let mut buf = Vec::new();
+    file.take(RESULTS_LIMIT + 1).read_to_end(&mut buf).await?;
+    if buf.len() as u64 > RESULTS_LIMIT {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "results_cpu.yml exceeds size limit",
+        ));
+    }
+    Ok(String::from_utf8_lossy(&buf).into_owned())
 }

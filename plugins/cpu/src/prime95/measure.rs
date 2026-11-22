@@ -40,18 +40,13 @@ pub fn torture_config(threads: usize) -> String {
     )
 }
 
-/// Builds the `mprime -t -d -W<work_dir>` job with `LD_LIBRARY_PATH` pointing to `mprime`'s
-/// unpacked directory (for bundled `libgmp.so.10`) and `interrupt_after` set to `duration`.
+/// Builds the `mprime -t -d -W<work_dir>` job with isolated `LD_LIBRARY_PATH` pointing to
+/// `mprime`'s unpacked directory (for bundled `libgmp.so.10`) and `interrupt_after` set to
+/// `duration`.
 #[must_use]
 pub fn attempt(program: &Path, work_dir: &Path, duration: Duration) -> Job {
     let bin_dir = program.parent().unwrap_or_else(|| Path::new("."));
-    let mut ld_path = OsString::from(bin_dir.as_os_str());
-    if let Some(existing) = std::env::var_os("LD_LIBRARY_PATH")
-        && !existing.is_empty()
-    {
-        ld_path.push(":");
-        ld_path.push(existing);
-    }
+    let ld_path = OsString::from(bin_dir.as_os_str());
     let mut work_arg = OsString::from("-W");
     work_arg.push(work_dir.as_os_str());
     let mut job = Job::new(

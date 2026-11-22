@@ -1145,13 +1145,13 @@ fn cloudflare_and_inetspeed_render_text_markdown_json_and_mask_client_ip() {
             median_ms: Some(11.9),
             jitter_ms: Some(0.9),
             mos: Some(4.40),
-            quality: "Excellent".to_owned(),
+            quality: cloudflare::UdpQuality::Excellent,
         }),
         udp_note: None,
         quality: Some(cloudflare::QualityStats {
-            bufferbloat_grade: "A".to_owned(),
+            bufferbloat_grade: cloudflare::BufferbloatGrade::A,
             bufferbloat_ms: Some(13.0),
-            stability_grade: "A".to_owned(),
+            stability_grade: cloudflare::StabilityGrade::A,
             stability_cv_pct: Some(2.4),
         }),
     };

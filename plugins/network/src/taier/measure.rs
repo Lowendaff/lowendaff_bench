@@ -3,6 +3,7 @@
 //! stream download and upload throughput, releases the lease, and publishes partial results after
 //! each slot.
 
+use std::borrow::Cow;
 use std::net::Ipv4Addr;
 use std::time::Duration;
 
@@ -76,7 +77,6 @@ async fn run_slot(
     } else {
         format!("{}, {}", slot.city, slot.province)
     };
-    let leaked_place: &'static str = Box::leak(place.into_boxed_str());
     let op_code = slot.operator.code();
 
     let candidates = &slot.candidates[..slot.candidates.len().min(MAX_CANDIDATES_PER_SLOT)];
@@ -119,17 +119,18 @@ async fn run_slot(
                 last_outcome = NodeOutcome::Failed(format!("dovalid: {text}"));
                 continue;
             }
-            Err(NetError::TimedOut) => {
-                last_outcome = NodeOutcome::Unreachable;
-                continue;
-            }
-            Err(NetError::NoAddress | NetError::NoResolver | NetError::Transport(_)) => {
+            Err(
+                NetError::TimedOut
+                | NetError::NoAddress
+                | NetError::NoResolver
+                | NetError::Transport(_),
+            ) => {
                 last_outcome = NodeOutcome::Unreachable;
                 continue;
             }
         };
 
-        let measured = measure_admitted(ctx, ip, port, &key, leaked_place, op_code, settings).await;
+        let measured = measure_admitted(ctx, ip, port, &key, &place, op_code, settings).await;
         ctx.taier_release(ip, port, &key, RELEASE_TIMEOUT).await;
 
         match measured {
@@ -147,6 +148,7 @@ async fn run_slot(
             }
             Err(SlotStop::Cancelled) => return Err(Stop::Failed(Failure::Cancelled)),
             Err(SlotStop::TimedOut) => last_outcome = NodeOutcome::TimedOut,
+            Err(SlotStop::Unreachable) => last_outcome = NodeOutcome::Unreachable,
             Err(SlotStop::Failed(why)) => last_outcome = NodeOutcome::Failed(why),
         }
     }
@@ -166,6 +168,7 @@ async fn run_slot(
 enum SlotStop {
     Cancelled,
     TimedOut,
+    Unreachable,
     Failed(String),
 }
 
@@ -174,8 +177,7 @@ impl From<NetError> for SlotStop {
         match err {
             NetError::Cancelled => Self::Cancelled,
             NetError::TimedOut => Self::TimedOut,
-            NetError::NoAddress => Self::Failed("no IPv4 address".to_owned()),
-            NetError::NoResolver => Self::Failed("no DNS resolver".to_owned()),
+            NetError::NoAddress | NetError::NoResolver => Self::Unreachable,
             NetError::Transport(why) => Self::Failed(why),
         }
     }
@@ -186,7 +188,7 @@ async fn measure_admitted(
     ip: Ipv4Addr,
     port: u16,
     key: &str,
-    location: &'static str,
+    location: &str,
     operator: &'static str,
     settings: &Settings,
 ) -> Result<NodeMeasured, SlotStop> {
@@ -199,14 +201,14 @@ async fn measure_admitted(
     };
 
     ctx.progress(Step::Taier {
-        location,
+        location: Cow::Owned(location.to_owned()),
         operator,
         stage: "download",
     });
     let down = ctx.taier_download(&spec).await?;
 
     ctx.progress(Step::Taier {
-        location,
+        location: Cow::Owned(location.to_owned()),
         operator,
         stage: "upload",
     });

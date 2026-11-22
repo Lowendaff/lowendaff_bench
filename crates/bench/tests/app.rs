@@ -1,6 +1,7 @@
 //! Command-line flow: argument parsing, selection, config file, and a full run through
 //! the terminal renderer with the run directory removed afterwards.
 
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::ops::Range;
 use std::path::PathBuf;
@@ -155,7 +156,7 @@ fn ids(list: &[&str]) -> Vec<String> {
 
 /// A download asked for: the family it must come over or `None` for either, the address, and the
 /// byte range or `None` for the whole file.
-type Asked = (Option<IpFamily>, &'static str, Option<Range<u64>>);
+type Asked = (Option<IpFamily>, String, Option<Range<u64>>);
 
 /// The downloads of a test run: every address gets `body`, whole or the byte range asked for, or
 /// fails when there is none, and the addresses and ranges asked for are noted. A file comes over
@@ -173,13 +174,14 @@ impl Downloads {
     async fn open(
         &self,
         family: Option<IpFamily>,
-        url: &'static str,
+        url: Cow<'static, str>,
         range: Option<Range<u64>>,
     ) -> Result<Part<&'static [u8]>, DownloadError> {
+        let url = url.into_owned();
         self.asked
             .lock()
             .expect("no test panics while holding the addresses")
-            .push((family, url, range.clone()));
+            .push((family, url.clone(), range.clone()));
         if let Some(cancel) = &self.interrupt {
             cancel.cancel();
             std::future::pending::<()>().await;
@@ -198,12 +200,12 @@ impl Downloads {
     }
 
     /// The addresses asked for, in order.
-    fn asked(&self) -> Vec<&'static str> {
+    fn asked(&self) -> Vec<String> {
         let asked = self
             .asked
             .lock()
             .expect("no test panics while holding the addresses");
-        asked.iter().map(|(_, url, _)| *url).collect()
+        asked.iter().map(|(_, url, _)| url.clone()).collect()
     }
 
     /// The families that the addresses were asked over, in order.
@@ -1253,7 +1255,7 @@ async fn tools_of_items_the_host_cannot_run_are_not_downloaded() {
         assert_eq!(code, 0);
         assert_eq!(
             downloads.asked(),
-            Vec::<&str>::new(),
+            Vec::<String>::new(),
             "nothing is downloaded for an item that is skipped anyway"
         );
         assert!(
@@ -1918,6 +1920,44 @@ async fn default_report_archive_formats_utc_timestamps_and_writes_unwrapped_copy
     let saved_text = std::fs::read_to_string(&archive_path).unwrap();
     assert_eq!(saved_text, stdout_text);
     assert!(saved_text.starts_with("# lowendaff-bench"));
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+
+        let mode = std::fs::metadata(&archive_path)
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(mode, 0o600, "archive report must be owner-only (0600)");
+
+        let collided = report_path::save_archive(&archive_path, "second run\n")
+            .expect("same-second collision allocates -1 suffix");
+        let stem = archive_path.file_stem().unwrap().to_str().unwrap();
+        assert_eq!(
+            collided.file_name().and_then(|n| n.to_str()),
+            Some(format!("{stem}-1.md").as_str())
+        );
+        assert_eq!(std::fs::read_to_string(&collided).unwrap(), "second run\n");
+
+        let explicit_copy = tmp.path().join("explicit-export.md");
+        let written_explicit = report_path::save_user_report(&explicit_copy, "explicit\n").unwrap();
+        assert_eq!(written_explicit, explicit_copy);
+        assert_eq!(
+            std::fs::read_to_string(&explicit_copy).unwrap(),
+            "explicit\n"
+        );
+
+        let link_target = tmp.path().join("victim.txt");
+        std::fs::write(&link_target, "keep\n").unwrap();
+        let symlink_path = tmp.path().join("symlink-report.md");
+        std::os::unix::fs::symlink(&link_target, &symlink_path).unwrap();
+        assert!(
+            app::create_output(&symlink_path).is_err(),
+            "create_output must refuse symlink targets with O_NOFOLLOW"
+        );
+        assert_eq!(std::fs::read_to_string(&link_target).unwrap(), "keep\n");
+    }
     assert!(
         log.lines()
             .iter()

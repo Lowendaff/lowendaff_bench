@@ -1,0 +1,8 @@
+id: no-env-in-libs
+valid:
+  - 'fn f(lookup: impl Fn(&str) -> Option<String>) -> Option<String> { lookup("LANG") }'
+  - "fn g() -> &'static str { std::env::consts::ARCH }"
+invalid:
+  - 'fn f() -> Option<String> { std::env::var("LANG").ok() }'
+  - 'fn g() -> Option<std::ffi::OsString> { std::env::var_os("LD_LIBRARY_PATH") }'
+  - 'fn h() { let _ = env::args_os(); }'

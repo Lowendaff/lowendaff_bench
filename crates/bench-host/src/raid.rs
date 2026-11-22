@@ -118,19 +118,16 @@ fn attachment(driver: Option<&str>, segments: &[&str]) -> Attachment {
             (numbers.len() == 4).then(|| numbers[1])
         });
     match (driver, channel) {
+        (Some("megaraid_sas"), Some(channel)) if channel >= 2 => Attachment::Array,
+        (Some("hpsa"), Some(1 | 2))
+        | (Some("smartpqi"), Some(1 | 3))
+        | (Some("aacraid"), Some(0))
+        | (Some("mpt3sas"), Some(1)) => Attachment::Array,
         // RST and VROC are software RAID: the disks are visible one by one.
-        (Some("ahci" | "vmd"), _) => Attachment::PassThrough,
-        (Some("megaraid_sas"), Some(channel)) => {
-            if channel >= 2 {
-                Attachment::Array
-            } else {
-                Attachment::PassThrough
-            }
-        }
-        (Some("hpsa"), Some(1 | 2)) | (Some("smartpqi"), Some(1 | 3)) => Attachment::Array,
-        (Some("hpsa"), Some(0 | 3)) | (Some("smartpqi"), Some(0 | 2)) => Attachment::PassThrough,
-        (Some("aacraid"), Some(0)) | (Some("mpt3sas"), Some(1)) => Attachment::Array,
-        (Some("aacraid"), Some(_)) | (Some("mpt3sas"), Some(0 | 2)) => Attachment::PassThrough,
+        (Some("ahci" | "vmd"), _)
+        | (Some("megaraid_sas" | "aacraid"), Some(_))
+        | (Some("hpsa"), Some(0 | 3))
+        | (Some("smartpqi" | "mpt3sas"), Some(0 | 2)) => Attachment::PassThrough,
         _ => Attachment::Unknown,
     }
 }

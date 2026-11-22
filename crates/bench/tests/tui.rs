@@ -175,7 +175,7 @@ fn release_events_and_stray_pastes_are_ignored_while_editor_supports_cursor_and_
 #[test]
 fn defaults_match_standard_cli_and_every_customized_plugin_builds_cleanly() {
     let all = registry::all();
-    let mut cfg = TuiConfig::from_registry(&all);
+    let mut cfg = TuiConfig::new(&all);
 
     assert_eq!(cfg.items.len(), 15);
     assert_eq!(cfg.enabled_count(), 15);
@@ -627,7 +627,7 @@ fn ratatui_test_backend_renders_configure_running_and_results_across_sizes() {
 #[test]
 fn disabling_items_clears_sub_selections_and_editing_sub_options_re_enables_bidirectionally() {
     let all = registry::all();
-    let mut cfg = TuiConfig::from_registry(&all);
+    let mut cfg = TuiConfig::new(&all);
 
     let trace_idx = cfg
         .items
@@ -877,7 +877,7 @@ fn taier_hierarchical_picker_flattens_municipalities_drills_provinces_searches_a
     let _ = session.handle_key(press(KeyCode::Enter)); // Focus right pane
     let _ = session.handle_key(press(KeyCode::Down)); // Row 1: Select nodes (tree)
 
-    // 1. First open triggers background LoadTaierNodes and renders Loading -> Error -> Retry -> Ready.
+    // 1. First open triggers LoadTaierNodes and renders Loading -> Error -> Retry -> Ready.
     assert_eq!(
         session.handle_key(press(KeyCode::Enter)),
         Command::LoadTaierNodes
@@ -915,7 +915,7 @@ fn taier_hierarchical_picker_flattens_municipalities_drills_provinces_searches_a
         "{empty_err_frame}"
     );
 
-    // 3. Municipality (Beijing, row 0): Enter drills DIRECTLY into carriers (2 levels, no city row!).
+    // 3. Municipality (Beijing, row 0): Enter drills directly into carriers (2 levels, no city).
     let _ = session.handle_key(press(KeyCode::Enter));
     let bj_frame = render_text(&mut session, 100, 28);
     assert!(bj_frame.contains("All Regions > Beijing"), "{bj_frame}");
@@ -926,17 +926,19 @@ fn taier_hierarchical_picker_flattens_municipalities_drills_provinces_searches_a
     let back_frame = render_text(&mut session, 100, 28);
     assert!(back_frame.contains("All Regions "), "{back_frame}");
 
-    // 4. Search filter ('/shen') -> Guangdong -> Enter (Cities: Shenzhen) -> Enter (Operators) -> Mobile.
+    // 4. Filter ('/shen') -> Guangdong -> Cities (Shenzhen) -> Operators -> Mobile.
     let _ = session.handle_key(press(KeyCode::Char('/')));
     type_str(&mut session, "shen");
     let _ = session.handle_key(press(KeyCode::Enter)); // exit filter input
-    let _ = session.handle_key(press(KeyCode::Enter)); // drill into Guangdong -> Cities (filtered to Shenzhen)
+    // Drill into Guangdong -> Cities (filtered to Shenzhen).
+    let _ = session.handle_key(press(KeyCode::Enter));
     let gd_cities_frame = render_text(&mut session, 100, 28);
     assert!(
         gd_cities_frame.contains("All Regions > Guangdong") && gd_cities_frame.contains("Shenzhen"),
         "{gd_cities_frame}"
     );
-    let _ = session.handle_key(press(KeyCode::Enter)); // drill into Shenzhen -> Operators (3rd level!)
+    // Drill into Shenzhen -> Operators (3rd level!).
+    let _ = session.handle_key(press(KeyCode::Enter));
     let sz_ops_frame = render_text(&mut session, 100, 28);
     assert!(
         sz_ops_frame.contains("All Regions > Guangdong > Shenzhen"),
@@ -948,9 +950,9 @@ fn taier_hierarchical_picker_flattens_municipalities_drills_provinces_searches_a
     let _ = session.handle_key(press(KeyCode::Esc)); // up to All Regions
     let _ = session.handle_key(press(KeyCode::Esc)); // clear "shen" filter
 
-    // 5. Homonymous Jilin province (row 3: Beijing, Shanghai, Guangdong, Jilin) -> Changchun + Jilin city!
+    // 5. Homonymous Jilin province (row 3) -> Changchun + Jilin city (3-level)!
     let _ = session.handle_key(press(KeyCode::End)); // jump to Jilin
-    let _ = session.handle_key(press(KeyCode::Enter)); // Jilin has 2 cities -> must drill into Cities (3-level)!
+    let _ = session.handle_key(press(KeyCode::Enter)); // Jilin has 2 cities -> drill into Cities!
     let jl_frame = render_text(&mut session, 100, 28);
     assert!(
         jl_frame.contains("All Regions > Jilin") && jl_frame.contains("Changchun"),

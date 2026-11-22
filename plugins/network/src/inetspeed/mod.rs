@@ -26,10 +26,13 @@ pub use result::EndpointSource;
 pub use result::Failure;
 pub use result::LatencyStats;
 pub use result::Output;
+pub use result::ProbeFault;
+pub use result::RoundIssue;
 pub use result::RoundResult;
 pub use result::SelectedEndpoint;
 pub use result::Settings;
 pub use result::TransferDirection;
+pub use result::Warning;
 
 /// Default Apple CDN download URL (`GET`).
 pub const DEFAULT_DL_URL: &str = "https://mensura.cdn-apple.com/api/v1/gm/large";

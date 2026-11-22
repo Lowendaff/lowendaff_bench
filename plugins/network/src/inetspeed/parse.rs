@@ -10,13 +10,33 @@ use serde_json::Value;
 use super::result::CandidateEndpoint;
 use super::result::LatencyStats;
 
+/// Why a transfer-cap string could not be parsed by [`parse_size`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SizeError {
+    /// Input string was empty or whitespace-only.
+    Empty,
+    /// Numeric prefix was missing or malformed.
+    Format,
+    /// Numeric value was zero, negative, or non-finite.
+    NonPositive,
+    /// Unknown byte unit suffix.
+    UnknownUnit,
+    /// Scaled byte count fell outside `1..=u64::MAX`.
+    OutOfRange,
+}
+
 /// Parses human-readable transfer cap strings (`2G`, `500M`, `1GiB`, `1048576`) into positive byte
 /// counts, matching `iNetSpeed-CLI/internal/config/config.go`.
-#[must_use = "returns the parsed byte cap or an error message"]
-pub fn parse_size(raw: &str) -> Result<u64, String> {
+///
+/// # Errors
+///
+/// Returns [`SizeError`] when `raw` is empty, has an unknown unit, or overflows `1..=u64::MAX`.
+pub fn parse_size(raw: &str) -> Result<u64, SizeError> {
+    const U64_UPPER_EXCLUSIVE: f64 = 18_446_744_073_709_551_616.0;
+
     let trimmed = raw.trim();
     if trimmed.is_empty() {
-        return Err("empty size".to_owned());
+        return Err(SizeError::Empty);
     }
     let split_at = trimmed
         .find(|ch: char| !(ch.is_ascii_digit() || ch == '.'))
@@ -24,13 +44,11 @@ pub fn parse_size(raw: &str) -> Result<u64, String> {
     let num_part = trimmed[..split_at].trim();
     let unit_part = trimmed[split_at..].trim().to_ascii_lowercase();
     if num_part.is_empty() {
-        return Err(format!("cannot parse size {raw:?}"));
+        return Err(SizeError::Format);
     }
-    let num: f64 = num_part
-        .parse()
-        .map_err(|_| format!("cannot parse number in size {raw:?}"))?;
+    let num: f64 = num_part.parse().map_err(|_| SizeError::Format)?;
     if !num.is_finite() || num <= 0.0 {
-        return Err("size must be positive".to_owned());
+        return Err(SizeError::NonPositive);
     }
     let mul: f64 = match unit_part.as_str() {
         "" | "b" => 1.0,
@@ -42,13 +60,15 @@ pub fn parse_size(raw: &str) -> Result<u64, String> {
         "mib" => 1_048_576.0,
         "gib" => 1_073_741_824.0,
         "tib" => 1_099_511_627_776.0,
-        other => return Err(format!("unknown size unit {other:?}")),
+        _ => return Err(SizeError::UnknownUnit),
     };
     let product = num * mul;
-    if !product.is_finite() || product < 1.0 || product > (u64::MAX as f64) {
-        return Err(format!("size out of range: {raw:?}"));
+    if !product.is_finite() || !(1.0..U64_UPPER_EXCLUSIVE).contains(&product) {
+        return Err(SizeError::OutOfRange);
     }
-    Ok(product as u64)
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let bytes = product as u64;
+    Ok(bytes)
 }
 
 /// Extracts hostname from an `http://` or `https://` URL without brackets.
@@ -203,7 +223,9 @@ mod tests {
     use bench_api::FamilyFilter;
 
     use super::CandidateEndpoint;
+    use super::SizeError;
     use crate::inetspeed::EndpointSource;
+    use crate::inetspeed::ProbeFault;
 
     #[test]
     fn parse_size_handles_decimal_and_binary_units() {
@@ -211,9 +233,10 @@ mod tests {
         assert_eq!(super::parse_size("500M"), Ok(500_000_000));
         assert_eq!(super::parse_size("1GiB"), Ok(1_073_741_824));
         assert_eq!(super::parse_size("64KiB"), Ok(65_536));
-        assert!(super::parse_size("0").is_err());
-        assert!(super::parse_size("abc").is_err());
-        assert!(super::parse_size("10XB").is_err());
+        assert_eq!(super::parse_size("0"), Err(SizeError::NonPositive));
+        assert_eq!(super::parse_size("abc"), Err(SizeError::Format));
+        assert_eq!(super::parse_size("10XB"), Err(SizeError::UnknownUnit));
+        assert_eq!(super::parse_size("16777216TiB"), Err(SizeError::OutOfRange));
     }
 
     #[test]
@@ -251,7 +274,7 @@ mod tests {
                 source: EndpointSource::Doh,
                 rtt_ms: None,
                 ok: false,
-                error: Some("timed out".to_owned()),
+                error: Some(ProbeFault::TimedOut),
             },
             CandidateEndpoint {
                 ip: ip_11,
