@@ -110,6 +110,34 @@ pub struct FamilyBgp {
     pub diagram_url: Option<String>,
 }
 
+/// Structured reason why a RIPEstat `bgp-state` lookup failed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", content = "detail", rename_all = "snake_case")]
+pub enum QueryError {
+    /// API host has no DNS address for this IP family.
+    NoAddress,
+    /// HTTP probe timed out.
+    TimedOut,
+    /// Redirect hop cap exceeded.
+    TooManyRedirects,
+    /// Redirect target was malformed or unsafe.
+    InvalidRedirect(String),
+    /// Non-HTTPS endpoint rejected.
+    NotHttps(String),
+    /// Underlying HTTP/TLS/TCP transport error.
+    Transport(String),
+    /// Non-200 HTTP status returned by `bgp-state`.
+    HttpStatus(u16),
+    /// Malformed JSON payload returned by `bgp-state`.
+    InvalidJson(String),
+    /// Non-`ok` envelope `status` field returned by `bgp-state`.
+    ApiStatus(String),
+    /// Envelope lacked a `data` object.
+    MissingData,
+    /// No family returned BGP data.
+    NoData,
+}
+
 /// Complete output of `network.bgp`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Output {
@@ -123,8 +151,8 @@ pub struct Output {
     pub ipv4: Option<Box<FamilyBgp>>,
     /// BGP state for the host's public IPv6 address, when available.
     pub ipv6: Option<Box<FamilyBgp>>,
-    /// Per-family notes `(ipv6, reason)` when one family's lookup failed while the other succeeded.
-    pub notes: Vec<(bool, String)>,
+    /// Per-family notes `(ipv6, error)` when one family's lookup failed while the other succeeded.
+    pub notes: Vec<(bool, QueryError)>,
     /// Per-family notes `(ipv6, reason)` when topology image upload failed in `text` mode.
     #[serde(skip)]
     pub upload_notes: Vec<(bool, String)>,
@@ -146,7 +174,7 @@ pub enum Failure {
     /// Network is reachable, but no public IPv4 or IPv6 address was discovered.
     NoPublicAddress,
     /// Every attempted `bgp-state` query failed or returned malformed JSON.
-    QueryFailed(String),
+    QueryFailed(QueryError),
     /// Cancelled by timeout or `Ctrl-C`.
     Cancelled,
 }

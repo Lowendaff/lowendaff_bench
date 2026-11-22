@@ -10,6 +10,7 @@ use serde_json::Value;
 use super::asns;
 use super::result::BgpPath;
 use super::result::OriginSummary;
+use super::result::QueryError;
 use super::result::RpkiStatus;
 use super::result::UpstreamShare;
 
@@ -110,16 +111,16 @@ pub fn clean_path(raw: &[u32]) -> Vec<u32> {
 }
 
 /// Parses a RIPEstat `bgp-state` JSON payload into deduplicated paths, upstreams, and origins.
-pub fn parse_bgp_state(body: &[u8]) -> Result<ParsedBgpState, String> {
+pub fn parse_bgp_state(body: &[u8]) -> Result<ParsedBgpState, QueryError> {
     let env: BgpStateEnvelope =
-        serde_json::from_slice(body).map_err(|err| format!("invalid bgp-state JSON: {err}"))?;
+        serde_json::from_slice(body).map_err(|err| QueryError::InvalidJson(err.to_string()))?;
     if let Some(status) = env.status.as_deref()
         && status != "ok"
     {
-        return Err(format!("bgp-state status `{status}`"));
+        return Err(QueryError::ApiStatus(status.to_owned()));
     }
     let Some(data) = env.data else {
-        return Err("bgp-state payload lacks `data`".to_owned());
+        return Err(QueryError::MissingData);
     };
 
     // Group routes by target_prefix so that, when both a covering supernet and a more specific

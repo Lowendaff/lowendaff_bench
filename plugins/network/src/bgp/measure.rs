@@ -22,6 +22,7 @@ use super::parse;
 use super::result::Failure;
 use super::result::FamilyBgp;
 use super::result::Output;
+use super::result::QueryError;
 use super::result::RpkiStatus;
 use super::result::Settings;
 
@@ -86,7 +87,7 @@ pub async fn measure(
         (IpFamily::Ipv4, v4_ip, ipv6_reachable, false),
         (IpFamily::Ipv6, v6_ip, ipv4_reachable, true),
     ];
-    let mut first_error: Option<String> = None;
+    let mut first_error: Option<QueryError> = None;
 
     for (family, maybe_ip, other_reachable, ipv6) in targets {
         let Some(ip) = maybe_ip else {
@@ -119,7 +120,7 @@ pub async fn measure(
     }
 
     if output.ipv4.is_none() && output.ipv6.is_none() {
-        let reason = first_error.unwrap_or_else(|| "no BGP data returned".to_owned());
+        let reason = first_error.unwrap_or(QueryError::NoData);
         return Err(Stop::Failed(Failure::QueryFailed(reason)));
     }
 
@@ -128,7 +129,7 @@ pub async fn measure(
 
 enum FamilyError {
     Cancelled,
-    Failed(String),
+    Failed(QueryError),
 }
 
 async fn query_family(
@@ -149,9 +150,8 @@ async fn query_family(
     )
     .await?;
     if state_resp.status != 200 {
-        return Err(FamilyError::Failed(format!(
-            "bgp-state returned HTTP {}",
-            state_resp.status
+        return Err(FamilyError::Failed(QueryError::HttpStatus(
+            state_resp.status,
         )));
     }
     let parsed = parse::parse_bgp_state(&state_resp.body).map_err(FamilyError::Failed)?;
@@ -305,20 +305,20 @@ async fn fetch_with_fallback(
                     Err(_) => {}
                 }
             }
-            Err(FamilyError::Failed(http_error_text(&primary_err)))
+            Err(FamilyError::Failed(http_query_error(&primary_err)))
         }
     }
 }
 
-fn http_error_text(err: &HttpError) -> String {
+fn http_query_error(err: &HttpError) -> QueryError {
     match err {
-        HttpError::NoAddress => "API host has no address for this IP family".to_owned(),
-        HttpError::TimedOut => "request timed out".to_owned(),
-        HttpError::TooManyRedirects => "too many HTTP redirects".to_owned(),
-        HttpError::InvalidRedirect(why) => format!("invalid redirect: {why}"),
-        HttpError::NotHttps(why) => format!("non-HTTPS endpoint: {why}"),
-        HttpError::Transport(why) => why.clone(),
-        HttpError::Cancelled => "cancelled".to_owned(),
+        HttpError::NoAddress => QueryError::NoAddress,
+        HttpError::TimedOut => QueryError::TimedOut,
+        HttpError::TooManyRedirects => QueryError::TooManyRedirects,
+        HttpError::InvalidRedirect(why) => QueryError::InvalidRedirect(why.clone()),
+        HttpError::NotHttps(why) => QueryError::NotHttps(why.clone()),
+        HttpError::Transport(why) => QueryError::Transport(why.clone()),
+        HttpError::Cancelled => QueryError::NoData,
     }
 }
 

@@ -4,6 +4,7 @@ use std::path::Path;
 
 use super::English;
 use crate::locale::BgpField;
+use crate::locale::BgpIssueRef;
 use crate::locale::BgpWords;
 use crate::locale::CloudflareChoice;
 use crate::locale::CloudflareField;
@@ -34,6 +35,7 @@ use crate::locale::TaierCell;
 use crate::locale::TaierChoice;
 use crate::locale::TaierListProblem;
 use crate::locale::TaierRule;
+use crate::locale::TaierSelectorProblem;
 use crate::locale::TaierWords;
 use crate::locale::TraceChoice;
 use crate::locale::TraceList;
@@ -1424,6 +1426,38 @@ impl BgpWords for English {
         ["Peers", "Hops", "AS_PATH"]
     }
 
+    fn bgp_issue(&self, issue: BgpIssueRef<'_>) -> String {
+        match issue {
+            BgpIssueRef::NoAddress => "API host has no address for this IP family".to_owned(),
+            BgpIssueRef::TimedOut => "request timed out".to_owned(),
+            BgpIssueRef::TooManyRedirects => "too many HTTP redirects".to_owned(),
+            BgpIssueRef::InvalidRedirect(why) => format!("invalid redirect: {why}"),
+            BgpIssueRef::NotHttps(why) => format!("non-HTTPS endpoint: {why}"),
+            BgpIssueRef::Transport(why) => why.to_owned(),
+            BgpIssueRef::HttpStatus(status) => format!("bgp-state returned HTTP {status}"),
+            BgpIssueRef::InvalidJson(why) => format!("invalid bgp-state JSON: {why}"),
+            BgpIssueRef::ApiStatus(status) => format!("bgp-state status `{status}`"),
+            BgpIssueRef::MissingData => "bgp-state payload lacks `data`".to_owned(),
+            BgpIssueRef::NoData => "no BGP data returned".to_owned(),
+        }
+    }
+
+    fn bgp_upload_http_error(&self, status: u16, reason: &str) -> String {
+        format!("HTTP {status}: {reason}")
+    }
+
+    fn bgp_upload_invalid_json(&self) -> String {
+        "invalid JSON response".to_owned()
+    }
+
+    fn bgp_upload_rejected(&self) -> String {
+        "upload rejected".to_owned()
+    }
+
+    fn bgp_upload_missing_key(&self) -> String {
+        "response missing valid imageKey".to_owned()
+    }
+
     fn bgp_upload_failed(&self, ipv6: bool, reason: &str) -> String {
         let fam = if ipv6 { "IPv6" } else { "IPv4" };
         format!("{fam} topology image upload failed: {reason}")
@@ -1561,6 +1595,73 @@ impl TaierWords for English {
                 format!("two locations of the Taier server list have the id {id}")
             }
         }
+    }
+
+    fn taier_selector_problem(&self, problem: TaierSelectorProblem<'_>) -> String {
+        match problem {
+            TaierSelectorProblem::Empty => "empty Taier target selector".to_owned(),
+            TaierSelectorProblem::Format(raw) => format!(
+                "invalid Taier selector `{raw}`: expected <place>[:<op>[+<op>...]] \
+                 (such as beijing:cu or guangdong/shenzhen:ct+cm)"
+            ),
+            TaierSelectorProblem::EmptyPlace(raw) => {
+                format!("invalid Taier selector `{raw}`: missing location name")
+            }
+            TaierSelectorProblem::EmptyOperators(raw) => format!(
+                "invalid Taier selector `{raw}`: expected carrier code after `:` \
+                 (ct, cu, cm, edu, cbn, other, or all)"
+            ),
+            TaierSelectorProblem::UnknownOperator { selector, operator } => format!(
+                "unknown carrier `{operator}` in Taier selector `{selector}`: expected \
+                 telecom/ct, unicom/cu, mobile/cm, cernet/edu, cbn, other, or all"
+            ),
+        }
+    }
+
+    fn taier_catalog_header(&self, regions: usize, locations: usize) -> String {
+        let reg_text = super::count(regions, "region", "regions");
+        let loc_text = super::count(locations, "location", "locations");
+        format!("China carrier speed (network.taier): {reg_text}, {loc_text}")
+    }
+
+    fn taier_catalog_carriers_legend(&self) -> &'static str {
+        "Carriers: ct = Telecom, cu = Unicom, cm = Mobile, edu = CERNET, \
+         cbn = Broadnet, other = Other"
+    }
+
+    fn taier_region_kind(&self, code: &str) -> &'static str {
+        match code {
+            "municipality" => "municipality",
+            "province" => "province",
+            _ => "overseas",
+        }
+    }
+
+    fn taier_catalog_overview_headers(&self) -> [&'static str; 5] {
+        [
+            "Region",
+            "Type",
+            "Cities",
+            "Carriers",
+            "Example --taier selector",
+        ]
+    }
+
+    fn taier_catalog_footer_hint(&self) -> &'static str {
+        "Pass --taier-list <REGION> (e.g. --taier-list guangdong) to list cities in a region."
+    }
+
+    fn taier_catalog_region_heading(&self, name: &str, municipality: bool, count: usize) -> String {
+        let locs = super::count(count, "location", "locations");
+        if municipality {
+            format!("{name} (municipality, {locs}):")
+        } else {
+            format!("{name} ({locs}):")
+        }
+    }
+
+    fn taier_catalog_city_headers(&self) -> [&'static str; 3] {
+        ["Selector", "City", "Carriers (candidate nodes)"]
     }
 
     fn taier_no_node(&self, unknown: &[String]) -> String {
