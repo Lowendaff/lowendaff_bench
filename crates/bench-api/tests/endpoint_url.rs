@@ -14,6 +14,14 @@ fn endpoint_url_validator_rejects_query_fragment_userinfo_and_malformed_hosts() 
         bench_api::validate_endpoint_url("http://[::1]:18080/", true),
         Some("http://[::1]:18080".to_owned())
     );
+    assert_eq!(
+        bench_api::validate_endpoint_url("https://198.51.100.10:8443/v1/", true),
+        Some("https://198.51.100.10:8443/v1".to_owned())
+    );
+    assert_eq!(
+        bench_api::validate_endpoint_url("https://[2001:db8::1]/v1/", true),
+        Some("https://[2001:db8::1]/v1".to_owned())
+    );
     for bad in [
         "",
         "https://",
@@ -28,6 +36,13 @@ fn endpoint_url_validator_rejects_query_fragment_userinfo_and_malformed_hosts() 
         "https://example.com:080",
         "https://bad_host/api",
         "https://-bad.example/api",
+        "https://127.0.0.1/api",
+        "https://10.0.0.1/api",
+        "https://169.254.169.254/latest/meta-data",
+        "https://[::1]/api",
+        "https://[fe80::1]/api",
+        "https://localhost/api",
+        "https://sub.localhost/api",
         "http://example.com",
         "http://127.0.0.1.evil.example:8080",
         "http://192.168.1.1:8080",

@@ -126,7 +126,9 @@ impl Plugin for Inetspeed {
             Some(raw) => {
                 let ip: IpAddr = raw
                     .parse()
-                    .map_err(|_| Stop::Failed(Failure::InvalidEndpoint(raw.to_owned())))?;
+                    .ok()
+                    .filter(|&ip| bench_api::is_routable_endpoint_ip(ip))
+                    .ok_or_else(|| Stop::Failed(Failure::InvalidEndpoint(raw.to_owned())))?;
                 Some(ip)
             }
             None => None,

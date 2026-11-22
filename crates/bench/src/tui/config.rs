@@ -1481,7 +1481,9 @@ impl TuiConfig {
                     } else {
                         let ip: IpAddr = trimmed
                             .parse()
-                            .map_err(|_| words.invalid_inetspeed_endpoint(trimmed))?;
+                            .ok()
+                            .filter(|&ip| bench_api::is_routable_endpoint_ip(ip))
+                            .ok_or_else(|| words.invalid_inetspeed_endpoint(trimmed))?;
                         *endpoint = ip.to_string();
                         item.enabled = true;
                     }

@@ -282,7 +282,11 @@ fn is_valid_authority(authority: &str, loopback_only: bool) -> bool {
         let Ok(v6) = v6_text.parse::<std::net::Ipv6Addr>() else {
             return false;
         };
-        return !loopback_only || (v6 == std::net::Ipv6Addr::LOCALHOST && v6_text == "::1");
+        return if loopback_only {
+            v6 == std::net::Ipv6Addr::LOCALHOST && v6_text == "::1"
+        } else {
+            is_routable_endpoint_ip(IpAddr::V6(v6))
+        };
     }
     if authority.contains(']') {
         return false;
@@ -297,8 +301,12 @@ fn is_valid_authority(authority: &str, loopback_only: bool) -> bool {
     if loopback_only {
         return host == "127.0.0.1";
     }
-    if host.parse::<Ipv4Addr>().is_ok() {
-        return true;
+    if let Ok(v4) = host.parse::<Ipv4Addr>() {
+        return is_routable_endpoint_ip(IpAddr::V4(v4));
+    }
+    let lower = host.to_ascii_lowercase();
+    if lower == "localhost" || lower.ends_with(".localhost") {
+        return false;
     }
     (1..=253).contains(&host.len())
         && host.split('.').all(|label| {

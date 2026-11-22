@@ -4,6 +4,8 @@
 //! badges — never the host's public IP address or prefix. Upload failures record a non-fatal note
 //! on `bgp::Output` so `network.bgp` still completes cleanly when offline or rate-limited.
 
+use std::net::IpAddr;
+use std::sync::Arc;
 use std::time::Duration;
 
 use bench_api::CancellationToken;
@@ -11,6 +13,7 @@ use futures_util::StreamExt;
 use plugin_network::bgp::FamilyBgp;
 use plugin_network::bgp::Output;
 use reqwest::Client;
+use reqwest::Url;
 use reqwest::header;
 use serde::Deserialize;
 
@@ -104,6 +107,7 @@ pub async fn populate_runs(runs: &mut [Run<Measured>], cancel: &CancellationToke
 fn build_client() -> Result<Client, String> {
     fetcher::builder()?
         .redirect(reqwest::redirect::Policy::none())
+        .dns_resolver(Arc::new(fetcher::PublicDnsResolver::new(None)))
         .connect_timeout(CONNECT_TIMEOUT)
         .timeout(UPLOAD_TIMEOUT)
         .build()
@@ -193,6 +197,7 @@ async fn upload_svg(
     svg: &str,
     cancel: &CancellationToken,
 ) -> Result<String, String> {
+    ensure_safe_upload_url(endpoint)?;
     tracing::debug!("network.bgp uploading {filename} to {endpoint}");
     let body = build_multipart(MULTIPART_BOUNDARY, filename, svg);
     let content_type = format!("multipart/form-data; boundary={MULTIPART_BOUNDARY}");
@@ -273,6 +278,35 @@ pub fn origin_of(endpoint: &str) -> &str {
     match trimmed[after_scheme..].find('/') {
         Some(rel_slash) => &trimmed[..after_scheme + rel_slash],
         None => trimmed,
+    }
+}
+
+fn ensure_safe_upload_url(raw: &str) -> Result<(), String> {
+    let reject = || locale::words().request_failed(&"non-public upload target refused", "");
+    let parsed = Url::parse(raw).map_err(|_| reject())?;
+    let host = parsed
+        .host_str()
+        .map(|h| h.trim_matches(['[', ']']))
+        .unwrap_or_default();
+    if host.is_empty() {
+        return Err(reject());
+    }
+    let host_ip = host.parse::<IpAddr>().ok();
+    match parsed.scheme() {
+        "http" if host_ip.is_some_and(|ip| ip.is_loopback()) => Ok(()),
+        "https" => match host_ip {
+            Some(ip) if bench_api::is_routable_endpoint_ip(ip) => Ok(()),
+            Some(_) => Err(reject()),
+            None => {
+                let lower = host.to_ascii_lowercase();
+                if lower == "localhost" || lower.ends_with(".localhost") {
+                    Err(reject())
+                } else {
+                    Ok(())
+                }
+            }
+        },
+        _ => Err(reject()),
     }
 }
 
@@ -560,6 +594,25 @@ mod tests {
             let o = r.output.as_ref().unwrap();
             assert!(o.ipv4.as_ref().unwrap().diagram_url.is_none());
             assert!(o.upload_notes.is_empty());
+        }
+        for blocked in [
+            "https://127.0.0.1/api/upload",
+            "https://10.0.0.1/api/upload",
+            "https://169.254.169.254/latest/meta-data",
+            "https://localhost/api/upload",
+        ] {
+            let mut runs_blocked = vec![sample_bgp_run(bgp::Settings {
+                custom_endpoints: true,
+                upload: true,
+                upload_url: Some(blocked.to_owned()),
+            })];
+            super::populate_runs(&mut runs_blocked, &CancellationToken::new()).await;
+            let Some(Measured::NetworkBgp(rep_blk)) = &runs_blocked[0].result else {
+                panic!("expected bgp");
+            };
+            let out_blk = rep_blk.output.as_ref().expect("output");
+            assert!(out_blk.ipv4.as_ref().unwrap().diagram_url.is_none());
+            assert_eq!(out_blk.upload_notes.len(), 1, "{blocked} must record error");
         }
     }
 

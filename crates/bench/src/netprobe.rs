@@ -530,21 +530,32 @@ fn parse_smtp_code(bytes: &[u8]) -> Result<SmtpBanner, NetError> {
 async fn resolve_family(host: &str, port: u16, ipv6: bool) -> Result<SocketAddr, NetError> {
     let clean = host.trim_matches(['[', ']']);
     if let Ok(ip) = clean.parse::<IpAddr>() {
-        return if ip.is_ipv6() == ipv6 {
-            Ok(SocketAddr::new(ip, port))
-        } else {
-            Err(NetError::NoAddress)
-        };
+        if ip.is_ipv6() != ipv6 {
+            return Err(NetError::NoAddress);
+        }
+        if !ip.is_loopback() && !bench_api::is_routable_endpoint_ip(ip) {
+            return Err(NetError::Transport(
+                "non-public SMTP target address refused".to_owned(),
+            ));
+        }
+        return Ok(SocketAddr::new(ip, port));
     }
-    let addresses = tokio::net::lookup_host((clean, port))
+    let family_addrs: Vec<SocketAddr> = tokio::net::lookup_host((clean, port))
         .await
-        .map_err(|err| NetError::Transport(err.to_string()))?;
-    for addr in addresses {
-        if addr.is_ipv6() == ipv6 {
+        .map_err(|err| NetError::Transport(err.to_string()))?
+        .filter(|addr| addr.is_ipv6() == ipv6)
+        .collect();
+    if family_addrs.is_empty() {
+        return Err(NetError::NoAddress);
+    }
+    for addr in family_addrs {
+        if bench_api::is_routable_endpoint_ip(addr.ip()) {
             return Ok(addr);
         }
     }
-    Err(NetError::NoAddress)
+    Err(NetError::Transport(
+        "SMTP host resolved to non-public address".to_owned(),
+    ))
 }
 
 fn net_error_summary(err: &NetError) -> String {
@@ -708,5 +719,15 @@ mod tests {
         );
         tokio::time::sleep(Duration::from_millis(20)).await;
         assert_eq!(received.lock().expect("lock").as_str(), "QUIT\r\n");
+
+        for blocked_host in ["10.0.0.1", "169.254.169.254", "localhost"] {
+            assert!(
+                probers
+                    .probe_smtp(IpFamily::Ipv4, blocked_host, addr.port(), limit)
+                    .await
+                    .is_err(),
+                "non-public SMTP target {blocked_host} must be rejected"
+            );
+        }
     }
 }
