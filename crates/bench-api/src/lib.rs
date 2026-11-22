@@ -1472,3 +1472,54 @@ impl<O: Measurement> Context<O> {
         self.published.send_replace(Some(output.clone()));
     }
 }
+
+/// Executes `tasks` with at most `limit` futures in flight at once, returning completed outputs in
+/// input order. When `cancel` fires, in-flight futures are dropped immediately and remaining queued
+/// tasks are never polled.
+pub async fn run_bounded<'a, T, I, Fut>(
+    limit: usize,
+    cancel: &CancellationToken,
+    tasks: I,
+) -> Vec<T>
+where
+    I: IntoIterator<Item = Fut>,
+    Fut: Future<Output = T> + Send + 'a,
+{
+    type BoxedTask<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
+
+    if cancel.is_cancelled() {
+        return Vec::new();
+    }
+    let cap = limit.max(1);
+    let mut pending = tasks.into_iter().enumerate();
+    let mut active: Vec<(usize, BoxedTask<'a, T>)> = Vec::with_capacity(cap);
+    let mut done: Vec<(usize, T)> = Vec::new();
+    loop {
+        while !cancel.is_cancelled() && active.len() < cap {
+            let Some((idx, fut)) = pending.next() else {
+                break;
+            };
+            active.push((idx, Box::pin(fut)));
+        }
+        if active.is_empty() {
+            break;
+        }
+        let next_done = std::future::poll_fn(|cx| {
+            for (index, (_, fut)) in active.iter_mut().enumerate() {
+                if let std::task::Poll::Ready(value) = fut.as_mut().poll(cx) {
+                    return std::task::Poll::Ready((index, value));
+                }
+            }
+            std::task::Poll::Pending
+        });
+        let (pos, value) = tokio::select! {
+            biased;
+            () = cancel.cancelled() => return Vec::new(),
+            ready = next_done => ready,
+        };
+        let (orig_idx, _) = active.swap_remove(pos);
+        done.push((orig_idx, value));
+    }
+    done.sort_by_key(|(idx, _)| *idx);
+    done.into_iter().map(|(_, value)| value).collect()
+}

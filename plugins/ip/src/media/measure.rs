@@ -1,9 +1,5 @@
 //! Continent-level selection and bounded-concurrency probe orchestration across IPv4 and IPv6.
 
-use std::future::Future;
-use std::pin::Pin;
-use std::task::Poll;
-
 use bench_api::Context;
 use bench_api::IpFamily;
 use bench_api::Step;
@@ -150,8 +146,9 @@ pub async fn measure(
             let tasks = indices.iter().copied().map(|(idx, platform)| async move {
                 (idx, (platform.probe)(ctx, family, base_url).await)
             });
-            let verdicts = run_bounded(CONCURRENCY, tasks).await;
-            if ctx.cancel_token().is_cancelled() {
+            let cancel = ctx.cancel_token();
+            let verdicts = bench_api::run_bounded(CONCURRENCY, &cancel, tasks).await;
+            if cancel.is_cancelled() {
                 return Err(Stop::Failed(Failure::Cancelled));
             }
             for (idx, verdict) in verdicts {
@@ -166,69 +163,4 @@ pub async fn measure(
     }
 
     Ok(output)
-}
-
-type BoxedTask<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
-
-/// Executes `tasks` with at most `limit` in flight at once, returning results in input order.
-async fn run_bounded<'a, T, I, Fut>(limit: usize, tasks: I) -> Vec<T>
-where
-    I: IntoIterator<Item = Fut>,
-    Fut: Future<Output = T> + Send + 'a,
-{
-    let cap = limit.max(1);
-    let mut pending = tasks.into_iter().enumerate();
-    let mut active: Vec<(usize, BoxedTask<'a, T>)> = Vec::new();
-    let mut done: Vec<(usize, T)> = Vec::new();
-    loop {
-        while active.len() < cap {
-            let Some((idx, fut)) = pending.next() else {
-                break;
-            };
-            active.push((idx, Box::pin(fut)));
-        }
-        if active.is_empty() {
-            break;
-        }
-        let (pos, value) = std::future::poll_fn(|cx| {
-            for (index, (_, fut)) in active.iter_mut().enumerate() {
-                if let Poll::Ready(value) = fut.as_mut().poll(cx) {
-                    return Poll::Ready((index, value));
-                }
-            }
-            Poll::Pending
-        })
-        .await;
-        let (orig_idx, _) = active.swap_remove(pos);
-        done.push((orig_idx, value));
-    }
-    done.sort_by_key(|(idx, _)| *idx);
-    done.into_iter().map(|(_, value)| value).collect()
-}
-
-#[cfg(test)]
-mod tests {
-    use std::sync::Arc;
-    use std::sync::atomic::AtomicUsize;
-    use std::sync::atomic::Ordering;
-
-    #[tokio::test]
-    async fn run_bounded_keeps_input_order_without_exceeding_the_limit() {
-        let in_flight = Arc::new(AtomicUsize::new(0));
-        let peak = Arc::new(AtomicUsize::new(0));
-        let tasks = (0..25).map(|index| {
-            let in_flight = Arc::clone(&in_flight);
-            let peak = Arc::clone(&peak);
-            async move {
-                let now = in_flight.fetch_add(1, Ordering::SeqCst) + 1;
-                peak.fetch_max(now, Ordering::SeqCst);
-                tokio::task::yield_now().await;
-                in_flight.fetch_sub(1, Ordering::SeqCst);
-                index
-            }
-        });
-        let order = super::run_bounded(4, tasks).await;
-        assert_eq!(order, (0..25).collect::<Vec<_>>());
-        assert_eq!(peak.load(Ordering::SeqCst), 4);
-    }
 }

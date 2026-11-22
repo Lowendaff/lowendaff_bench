@@ -2,11 +2,8 @@
 //! plus multi-source consensus aggregation for IPv4 and IPv6.
 
 use std::collections::BTreeMap;
-use std::future::Future;
 use std::net::IpAddr;
 use std::net::SocketAddr;
-use std::pin::Pin;
-use std::task::Poll;
 
 use bench_api::Context;
 use bench_api::IpFamily;
@@ -101,8 +98,10 @@ pub async fn measure(
             let res = (spec.probe)(ctx, ip, family, fallback, base_url).await;
             (spec, res)
         });
-        let intel_outcomes = run_bounded(providers::ALL.len(), intel_tasks).await;
-        if ctx.cancel_token().is_cancelled() {
+        let cancel = ctx.cancel_token();
+        let intel_outcomes =
+            bench_api::run_bounded(providers::ALL.len(), &cancel, intel_tasks).await;
+        if cancel.is_cancelled() {
             return Err(Stop::Failed(Failure::Cancelled));
         }
 
@@ -116,8 +115,9 @@ pub async fn measure(
             let zone_tasks = zones
                 .into_iter()
                 .map(|zone| dnsbl::check_zone(ctx, ip, zone, dns_server));
-            let outcomes = run_bounded(dnsbl::DNSBL_CONCURRENCY, zone_tasks).await;
-            if ctx.cancel_token().is_cancelled() {
+            let outcomes =
+                bench_api::run_bounded(dnsbl::DNSBL_CONCURRENCY, &cancel, zone_tasks).await;
+            if cancel.is_cancelled() {
                 return Err(Stop::Failed(Failure::Cancelled));
             }
             Some(dnsbl::summarize(outcomes))
@@ -134,8 +134,8 @@ pub async fn measure(
             let mail_tasks = mail::PROVIDERS
                 .into_iter()
                 .map(|target| mail::check_provider(ctx, family, target, smtp));
-            let checks = run_bounded(mail::PROVIDERS.len(), mail_tasks).await;
-            if ctx.cancel_token().is_cancelled() {
+            let checks = bench_api::run_bounded(mail::PROVIDERS.len(), &cancel, mail_tasks).await;
+            if cancel.is_cancelled() {
                 return Err(Stop::Failed(Failure::Cancelled));
             }
             checks
@@ -307,41 +307,4 @@ fn tally_geo(
         .map(|(country, count, _)| GeoVote { country, count })
         .collect();
     (winner, votes, total)
-}
-
-type BoxedTask<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
-
-async fn run_bounded<'a, T, I, Fut>(limit: usize, tasks: I) -> Vec<T>
-where
-    I: IntoIterator<Item = Fut>,
-    Fut: Future<Output = T> + Send + 'a,
-{
-    let cap = limit.max(1);
-    let mut pending = tasks.into_iter().enumerate();
-    let mut active: Vec<(usize, BoxedTask<'a, T>)> = Vec::new();
-    let mut done: Vec<(usize, T)> = Vec::new();
-    loop {
-        while active.len() < cap {
-            let Some((idx, fut)) = pending.next() else {
-                break;
-            };
-            active.push((idx, Box::pin(fut)));
-        }
-        if active.is_empty() {
-            break;
-        }
-        let (pos, value) = std::future::poll_fn(|cx| {
-            for (index, (_, fut)) in active.iter_mut().enumerate() {
-                if let Poll::Ready(value) = fut.as_mut().poll(cx) {
-                    return Poll::Ready((index, value));
-                }
-            }
-            Poll::Pending
-        })
-        .await;
-        let (orig_idx, _) = active.swap_remove(pos);
-        done.push((orig_idx, value));
-    }
-    done.sort_by_key(|(idx, _)| *idx);
-    done.into_iter().map(|(_, value)| value).collect()
 }

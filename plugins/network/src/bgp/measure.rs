@@ -3,10 +3,7 @@
 
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
-use std::future::Future;
 use std::net::IpAddr;
-use std::pin::Pin;
-use std::task::Poll;
 use std::time::Duration;
 
 use bench_api::Context;
@@ -251,9 +248,12 @@ async fn query_family(
         (asn, name)
     });
 
-    let (rpki, resolved_names) =
-        tokio::join!(rpki_fut, run_bounded(ASN_LOOKUP_CONCURRENCY, asn_tasks));
-    if ctx.cancel_token().is_cancelled() {
+    let cancel = ctx.cancel_token();
+    let (rpki, resolved_names) = tokio::join!(
+        rpki_fut,
+        bench_api::run_bounded(ASN_LOOKUP_CONCURRENCY, &cancel, asn_tasks)
+    );
+    if cancel.is_cancelled() {
         return Err(FamilyError::Cancelled);
     }
     for (asn, maybe_name) in resolved_names {
@@ -327,41 +327,4 @@ fn found_ip(address: &Address) -> Option<IpAddr> {
         Address::Found { address, .. } => Some(*address),
         _ => None,
     }
-}
-
-type BoxedTask<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
-
-async fn run_bounded<'a, T, I, Fut>(limit: usize, tasks: I) -> Vec<T>
-where
-    I: IntoIterator<Item = Fut>,
-    Fut: Future<Output = T> + Send + 'a,
-{
-    let cap = limit.max(1);
-    let mut pending = tasks.into_iter().enumerate();
-    let mut active: Vec<(usize, BoxedTask<'a, T>)> = Vec::new();
-    let mut done: Vec<(usize, T)> = Vec::new();
-    loop {
-        while active.len() < cap {
-            let Some((idx, fut)) = pending.next() else {
-                break;
-            };
-            active.push((idx, Box::pin(fut)));
-        }
-        if active.is_empty() {
-            break;
-        }
-        let (pos, value) = std::future::poll_fn(|cx| {
-            for (index, (_, fut)) in active.iter_mut().enumerate() {
-                if let Poll::Ready(value) = fut.as_mut().poll(cx) {
-                    return Poll::Ready((index, value));
-                }
-            }
-            Poll::Pending
-        })
-        .await;
-        let (orig_idx, _) = active.swap_remove(pos);
-        done.push((orig_idx, value));
-    }
-    done.sort_by_key(|(idx, _)| *idx);
-    done.into_iter().map(|(_, value)| value).collect()
 }
