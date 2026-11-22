@@ -4,3 +4,4 @@
 
 pub mod media;
 pub mod quality;
+pub(crate) mod waf;

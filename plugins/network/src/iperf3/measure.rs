@@ -9,6 +9,7 @@ use std::future::Future;
 use std::path::Path;
 use std::time::Duration;
 
+use bench_api::CancellationToken;
 use bench_api::Context;
 use bench_api::Step;
 use bench_api::Stop;
@@ -159,9 +160,11 @@ where
         ipv6: Vec::new(),
     };
     ctx.publish(&output);
+    let cancel = ctx.cancel_token();
     let tries = Tries {
         program,
         settings,
+        cancel: &cancel,
         run: &run,
     };
     for (family, servers) in &plan {
@@ -178,7 +181,7 @@ where
             let download = if upload == Way::Unreachable {
                 Way::Skipped
             } else {
-                tokio::time::sleep(PAUSE).await;
+                sleep_cancellable(PAUSE, &cancel).await?;
                 ctx.progress(Step::Download {
                     location: Cow::Owned(server.location.clone()),
                     country: Cow::Owned(server.country.clone()),
@@ -215,7 +218,19 @@ where
 struct Tries<'a, F> {
     program: &'a Path,
     settings: Settings,
+    cancel: &'a CancellationToken,
     run: &'a F,
+}
+
+async fn sleep_cancellable(
+    duration: Duration,
+    cancel: &CancellationToken,
+) -> Result<(), Stop<Failure>> {
+    tokio::select! {
+        biased;
+        () = cancel.cancelled() => Err(Stop::Failed(Failure::Cancelled)),
+        () = tokio::time::sleep(duration) => Ok(()),
+    }
 }
 
 impl<F, Fut> Tries<'_, F>
@@ -242,7 +257,7 @@ where
                 break;
             }
             if tries > 1 {
-                tokio::time::sleep(WAIT).await;
+                sleep_cancellable(WAIT, self.cancel).await?;
             }
             let index = pick(ports.len()).min(ports.len() - 1);
             let port = ports.remove(index);
