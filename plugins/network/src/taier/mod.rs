@@ -41,7 +41,7 @@ pub use result::TestedNode;
 
 /// Where the program downloads the normalized ASCII Taier node list from by default.
 pub const SERVERS_URL: &str =
-    "https://raw.githubusercontent.com/Lowendaff/lowendaff_bench/main/servers/taier.json";
+    "https://raw.githubusercontent.com/Lowendaff/bench_data/main/servers/taier.json";
 
 /// File handle name requested from the orchestrator.
 pub const SERVERS: &str = "taier-servers";

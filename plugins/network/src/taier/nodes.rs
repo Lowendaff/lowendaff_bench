@@ -1,7 +1,7 @@
 //! Parsing, validation, and location/operator selection for the Taier server list.
 //!
-//! Matches the exact validation rules of `scripts/taier-servers.sh`, verified against shared
-//! fixtures in `plugins/network/tests/fixtures/taier-lists/`.
+//! Matches the exact validation rules of `Lowendaff/bench_data` (`scripts/taier-servers.sh`),
+//! verified against shared fixtures in `plugins/network/tests/fixtures/taier-lists/`.
 
 use std::collections::BTreeSet;
 use std::net::Ipv4Addr;

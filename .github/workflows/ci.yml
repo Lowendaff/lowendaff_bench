@@ -128,28 +128,6 @@ jobs:
         run: scripts/check-docs-cases.sh
       - name: Documentation rules
         run: scripts/check-docs.sh
-      # The network test's server list, which the program downloads at run time: the cases of its
-      # script, which reads the program's fixtures too, then the repository's two files.
-      - name: Server list cases
-        run: scripts/iperf3-servers-cases.sh
-      - name: Server list
-        run: scripts/iperf3-servers.sh check
-      # Route tracing's two lists, which the program downloads at run time too: the cases of each
-      # list's script, which reads the program's fixtures as well, then the repository's list.
-      - name: Target list cases
-        run: scripts/traceroute-targets-cases.sh
-      - name: Target list
-        run: scripts/traceroute-targets.sh check
-      - name: Exchange list cases
-        run: scripts/netflix-ix-cases.sh
-      - name: Exchange list
-        run: scripts/netflix-ix.sh check
-      # China carrier speed's server list, which the program downloads at run time too: the cases
-      # of its script, which reads the program's fixtures, then the repository's list.
-      - name: Taier list cases
-        run: scripts/taier-servers-cases.sh
-      - name: Taier list
-        run: scripts/taier-servers.sh check
 
   linux:
     name: test, static build and smoke (${{ matrix.arch }})
@@ -369,4 +347,7 @@ jobs:
         if: steps.build.outcome == 'success'
         run: |
           chmod 755 "$RUNNER_TEMP/build/lowendaff-bench"
-          scripts/network-check.sh "$RUNNER_TEMP/build/lowendaff-bench" servers/iperf3.json
+          curl --fail --silent --show-error --location \
+            --output "$RUNNER_TEMP/iperf3.json" \
+            https://raw.githubusercontent.com/Lowendaff/bench_data/main/servers/iperf3.json
+          scripts/network-check.sh "$RUNNER_TEMP/build/lowendaff-bench" "$RUNNER_TEMP/iperf3.json"

@@ -48,12 +48,12 @@ pub use targets::Choice;
 
 /// Where the program downloads the target list from, unless the configuration names another.
 pub const TARGETS_URL: &str =
-    "https://raw.githubusercontent.com/Lowendaff/lowendaff_bench/main/servers/traceroute.json";
+    "https://raw.githubusercontent.com/Lowendaff/bench_data/main/servers/traceroute.json";
 
 /// Where the program downloads the list of Netflix's exchange ports from, unless the
 /// configuration names another.
 pub const EXCHANGES_URL: &str =
-    "https://raw.githubusercontent.com/Lowendaff/lowendaff_bench/main/servers/netflix-ix.json";
+    "https://raw.githubusercontent.com/Lowendaff/bench_data/main/servers/netflix-ix.json";
 
 /// Google's page that names the YouTube cache server that serves the host, in one line.
 pub const YOUTUBE_URL: &str = "https://redirector.googlevideo.com/report_mapping?di=no";

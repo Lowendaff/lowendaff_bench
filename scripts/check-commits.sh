@@ -2,14 +2,11 @@
 # Checks commit messages against CONTRIBUTING.md "Commits": every
 # commit of <base>..<head> and, when PR_TITLE is set, the pull request's title, which becomes the
 # header of its squash commit on main. PR_NUMBER, when set, counts in the title's width, since
-# GitHub appends " (#N)" to it. PR_AUTHOR_TYPE, when it is Bot, allows the pull request to change
-# the generated lists, servers/iperf3.json, servers/taier.json and servers/netflix-ix.json, and
-# nothing else: such pull requests come from the data workflow, which a bot runs, and auto-merge
-# merges them unread (README "Network speed", "China carrier speed" and "Route tracing").
-# PR_COMMITS, when set, is the number of commits that the pull request has, as GitHub counts them:
-# <base>..<head> must hold as many, so that a history cut short, or a wrong base, fails instead of
-# passing with commits unchecked. A range without commits fails too, and so does a git that cannot
-# list them.
+# GitHub appends " (#N)" to it. PR_AUTHOR_TYPE, when it is Bot, is refused here (Dependabot skips
+# commits.yml, and runtime server lists live in Lowendaff/bench_data). PR_COMMITS, when set, is
+# the number of commits that the pull request has, as GitHub counts them: <base>..<head> must hold
+# as many, so that a history cut short, or a wrong base, fails instead of passing with commits
+# unchecked. A range without commits fails too, and so does a git that cannot list them.
 #
 # Usage: scripts/check-commits.sh <base> <head>
 set -eu
@@ -113,23 +110,9 @@ if [ -n "${PR_TITLE:-}" ]; then
     check_text "the title" "$PR_TITLE${PR_NUMBER:+ (#$PR_NUMBER)}" 100
 fi
 
-# A bot's pull request changes the generated lists only, so that no fault of the workflow that
-# opens it passes anything else as an update of a list; route tracing's targets are not generated.
-# It goes by the author's kind, not by name, so that a renamed App stays covered; Dependabot's pull
-# requests skip this check altogether.
+# Dependabot skips commits.yml altogether; no other bot opens pull requests in this repository.
 if [ "${PR_AUTHOR_TYPE:-}" = Bot ]; then
-    if ! changed=$(git diff --no-renames --name-only "$base...$head"); then
-        problem "the files that the pull request changes cannot be listed"
-    else
-        others=$(printf '%s\n' "$changed" |
-            grep -v -x -F -e servers/iperf3.json -e servers/taier.json -e servers/netflix-ix.json \
-                -e '' |
-            tr '\n' ' ' || true)
-        if [ -n "$others" ]; then
-            problem "a bot's pull request may change servers/iperf3.json, servers/taier.json and" \
-                "servers/netflix-ix.json only, not: ${others% }"
-        fi
-    fi
+    problem "a bot's pull request is not accepted in this repository"
 fi
 
 if [ "$problems" -gt 0 ]; then

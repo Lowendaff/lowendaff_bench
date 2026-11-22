@@ -172,7 +172,7 @@ sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-
 | `--countries` | Two-letter country code *(e.g. `US`, `JP`, `DE`, `SG`, `GB`)* | Test all public `iperf3` servers in the selected countries (case-insensitive) |
 | | `all` | Test every public server in the server list |
 | `--taier-cities` | City, province, or ID *(e.g. `Beijing`, `Jiangsu`, `guangdong-shenzhen`)* | Test all matching CAICT GlobalSpeed locations in mainland China (case-insensitive) |
-| | `all` | Test every location in `servers/taier.json` |
+| | `all` | Test every location in the Taier node list |
 | `--taier-operators` | `telecom`, `unicom`, `mobile`, `cernet`, `cbn`, `other`, or `all` | Filter CAICT GlobalSpeed carrier nodes (default: `telecom,unicom,mobile`) |
 | `--socks5-proxy` | `socks5://[user:pass@]host[:port]` | Resolve download hostnames locally on this machine, then connect through the SOCKS5 proxy |
 | | `socks5h://[user:pass@]host[:port]` | Resolve download hostnames remotely on the SOCKS5 proxy server |

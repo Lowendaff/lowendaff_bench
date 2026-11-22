@@ -150,7 +150,7 @@ sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-
 | `--countries` | 两位国家/地区代码 *（如 `US`、`JP`、`DE`、`SG`、`GB`）* | 只连接对应国家/地区的公共 `iperf3` 测速节点（大小写均可） |
 | | `all` | 连接节点列表里的所有可用公共 `iperf3` 服务器 |
 | `--taier-cities` | 城市/省份英文名或节点 ID *（如 `Beijing`、`Jiangsu`、`guangdong-shenzhen`）* | 连接匹配的中国信通院全球网测（泰尔）节点（不区分大小写） |
-| | `all` | 测试 `servers/taier.json` 中的全部可用地区 |
+| | `all` | 测试泰尔节点列表中的全部可用地区 |
 | `--taier-operators` | `telecom`、`unicom`、`mobile`、`cernet`、`cbn`、`other` 或 `all` | 按运营商筛选泰尔测速节点（默认测试电信、联通、移动三网） |
 | `--socks5-proxy` | `socks5://[user:pass@]host[:port]` | 在本机解析下载域名后通过 SOCKS5 代理传输文件 |
 | | `socks5h://[user:pass@]host[:port]` | 将下载域名交由远端 SOCKS5 代理服务器解析并传输文件 |

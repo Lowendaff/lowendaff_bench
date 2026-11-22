@@ -36,7 +36,7 @@ pub use result::Output;
 
 /// Where the program downloads the server list from, unless the configuration names another.
 pub const SERVERS_URL: &str =
-    "https://raw.githubusercontent.com/Lowendaff/lowendaff_bench/main/servers/iperf3.json";
+    "https://raw.githubusercontent.com/Lowendaff/bench_data/main/servers/iperf3.json";
 
 /// The name that the item asks for the server list by.
 pub const SERVERS: &str = "servers";

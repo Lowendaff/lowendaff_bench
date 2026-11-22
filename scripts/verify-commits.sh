@@ -77,18 +77,12 @@ for commit in $commits; do
         ast-grep scan
         actionlint
         git ls-files -z '*.sh' | xargs -0 shellcheck
-        # The cases of the CI scripts, and the rules of the documents and of the network items'
-        # lists, in the commits that have them.
+        # The cases of the CI scripts and the rules of the documents, in the commits that have
+        # them.
         for script in scripts/ci-scope-cases.sh scripts/check-commits-cases.sh \
-            scripts/check-docs-cases.sh scripts/check-docs.sh scripts/iperf3-servers-cases.sh \
-            scripts/traceroute-targets-cases.sh scripts/netflix-ix-cases.sh; do
+            scripts/check-docs-cases.sh scripts/check-docs.sh; do
             if [ -x "$script" ]; then
                 "$script" > /dev/null
-            fi
-        done
-        for list in iperf3-servers traceroute-targets netflix-ix; do
-            if [ -x "scripts/$list.sh" ]; then
-                "scripts/$list.sh" check > /dev/null
             fi
         done
         run_zizmor --persona pedantic .
