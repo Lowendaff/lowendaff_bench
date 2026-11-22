@@ -300,63 +300,96 @@ async fn download_one(
     total_bytes: &AtomicU64,
     active: &AtomicU8,
 ) -> Result<(), String> {
-    let mut stream = tokio::time::timeout(CONNECT_LIMIT, connect_direct(ip, port, true))
-        .await
-        .map_err(|_| "download connect timed out".to_owned())?
-        .map_err(|err| format!("{err:?}"))?;
-    tokio::time::timeout(CONNECT_LIMIT, stream.write_all(req.as_bytes()))
-        .await
-        .map_err(|_| "download request timed out".to_owned())?
-        .map_err(|err| err.to_string())?;
-
-    let mut head_buf = Vec::with_capacity(1024);
-    let mut scratch = [0_u8; 4096];
-    let body_offset = tokio::time::timeout(HEADER_LIMIT, async {
-        loop {
-            let n = stream
-                .read(&mut scratch)
-                .await
-                .map_err(|err| err.to_string())?;
-            if n == 0 {
-                return Err("download closed before HTTP header".to_owned());
-            }
-            head_buf.extend_from_slice(&scratch[..n]);
-            if let Some(pos) = find_header_end(&head_buf) {
-                return Ok(pos);
-            }
-            if head_buf.len() > 16_384 {
-                return Err("download HTTP header too large".to_owned());
-            }
-        }
-    })
-    .await
-    .map_err(|_| "download header timed out".to_owned())??;
-
-    let head_str = String::from_utf8_lossy(&head_buf[..body_offset]);
-    if !head_str.starts_with("HTTP/1.1 200") && !head_str.starts_with("HTTP/1.0 200") {
-        let status = head_str.lines().next().unwrap_or("empty response");
-        return Err(format!("download HTTP error: {status}"));
-    }
-    active.fetch_add(1, Ordering::Relaxed);
-    let initial = head_buf.len().saturating_sub(body_offset);
-    if initial > 0 {
-        total_bytes.fetch_add(initial as u64, Ordering::Relaxed);
-    }
-
+    let mut marked_active = false;
     let mut buf = vec![0_u8; 65_536];
-    loop {
-        tokio::select! {
-            biased;
-            () = stop.cancelled() => break,
-            read = stream.read(&mut buf) => {
-                match read {
-                    Ok(0) => break,
-                    Ok(n) => {
-                        total_bytes.fetch_add(n as u64, Ordering::Relaxed);
-                    }
-                    Err(err) => return Err(err.to_string()),
+
+    while !stop.is_cancelled() {
+        let mut stream =
+            match tokio::time::timeout(CONNECT_LIMIT, connect_direct(ip, port, true)).await {
+                Ok(Ok(s)) => s,
+                Ok(Err(_)) | Err(_) if marked_active => return Ok(()),
+                Ok(Err(err)) => return Err(format_net_error(&err)),
+                Err(_) => return Err("download connect timed out".to_owned()),
+            };
+        match tokio::time::timeout(CONNECT_LIMIT, stream.write_all(req.as_bytes())).await {
+            Ok(Ok(())) => {}
+            Ok(Err(_)) | Err(_) if marked_active => return Ok(()),
+            Ok(Err(err)) => return Err(err.to_string()),
+            Err(_) => return Err("download request timed out".to_owned()),
+        }
+
+        let mut head_buf = Vec::with_capacity(1024);
+        let mut scratch = [0_u8; 4096];
+        let header_res = tokio::time::timeout(HEADER_LIMIT, async {
+            loop {
+                let n = stream
+                    .read(&mut scratch)
+                    .await
+                    .map_err(|err| err.to_string())?;
+                if n == 0 {
+                    return Err("download closed before HTTP header".to_owned());
+                }
+                head_buf.extend_from_slice(&scratch[..n]);
+                if let Some(pos) = find_header_end(&head_buf) {
+                    return Ok(pos);
+                }
+                if head_buf.len() > 16_384 {
+                    return Err("download HTTP header too large".to_owned());
                 }
             }
+        })
+        .await;
+        let body_offset = match header_res {
+            Ok(Ok(pos)) => pos,
+            Ok(Err(_)) | Err(_) if marked_active => return Ok(()),
+            Ok(Err(err)) => return Err(err),
+            Err(_) => return Err("download header timed out".to_owned()),
+        };
+
+        let head_str = String::from_utf8_lossy(&head_buf[..body_offset]);
+        if !head_str.starts_with("HTTP/1.1 200") && !head_str.starts_with("HTTP/1.0 200") {
+            if marked_active {
+                return Ok(());
+            }
+            let status = head_str.lines().next().unwrap_or("empty response");
+            return Err(format!("download HTTP error: {status}"));
+        }
+        if !marked_active {
+            active.fetch_add(1, Ordering::Relaxed);
+            marked_active = true;
+        }
+        let mut req_bytes = 0_u64;
+        let initial = head_buf.len().saturating_sub(body_offset);
+        if initial > 0 {
+            let init_u64 = initial as u64;
+            req_bytes += init_u64;
+            total_bytes.fetch_add(init_u64, Ordering::Relaxed);
+        }
+
+        let mut clean_eof = false;
+        loop {
+            tokio::select! {
+                biased;
+                () = stop.cancelled() => break,
+                read = stream.read(&mut buf) => {
+                    match read {
+                        Ok(0) => {
+                            clean_eof = true;
+                            break;
+                        }
+                        Ok(n) => {
+                            let n_u64 = n as u64;
+                            req_bytes += n_u64;
+                            total_bytes.fetch_add(n_u64, Ordering::Relaxed);
+                        }
+                        Err(_) if req_bytes > 0 => return Ok(()),
+                        Err(err) => return Err(err.to_string()),
+                    }
+                }
+            }
+        }
+        if !clean_eof || req_bytes == 0 {
+            break;
         }
     }
     Ok(())
@@ -367,11 +400,27 @@ pub async fn upload(
     spec: &TaierStreamSpec,
     cancel: &CancellationToken,
 ) -> Result<TaierTransfer, NetError> {
+    upload_with_post_len(spec, UPLOAD_CONTENT_LENGTH, cancel).await
+}
+
+async fn upload_with_post_len(
+    spec: &TaierStreamSpec,
+    post_content_len: u64,
+    cancel: &CancellationToken,
+) -> Result<TaierTransfer, NetError> {
     if !is_valid_lease_key(&spec.key) {
         return Err(NetError::Transport("invalid Taier lease key".to_owned()));
     }
     let streams = spec.streams.max(1);
     let ts = unix_secs();
+    let preamble = format!(
+        "--{BOUNDARY}\r\n\
+         Content-Disposition: form-data; name=\"upload\";filename=\"SPEED_{ts}\"\r\n\r\n"
+    );
+    let trailer = Arc::new(format!("\r\n--{BOUNDARY}--\r\n"));
+    let framing = (preamble.len() + trailer.len()) as u64;
+    let payload_limit = post_content_len.saturating_sub(framing).max(1);
+    let exact_content_len = payload_limit + framing;
     let header = Arc::new(format!(
         "POST /speed/doAnalsLoad.do HTTP/1.1\r\n\
          Connection: close\r\n\
@@ -382,9 +431,8 @@ pub async fn upload(
          User-Agent: {UA_UP}\r\n\
          Host: {}:{}\r\n\
          Accept-Encoding: gzip\r\n\
-         Content-Length: {UPLOAD_CONTENT_LENGTH}\r\n\r\n\
-         --{BOUNDARY}\r\n\
-         Content-Disposition: form-data; name=\"upload\";filename=\"SPEED_{ts}\"\r\n\r\n",
+         Content-Length: {exact_content_len}\r\n\r\n\
+         {preamble}",
         spec.key, spec.ip, spec.port
     ));
     let total_bytes = Arc::new(AtomicU64::new(0));
@@ -399,13 +447,25 @@ pub async fn upload(
         let ip = spec.ip;
         let port = spec.port;
         let header = Arc::clone(&header);
+        let trailer = Arc::clone(&trailer);
         let bytes = Arc::clone(&total_bytes);
         let active = Arc::clone(&active);
         let failed = Arc::clone(&failed);
         let first_err = Arc::clone(&first_err);
         let stop = stop.clone();
         tasks.spawn(async move {
-            if let Err(err) = upload_one(ip, port, &header, &stop, &bytes, &active).await {
+            let res = upload_one(
+                ip,
+                port,
+                &header,
+                &trailer,
+                payload_limit,
+                &stop,
+                &bytes,
+                &active,
+            )
+            .await;
+            if let Err(err) = res {
                 failed.fetch_add(1, Ordering::Relaxed);
                 if let Ok(mut slot) = first_err.lock()
                     && slot.is_none()
@@ -427,47 +487,81 @@ pub async fn upload(
     finish_transfer(&total_bytes, &active, &first_err, elapsed)
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn upload_one(
     ip: Ipv4Addr,
     port: u16,
     header: &str,
+    trailer: &str,
+    payload_limit: u64,
     stop: &CancellationToken,
     total_bytes: &AtomicU64,
     active: &AtomicU8,
 ) -> Result<(), String> {
-    let mut stream = tokio::time::timeout(CONNECT_LIMIT, connect_direct(ip, port, true))
-        .await
-        .map_err(|_| "upload connect timed out".to_owned())?
-        .map_err(|err| format!("{err:?}"))?;
-    tokio::time::timeout(CONNECT_LIMIT, stream.write_all(header.as_bytes()))
-        .await
-        .map_err(|_| "upload header write timed out".to_owned())?
-        .map_err(|err| err.to_string())?;
-    active.fetch_add(1, Ordering::Relaxed);
-
+    let mut marked_active = false;
     let chunk = upload_chunk();
-    loop {
-        tokio::select! {
-            biased;
-            () = stop.cancelled() => break,
-            res = tokio::time::timeout(CHUNK_WRITE_LIMIT, stream.write_all(chunk)) => {
-                match res {
-                    Ok(Ok(())) => {
-                        total_bytes.fetch_add(UPLOAD_CHUNK_BYTES as u64, Ordering::Relaxed);
+
+    while !stop.is_cancelled() {
+        let mut stream =
+            match tokio::time::timeout(CONNECT_LIMIT, connect_direct(ip, port, true)).await {
+                Ok(Ok(s)) => s,
+                Ok(Err(_)) | Err(_) if marked_active => return Ok(()),
+                Ok(Err(err)) => return Err(format_net_error(&err)),
+                Err(_) => return Err("upload connect timed out".to_owned()),
+            };
+        match tokio::time::timeout(CONNECT_LIMIT, stream.write_all(header.as_bytes())).await {
+            Ok(Ok(())) => {}
+            Ok(Err(_)) | Err(_) if marked_active => return Ok(()),
+            Ok(Err(err)) => return Err(err.to_string()),
+            Err(_) => return Err("upload header write timed out".to_owned()),
+        }
+        if !marked_active {
+            active.fetch_add(1, Ordering::Relaxed);
+            marked_active = true;
+        }
+
+        let mut sent_in_post = 0_u64;
+        let mut stalled = false;
+        while sent_in_post < payload_limit {
+            let step_u64 = (payload_limit - sent_in_post).min(UPLOAD_CHUNK_BYTES as u64);
+            let step = usize::try_from(step_u64).unwrap_or(UPLOAD_CHUNK_BYTES);
+            tokio::select! {
+                biased;
+                () = stop.cancelled() => break,
+                res = tokio::time::timeout(CHUNK_WRITE_LIMIT, stream.write_all(&chunk[..step])) => {
+                    match res {
+                        Ok(Ok(())) => {
+                            sent_in_post += step_u64;
+                            total_bytes.fetch_add(step_u64, Ordering::Relaxed);
+                        }
+                        Ok(Err(err)) => {
+                            if total_bytes.load(Ordering::Relaxed) > 0 {
+                                stalled = true;
+                                break;
+                            }
+                            return Err(err.to_string());
+                        }
+                        Err(_) => {
+                            if total_bytes.load(Ordering::Relaxed) > 0 {
+                                stalled = true;
+                                break;
+                            }
+                            return Err("upload write stalled".to_owned());
+                        }
                     }
-                    Ok(Err(err)) => return Err(err.to_string()),
-                    Err(_) => return Err("upload write stalled".to_owned()),
                 }
             }
         }
+        let _ = tokio::time::timeout(
+            Duration::from_millis(250),
+            stream.write_all(trailer.as_bytes()),
+        )
+        .await;
+        let _ = stream.shutdown().await;
+        if stalled || sent_in_post < payload_limit {
+            break;
+        }
     }
-    let trailer = format!("\r\n--{BOUNDARY}--\r\n");
-    let _ = tokio::time::timeout(
-        Duration::from_millis(250),
-        stream.write_all(trailer.as_bytes()),
-    )
-    .await;
-    let _ = stream.shutdown().await;
     Ok(())
 }
 
@@ -539,6 +633,16 @@ fn find_header_end(buf: &[u8]) -> Option<usize> {
     buf.windows(4)
         .position(|win| win == b"\r\n\r\n")
         .map(|idx| idx + 4)
+}
+
+fn format_net_error(err: &NetError) -> String {
+    match err {
+        NetError::NoAddress => "no address for family".to_owned(),
+        NetError::TimedOut => "timed out".to_owned(),
+        NetError::NoResolver => "no DNS resolver".to_owned(),
+        NetError::Transport(why) => why.clone(),
+        NetError::Cancelled => "cancelled".to_owned(),
+    }
 }
 
 #[cfg(test)]
@@ -659,6 +763,45 @@ mod tests {
         super::release(ip, port, "uuid-smoke-123", limit).await;
         tokio::time::sleep(Duration::from_millis(30)).await;
         assert!(released.load(Ordering::Relaxed));
+
+        // Rollover test: single worker chains multiple POSTs when per-POST Content-Length is
+        // exhausted mid-window, while keeping active_streams == 1.
+        let rollover_spec = TaierStreamSpec {
+            ip,
+            port,
+            key: "uuid-smoke-123".to_owned(),
+            duration: Duration::from_millis(120),
+            streams: 1,
+        };
+        let rolled = super::upload_with_post_len(&rollover_spec, 131_072, &cancel)
+            .await
+            .expect("rollover upload");
+        assert!(
+            rolled.bytes > 131_072,
+            "single stream should roll over past one POST's Content-Length (got {})",
+            rolled.bytes
+        );
+        assert_eq!(rolled.active_streams, 1);
+
+        // Connection refusal surfaces a clean message without Rust Debug `Transport(...)` syntax.
+        let closed_listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let closed_port = closed_listener.local_addr().expect("addr").port();
+        drop(closed_listener);
+        let dead_spec = TaierStreamSpec {
+            ip,
+            port: closed_port,
+            key: "uuid-smoke-123".to_owned(),
+            duration: Duration::from_millis(100),
+            streams: 1,
+        };
+        let dead_err = super::upload(&dead_spec, &cancel)
+            .await
+            .expect_err("closed port must fail");
+        let rendered = super::format_net_error(&dead_err);
+        assert!(
+            !rendered.contains("Transport("),
+            "must not leak Rust Debug wrapper into report note: {rendered}"
+        );
     }
 
     #[test]
