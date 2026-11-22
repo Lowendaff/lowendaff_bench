@@ -33,7 +33,7 @@ pub fn reading(output: &job::Output, duration_secs: u64) -> Result<Output, Fault
             ver = Some(parsed);
         }
         if line.ends_with("Worker starting") {
-            started_workers += 1;
+            started_workers = started_workers.saturating_add(1);
         }
         if fft_desc.is_none()
             && let Some(desc) = parse_fft_desc(line)
@@ -41,10 +41,10 @@ pub fn reading(output: &job::Output, duration_secs: u64) -> Result<Output, Fault
             fft_desc = Some(desc);
         }
         if let Some((t, e, w)) = parse_torture_summary(line) {
-            completed_workers += 1;
-            tests_completed += t;
-            errors += e;
-            warnings += w;
+            completed_workers = completed_workers.saturating_add(1);
+            tests_completed = tests_completed.saturating_add(t);
+            errors = errors.saturating_add(e);
+            warnings = warnings.saturating_add(w);
         }
     }
 
@@ -133,4 +133,28 @@ fn missing_shared_lib(text: &str) -> Option<String> {
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use bench_tool::job;
+
+    #[test]
+    fn reading_saturates_extreme_worker_counts_without_overflow() {
+        let sample = "\
+            [Worker #1] Torture Test completed 18446744073709551615 tests in 1 minutes - \
+            0 errors, 18446744073709551615 warnings.\n\
+            [Worker #2] Torture Test completed 10 tests in 1 minutes - \
+            0 errors, 5 warnings.\n";
+        let out = super::reading(
+            &job::Output {
+                code: Some(0),
+                text: sample.to_owned(),
+            },
+            60,
+        )
+        .expect("parsed");
+        assert_eq!(out.tests_completed, u64::MAX);
+        assert_eq!(out.warnings, u64::MAX);
+    }
 }
