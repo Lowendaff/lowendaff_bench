@@ -11,6 +11,7 @@ use plugin_network::cloudflare::Settings as CloudflareSettings;
 use plugin_network::inetspeed::Settings as InetspeedSettings;
 use plugin_network::inetspeed::parse as inetspeed_parse;
 use plugin_network::iperf3::result::Settings as IperfSettings;
+use plugin_network::taier::Selector as TaierSelector;
 use plugin_network::taier::Settings as TaierSettings;
 
 use crate::app;
@@ -27,14 +28,6 @@ use crate::results::Measured;
 
 /// CPU sub-suite codes in UI display and execution order.
 pub const CPU_SUITES: [&str; 8] = SUITE_CODES;
-
-/// Carrier codes for `network.taier` in UI display and execution order.
-pub const TAIER_OPERATORS: [&str; 7] = [
-    "telecom", "unicom", "mobile", "cernet", "cbn", "other", "all",
-];
-
-/// Default enabled carrier checkboxes for `network.taier` (Telecom, Unicom, Mobile).
-pub const DEFAULT_TAIER_OPERATORS: [bool; 7] = [true, true, true, false, false, false, false];
 
 /// Route tracing group codes in UI display order.
 pub const TRACE_GROUPS: [&str; 4] = ["services", "china", "international", "all"];
@@ -68,10 +61,9 @@ pub enum ItemParams {
     },
     /// `network.taier` China carrier speed test parameters.
     Taier {
-        /// Selected carriers (`telecom`, `unicom`, `mobile`, `cernet`, `cbn`, `other`, `all`).
-        operators: [bool; 7],
-        /// Comma-separated cities, provinces, location IDs, or `all`; empty uses defaults.
-        cities: String,
+        /// Comma-separated `<place>[:<op>[+<op>...]]` selectors; empty uses defaults (`Beijing`,
+        /// `Shanghai`, `Guangzhou` across `Telecom`, `Unicom`, `Mobile`).
+        selections: String,
         /// Duration per direction in seconds (`1..=60`).
         seconds: u16,
         /// Parallel TCP streams (`1..=32`).
@@ -145,8 +137,7 @@ impl ItemParams {
                 rate: None,
             },
             "network.taier" => Self::Taier {
-                operators: DEFAULT_TAIER_OPERATORS,
-                cities: String::new(),
+                selections: String::new(),
                 seconds: TaierSettings::DEFAULT_SECONDS,
                 streams: TaierSettings::DEFAULT_STREAMS,
             },
@@ -193,8 +184,7 @@ impl ItemParams {
                 rate: None,
             },
             "network.taier" => Self::Taier {
-                operators: [false; 7],
-                cities: String::new(),
+                selections: String::new(),
                 seconds: TaierSettings::DEFAULT_SECONDS,
                 streams: TaierSettings::DEFAULT_STREAMS,
             },
@@ -248,13 +238,11 @@ impl ItemParams {
                     && rate.is_none()
             }
             Self::Taier {
-                operators,
-                cities,
+                selections,
                 seconds,
                 streams,
             } => {
-                *operators == DEFAULT_TAIER_OPERATORS
-                    && split_csv(cities).is_empty()
+                split_csv(selections).is_empty()
                     && *seconds == TaierSettings::DEFAULT_SECONDS
                     && *streams == TaierSettings::DEFAULT_STREAMS
             }
@@ -336,27 +324,13 @@ impl ItemParams {
                 }
             }
             Self::Taier {
-                operators,
-                cities,
+                selections,
                 seconds,
                 streams,
             } => {
-                if *operators != DEFAULT_TAIER_OPERATORS {
-                    let chosen: Vec<String> = if operators[6] {
-                        vec!["all".to_owned()]
-                    } else {
-                        TAIER_OPERATORS[..6]
-                            .iter()
-                            .zip(operators[..6].iter())
-                            .filter(|(_, on)| **on)
-                            .map(|(code, _)| (*code).to_owned())
-                            .collect()
-                    };
-                    map.insert("operators".to_owned(), string_array(&chosen));
-                }
-                let cities = split_csv(cities);
-                if !cities.is_empty() {
-                    map.insert("cities".to_owned(), string_array(&cities));
+                let selections = split_csv(selections);
+                if !selections.is_empty() {
+                    map.insert("selections".to_owned(), string_array(&selections));
                 }
                 if *seconds != TaierSettings::DEFAULT_SECONDS {
                     map.insert("seconds".to_owned(), serde_json::Value::from(*seconds));
@@ -688,12 +662,6 @@ impl TuiConfig {
             {
                 return Err(vec![locale::words().tui_no_cpu_suites_selected()]);
             }
-            if item.enabled
-                && let ItemParams::Taier { operators, .. } = &item.params
-                && !operators[..6].iter().any(|on| *on)
-            {
-                return Err(vec![locale::words().tui_no_taier_operators_selected()]);
-            }
         }
         let settings = self.plugin_settings();
         orchestrator::plan(registry, &ids, &settings)
@@ -801,25 +769,24 @@ impl TuiConfig {
                 ));
             }
             ItemParams::Taier {
-                operators,
-                cities,
+                selections,
                 seconds,
                 streams,
             } => {
-                let operator_rows = TAIER_OPERATORS
-                    .iter()
-                    .zip(operators.iter())
-                    .zip(DEFAULT_TAIER_OPERATORS.iter());
-                for ((code, on), def_on) in operator_rows {
-                    rows.push(sub_row(
-                        bool_row(&words.tui_field_taier_operator(code), *on, *def_on),
-                        inactive,
-                    ));
-                }
+                rows.push(sub_row(
+                    FieldRow {
+                        label: words.tui_field_taier_browse().to_owned(),
+                        value: words.tui_taier_browse_value(selections),
+                        customized: !selections.trim().is_empty(),
+                        dimmed: false,
+                        edit_raw: None,
+                    },
+                    inactive,
+                ));
                 rows.push(sub_row(
                     text_row(
-                        words.tui_field_taier_cities(),
-                        cities,
+                        words.tui_field_taier_targets(),
+                        selections,
                         words.tui_default_taier_cities(),
                     ),
                     inactive,
@@ -1120,31 +1087,18 @@ impl TuiConfig {
             }
         }
         if let ItemParams::Taier {
-            operators,
-            seconds,
-            streams,
-            ..
+            seconds, streams, ..
         } = &mut item.params
         {
             match field_idx {
-                9 => {
+                3 => {
                     *seconds = step_u16(*seconds, delta, 1, 60);
-                    if !item.enabled {
-                        item.enabled = true;
-                        if !operators[..6].iter().any(|on| *on) {
-                            *operators = DEFAULT_TAIER_OPERATORS;
-                        }
-                    }
+                    item.enabled = true;
                     return;
                 }
-                10 => {
+                4 => {
                     *streams = step_u8(*streams, delta, 1, 32);
-                    if !item.enabled {
-                        item.enabled = true;
-                        if !operators[..6].iter().any(|on| *on) {
-                            *operators = DEFAULT_TAIER_OPERATORS;
-                        }
-                    }
+                    item.enabled = true;
                     return;
                 }
                 _ => {}
@@ -1215,7 +1169,10 @@ impl TuiConfig {
         }
         let was_disabled = !item.enabled;
         match &mut item.params {
-            ItemParams::Fixed | ItemParams::Iperf3 { .. } | ItemParams::Inetspeed { .. } => {}
+            ItemParams::Fixed
+            | ItemParams::Iperf3 { .. }
+            | ItemParams::Taier { .. }
+            | ItemParams::Inetspeed { .. } => {}
             ItemParams::Cloudflare { udp, .. } => {
                 if field_idx == 3 {
                     if was_disabled {
@@ -1230,16 +1187,6 @@ impl TuiConfig {
                 if (1..=8).contains(&field_idx) {
                     suites[field_idx - 1] = !suites[field_idx - 1];
                     item.enabled = suites.iter().any(|on| *on);
-                }
-            }
-            ItemParams::Taier { operators, .. } => {
-                if (1..=7).contains(&field_idx) {
-                    toggle_taier_operator(operators, field_idx - 1);
-                    if operators[..6].iter().any(|on| *on) {
-                        item.enabled = true;
-                    } else {
-                        item.set_enabled(false);
-                    }
                 }
             }
             ItemParams::Trace {
@@ -1385,22 +1332,24 @@ impl TuiConfig {
                 _ => {}
             },
             ItemParams::Taier {
-                operators,
-                cities,
+                selections,
                 seconds,
                 streams,
             } => match field_idx {
-                8 => {
-                    let norm = normalize_csv(trimmed);
-                    if !norm.is_empty() && was_disabled {
-                        item.enabled = true;
-                        if !operators[..6].iter().any(|on| *on) {
-                            *operators = DEFAULT_TAIER_OPERATORS;
-                        }
+                2 => {
+                    let parts = split_csv(trimmed);
+                    let mut normalized = Vec::with_capacity(parts.len());
+                    for part in &parts {
+                        let parsed = TaierSelector::try_new(part).map_err(|err| err.to_string())?;
+                        normalized.push(parsed.to_string());
                     }
-                    *cities = norm;
+                    let joined = normalized.join(",");
+                    if !joined.is_empty() {
+                        item.enabled = true;
+                    }
+                    *selections = joined;
                 }
-                9 => {
+                3 => {
                     if trimmed.is_empty() {
                         *seconds = TaierSettings::DEFAULT_SECONDS;
                     } else {
@@ -1410,13 +1359,10 @@ impl TuiConfig {
                         *seconds = u16::try_from(val).unwrap_or(TaierSettings::DEFAULT_SECONDS);
                         if was_disabled {
                             item.enabled = true;
-                            if !operators[..6].iter().any(|on| *on) {
-                                *operators = DEFAULT_TAIER_OPERATORS;
-                            }
                         }
                     }
                 }
-                10 => {
+                4 => {
                     if trimmed.is_empty() {
                         *streams = TaierSettings::DEFAULT_STREAMS;
                     } else {
@@ -1426,9 +1372,6 @@ impl TuiConfig {
                         *streams = u8::try_from(val).unwrap_or(TaierSettings::DEFAULT_STREAMS);
                         if was_disabled {
                             item.enabled = true;
-                            if !operators[..6].iter().any(|on| *on) {
-                                *operators = DEFAULT_TAIER_OPERATORS;
-                            }
                         }
                     }
                 }
@@ -1649,6 +1592,20 @@ impl TuiConfig {
         }
         Ok(())
     }
+
+    /// Applies the serialized selector CSV returned by the interactive `TaierPicker` modal and
+    /// enables `network.taier`.
+    pub fn apply_taier_picker_selection(&mut self, selections_csv: String) {
+        for item in &mut self.items {
+            if item.id == "network.taier"
+                && let ItemParams::Taier { selections, .. } = &mut item.params
+            {
+                *selections = selections_csv;
+                item.enabled = true;
+                break;
+            }
+        }
+    }
 }
 
 fn toggle_trace_group(groups: &mut [bool; 4], idx: usize) {
@@ -1658,16 +1615,6 @@ fn toggle_trace_group(groups: &mut [bool; 4], idx: usize) {
     } else if idx < 3 {
         groups[idx] = !groups[idx];
         groups[3] = groups[0] && groups[1] && groups[2];
-    }
-}
-
-fn toggle_taier_operator(operators: &mut [bool; 7], idx: usize) {
-    if idx == 6 {
-        let next = !operators[6];
-        *operators = [next; 7];
-    } else if idx < 6 {
-        operators[idx] = !operators[idx];
-        operators[6] = operators[..6].iter().all(|on| *on);
     }
 }
 

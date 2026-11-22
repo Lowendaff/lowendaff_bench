@@ -50,12 +50,15 @@ sudo ./lowendaff-bench --only network.iperf3 --countries all
 | 适用平台 | 全平台（需具备 IPv4 公网连接） |
 | 依赖工具 | **零外部二进制依赖**（100% 纯 Rust 原生异步直连 IPv4 `TcpSocket` 实现，绝不经过下载代理） |
 | 超时上限 | `30 分钟` |
-| 快捷参数 | `--taier-cities <城市/省份列表或 all>`、`--taier-operators <运营商列表或 all>` |
+| 快捷参数 | `--taier <地区[:运营商+...]>`、`--taier-list [省份]`、`--taier-cities`、`--taier-operators` |
 
 ### 测试逻辑
 1. **全国三网节点库与自动巡检同步（`Lowendaff/bench_data`）**：
-   - 节点列表由 [`Lowendaff/bench_data`](https://github.com/Lowendaff/bench_data) 中的 `scripts/taier-servers.sh` 将上游中国信通院“全球网测（`com.cnspeedtest.globalspeed`）”全国服务器表归一化转换为纯 ASCII JSON（`<= 64 KiB`），涵盖全国 30+ 省级行政区、250+ 地级市/自治州及中国电信（`telecom`）、中国联通（`unicom`）、中国移动（`mobile`）、教育网（`cernet`）、中国广电（`cbn`）等 600+ 个测速节点，并通过 `data.yml` 每日自动同步更新。
-   - **默认范围与按需勾选**：默认测试 **北京、上海、广州 × 电信、联通、移动** 共 9 个核心槽位；既支持在命令行通过 `--taier-cities Beijing,Jiangsu`、`--taier-operators telecom,unicom,cernet` 按城市/省份/运营商筛选，也支持在交互式 TUI 中直接勾选运营商、编辑城市、调节单向时长与并发流数。
+   - 节点列表由 [`Lowendaff/bench_data`](https://github.com/Lowendaff/bench_data) 中的采集流水线将上游中国信通院“全球网测（`com.cnspeedtest.globalspeed`）”全国服务器表归一化转换为纯 ASCII JSON（`<= 64 KiB`），涵盖全国 30+ 省级行政区、250+ 地级市/自治州及中国电信（`telecom`/`ct`）、中国联通（`unicom`/`cu`）、中国移动（`mobile`/`cm`）、教育网（`cernet`/`edu`）、中国广电（`cbn`）等 600+ 个测速节点，并通过 `data.yml` 每日自动探活排序与同步更新。
+   - **TUI 分级下钻多选与 CLI 统一选择器**：
+     - 默认测试 **北京、上海、广州 × 电信、联通、移动** 共 9 个核心槽位；
+     - **交互式 TUI 分级节点选择器**：在 `network.taier` 设置中打开 `Select nodes (tree)`，按 **省级行政区 → 地级市 → 运营商** 三级下钻多选（北京、上海、天津、重庆四个**直辖市自动扁平化为二级直达运营商**，同时精确区分吉林省/吉林市、海南省/青海海南州等同名地名），仅展示该城市实际存在节点的运营商，支持 `/` 实时搜索过滤、`Space` 任意层级批量勾选/反选、`d` 恢复默认与预估总耗时提示；
+     - **命令行统一选择器（`--taier` 与 `--taier-list`）**：支持无需 `root` 执行 `./lowendaff-bench --taier-list`（或 `--taier-list guangdong`）查询所有可用区域与候选节点数，并通过 `--taier beijing:cu,guangdong/shenzhen:ct+cm,jiangsu:ct` 在单条命令中自由组合不同城市的任意运营商。
 2. **原生 `dovalid` 队列鉴权、繁忙自动回退与租约释放**：
    - 内置纯 Rust RFC 1321 MD5 摘要、HTTP `chunked` 分块响应解帧与 Luhn 校验算法生成 15 位合规合成 Android IMEI，向节点发起 `GET /speed/dovalid` 鉴权握手：
      - 返回 `1-<uuid>`：获得测速排队租约，进入测速；
@@ -68,10 +71,17 @@ sudo ./lowendaff-bench --only network.iperf3 --countries all
 
 ### 常用命令行示例
 ```sh
+# 无需 root：查看全国省级/直辖市测速区域总表，或下钻查看广东省各城市可用运营商节点数
+./lowendaff-bench --taier-list
+./lowendaff-bench --taier-list guangdong
+
 # 按默认配置测试北上广 × 电信/联通/移动
 sudo ./lowendaff-bench --only network.taier
 
-# 指定测试江苏全省与深圳的电信、联通、移动及教育网节点
+# 使用 --taier 自由组合：北京联通 + 深圳电信/移动 + 江苏全省电信 + 北京教育网
+sudo ./lowendaff-bench --only network.taier --taier beijing:cu+edu,guangdong/shenzhen:ct+cm,jiangsu:ct
+
+# 兼容按城市/省份与全局运营商笛卡尔积筛选
 sudo ./lowendaff-bench --only network.taier --taier-cities Jiangsu,guangdong-shenzhen --taier-operators telecom,unicom,mobile,cernet
 ```
 

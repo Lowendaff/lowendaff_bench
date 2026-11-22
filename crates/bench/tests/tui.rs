@@ -255,13 +255,17 @@ fn defaults_match_standard_cli_and_every_customized_plugin_builds_cleanly() {
         .iter()
         .position(|item| item.id == "network.taier")
         .unwrap();
-    assert_eq!(cfg.activate_item_field(taier_idx, 3), None); // mobile -> false
-    cfg.apply_item_edit(taier_idx, 8, " Beijing , Jiangsu ")
+    cfg.apply_item_edit(taier_idx, 2, " beijing:cu , guangdong/shenzhen:ct+cm ")
         .unwrap();
-    cfg.apply_item_edit(taier_idx, 9, "6").unwrap();
-    cfg.apply_item_edit(taier_idx, 10, "4").unwrap();
-    assert!(cfg.apply_item_edit(taier_idx, 9, "0").is_err());
-    assert!(cfg.apply_item_edit(taier_idx, 10, "99").is_err());
+    cfg.apply_item_edit(taier_idx, 3, "6").unwrap();
+    cfg.apply_item_edit(taier_idx, 4, "4").unwrap();
+    assert!(
+        cfg.apply_item_edit(taier_idx, 2, "beijing:unknownop")
+            .is_err(),
+        "unknown operator in selector must be rejected"
+    );
+    assert!(cfg.apply_item_edit(taier_idx, 3, "0").is_err());
+    assert!(cfg.apply_item_edit(taier_idx, 4, "99").is_err());
 
     let cf_idx = cfg
         .items
@@ -310,8 +314,7 @@ fn defaults_match_standard_cli_and_every_customized_plugin_builds_cleanly() {
     assert_eq!(
         settings["network.taier"],
         serde_json::json!({
-            "operators": ["telecom", "unicom"],
-            "cities": ["Beijing", "Jiangsu"],
+            "selections": ["beijing:cu", "guangdong/shenzhen:ct+cm"],
             "seconds": 6,
             "streams": 4,
         })
@@ -362,12 +365,6 @@ fn defaults_match_standard_cli_and_every_customized_plugin_builds_cleanly() {
         .build_plan(&all)
         .expect("customized settings must build");
     assert_eq!(planned.len(), 15);
-
-    // Unchecking every carrier in network.taier while enabled is rejected.
-    if let ItemParams::Taier { operators, .. } = &mut cfg.items[taier_idx].params {
-        *operators = [false; 7];
-    }
-    assert!(cfg.build_plan(&all).is_err());
     cfg.items[taier_idx].reset();
 
     // Unchecking every sub-suite in cpu.bench while cpu.bench is enabled is rejected.
@@ -769,26 +766,216 @@ fn disabling_items_clears_sub_selections_and_editing_sub_options_re_enables_bidi
         serde_json::json!({ "seconds": 15 })
     );
 
-    // 6. network.taier: unchecking all 3 default carriers auto-disables; checking a carrier
-    //    while disabled re-enables with probes=true; `all` syncs all 6 carriers.
+    // 6. network.taier: editing target selectors or stepping duration while disabled re-enables
+    //    network.taier; disabling clears target selectors back to defaults.
     let taier_idx = cfg
         .items
         .iter()
         .position(|item| item.id == "network.taier")
         .unwrap();
     assert!(!cfg.items[taier_idx].enabled);
-    cfg.activate_item_field(taier_idx, 1); // check telecom while disabled
+    cfg.apply_item_edit(taier_idx, 2, "beijing:cu").unwrap();
     assert!(cfg.items[taier_idx].enabled);
     assert_eq!(
         cfg.plugin_settings()["network.taier"],
-        serde_json::json!({ "operators": ["telecom"] })
+        serde_json::json!({ "selections": ["beijing:cu"] })
     );
-    cfg.activate_item_field(taier_idx, 1); // uncheck telecom -> auto-disables!
+    cfg.activate_item_field(taier_idx, 0); // master disable -> clears selections!
     assert!(!cfg.items[taier_idx].enabled);
-    cfg.activate_item_field(taier_idx, 7); // check `all` -> enables all 6!
+    assert!(!cfg.plugin_settings().contains_key("network.taier"));
+    cfg.step_item_field(taier_idx, 3, 2); // step duration while disabled -> re-enables!
     assert!(cfg.items[taier_idx].enabled);
     assert_eq!(
         cfg.plugin_settings()["network.taier"],
-        serde_json::json!({ "operators": ["all"] })
+        serde_json::json!({ "seconds": 6 })
     );
+}
+
+#[test]
+fn taier_hierarchical_picker_flattens_municipalities_drills_provinces_searches_and_roundtrips() {
+    use plugin_network::taier::nodes;
+
+    let raw = br#"{
+        "version": 1,
+        "locations": [
+            {
+                "id": "beijing",
+                "province": "Beijing",
+                "city": "Beijing",
+                "default": true,
+                "nodes": [
+                    {"operator": "telecom", "ip": "198.51.100.1", "port": 65499},
+                    {"operator": "unicom", "ip": "198.51.100.2", "port": 65499},
+                    {"operator": "mobile", "ip": "198.51.100.3", "port": 65499},
+                    {"operator": "cernet", "ip": "198.51.100.4", "port": 65499}
+                ]
+            },
+            {
+                "id": "shanghai",
+                "province": "Shanghai",
+                "city": "Shanghai",
+                "default": true,
+                "nodes": [
+                    {"operator": "telecom", "ip": "198.51.100.11", "port": 65499},
+                    {"operator": "unicom", "ip": "198.51.100.12", "port": 65499},
+                    {"operator": "mobile", "ip": "198.51.100.13", "port": 65499}
+                ]
+            },
+            {
+                "id": "guangdong-guangzhou",
+                "province": "Guangdong",
+                "city": "Guangzhou",
+                "default": true,
+                "nodes": [
+                    {"operator": "telecom", "ip": "198.51.100.21", "port": 65499},
+                    {"operator": "unicom", "ip": "198.51.100.22", "port": 65499},
+                    {"operator": "mobile", "ip": "198.51.100.23", "port": 9443},
+                    {"operator": "mobile", "ip": "198.51.100.24", "port": 9443}
+                ]
+            },
+            {
+                "id": "guangdong-shenzhen",
+                "province": "Guangdong",
+                "city": "Shenzhen",
+                "nodes": [
+                    {"operator": "telecom", "ip": "198.51.100.31", "port": 65499},
+                    {"operator": "mobile", "ip": "198.51.100.32", "port": 9443}
+                ]
+            },
+            {
+                "id": "jilin",
+                "province": "Jilin",
+                "city": "Jilin",
+                "nodes": [
+                    {"operator": "telecom", "ip": "198.51.100.41", "port": 65499}
+                ]
+            },
+            {
+                "id": "jilin-changchun",
+                "province": "Jilin",
+                "city": "Changchun",
+                "nodes": [
+                    {"operator": "unicom", "ip": "198.51.100.42", "port": 65499}
+                ]
+            }
+        ]
+    }"#;
+    let locations = nodes::parse(raw).expect("valid fixture");
+    let all = registry::all();
+    let mut session = Session::new(&all);
+
+    // Navigate to network.taier -> Right pane -> Row 1 ("Select nodes (tree)").
+    let taier_pos = session
+        .config
+        .items
+        .iter()
+        .position(|item| item.id == "network.taier")
+        .unwrap();
+    for _ in 0..=taier_pos {
+        let _ = session.handle_key(press(KeyCode::Down));
+    }
+    let _ = session.handle_key(press(KeyCode::Enter)); // Focus right pane
+    let _ = session.handle_key(press(KeyCode::Down)); // Row 1: Select nodes (tree)
+
+    // 1. First open triggers background LoadTaierNodes and renders Loading -> Error -> Retry -> Ready.
+    assert_eq!(
+        session.handle_key(press(KeyCode::Enter)),
+        Command::LoadTaierNodes
+    );
+    let loading_frame = render_text(&mut session, 100, 28);
+    assert!(
+        loading_frame.contains("Fetching CAICT GlobalSpeed node list"),
+        "{loading_frame}"
+    );
+    session.on_taier_catalog_loaded(Err("network unreachable".to_owned()));
+    let error_frame = render_text(&mut session, 100, 28);
+    assert!(error_frame.contains("network unreachable"), "{error_frame}");
+    assert_eq!(
+        session.handle_key(press(KeyCode::Char('r'))),
+        Command::LoadTaierNodes
+    );
+    session.on_taier_catalog_loaded(Ok(locations.clone()));
+    let ready_frame = render_text(&mut session, 100, 28);
+    assert!(
+        ready_frame.contains("Beijing") && ready_frame.contains("(municipality)"),
+        "{ready_frame}"
+    );
+    assert!(ready_frame.contains("9 slots (~1m 12s)"), "{ready_frame}");
+
+    // 2. Clear all ('c'), verify 's' refuses 0 slots with inline error, then pick custom nodes.
+    let _ = session.handle_key(press(KeyCode::Char('c')));
+    let _ = session.handle_key(press(KeyCode::Char('s')));
+    assert!(
+        session.taier_picker.is_some(),
+        "applying with 0 slots must keep picker open"
+    );
+    let empty_err_frame = render_text(&mut session, 100, 28);
+    assert!(
+        empty_err_frame.contains("Select at least one carrier node"),
+        "{empty_err_frame}"
+    );
+
+    // 3. Municipality (Beijing, row 0): Enter drills DIRECTLY into carriers (2 levels, no city row!).
+    let _ = session.handle_key(press(KeyCode::Enter));
+    let bj_frame = render_text(&mut session, 100, 28);
+    assert!(bj_frame.contains("All Regions > Beijing"), "{bj_frame}");
+    assert!(bj_frame.contains("CERNET Education (edu)"), "{bj_frame}");
+    let _ = session.handle_key(press(KeyCode::Down)); // China Unicom (cu)
+    let _ = session.handle_key(press(KeyCode::Char(' '))); // toggle cu ON
+    let _ = session.handle_key(press(KeyCode::Left)); // directly back to All Regions!
+    let back_frame = render_text(&mut session, 100, 28);
+    assert!(back_frame.contains("All Regions "), "{back_frame}");
+
+    // 4. Search filter ('/shen') -> Guangdong -> Enter (Cities: Shenzhen) -> Enter (Operators) -> Mobile.
+    let _ = session.handle_key(press(KeyCode::Char('/')));
+    type_str(&mut session, "shen");
+    let _ = session.handle_key(press(KeyCode::Enter)); // exit filter input
+    let _ = session.handle_key(press(KeyCode::Enter)); // drill into Guangdong -> Cities (filtered to Shenzhen)
+    let gd_cities_frame = render_text(&mut session, 100, 28);
+    assert!(
+        gd_cities_frame.contains("All Regions > Guangdong") && gd_cities_frame.contains("Shenzhen"),
+        "{gd_cities_frame}"
+    );
+    let _ = session.handle_key(press(KeyCode::Enter)); // drill into Shenzhen -> Operators (3rd level!)
+    let sz_ops_frame = render_text(&mut session, 100, 28);
+    assert!(
+        sz_ops_frame.contains("All Regions > Guangdong > Shenzhen"),
+        "{sz_ops_frame}"
+    );
+    let _ = session.handle_key(press(KeyCode::Down)); // China Mobile (cm)
+    let _ = session.handle_key(press(KeyCode::Enter)); // toggle cm ON at leaf
+    let _ = session.handle_key(press(KeyCode::Esc)); // up to Guangdong cities
+    let _ = session.handle_key(press(KeyCode::Esc)); // up to All Regions
+    let _ = session.handle_key(press(KeyCode::Esc)); // clear "shen" filter
+
+    // 5. Homonymous Jilin province (row 3: Beijing, Shanghai, Guangdong, Jilin) -> Changchun + Jilin city!
+    let _ = session.handle_key(press(KeyCode::End)); // jump to Jilin
+    let _ = session.handle_key(press(KeyCode::Enter)); // Jilin has 2 cities -> must drill into Cities (3-level)!
+    let jl_frame = render_text(&mut session, 100, 28);
+    assert!(
+        jl_frame.contains("All Regions > Jilin") && jl_frame.contains("Changchun"),
+        "{jl_frame}"
+    );
+    let _ = session.handle_key(press(KeyCode::Down)); // move to Jilin city
+    let _ = session.handle_key(press(KeyCode::Char(' '))); // toggle Jilin city (ct) ON
+
+    // 6. Save directly from sub-level with 's' and verify exact round-trip selector string!
+    let _ = session.handle_key(press(KeyCode::Char('s')));
+    assert!(session.taier_picker.is_none());
+    assert_eq!(
+        session.config.items[taier_pos].params,
+        ItemParams::Taier {
+            selections: "beijing:cu,guangdong/shenzhen:cm,jilin/jilin:ct".to_owned(),
+            seconds: 4,
+            streams: 8,
+        }
+    );
+
+    // 7. Re-open from cache (no LoadTaierNodes needed!), press 'd' for defaults, Esc applies "".
+    assert_eq!(session.handle_key(press(KeyCode::Enter)), Command::None);
+    assert!(session.taier_picker.is_some());
+    let _ = session.handle_key(press(KeyCode::Char('d')));
+    let _ = session.handle_key(press(KeyCode::Esc));
+    assert!(session.taier_picker.is_none());
+    assert!(session.config.items[taier_pos].params.is_default());
 }

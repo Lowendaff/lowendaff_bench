@@ -3,16 +3,23 @@
 
 use std::path::Path;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 
 use crossterm::event::KeyCode;
 use crossterm::event::KeyEvent;
 use crossterm::event::KeyEventKind;
 use crossterm::event::KeyModifiers;
+use plugin_network::taier::Settings as TaierSettings;
+use plugin_network::taier::nodes::Location as TaierLocation;
 use unicode_width::UnicodeWidthStr;
 
 use super::config;
+use super::config::ItemParams;
 use super::config::TuiConfig;
+use super::taier_picker::PickerAction;
+use super::taier_picker::TaierPicker;
+use super::taier_picker::TaierPickerModal;
 use crate::app;
 use crate::app::Outcome;
 use crate::locale;
@@ -276,6 +283,8 @@ pub enum Command {
     None,
     /// Validate configuration, prepare the plan, and start running benchmarks.
     StartRun,
+    /// Download and parse `servers/taier.json` in the background for the TUI node picker.
+    LoadTaierNodes,
     /// Trigger cooperative cancellation of the active benchmark run.
     CancelRun,
     /// Write the current report to `PathBuf` and report success/error back to the session.
@@ -310,6 +319,10 @@ pub struct Session {
     pub param_index: usize,
     /// Active inline text/number editor modal, if open.
     pub editor: Option<Editor>,
+    /// Cached `network.taier` node catalog once fetched during this TUI session.
+    pub taier_catalog: Option<Arc<Vec<TaierLocation>>>,
+    /// Active hierarchical `network.taier` node picker modal, if open.
+    pub taier_picker: Option<TaierPickerModal>,
     /// Optional status banner message.
     pub note: Option<(NoteKind, String)>,
     /// Active live dashboard state while [`Screen::Running`].
@@ -331,6 +344,8 @@ impl Session {
             nav_index: 0,
             param_index: 0,
             editor: None,
+            taier_catalog: None,
+            taier_picker: None,
             note: None,
             running: None,
             results: None,
@@ -389,6 +404,7 @@ impl Session {
             .collect();
         self.screen = Screen::Running;
         self.editor = None;
+        self.taier_picker = None;
         self.note = None;
         self.running = Some(RunningState {
             elapsed: Duration::ZERO,
@@ -485,6 +501,7 @@ impl Session {
         self.screen = Screen::Results;
         self.running = None;
         self.editor = None;
+        self.taier_picker = None;
         self.results = Some(results);
     }
 
@@ -499,11 +516,67 @@ impl Session {
         }
     }
 
-    /// Handles bracketed paste text: inserts into the active [`Editor`], or ignores it outside
-    /// text editing so pasted paths/lists never fire single-letter shortcuts.
+    /// Pre-loads `locations` into the session cache (used by tests and background fetches).
+    pub fn set_taier_catalog(&mut self, locations: Vec<TaierLocation>) {
+        self.taier_catalog = Some(Arc::new(locations));
+    }
+
+    /// Receives the background `servers/taier.json` download result and updates the open picker
+    /// modal if the user is still waiting on it.
+    pub fn on_taier_catalog_loaded(&mut self, result: Result<Vec<TaierLocation>, String>) {
+        match result {
+            Ok(locations) => {
+                let arc = Arc::new(locations);
+                self.taier_catalog = Some(Arc::clone(&arc));
+                if matches!(self.taier_picker, Some(TaierPickerModal::Loading)) {
+                    let (selections, seconds) = self.current_taier_params();
+                    let picker = TaierPicker::new(&arc, &selections, seconds);
+                    self.taier_picker = Some(TaierPickerModal::Ready(Box::new(picker)));
+                }
+            }
+            Err(err) => {
+                if matches!(self.taier_picker, Some(TaierPickerModal::Loading)) {
+                    self.taier_picker = Some(TaierPickerModal::Error(err));
+                }
+            }
+        }
+    }
+
+    fn current_taier_params(&self) -> (String, u16) {
+        for item in &self.config.items {
+            if item.id == "network.taier"
+                && let ItemParams::Taier {
+                    selections,
+                    seconds,
+                    ..
+                } = &item.params
+            {
+                return (selections.clone(), *seconds);
+            }
+        }
+        (String::new(), TaierSettings::DEFAULT_SECONDS)
+    }
+
+    fn open_taier_picker(&mut self) -> Command {
+        self.note = None;
+        if let Some(catalog) = &self.taier_catalog {
+            let (selections, seconds) = self.current_taier_params();
+            let picker = TaierPicker::new(catalog, &selections, seconds);
+            self.taier_picker = Some(TaierPickerModal::Ready(Box::new(picker)));
+            Command::None
+        } else {
+            self.taier_picker = Some(TaierPickerModal::Loading);
+            Command::LoadTaierNodes
+        }
+    }
+
+    /// Handles bracketed paste text: inserts into the active [`Editor`] or picker search bar, or
+    /// ignores it outside text editing so pasted paths/lists never fire single-letter shortcuts.
     pub fn handle_paste(&mut self, pasted: &str) {
         if let Some(editor) = &mut self.editor {
             editor.insert_str(pasted);
+        } else if let Some(TaierPickerModal::Ready(picker)) = &mut self.taier_picker {
+            picker.handle_paste(pasted);
         }
     }
 
@@ -515,10 +588,53 @@ impl Session {
         if self.editor.is_some() {
             return self.handle_editor_key(key);
         }
+        if self.taier_picker.is_some() {
+            return self.handle_taier_picker_key(key);
+        }
         match self.screen {
             Screen::Configure => self.handle_configure_key(key),
             Screen::Running => self.handle_running_key(key),
             Screen::Results => self.handle_results_key(key),
+        }
+    }
+
+    fn handle_taier_picker_key(&mut self, key: KeyEvent) -> Command {
+        let page = self.viewport_rows.saturating_sub(6).max(4);
+        let Some(modal) = self.taier_picker.take() else {
+            return Command::None;
+        };
+        match modal {
+            TaierPickerModal::Loading => {
+                if is_ctrl_c(key) || matches!(key.code, KeyCode::Esc | KeyCode::Char('q' | 'Q')) {
+                    Command::None
+                } else {
+                    self.taier_picker = Some(TaierPickerModal::Loading);
+                    Command::None
+                }
+            }
+            TaierPickerModal::Error(err) => {
+                if is_ctrl_c(key) || matches!(key.code, KeyCode::Esc | KeyCode::Char('q' | 'Q')) {
+                    Command::None
+                } else if matches!(key.code, KeyCode::Enter | KeyCode::Char('r' | 'R')) {
+                    self.taier_picker = Some(TaierPickerModal::Loading);
+                    Command::LoadTaierNodes
+                } else {
+                    self.taier_picker = Some(TaierPickerModal::Error(err));
+                    Command::None
+                }
+            }
+            TaierPickerModal::Ready(mut picker) => match picker.handle_key(key, page) {
+                PickerAction::Continue => {
+                    self.taier_picker = Some(TaierPickerModal::Ready(picker));
+                    Command::None
+                }
+                PickerAction::Apply(csv) => {
+                    self.config.apply_taier_picker_selection(csv);
+                    self.note = None;
+                    Command::None
+                }
+                PickerAction::Cancel => Command::None,
+            },
         }
     }
 
@@ -779,6 +895,9 @@ impl Session {
                 Command::None
             }
             KeyCode::Right | KeyCode::Char('l') => {
+                if self.is_taier_browse_row() {
+                    return self.open_taier_picker();
+                }
                 match self.current_target() {
                     NavTarget::Start => {}
                     NavTarget::Item(idx) => {
@@ -790,10 +909,7 @@ impl Session {
                 }
                 Command::None
             }
-            KeyCode::Enter | KeyCode::Char(' ' | 'e' | 'E') => {
-                self.activate_current_param();
-                Command::None
-            }
+            KeyCode::Enter | KeyCode::Char(' ' | 'e' | 'E') => self.activate_current_param(),
             KeyCode::Char('d' | 'D') => {
                 self.reset_current_target();
                 Command::None
@@ -802,7 +918,23 @@ impl Session {
         }
     }
 
-    fn activate_current_param(&mut self) {
+    fn is_taier_browse_row(&self) -> bool {
+        if self.param_index != 1 {
+            return false;
+        }
+        let NavTarget::Item(idx) = self.current_target() else {
+            return false;
+        };
+        self.config
+            .items
+            .get(idx)
+            .is_some_and(|item| item.id == "network.taier")
+    }
+
+    fn activate_current_param(&mut self) -> Command {
+        if self.is_taier_browse_row() {
+            return self.open_taier_picker();
+        }
         let words = locale::words();
         match self.current_target() {
             NavTarget::Start => {}
@@ -825,6 +957,7 @@ impl Session {
                 }
             }
         }
+        Command::None
     }
 
     fn reset_current_target(&mut self) {

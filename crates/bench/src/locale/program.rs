@@ -39,6 +39,10 @@ pub trait ProgramWords {
     fn help_cpu_bench(&self) -> String;
     /// The help of `--countries`.
     fn help_countries(&self) -> String;
+    /// The help of `--taier`.
+    fn help_taier(&self) -> String;
+    /// The help of `--taier-list`.
+    fn help_taier_list(&self) -> String;
     /// The help of `--taier-cities`.
     fn help_taier_cities(&self) -> String;
     /// The help of `--taier-operators`.

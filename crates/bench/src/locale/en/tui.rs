@@ -157,22 +157,68 @@ impl TuiWords for English {
         "Stream cap (Mbit/s)"
     }
 
-    fn tui_field_taier_operator(&self, operator: &str) -> String {
-        let name = match operator {
-            "telecom" => "China Telecom",
-            "unicom" => "China Unicom",
-            "mobile" => "China Mobile",
-            "cernet" => "CERNET (Education)",
-            "cbn" => "China Broadnet (CBN)",
-            "other" => "Other / Overseas",
-            "all" => "all carriers",
-            other => other,
-        };
-        format!("Carrier: {name}")
+    fn tui_field_taier_browse(&self) -> &'static str {
+        "Select nodes (tree)"
     }
 
-    fn tui_field_taier_cities(&self) -> &'static str {
-        "Cities / provinces"
+    fn tui_field_taier_targets(&self) -> &'static str {
+        "Target selectors"
+    }
+
+    fn tui_taier_browse_value(&self, selections: &str) -> String {
+        let count = selections
+            .split(',')
+            .map(str::trim)
+            .filter(|part| !part.is_empty())
+            .count();
+        if count == 0 {
+            "[Enter] Browse provinces, cities & carriers (default)".to_owned()
+        } else if count == 1 {
+            "[Enter] Browse provinces, cities & carriers (1 selector)".to_owned()
+        } else {
+            format!("[Enter] Browse provinces, cities & carriers ({count} selectors)")
+        }
+    }
+
+    fn tui_taier_picker_title(&self) -> &'static str {
+        "China Carrier Node Picker (network.taier)"
+    }
+
+    fn tui_taier_picker_root(&self) -> &'static str {
+        "All Regions"
+    }
+
+    fn tui_taier_picker_loading(&self) -> &'static str {
+        "Fetching CAICT GlobalSpeed node list from bench_data... (Esc to cancel)"
+    }
+
+    fn tui_taier_picker_error_hint(&self) -> &'static str {
+        "Enter / r: retry download  |  Esc: close"
+    }
+
+    fn tui_taier_picker_tip(&self) -> &'static str {
+        "Municipalities open carriers directly; provinces drill into cities. Press / to search."
+    }
+
+    fn tui_taier_picker_keys(&self) -> &'static str {
+        "Space: toggle  Enter/Right: drill  Left: up  /: search  a: all  d: default  c: clear  \
+         s/Esc: apply  q: cancel"
+    }
+
+    fn tui_taier_operator_label(&self, code: &str) -> &'static str {
+        match code {
+            "telecom" => "China Telecom (ct)",
+            "unicom" => "China Unicom (cu)",
+            "mobile" => "China Mobile (cm)",
+            "cernet" => "CERNET Education (edu)",
+            "cbn" => "China Broadnet (cbn)",
+            "other" => "Other / Overseas (other)",
+            _ => "Carrier",
+        }
+    }
+
+    fn tui_taier_picker_empty_err(&self) -> String {
+        "Select at least one carrier node (press d for defaults or q to cancel)".to_owned()
     }
 
     fn tui_field_cloudflare_concurrency(&self) -> &'static str {

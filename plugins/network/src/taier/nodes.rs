@@ -4,10 +4,15 @@
 //! verified against shared fixtures in `plugins/network/tests/fixtures/taier-lists/`.
 
 use std::collections::BTreeSet;
+use std::fmt;
 use std::net::Ipv4Addr;
+use std::str::FromStr;
 
 use serde::Deserialize;
+use serde::Deserializer;
 use serde::Serialize;
+use serde::Serializer;
+use serde::de;
 
 use super::result::Operator;
 use super::result::OperatorChoice;
@@ -226,13 +231,208 @@ pub fn parse(bytes: &[u8]) -> Result<Vec<Location>, ListError> {
     Ok(out)
 }
 
-/// Resolves requested `cities` (IDs, city names, province names, or `all`) and `operators` into
-/// ordered `(location, operator)` [`TargetSlot`]s.
+/// Why a `<place>[:<op>[+<op>...]]` target selector failed syntax validation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SelectorError {
+    /// Selector string was empty or whitespace-only.
+    Empty,
+    /// Malformed `<place>` or multiple `:` / `/` separators.
+    Format(String),
+    /// Missing `<place>` before `:` (e.g. `:ct`).
+    EmptyPlace(String),
+    /// Empty carrier list or trailing `+` after `:` (e.g. `beijing:` or `beijing:ct+`).
+    EmptyOperators(String),
+    /// Unknown carrier token after `:`.
+    UnknownOperator {
+        /// Original selector token.
+        selector: String,
+        /// Unrecognized carrier part.
+        operator: String,
+    },
+}
+
+impl fmt::Display for SelectorError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Empty => f.write_str("empty Taier target selector"),
+            Self::Format(raw) => write!(
+                f,
+                "invalid Taier selector `{raw}`: expected <place>[:<op>[+<op>...]] \
+                 (such as beijing:cu or guangdong/shenzhen:ct+cm)"
+            ),
+            Self::EmptyPlace(raw) => {
+                write!(f, "invalid Taier selector `{raw}`: missing location name")
+            }
+            Self::EmptyOperators(raw) => write!(
+                f,
+                "invalid Taier selector `{raw}`: expected carrier code after `:` \
+                 (ct, cu, cm, edu, cbn, other, or all)"
+            ),
+            Self::UnknownOperator { selector, operator } => write!(
+                f,
+                "unknown carrier `{operator}` in Taier selector `{selector}`: expected \
+                 telecom/ct, unicom/cu, mobile/cm, cernet/edu, cbn, other, or all"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for SelectorError {}
+
+/// One validated `<place>[:<op>[+<op>...]]` target selector for `network.taier`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Selector {
+    /// Location token: `all`, `<province>/<city>`, `<province>`, `<id>`, or `<city>`.
+    pub place: String,
+    /// Explicit per-location carrier filter; empty inherits `Taier::operators` or `DEFAULTS`.
+    pub operators: Vec<OperatorChoice>,
+}
+
+impl Selector {
+    /// Validates and parses one `<place>[:<op>[+<op>...]]` selector token.
+    pub fn try_new(raw: &str) -> Result<Self, SelectorError> {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            return Err(SelectorError::Empty);
+        }
+        let (place_part, ops_part) = match trimmed.split_once(':') {
+            Some((left, right)) => {
+                if right.contains(':') {
+                    return Err(SelectorError::Format(trimmed.to_owned()));
+                }
+                (left.trim(), Some(right.trim()))
+            }
+            None => (trimmed, None),
+        };
+        if place_part.is_empty() {
+            return Err(SelectorError::EmptyPlace(trimmed.to_owned()));
+        }
+        if let Some((prov, city)) = place_part.split_once('/')
+            && (prov.trim().is_empty() || city.trim().is_empty() || city.contains('/'))
+        {
+            return Err(SelectorError::Format(trimmed.to_owned()));
+        }
+        let mut operators = Vec::new();
+        if let Some(ops_str) = ops_part {
+            if ops_str.is_empty() {
+                return Err(SelectorError::EmptyOperators(trimmed.to_owned()));
+            }
+            for part in ops_str.split('+') {
+                let op_tok = part.trim();
+                if op_tok.is_empty() {
+                    return Err(SelectorError::EmptyOperators(trimmed.to_owned()));
+                }
+                let Some(choice) = OperatorChoice::parse_token(op_tok) else {
+                    return Err(SelectorError::UnknownOperator {
+                        selector: trimmed.to_owned(),
+                        operator: op_tok.to_owned(),
+                    });
+                };
+                if !operators.contains(&choice) {
+                    operators.push(choice);
+                }
+            }
+        }
+        let normalized_place = match place_part.split_once('/') {
+            Some((prov, city)) => format!("{}/{}", prov.trim(), city.trim()),
+            None => place_part.to_owned(),
+        };
+        Ok(Self {
+            place: normalized_place,
+            operators,
+        })
+    }
+}
+
+impl FromStr for Selector {
+    type Err = SelectorError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::try_new(s)
+    }
+}
+
+impl fmt::Display for Selector {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.place)?;
+        if !self.operators.is_empty() {
+            f.write_str(":")?;
+            if self.operators.contains(&OperatorChoice::All) {
+                f.write_str("all")?;
+            } else {
+                for (idx, choice) in self.operators.iter().enumerate() {
+                    if idx > 0 {
+                        f.write_str("+")?;
+                    }
+                    f.write_str(choice.short_code())?;
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+impl Serialize for Selector {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.to_string())
+    }
+}
+
+impl<'de> Deserialize<'de> for Selector {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let raw = String::deserialize(deserializer)?;
+        Self::try_new(&raw).map_err(de::Error::custom)
+    }
+}
+
+/// Lowercase ASCII slug turning spaces into `-` (e.g. `"Inner Mongolia"` -> `"inner-mongolia"`).
+#[must_use]
+pub fn slug(name: &str) -> String {
+    let mut out = String::with_capacity(name.len());
+    let mut prev_dash = false;
+    for ch in name.trim().chars() {
+        if ch.is_ascii_alphanumeric() {
+            out.push(ch.to_ascii_lowercase());
+            prev_dash = false;
+        } else if (ch == ' ' || ch == '-' || ch == '_') && !out.is_empty() && !prev_dash {
+            out.push('-');
+            prev_dash = true;
+        }
+    }
+    if out.ends_with('-') {
+        out.pop();
+    }
+    out
+}
+
+/// Resolves requested `cities` (IDs, city names, province names, `<province>/<city>`, or `all`)
+/// and `operators` into ordered `(location, operator)` [`TargetSlot`]s.
 #[must_use]
 pub fn choose(locations: &[Location], cities: &[String], operators: &[OperatorChoice]) -> Chosen {
-    let resolved_ops = resolve_operators(operators);
-    let mut unknown: Vec<String> = Vec::new();
-    let chosen_locs: Vec<&Location> = if cities.is_empty() {
+    select(locations, &[], cities, operators)
+}
+
+/// Resolves unified `selections` (`<place>[:<op>[+<op>...]]`), `cities`, and fallback `operators`
+/// into deduplicated `(location, operator)` [`TargetSlot`]s in execution order.
+#[must_use]
+pub fn select(
+    locations: &[Location],
+    selections: &[Selector],
+    cities: &[String],
+    operators: &[OperatorChoice],
+) -> Chosen {
+    let fallback_ops = resolve_operators(operators);
+    let city_selectors: Vec<Selector> = cities
+        .iter()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .map(|place| Selector {
+            place: place.to_owned(),
+            operators: Vec::new(),
+        })
+        .collect();
+
+    if selections.is_empty() && city_selectors.is_empty() {
         let mut defaults: Vec<&Location> = locations.iter().filter(|loc| loc.default).collect();
         defaults.sort_by_key(|loc| {
             DEFAULT_ORDER
@@ -240,63 +440,138 @@ pub fn choose(locations: &[Location], cities: &[String], operators: &[OperatorCh
                 .position(|&id| id == loc.id)
                 .unwrap_or(DEFAULT_ORDER.len())
         });
-        defaults
-    } else {
-        let mut want_all = false;
-        for token in cities {
-            let trimmed = token.trim();
-            if trimmed.is_empty() {
-                continue;
-            }
-            if trimmed.eq_ignore_ascii_case("all") {
-                want_all = true;
-            } else if !locations.iter().any(|loc| matches_token(loc, trimmed))
-                && !unknown.iter().any(|u| u.eq_ignore_ascii_case(trimmed))
-            {
-                unknown.push(trimmed.to_owned());
-            }
+        let mut slots = Vec::new();
+        for loc in defaults {
+            append_location_slots(&mut slots, &mut BTreeSet::new(), loc, &fallback_ops);
         }
-        if want_all {
-            locations.iter().collect()
-        } else {
-            locations
-                .iter()
-                .filter(|loc| {
-                    cities
-                        .iter()
-                        .map(|s| s.trim())
-                        .any(|tok| !tok.is_empty() && matches_token(loc, tok))
-                })
-                .collect()
-        }
-    };
+        return Chosen {
+            operators: fallback_ops,
+            slots,
+            unknown: Vec::new(),
+        };
+    }
 
+    let mut unknown: Vec<String> = Vec::new();
+    let mut seen_slots: BTreeSet<(String, Operator)> = BTreeSet::new();
+    let mut seen_ops: BTreeSet<Operator> = BTreeSet::new();
     let mut slots = Vec::new();
-    for loc in chosen_locs {
-        for &op in &resolved_ops {
-            let candidates: Vec<(Ipv4Addr, u16)> = loc
-                .nodes
-                .iter()
-                .filter(|n| n.operator == op)
-                .map(|n| (n.ip, n.port))
-                .collect();
-            if !candidates.is_empty() {
-                slots.push(TargetSlot {
-                    id: loc.id.clone(),
-                    province: loc.province.clone(),
-                    city: loc.city.clone(),
-                    operator: op,
-                    candidates,
-                });
+    let all_selectors = selections.iter().chain(city_selectors.iter());
+
+    for sel in all_selectors {
+        let matched = match_locations(locations, &sel.place);
+        if matched.is_empty() {
+            if !unknown.iter().any(|u| u.eq_ignore_ascii_case(&sel.place)) {
+                unknown.push(sel.place.clone());
             }
+            continue;
+        }
+        let ops = if sel.operators.is_empty() {
+            fallback_ops.clone()
+        } else {
+            resolve_operators(&sel.operators)
+        };
+        for &op in &ops {
+            seen_ops.insert(op);
+        }
+        for loc in matched {
+            append_location_slots(&mut slots, &mut seen_slots, loc, &ops);
         }
     }
 
+    let summary_ops = if seen_ops.is_empty() {
+        fallback_ops
+    } else {
+        Operator::ALL
+            .into_iter()
+            .filter(|op| seen_ops.contains(op))
+            .collect()
+    };
+
     Chosen {
-        operators: resolved_ops,
+        operators: summary_ops,
         slots,
         unknown,
     }
+}
+
+/// Finds every [`Location`] matching `place`:
+/// 1. `"all"` -> all locations.
+/// 2. `<province>/<city>` -> exact province + city match (`city == "all"` or `"*"` matches the
+///    whole province).
+/// 3. Bare `<province>` -> every location in that province (prioritized ahead of homonymous
+///    autonomous prefectures such as `Qinghai/Hainan`).
+/// 4. Bare `<id>` -> exact location `id` match (such as `guangdong-shenzhen` or `qinghai-hainan`).
+/// 5. Bare `<city>` -> every location with that city name (such as `shenzhen` or `chengdu`).
+#[must_use]
+pub fn match_locations<'a>(locations: &'a [Location], place: &str) -> Vec<&'a Location> {
+    let trimmed = place.trim();
+    if trimmed.is_empty() {
+        return Vec::new();
+    }
+    if trimmed.eq_ignore_ascii_case("all") {
+        return locations.iter().collect();
+    }
+    if let Some((prov, city)) = trimmed.split_once('/') {
+        let prov = prov.trim();
+        let city = city.trim();
+        if city.eq_ignore_ascii_case("all") || city == "*" {
+            return locations
+                .iter()
+                .filter(|loc| names_match(&loc.province, prov))
+                .collect();
+        }
+        return locations
+            .iter()
+            .filter(|loc| names_match(&loc.province, prov) && names_match(&loc.city, city))
+            .collect();
+    }
+    let by_province: Vec<&Location> = locations
+        .iter()
+        .filter(|loc| names_match(&loc.province, trimmed))
+        .collect();
+    if !by_province.is_empty() {
+        return by_province;
+    }
+    let by_id: Vec<&Location> = locations
+        .iter()
+        .filter(|loc| loc.id.eq_ignore_ascii_case(trimmed))
+        .collect();
+    if !by_id.is_empty() {
+        return by_id;
+    }
+    locations
+        .iter()
+        .filter(|loc| names_match(&loc.city, trimmed))
+        .collect()
+}
+
+fn append_location_slots(
+    slots: &mut Vec<TargetSlot>,
+    seen: &mut BTreeSet<(String, Operator)>,
+    loc: &Location,
+    ops: &[Operator],
+) {
+    for &op in ops {
+        let candidates: Vec<(Ipv4Addr, u16)> = loc
+            .nodes
+            .iter()
+            .filter(|n| n.operator == op)
+            .map(|n| (n.ip, n.port))
+            .collect();
+        if !candidates.is_empty() && seen.insert((loc.id.clone(), op)) {
+            slots.push(TargetSlot {
+                id: loc.id.clone(),
+                province: loc.province.clone(),
+                city: loc.city.clone(),
+                operator: op,
+                candidates,
+            });
+        }
+    }
+}
+
+fn names_match(candidate: &str, query: &str) -> bool {
+    candidate.eq_ignore_ascii_case(query) || slug(candidate) == slug(query)
 }
 
 fn resolve_operators(choices: &[OperatorChoice]) -> Vec<Operator> {
@@ -322,12 +597,6 @@ fn resolve_operators(choices: &[OperatorChoice]) -> Vec<Operator> {
         .into_iter()
         .filter(|op| mapped.contains(op))
         .collect()
-}
-
-fn matches_token(loc: &Location, token: &str) -> bool {
-    loc.id.eq_ignore_ascii_case(token)
-        || loc.city.eq_ignore_ascii_case(token)
-        || loc.province.eq_ignore_ascii_case(token)
 }
 
 fn valid_id(id: &str) -> bool {

@@ -4,6 +4,7 @@
 
 pub mod config;
 pub mod session;
+pub mod taier_picker;
 pub mod ui;
 
 use std::collections::VecDeque;
@@ -69,6 +70,8 @@ pub use session::Editor;
 pub use session::Pane;
 pub use session::Screen;
 pub use session::Session;
+pub use taier_picker::TaierPicker;
+pub use taier_picker::TaierPickerModal;
 
 /// Runs the interactive TUI session until the user exits.
 #[must_use]
@@ -159,6 +162,8 @@ async fn event_loop(
 ) -> LoopExit {
     let mut session = Session::new(registry);
     let mut active_run: Option<ActiveRun> = None;
+    let (taier_tx, mut taier_rx) = mpsc::unbounded_channel();
+    let mut taier_loading = false;
     let mut tick = tokio::time::interval(Duration::from_millis(80));
     tick.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
@@ -183,6 +188,24 @@ async fn event_loop(
                             match launch_run(&mut session, registry, logs) {
                                 Ok(run) => active_run = Some(run),
                                 Err(err) => session.set_note(session::NoteKind::Error, err),
+                            }
+                        }
+                    }
+                    Command::LoadTaierNodes => {
+                        if !taier_loading {
+                            match DownloadProxy::try_new(
+                                Some(&session.config.global.socks5_proxy),
+                                Some(&session.config.global.github_proxy),
+                            ) {
+                                Ok(proxy) => {
+                                    taier_loading = true;
+                                    let tx = taier_tx.clone();
+                                    tokio::spawn(async move {
+                                        let res = app::fetch_taier_locations(&proxy).await;
+                                        let _ = tx.send(res);
+                                    });
+                                }
+                                Err(err) => session.on_taier_catalog_loaded(Err(err)),
                             }
                         }
                     }
@@ -212,6 +235,12 @@ async fn event_loop(
                         };
                     }
                 }
+                logs.drain_into(&mut session);
+                let _ = terminal.draw(|frame| ui::draw(frame, &mut session));
+            }
+            Some(res) = taier_rx.recv() => {
+                taier_loading = false;
+                session.on_taier_catalog_loaded(res);
                 logs.drain_into(&mut session);
                 let _ = terminal.draw(|frame| ui::draw(frame, &mut session));
             }

@@ -25,16 +25,22 @@ use plugin_network::bgp::Bgp;
 use plugin_network::cloudflare::Cloudflare;
 use plugin_network::inetspeed::Inetspeed;
 use plugin_network::iperf3::Iperf3;
+use plugin_network::taier;
+use plugin_network::taier::Selector as TaierSelector;
 use plugin_network::taier::Taier;
+use plugin_network::taier::nodes::Location as TaierLocation;
 use plugin_network::trace::Trace;
 use tokio::io::AsyncRead;
 use tokio::time::Instant as TokioInstant;
 
 use crate::bgp_upload;
 use crate::fetcher::DownloadProxy;
+use crate::fetcher::Fetchers;
 use crate::fetcher::GithubProxy;
 use crate::fetcher::Socks5Proxy;
 use crate::locale;
+use crate::locale::TaierListProblem;
+use crate::locale::TaierRule;
 use crate::netprobe::NetProbers;
 use crate::orchestrator;
 use crate::orchestrator::Observer;
@@ -51,6 +57,10 @@ use crate::report;
 use crate::report::Format;
 use crate::report::terminal::Page;
 use crate::results::Measured;
+use crate::tui;
+use crate::tui::taier_picker::CityEntry;
+use crate::tui::taier_picker::RegionEntry;
+use crate::tui::taier_picker::RegionKind;
 
 /// Exit code for usage, option or environment errors, and for not running as root.
 pub const EXIT_USAGE: u8 = 2;
@@ -267,6 +277,20 @@ pub struct Cli {
     #[arg(long, value_delimiter = ',', help = locale::words().help_countries())]
     pub countries: Vec<String>,
 
+    // Unified <place>[:<op>[+<op>...]] target selectors for China carrier speed (network.taier).
+    #[arg(long, value_delimiter = ',', help = locale::words().help_taier())]
+    pub taier: Vec<String>,
+
+    // Lists available network.taier regions (or cities in PROVINCE) and exits without root.
+    #[arg(
+        long,
+        value_name = "PROVINCE",
+        num_args = 0..=1,
+        default_missing_value = "",
+        help = locale::words().help_taier_list()
+    )]
+    pub taier_list: Option<String>,
+
     // Cities, provinces, or location IDs for China carrier speed (network.taier).
     #[arg(long, value_delimiter = ',', help = locale::words().help_taier_cities())]
     pub taier_cities: Vec<String>,
@@ -439,8 +463,18 @@ pub fn prepare(cli: &Cli, registry: &[Entry]) -> Result<Vec<Planned<Measured>>, 
     if !cli.countries.is_empty() {
         countries(&mut settings, &cli.countries);
     }
-    if !cli.taier_cities.is_empty() || !cli.taier_operators.is_empty() {
-        taier_settings(&mut settings, &cli.taier_cities, &cli.taier_operators);
+    for raw_sel in &cli.taier {
+        if let Err(err) = TaierSelector::try_new(raw_sel) {
+            errors.push(err.to_string());
+        }
+    }
+    if !cli.taier.is_empty() || !cli.taier_cities.is_empty() || !cli.taier_operators.is_empty() {
+        taier_settings(
+            &mut settings,
+            &cli.taier,
+            &cli.taier_cities,
+            &cli.taier_operators,
+        );
     }
     if cli.no_cloudflare_udp {
         cloudflare_settings(&mut settings, false);
@@ -552,14 +586,22 @@ pub fn countries(settings: &mut BTreeMap<String, serde_json::Value>, countries: 
     }
 }
 
-/// Sets `--taier-cities` and `--taier-operators` in `network.taier`'s table.
+/// Sets `--taier`, `--taier-cities`, and `--taier-operators` in `network.taier`'s table.
 pub fn taier_settings(
     settings: &mut BTreeMap<String, serde_json::Value>,
+    selections: &[String],
     cities: &[String],
     operators: &[TaierOperator],
 ) {
     let table = plugin_table(settings, Taier::DESCRIPTOR.id);
     if let Some(table) = table.as_object_mut() {
+        if !selections.is_empty() {
+            let values = selections
+                .iter()
+                .map(|sel| serde_json::Value::String(sel.clone()))
+                .collect();
+            table.insert("selections".to_owned(), serde_json::Value::Array(values));
+        }
         if !cities.is_empty() {
             let values = cities
                 .iter()
@@ -575,6 +617,255 @@ pub fn taier_settings(
             table.insert("operators".to_owned(), serde_json::Value::Array(values));
         }
     }
+}
+
+/// Downloads and validates `servers/taier.json` using `proxy` (`--socks5-proxy` /
+/// `--github-proxy`).
+pub async fn fetch_taier_locations(proxy: &DownloadProxy) -> Result<Vec<TaierLocation>, String> {
+    use tokio::io::AsyncReadExt;
+
+    let fetchers = Fetchers::try_new_with_proxy(proxy)?;
+    let part = fetchers
+        .open(None, taier::SERVERS_URL, None)
+        .await
+        .map_err(|err| match err {
+            DownloadError::Transient(msg) | DownloadError::Final(msg) => msg,
+        })?;
+    let reader = match part {
+        Part::Whole(r) | Part::Range(r) => r,
+    };
+    let mut buf = Vec::new();
+    reader
+        .take(taier::nodes::LIMIT as u64 + 1)
+        .read_to_end(&mut buf)
+        .await
+        .map_err(|err| {
+            locale::words().taier_list_problem(TaierListProblem::Unreadable(&err.to_string()))
+        })?;
+    taier::nodes::parse(&buf).map_err(|error| {
+        use taier::nodes::ListError as E;
+        use taier::nodes::Rule as R;
+
+        let problem = match &error {
+            E::TooLarge => TaierListProblem::TooLarge(taier::nodes::LIMIT),
+            E::Format(reason) => TaierListProblem::Format(reason),
+            E::Newer(version) => TaierListProblem::Newer(*version),
+            E::Version(version) => TaierListProblem::Version(*version),
+            E::Empty => TaierListProblem::Empty,
+            E::TooMany(count) => TaierListProblem::TooMany(*count, taier::nodes::MOST_LOCATIONS),
+            E::Location(position, rule) => {
+                let mapped = match rule {
+                    R::Id => TaierRule::Id,
+                    R::Province => TaierRule::Province,
+                    R::City => TaierRule::City,
+                    R::Nodes => TaierRule::Nodes,
+                    R::Operator => TaierRule::Operator,
+                    R::Ip => TaierRule::Ip,
+                    R::Port => TaierRule::Port,
+                    R::DuplicateEndpoint => TaierRule::DuplicateEndpoint,
+                };
+                TaierListProblem::Rule(*position, mapped)
+            }
+            E::Duplicate(id) => TaierListProblem::Duplicate(id),
+        };
+        locale::words().taier_list_problem(problem)
+    })
+}
+
+/// Formats `--taier-list [PROVINCE]` output from validated `locations`.
+pub fn format_taier_list(
+    locations: &[TaierLocation],
+    filter: &str,
+    out: &mut impl Write,
+) -> Result<(), String> {
+    let regions = tui::taier_picker::build_regions(locations);
+    let trimmed = filter.trim();
+    if trimmed.is_empty() {
+        let _ = writeln!(
+            out,
+            "China carrier speed (network.taier): {} regions, {} locations",
+            regions.len(),
+            locations.len()
+        );
+        let _ = writeln!(
+            out,
+            "Carriers: ct = Telecom, cu = Unicom, cm = Mobile, edu = CERNET, \
+             cbn = Broadnet, other = Other\n"
+        );
+        let mut rows = Vec::with_capacity(regions.len());
+        for reg in &regions {
+            let kind = match reg.kind {
+                RegionKind::Municipality => "municipality",
+                RegionKind::Province => "province",
+                RegionKind::Overseas => "overseas",
+            };
+            let ops: Vec<&str> = reg.operators.iter().map(|op| op.short_code()).collect();
+            let example = match reg.kind {
+                RegionKind::Municipality => {
+                    let top_ops: Vec<&str> = reg
+                        .operators
+                        .iter()
+                        .take(3)
+                        .map(|op| op.short_code())
+                        .collect();
+                    format!("{}:{}", reg.slug, top_ops.join("+"))
+                }
+                RegionKind::Province | RegionKind::Overseas => {
+                    let city = &reg.cities[0];
+                    let op = city
+                        .operators
+                        .first()
+                        .map_or("ct", |(op, _)| op.short_code());
+                    format!("{}/{}:{op}", reg.slug, city.slug)
+                }
+            };
+            rows.push((
+                reg.name.as_str(),
+                kind,
+                reg.cities.len().to_string(),
+                ops.join(", "),
+                example,
+            ));
+        }
+        let w_reg = rows.iter().map(|r| r.0.len()).max().unwrap_or(6).max(6);
+        let w_kind = rows.iter().map(|r| r.1.len()).max().unwrap_or(4).max(4);
+        let w_cities = rows.iter().map(|r| r.2.len()).max().unwrap_or(6).max(6);
+        let w_ops = rows.iter().map(|r| r.3.len()).max().unwrap_or(8).max(8);
+        let _ = writeln!(
+            out,
+            "{:<w_reg$}  {:<w_kind$}  {:>w_cities$}  {:<w_ops$}  Example --taier selector",
+            "Region", "Type", "Cities", "Carriers"
+        );
+        for (name, kind, cities, ops, example) in rows {
+            let _ = writeln!(
+                out,
+                "{name:<w_reg$}  {kind:<w_kind$}  {cities:>w_cities$}  {ops:<w_ops$}  {example}"
+            );
+        }
+        let _ = writeln!(
+            out,
+            "\nPass --taier-list <REGION> (e.g. --taier-list guangdong) to list cities in a region."
+        );
+        return Ok(());
+    }
+
+    let matched = filter_taier_regions(&regions, trimmed);
+    if matched.is_empty() {
+        return Err(locale::words().taier_unknown_cities(&[trimmed.to_owned()]));
+    }
+
+    for (idx, (reg, cities)) in matched.into_iter().enumerate() {
+        if idx > 0 {
+            let _ = writeln!(out);
+        }
+        let loc_word = if cities.len() == 1 {
+            "location"
+        } else {
+            "locations"
+        };
+        if reg.kind == RegionKind::Municipality {
+            let _ = writeln!(
+                out,
+                "{} (municipality, {} {loc_word}):",
+                reg.name,
+                cities.len()
+            );
+        } else {
+            let _ = writeln!(out, "{} ({} {loc_word}):", reg.name, cities.len());
+        }
+        let mut rows = Vec::with_capacity(cities.len());
+        for city in cities {
+            let selector = if reg.kind == RegionKind::Municipality {
+                reg.slug.clone()
+            } else {
+                format!("{}/{}", reg.slug, city.slug)
+            };
+            let city_label = if city.default {
+                format!("{}*", city.name)
+            } else {
+                city.name.clone()
+            };
+            let ops_parts: Vec<String> = city
+                .operators
+                .iter()
+                .map(|(op, count)| format!("{} ({count})", op.short_code()))
+                .collect();
+            rows.push((selector, city_label, ops_parts.join(", ")));
+        }
+        let w_sel = rows.iter().map(|r| r.0.len()).max().unwrap_or(8).max(8);
+        let w_city = rows.iter().map(|r| r.1.len()).max().unwrap_or(4).max(4);
+        let _ = writeln!(
+            out,
+            "  {:<w_sel$}  {:<w_city$}  Carriers (candidate nodes)",
+            "Selector", "City"
+        );
+        for (selector, city_label, ops_text) in rows {
+            let _ = writeln!(
+                out,
+                "  {selector:<w_sel$}  {city_label:<w_city$}  {ops_text}"
+            );
+        }
+    }
+    Ok(())
+}
+
+fn filter_taier_regions<'a>(
+    regions: &'a [RegionEntry],
+    query: &str,
+) -> Vec<(&'a RegionEntry, Vec<&'a CityEntry>)> {
+    let q_slug = taier::nodes::slug(query);
+    let q_lower = query.to_ascii_lowercase();
+
+    let mut exact_regions = Vec::new();
+    for reg in regions {
+        if reg.name.eq_ignore_ascii_case(query) || reg.slug == q_slug {
+            let refs: Vec<&CityEntry> = reg.cities.iter().collect();
+            exact_regions.push((reg, refs));
+        }
+    }
+    if !exact_regions.is_empty() {
+        return exact_regions;
+    }
+
+    let mut exact_cities = Vec::new();
+    for reg in regions {
+        let mut hits = Vec::new();
+        for city in &reg.cities {
+            let selector = format!("{}/{}", reg.slug, city.slug);
+            if city.name.eq_ignore_ascii_case(query)
+                || city.slug == q_slug
+                || city.id.eq_ignore_ascii_case(query)
+                || selector.eq_ignore_ascii_case(query)
+            {
+                hits.push(city);
+            }
+        }
+        if !hits.is_empty() {
+            exact_cities.push((reg, hits));
+        }
+    }
+    if !exact_cities.is_empty() {
+        return exact_cities;
+    }
+
+    let mut fuzzy = Vec::new();
+    for reg in regions {
+        if reg.name.to_ascii_lowercase().contains(&q_lower) || reg.slug.contains(&q_lower) {
+            let refs: Vec<&CityEntry> = reg.cities.iter().collect();
+            fuzzy.push((reg, refs));
+            continue;
+        }
+        let mut hits = Vec::new();
+        for city in &reg.cities {
+            if city.name.to_ascii_lowercase().contains(&q_lower) || city.id.contains(&q_lower) {
+                hits.push(city);
+            }
+        }
+        if !hits.is_empty() {
+            fuzzy.push((reg, hits));
+        }
+    }
+    fuzzy
 }
 
 /// Sets `--no-cloudflare-udp` in `network.cloudflare`'s table.

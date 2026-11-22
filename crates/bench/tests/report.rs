@@ -897,6 +897,7 @@ fn taier_renders_text_markdown_json_fallbacks_and_stop_reasons() {
         settings: Settings {
             seconds: 4,
             streams: 8,
+            selections: Vec::new(),
             cities: vec!["Beijing".to_owned(), "Guangzhou".to_owned()],
             operators: vec![Operator::Telecom, Operator::Unicom],
             custom_list: false,
@@ -1023,6 +1024,43 @@ fn taier_renders_text_markdown_json_fallbacks_and_stop_reasons() {
     assert!(
         skip_text.contains("skipped: no carrier node in the Taier list for Mars"),
         "{skip_text}"
+    );
+
+    let selector_output = taier::Output {
+        settings: Settings {
+            seconds: 4,
+            streams: 8,
+            selections: vec![
+                "beijing:cu".to_owned(),
+                "guangdong/shenzhen:ct+cm".to_owned(),
+            ],
+            cities: Vec::new(),
+            operators: vec![Operator::Telecom, Operator::Unicom, Operator::Mobile],
+            custom_list: false,
+        },
+        unknown: Vec::new(),
+        results: Vec::new(),
+    };
+    let sel_runs = [run(
+        "network.taier",
+        Status::Completed,
+        Some(4.2),
+        Some(Measured::NetworkTaier(Report {
+            output: Some(selector_output),
+            stop: None,
+        })),
+    )];
+    let sel_text = report::render(
+        &Page {
+            runs: &sel_runs,
+            ..page
+        },
+        Format::Text,
+        None,
+    );
+    assert!(
+        sel_text.contains("targets beijing:cu, guangdong/shenzhen:ct+cm"),
+        "{sel_text}"
     );
 }
 

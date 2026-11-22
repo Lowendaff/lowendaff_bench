@@ -156,6 +156,7 @@ async fn busy_node_falls_back_to_next_candidate_and_empty_token_retries_and_rele
     let settings = Settings {
         seconds: 4,
         streams: 8,
+        selections: Vec::new(),
         cities: Vec::new(),
         operators: chosen.operators.clone(),
         custom_list: false,

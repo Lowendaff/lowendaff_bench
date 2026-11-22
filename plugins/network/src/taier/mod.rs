@@ -30,6 +30,8 @@ use tokio::fs::File;
 
 use nodes::ListError;
 
+pub use nodes::Selector;
+pub use nodes::SelectorError;
 pub use result::Failure;
 pub use result::NodeMeasured;
 pub use result::NodeOutcome;
@@ -50,8 +52,10 @@ pub const SERVERS: &str = "taier-servers";
 #[derive(Debug, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Taier {
+    /// Unified `<place>[:<op>[+<op>...]]` selectors (`--taier` and TUI node picker).
+    pub selections: Vec<Selector>,
     /// Cities, provinces, location IDs, or `all`; empty tests the default locations (`Beijing`,
-    /// `Shanghai`, `Guangzhou`).
+    /// `Shanghai`, `Guangzhou`) unless `selections` is non-empty.
     pub cities: Vec<String>,
     /// Carriers to test (`telecom`, `unicom`, `mobile`, `cernet`, `cbn`, `other`, or `all`);
     /// empty tests `telecom`, `unicom`, and `mobile`.
@@ -67,6 +71,7 @@ pub struct Taier {
 impl Default for Taier {
     fn default() -> Self {
         Self {
+            selections: Vec::new(),
             cities: Vec::new(),
             operators: Vec::new(),
             list: None,
@@ -107,13 +112,14 @@ impl Plugin for Taier {
             ListError::Newer(_) => Stop::Skipped(Failure::List(error)),
             _ => Stop::Failed(Failure::List(error)),
         })?;
-        let chosen = nodes::choose(&locations, &self.cities, &self.operators);
+        let chosen = nodes::select(&locations, &self.selections, &self.cities, &self.operators);
         if chosen.slots.is_empty() {
             return Err(Stop::Skipped(Failure::NoNode(chosen.unknown)));
         }
         let settings = Settings {
             seconds: self.seconds.get().min(60),
             streams: self.streams.get().min(32),
+            selections: self.selections.iter().map(ToString::to_string).collect(),
             cities: self.cities.clone(),
             operators: chosen.operators.clone(),
             custom_list: self.list.is_some(),
