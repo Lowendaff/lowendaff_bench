@@ -261,6 +261,22 @@ fn xen_guests_and_the_xen_host_are_told_apart() {
         &["/proc/xen"],
     ));
     assert_eq!(detect(&by_feature_bit, Some("-")), Platform::Dedicated);
+    assert_eq!(
+        detect(&by_feature_bit, Some("XenVMMXenVMM")),
+        Platform::Dedicated,
+        "PVH or CPUID-faulting Xen Dom0 remains Dedicated"
+    );
+    let sysfs_only_dom0 = host((
+        &[
+            ("/sys/hypervisor/type", "xen\n"),
+            ("/sys/hypervisor/properties/features", "00000801\n"),
+        ],
+        &[],
+    ));
+    assert_eq!(
+        detect(&sysfs_only_dom0, Some("XenVMMXenVMM")),
+        Platform::Dedicated
+    );
 }
 
 #[test]

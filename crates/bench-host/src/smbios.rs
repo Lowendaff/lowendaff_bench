@@ -170,12 +170,16 @@ fn entries(root: &Root) -> Option<Table> {
 /// The table in the firmware's memory: at the address in the EFI system table, else at the
 /// entry point found in 0xF0000–0xFFFFF, as dmidecode reads it on old kernels.
 fn dev_mem(root: &Root) -> Result<Table, Unreadable> {
+    let efi = match root.read("/sys/firmware/efi/systab") {
+        Some(systab) => Some(efi_address(&systab).ok_or(Unreadable::Absent)?),
+        None => None,
+    };
     let mut memory = match File::open(root.join("/dev/mem")) {
         Ok(file) => file,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Err(Unreadable::Absent),
         Err(error) => return Err(Unreadable::DevMem(error)),
     };
-    let entry = match efi_address(root) {
+    let entry = match efi {
         Some(address) => {
             entry_point(&read_at(&mut memory, address, 32).map_err(Unreadable::DevMem)?)
         }
@@ -189,8 +193,7 @@ fn dev_mem(root: &Root) -> Result<Table, Unreadable> {
 }
 
 /// The entry point's address from the EFI system table, the 3.x one first.
-fn efi_address(root: &Root) -> Option<u64> {
-    let systab = root.read("/sys/firmware/efi/systab")?;
+fn efi_address(systab: &str) -> Option<u64> {
     ["SMBIOS3=", "SMBIOS="].iter().find_map(|key| {
         let value = systab.lines().find_map(|line| line.strip_prefix(key))?;
         u64::from_str_radix(value.trim().trim_start_matches("0x"), 16).ok()
@@ -404,8 +407,8 @@ fn string(text: &SMBiosString) -> Option<String> {
 fn capacity(device: &SMBiosMemoryDevice<'_>, module: bool) -> Capacity {
     let megabytes = |megabytes: u64| Capacity::Kilobytes(megabytes.saturating_mul(1024));
     match device.size() {
-        Some(MemorySize::NotInstalled) if module => Capacity::Disabled,
-        Some(MemorySize::NotInstalled) => Capacity::Empty,
+        Some(MemorySize::NotInstalled | MemorySize::Kilobytes(0)) if module => Capacity::Disabled,
+        Some(MemorySize::NotInstalled | MemorySize::Kilobytes(0)) => Capacity::Empty,
         Some(MemorySize::Kilobytes(kilobytes)) => Capacity::Kilobytes(u64::from(kilobytes)),
         Some(MemorySize::Megabytes(size)) => megabytes(u64::from(size)),
         Some(MemorySize::SeeExtendedSize) => match device.extended_size() {

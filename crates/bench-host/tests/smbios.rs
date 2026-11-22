@@ -331,6 +331,16 @@ fn an_unreadable_dev_mem_says_why() {
         &["/dev/mem"],
     ));
     assert!(matches!(read(&dir, "x86_64"), Err(Unreadable::DevMem(_))));
+
+    // An EFI host whose systab publishes no SMBIOS entry reports Absent without opening /dev/mem.
+    let efi_no_smbios = common::host((
+        &[("/sys/firmware/efi/systab", "ACPI20=0x7f000000\n")],
+        &["/dev/mem"],
+    ));
+    assert!(matches!(
+        read(&efi_no_smbios, "x86_64"),
+        Err(Unreadable::Absent)
+    ));
 }
 
 /// A table of SMBIOS 3.3 or later, for the rules on memory modules and ECC.

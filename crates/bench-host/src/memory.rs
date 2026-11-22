@@ -66,15 +66,15 @@ pub fn read(root: &Root) -> Option<Memory> {
 /// container, at most its cgroup's limit minus its usage. `None` without `/proc/meminfo`.
 #[must_use]
 pub fn usable(root: &Root, kind: PlatformKind) -> Option<u64> {
-    let available = read(root)?.available;
+    let memory = read(root)?;
+    let available = memory.available.min(memory.total);
     if kind != PlatformKind::Container {
         return Some(available);
     }
     let limits = cgroup_limits(root);
     let left = limits
         .memory
-        .zip(limits.memory_used)
-        .map(|(limit, used)| limit.saturating_sub(used));
+        .map(|limit| limit.saturating_sub(limits.memory_used.unwrap_or(0)));
     Some(left.map_or(available, |left| available.min(left)))
 }
 

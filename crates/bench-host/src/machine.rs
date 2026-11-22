@@ -100,7 +100,7 @@ pub fn board_memory(root: &Root) -> Option<u64> {
     };
     let (address_cells, size_cells) = (cells("#address-cells", 2)?, cells("#size-cells", 1)?);
     // `big_endian` takes sizes of one or two cells; none would make the entries empty.
-    if address_cells > 4 || size_cells == 0 {
+    if address_cells > 4 || !(1..=2).contains(&size_cells) {
         return None;
     }
     let (address_cells, size_cells) = (
