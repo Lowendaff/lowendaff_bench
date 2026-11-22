@@ -112,7 +112,7 @@ pub fn host(host: &str) -> bool {
 #[must_use]
 pub fn is_remote_safe_host(host: &str) -> bool {
     if let Ok(ip) = host.parse::<IpAddr>() {
-        return crate::endpoint::is_routable_ip(ip);
+        return bench_api::is_routable_endpoint_ip(ip);
     }
     let lower = host.to_ascii_lowercase();
     lower != "localhost" && !lower.ends_with(".localhost")

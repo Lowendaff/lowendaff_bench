@@ -216,7 +216,7 @@ pub fn parse_for_source(bytes: &[u8], allow_loopback: bool) -> Result<Vec<Locati
                 return Err(ListError::Location(pos, Rule::Ip));
             };
             let allowed_ip = (allow_loopback && ip.is_loopback())
-                || crate::endpoint::is_routable_ip(std::net::IpAddr::V4(ip));
+                || bench_api::is_routable_endpoint_ip(std::net::IpAddr::V4(ip));
             if !allowed_ip {
                 return Err(ListError::Location(pos, Rule::Ip));
             }
