@@ -34,7 +34,8 @@ pub(super) fn section(out: &mut Out, page: &Page) {
         out.line(&format!("  {}", words.not_applicable(&names)));
     }
     let totals = totals(page);
-    out.line(&format!("\n{}", words.totals(&totals)));
+    out.gap();
+    out.line(&words.totals(&totals));
 }
 
 /// Counts of each status and total elapsed time for `page`.

@@ -413,7 +413,8 @@ fn udev_properties(text: &str) -> BTreeMap<String, String> {
         .collect()
 }
 
-/// Decodes udev's `\xHH` escapes, such as `\x20` for a space.
+/// Decodes udev's `\xHH` escapes, such as `\x20` for a space, while stripping control and
+/// bidirectional override characters from untrusted device strings.
 fn decode_udev(text: &str) -> String {
     let mut bytes = Vec::with_capacity(text.len());
     let mut rest = text.as_bytes();
@@ -430,7 +431,12 @@ fn decode_udev(text: &str) -> String {
             rest = tail;
         }
     }
-    String::from_utf8_lossy(&bytes).into_owned()
+    String::from_utf8_lossy(&bytes)
+        .chars()
+        .filter(|&ch| {
+            !ch.is_control() && !matches!(ch, '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
+        })
+        .collect()
 }
 
 /// The disks below a block device: partitions belong to their disk, and LVM or RAID
@@ -561,4 +567,14 @@ fn unescape(field: &str) -> String {
         }
     }
     String::from_utf8_lossy(&bytes).into_owned()
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn decode_udev_strips_control_and_bidi_characters_while_keeping_spaces() {
+        let raw = r"Samsung\x20SSD\x1b[2J\x07\x0d\x0a\u{202e}990";
+        let decoded = super::decode_udev(&raw.replace(r"\u{202e}", "\u{202e}"));
+        assert_eq!(decoded, "Samsung SSD[2J990");
+    }
 }

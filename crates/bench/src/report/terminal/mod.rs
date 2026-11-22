@@ -42,6 +42,109 @@ pub(super) use summary::stop_reason;
 pub(super) use summary::totals;
 pub use summary::unmet_text;
 
+/// Strips ANSI/VT100 escape sequences (CSI, OSC, DCS, APC, PM, SOS, two-byte ESC), C0/C1 control
+/// characters, DEL (`\x7f`), and Unicode bidirectional override code points from `text`. Preserves
+/// `\n` when `keep_newlines` is `true` and replaces `\n` and `\t` with `' '` otherwise.
+#[must_use]
+pub fn strip_terminal_controls(text: &str, keep_newlines: bool) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    while let Some(ch) = chars.next() {
+        match ch {
+            '\x1b' => match chars.peek().copied() {
+                Some('[') => {
+                    chars.next();
+                    consume_csi(&mut chars);
+                }
+                Some(']' | 'P' | 'X' | '^' | '_') => {
+                    chars.next();
+                    consume_st_sequence(&mut chars, keep_newlines, &mut out);
+                }
+                Some(next) if ('\x20'..='\x2f').contains(&next) => {
+                    chars.next();
+                    while let Some(&mid) = chars.peek() {
+                        if ('\x20'..='\x2f').contains(&mid) {
+                            chars.next();
+                        } else {
+                            break;
+                        }
+                    }
+                    if let Some(&fin) = chars.peek()
+                        && ('\x30'..='\x7e').contains(&fin)
+                    {
+                        chars.next();
+                    }
+                }
+                Some(fin) if ('\x30'..='\x7e').contains(&fin) => {
+                    chars.next();
+                }
+                _ => {}
+            },
+            '\u{009b}' => consume_csi(&mut chars),
+            '\u{0090}' | '\u{0098}' | '\u{009d}' | '\u{009e}' | '\u{009f}' => {
+                consume_st_sequence(&mut chars, keep_newlines, &mut out);
+            }
+            '\n' => {
+                if keep_newlines {
+                    out.push('\n');
+                } else {
+                    out.push(' ');
+                }
+            }
+            '\t' => out.push(' '),
+            c if c.is_control() || is_bidi_control(c) => {}
+            other => out.push(other),
+        }
+    }
+    out
+}
+
+fn consume_csi<I: Iterator<Item = char>>(chars: &mut std::iter::Peekable<I>) {
+    while let Some(&ch) = chars.peek() {
+        if ('\x20'..='\x3f').contains(&ch) {
+            chars.next();
+        } else {
+            break;
+        }
+    }
+    if let Some(&fin) = chars.peek()
+        && ('\x40'..='\x7e').contains(&fin)
+    {
+        chars.next();
+    }
+}
+
+fn consume_st_sequence<I: Iterator<Item = char>>(
+    chars: &mut std::iter::Peekable<I>,
+    keep_newlines: bool,
+    out: &mut String,
+) {
+    while let Some(ch) = chars.next() {
+        match ch {
+            '\x07' | '\u{009c}' => break,
+            '\x1b' => {
+                if chars.peek() == Some(&'\\') {
+                    chars.next();
+                }
+                break;
+            }
+            '\n' => {
+                if keep_newlines {
+                    out.push('\n');
+                } else {
+                    out.push(' ');
+                }
+                break;
+            }
+            _ => {}
+        }
+    }
+}
+
+fn is_bidi_control(ch: char) -> bool {
+    matches!(ch, '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
+}
+
 /// The sections of the plugins, in the report's order, after the host's: the groups' ids.
 const SECTIONS: [&str; 5] = ["cpu", "memory", "disk", "network", "ip"];
 
@@ -222,7 +325,8 @@ impl Out {
         match &mut self.mode {
             Mode::Terminal { .. } => {
                 let words = locale::words();
-                self.line(&format!("\n{}", words.section(title)));
+                self.text.push('\n');
+                self.line(&words.section(title));
             }
             Mode::Markdown { depth, last } => {
                 if !self.text.is_empty() {
@@ -232,6 +336,13 @@ impl Out {
                 *depth = 2;
                 *last = Block::Heading;
             }
+        }
+    }
+
+    /// Emits a blank separator line in terminal mode (Markdown blocks manage their own spacing).
+    fn gap(&mut self) {
+        if matches!(self.mode, Mode::Terminal { .. }) {
+            self.text.push('\n');
         }
     }
 
@@ -268,10 +379,12 @@ impl Out {
     fn line(&mut self, line: &str) {
         match &mut self.mode {
             Mode::Terminal { .. } => {
-                let _ = writeln!(self.text, "{line}");
+                let clean = strip_terminal_controls(line, false);
+                let _ = writeln!(self.text, "{clean}");
             }
             Mode::Markdown { last, .. } => {
-                let trimmed = line.trim();
+                let clean = strip_terminal_controls(line, false);
+                let trimmed = clean.trim();
                 if trimmed.is_empty() {
                     return;
                 }
@@ -288,8 +401,10 @@ impl Out {
     fn field(&mut self, indent: &str, label: &str, value: &str) {
         match &mut self.mode {
             Mode::Terminal { .. } => {
-                let label = pad(label, locale::words().label_width());
-                self.line(&format!("{indent}{label}  {value}"));
+                let clean_label = strip_terminal_controls(label, false);
+                let clean_value = strip_terminal_controls(value, false);
+                let padded = pad(&clean_label, locale::words().label_width());
+                self.line(&format!("{indent}{padded}  {clean_value}"));
             }
             Mode::Markdown { last, .. } => {
                 if *last != Block::Field && !self.text.is_empty() {
@@ -321,19 +436,31 @@ impl Out {
 
     /// Draws a table; with `numbers`, a column that holds only numbers is aligned to the right.
     fn draw(&mut self, indent: &str, headers: &[String], rows: &[Vec<String>], numbers: bool) {
+        let clean_headers: Vec<String> = headers
+            .iter()
+            .map(|h| strip_terminal_controls(h, false))
+            .collect();
+        let clean_rows: Vec<Vec<String>> = rows
+            .iter()
+            .map(|row| {
+                row.iter()
+                    .map(|cell| strip_terminal_controls(cell, false))
+                    .collect()
+            })
+            .collect();
         match &mut self.mode {
             Mode::Terminal { width } => {
                 let width = *width;
                 let mut table = Table::new();
                 table.load_style(presets::NOTHING);
-                table.set_header(headers);
-                for row in rows {
+                table.set_header(&clean_headers);
+                for row in &clean_rows {
                     table.add_row(row);
                 }
-                let last = headers.len().saturating_sub(1);
+                let last = clean_headers.len().saturating_sub(1);
                 for (index, column) in table.column_iter_mut().enumerate() {
                     column.set_padding((0, if index == last { 0 } else { 2 }));
-                    if numeric_column(rows, index, numbers) {
+                    if numeric_column(&clean_rows, index, numbers) {
                         column.set_cell_alignment(CellAlignment::Right);
                     }
                 }
@@ -347,23 +474,23 @@ impl Out {
                 }
             }
             Mode::Markdown { last, .. } => {
-                if headers.is_empty() {
+                if clean_headers.is_empty() {
                     return;
                 }
                 if !self.text.is_empty() {
                     self.text.push('\n');
                 }
-                write_md_row(&mut self.text, headers);
+                write_md_row(&mut self.text, &clean_headers);
                 self.text.push('|');
-                for index in 0..headers.len() {
-                    if numeric_column(rows, index, numbers) {
+                for index in 0..clean_headers.len() {
+                    if numeric_column(&clean_rows, index, numbers) {
                         self.text.push_str(" ---: |");
                     } else {
                         self.text.push_str(" --- |");
                     }
                 }
                 self.text.push('\n');
-                for row in rows {
+                for row in &clean_rows {
                     write_md_row(&mut self.text, row);
                 }
                 *last = Block::Table;
@@ -383,8 +510,10 @@ impl Out {
             if !self.text.is_empty() {
                 self.text.push('\n');
             }
-            let _ = writeln!(self.text, "```{lang}");
-            let _ = writeln!(self.text, "{content}");
+            let clean_lang = strip_terminal_controls(lang, false);
+            let clean_content = strip_terminal_controls(content, true);
+            let _ = writeln!(self.text, "```{clean_lang}");
+            let _ = writeln!(self.text, "{clean_content}");
             let _ = writeln!(self.text, "```");
             *last = Block::Table;
         }
@@ -410,30 +539,30 @@ fn write_md_row(buf: &mut String, cells: &[String]) {
 }
 
 /// Escapes `*` and `\` in Markdown text so masked addresses such as `203.0.*.*` are not parsed as
-/// emphasis.
+/// emphasis, after stripping terminal escape and control sequences.
 fn escape_md_text(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
-    for ch in text.chars() {
+    let clean = strip_terminal_controls(text, false);
+    let mut out = String::with_capacity(clean.len());
+    for ch in clean.chars() {
         match ch {
             '\\' => out.push_str("\\\\"),
             '*' => out.push_str("\\*"),
-            '\r' => {}
-            '\n' => out.push(' '),
             other => out.push(other),
         }
     }
     out
 }
 
-/// Escapes pipe-table cell characters (`\`, `|`, `*`, and newlines).
+/// Escapes pipe-table cell characters (`\`, `|`, `*`, and newlines) after stripping terminal
+/// escape and control sequences.
 fn escape_md_cell(cell: &str) -> String {
-    let mut out = String::with_capacity(cell.len());
-    for ch in cell.chars() {
+    let clean = strip_terminal_controls(cell, true);
+    let mut out = String::with_capacity(clean.len());
+    for ch in clean.chars() {
         match ch {
             '\\' => out.push_str("\\\\"),
             '|' => out.push_str("\\|"),
             '*' => out.push_str("\\*"),
-            '\r' => {}
             '\n' => out.push_str("<br>"),
             other => out.push(other),
         }
@@ -470,5 +599,43 @@ mod tests {
     fn a_wide_character_takes_two_columns() {
         // As an emoji or a CJK character does in a terminal.
         assert_eq!(super::pad("\u{1F600}x", 5), "\u{1F600}x  ");
+    }
+
+    #[test]
+    fn terminal_and_markdown_outputs_strip_ansi_osc_c1_and_bidi_controls() {
+        let payload = "Evil\x1b[31mRed\x1b[0m\x1b]52;c;SGVsbG8=\x07\x1b]0;Title\x1b\\\
+                       \u{009b}2J\rOverwrite\nSpoof: 9999\u{202e}Org";
+        assert_eq!(
+            super::strip_terminal_controls(payload, false),
+            "EvilRedOverwrite Spoof: 9999Org"
+        );
+
+        let mut term = Out::terminal(None);
+        term.field("  ", "Organization", payload);
+        term.table(
+            "  ",
+            &["Host".to_owned()],
+            &[vec!["ptr\x1b[2J.example\r\nfake".to_owned()]],
+        );
+        assert!(!term.text.contains('\x1b'));
+        assert!(!term.text.contains('\x07'));
+        assert!(!term.text.contains('\r'));
+        assert!(!term.text.contains('\u{202e}'));
+        assert!(term.text.contains("EvilRedOverwrite Spoof: 9999Org"));
+        assert!(term.text.contains("ptr.example fake"));
+
+        let mut md = Out::markdown();
+        md.field("  ", "Organization", payload);
+        md.code_block("mermaid\x1b[31m", "graph LR\n  A[\"ok\x1b]0;x\x07\"] --> B");
+        assert!(!md.text.contains('\x1b'));
+        assert!(!md.text.contains('\x07'));
+        assert!(
+            md.text
+                .contains("- **Organization:** EvilRedOverwrite Spoof: 9999Org")
+        );
+        assert!(
+            md.text
+                .contains("```mermaid\ngraph LR\n  A[\"ok\"] --> B\n```")
+        );
     }
 }

@@ -652,9 +652,10 @@ impl Write for SinkWriter {
         if let Ok(mut partial) = inner.partial.lock() {
             partial.push_str(&text);
             while let Some(pos) = partial.find('\n') {
-                let line = partial[..pos].trim_end_matches('\r').to_owned();
+                let raw_line = partial[..pos].trim_end_matches('\r');
+                let line = crate::report::terminal::strip_terminal_controls(raw_line, false);
                 partial.drain(..=pos);
-                if !line.is_empty()
+                if !line.trim().is_empty()
                     && let Ok(mut lines) = inner.lines.lock()
                 {
                     if lines.len() >= 2000 {
