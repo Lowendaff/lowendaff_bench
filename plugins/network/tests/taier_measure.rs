@@ -17,10 +17,13 @@ use bench_api::TaierAdmission;
 use bench_api::TaierStreamSpec;
 use bench_api::TaierTransfer;
 use bench_host::profile::HostProfile;
+use plugin_network::taier::Failure;
 use plugin_network::taier::NodeOutcome;
 use plugin_network::taier::Operator;
 use plugin_network::taier::Output;
+use plugin_network::taier::SERVERS;
 use plugin_network::taier::Settings;
+use plugin_network::taier::load_servers;
 use plugin_network::taier::measure;
 use plugin_network::taier::nodes;
 use tokio::time::Instant;
@@ -190,4 +193,53 @@ async fn busy_node_falls_back_to_next_candidate_and_empty_token_retries_and_rele
         )]
     );
     assert!(channels.published.borrow().is_some());
+}
+
+#[tokio::test]
+async fn load_servers_prefers_live_file_and_falls_back_to_embedded_only_for_default_list() {
+    let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/taier-lists/good-basic.json");
+    let live_bytes = std::fs::read(&fixture).expect("read fixture");
+    let embedded = br#"{"version":1,"locations":[{"id":"embedded","province":"Beijing","city":"Beijing","nodes":[{"operator":"telecom","ip":"198.51.100.99","port":65499}]}]}"#;
+
+    // 1. When the orchestrator fetched the live file, live bytes win over the embedded snapshot.
+    let mut with_live = BTreeMap::new();
+    with_live.insert(SERVERS.to_owned(), Ok(fixture));
+    let (ctx_live, _) = Context::<Output>::new(
+        Arc::new(HostProfile::default()),
+        Arc::new(BTreeMap::new()),
+        Arc::new(with_live),
+        Instant::now() + Duration::from_secs(10),
+        ".".into(),
+        CancellationToken::new(),
+    );
+    let resolved_live = load_servers(&ctx_live, false, Some(embedded))
+        .await
+        .expect("live list loads");
+    assert_eq!(resolved_live, live_bytes);
+
+    // 2. When the default remote download failed, embedded fallback is returned cleanly.
+    let mut missing = BTreeMap::new();
+    missing.insert(SERVERS.to_owned(), Err("connection timed out".to_owned()));
+    let (ctx_missing, _) = Context::<Output>::new(
+        Arc::new(HostProfile::default()),
+        Arc::new(BTreeMap::new()),
+        Arc::new(missing),
+        Instant::now() + Duration::from_secs(10),
+        ".".into(),
+        CancellationToken::new(),
+    );
+    let resolved_fallback = load_servers(&ctx_missing, false, Some(embedded))
+        .await
+        .expect("embedded snapshot loads");
+    assert_eq!(resolved_fallback, embedded);
+
+    // 3. An explicit custom `list` failure is never masked by the default embedded snapshot.
+    let custom_err = load_servers(&ctx_missing, true, Some(embedded))
+        .await
+        .expect_err("custom list failure must surface");
+    assert_eq!(
+        custom_err,
+        bench_api::Stop::Failed(Failure::Unreadable("connection timed out".to_owned()))
+    );
 }

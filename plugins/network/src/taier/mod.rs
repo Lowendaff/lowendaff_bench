@@ -48,6 +48,35 @@ pub const SERVERS_URL: &str =
 /// File handle name requested from the orchestrator.
 pub const SERVERS: &str = "taier-servers";
 
+include!(concat!(env!("OUT_DIR"), "/taier_snapshot.rs"));
+
+/// Build-time `servers/taier.json` fallback snapshot embedded by CI and release builds when
+/// `BENCH_TAIER_SNAPSHOT_PATH` is set; `None` in unembedded local builds.
+#[must_use]
+pub const fn embedded_servers() -> Option<&'static [u8]> {
+    EMBEDDED_SERVERS
+}
+
+/// Resolves the raw `servers/taier.json` bytes for a plugin run: prefers the live file fetched by
+/// the orchestrator, and falls back to `embedded` only when no custom `list` was configured.
+pub async fn load_servers(
+    ctx: &Context<Output>,
+    custom_list: bool,
+    embedded: Option<&[u8]>,
+) -> Result<Vec<u8>, Stop<Failure>> {
+    if let Some(path) = ctx.file(SERVERS) {
+        return read(path).await;
+    }
+    if !custom_list && let Some(snapshot) = embedded {
+        return Ok(snapshot.to_vec());
+    }
+    let why = ctx
+        .missing(SERVERS)
+        .unwrap_or("missing Taier server list")
+        .to_owned();
+    Err(Stop::Failed(Failure::Unreadable(why)))
+}
+
 /// China carrier speed (`network.taier`), as configured.
 #[derive(Debug, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -95,19 +124,22 @@ impl Plugin for Taier {
     };
 
     fn files(&self) -> Vec<FileSpec> {
-        let source = match &self.list {
-            None => FileSource::Url(SERVERS_URL.to_owned()),
-            Some(list) if list.contains("://") => FileSource::Url(list.clone()),
-            Some(list) => FileSource::Path(PathBuf::from(list)),
+        let (source, optional) = match &self.list {
+            None => (
+                FileSource::Url(SERVERS_URL.to_owned()),
+                EMBEDDED_SERVERS.is_some(),
+            ),
+            Some(list) if list.contains("://") => (FileSource::Url(list.clone()), false),
+            Some(list) => (FileSource::Path(PathBuf::from(list)), false),
         };
-        vec![FileSpec::new(SERVERS, source)]
+        vec![FileSpec {
+            optional,
+            ..FileSpec::new(SERVERS, source)
+        }]
     }
 
     async fn run(&self, ctx: &Context<Output>) -> Result<Output, Stop<Failure>> {
-        let path = ctx
-            .file(SERVERS)
-            .expect("the orchestrator runs a plugin only when it has its files");
-        let raw = read(path).await?;
+        let raw = load_servers(ctx, self.list.is_some(), EMBEDDED_SERVERS).await?;
         let locations = nodes::parse(&raw).map_err(|error| match error {
             ListError::Newer(_) => Stop::Skipped(Failure::List(error)),
             _ => Stop::Failed(Failure::List(error)),

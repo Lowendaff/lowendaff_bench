@@ -211,8 +211,25 @@ jobs:
       - name: Tool downloads
         if: steps.scope.outputs.run != 'false'
         run: cargo nextest run -p bench --test tools --locked --run-ignored only
+      # Fetches the uncached main tip of Lowendaff/bench_data, verifies every server and target
+      # list against its Rust parser, and stages servers/taier.json for compile-time fallback.
+      - name: Server lists
+        if: steps.scope.outputs.run != 'false'
+        run: |
+          data_sha=$(git ls-remote https://github.com/Lowendaff/bench_data.git refs/heads/main |
+            awk '{print $1}')
+          [[ $data_sha =~ ^[0-9a-f]{40}$ ]]
+          curl --fail --silent --show-error --location \
+            --proto '=https' --proto-redir '=https' \
+            --max-time 60 --retry 3 --max-filesize 65536 \
+            --output "$RUNNER_TEMP/taier-snapshot.json" \
+            "https://raw.githubusercontent.com/Lowendaff/bench_data/$data_sha/servers/taier.json"
+          BENCH_DATA_REF="$data_sha" \
+            cargo nextest run -p bench --test lists --locked --run-ignored only
       - name: Static build
         if: steps.scope.outputs.run != 'false'
+        env:
+          BENCH_TAIER_SNAPSHOT_PATH: ${{ runner.temp }}/taier-snapshot.json
         run: cargo build --release --locked --target "$TARGET" --bin lowendaff-bench
       # For the network job below, which measures public servers with the x86_64 build.
       - name: Upload the static build
@@ -347,7 +364,17 @@ jobs:
         if: steps.build.outcome == 'success'
         run: |
           chmod 755 "$RUNNER_TEMP/build/lowendaff-bench"
+          data_sha=$(git ls-remote https://github.com/Lowendaff/bench_data.git refs/heads/main |
+            awk '{print $1}')
+          [[ $data_sha =~ ^[0-9a-f]{40}$ ]]
+          raw_base="https://raw.githubusercontent.com/Lowendaff/bench_data/$data_sha/servers"
           curl --fail --silent --show-error --location \
-            --output "$RUNNER_TEMP/iperf3.json" \
-            https://raw.githubusercontent.com/Lowendaff/bench_data/main/servers/iperf3.json
+            --proto '=https' --proto-redir '=https' \
+            --max-time 60 --retry 3 --max-filesize 65536 \
+            --output "$RUNNER_TEMP/iperf3.json" "$raw_base/iperf3.json"
+          curl --fail --silent --show-error --location \
+            --proto '=https' --proto-redir '=https' \
+            --max-time 60 --retry 3 --max-filesize 65536 \
+            --output "$RUNNER_TEMP/taier.json" "$raw_base/taier.json"
           scripts/network-check.sh "$RUNNER_TEMP/build/lowendaff-bench" "$RUNNER_TEMP/iperf3.json"
+          scripts/taier-check.sh "$RUNNER_TEMP/build/lowendaff-bench" "$RUNNER_TEMP/taier.json"

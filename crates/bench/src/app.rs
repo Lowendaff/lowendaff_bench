@@ -620,8 +620,22 @@ pub fn taier_settings(
 }
 
 /// Downloads and validates `servers/taier.json` using `proxy` (`--socks5-proxy` /
-/// `--github-proxy`).
+/// `--github-proxy`), falling back to the build-time embedded `bench_data` snapshot when live
+/// retrieval fails.
 pub async fn fetch_taier_locations(proxy: &DownloadProxy) -> Result<Vec<TaierLocation>, String> {
+    let embedded = taier::embedded_servers();
+    let live = if embedded.is_some() {
+        match tokio::time::timeout(Duration::from_secs(5), fetch_taier_bytes(proxy)).await {
+            Ok(result) => result,
+            Err(_) => Err("timed out fetching live Taier server list".to_owned()),
+        }
+    } else {
+        fetch_taier_bytes(proxy).await
+    };
+    resolve_taier_locations(live.as_deref(), embedded)
+}
+
+async fn fetch_taier_bytes(proxy: &DownloadProxy) -> Result<Vec<u8>, String> {
     use tokio::io::AsyncReadExt;
 
     let fetchers = Fetchers::try_new_with_proxy(proxy)?;
@@ -642,7 +656,43 @@ pub async fn fetch_taier_locations(proxy: &DownloadProxy) -> Result<Vec<TaierLoc
         .map_err(|err| {
             locale::words().taier_list_problem(TaierListProblem::Unreadable(&err.to_string()))
         })?;
-    taier::nodes::parse(&buf).map_err(|error| {
+    Ok(buf)
+}
+
+/// Resolves validated Taier locations from a live download attempt and an optional build-time
+/// embedded fallback snapshot: live valid data always wins, while network or upstream errors fall
+/// back to `embedded` when available.
+pub fn resolve_taier_locations(
+    live: Result<&[u8], &String>,
+    embedded: Option<&[u8]>,
+) -> Result<Vec<TaierLocation>, String> {
+    match live {
+        Ok(bytes) => match parse_taier_locations(bytes) {
+            Ok(locations) => Ok(locations),
+            Err(err) => match embedded {
+                Some(snapshot) => {
+                    tracing::debug!(
+                        "live Taier list rejected ({err}); falling back to embedded snapshot"
+                    );
+                    parse_taier_locations(snapshot)
+                }
+                None => Err(err),
+            },
+        },
+        Err(err) => match embedded {
+            Some(snapshot) => {
+                tracing::debug!(
+                    "live Taier list download failed ({err}); falling back to embedded snapshot"
+                );
+                parse_taier_locations(snapshot)
+            }
+            None => Err(err.clone()),
+        },
+    }
+}
+
+fn parse_taier_locations(buf: &[u8]) -> Result<Vec<TaierLocation>, String> {
+    taier::nodes::parse(buf).map_err(|error| {
         use taier::nodes::ListError as E;
         use taier::nodes::Rule as R;
 

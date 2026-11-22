@@ -54,7 +54,7 @@ sudo ./lowendaff-bench --only network.iperf3 --countries all
 
 ### 测试逻辑
 1. **全国三网节点库与自动巡检同步（`Lowendaff/bench_data`）**：
-   - 节点列表由 [`Lowendaff/bench_data`](https://github.com/Lowendaff/bench_data) 中的采集流水线将上游中国信通院“全球网测（`com.cnspeedtest.globalspeed`）”全国服务器表归一化转换为纯 ASCII JSON（`<= 64 KiB`），涵盖全国 30+ 省级行政区、250+ 地级市/自治州及中国电信（`telecom`/`ct`）、中国联通（`unicom`/`cu`）、中国移动（`mobile`/`cm`）、教育网（`cernet`/`edu`）、中国广电（`cbn`）等 600+ 个测速节点，并通过 `data.yml` 每日自动探活排序与同步更新。
+   - 节点列表由 [`Lowendaff/bench_data`](https://github.com/Lowendaff/bench_data) 中的采集流水线将上游中国信通院“全球网测（`com.cnspeedtest.globalspeed`）”全国服务器表归一化转换为纯 ASCII JSON（`<= 64 KiB`），涵盖全国 30+ 省级行政区、300+ 地级市/自治州及中国电信（`telecom`/`ct`）、中国联通（`unicom`/`cu`）、中国移动（`mobile`/`cm`）、教育网（`cernet`/`edu`）、中国广电（`cbn`）等 600+ 个测速节点；`bench_data` 每 4 小时自动探活刷新，`lowendaff_bench` 通过跨仓同步流水线（`bench-data.yml`）及时校验并将最新快照编译嵌入发布产物——运行时优先实时拉取在线最新列表，当境内环境无法直连 GitHub 时自动无缝回退至内置快照。
    - **TUI 分级下钻多选与 CLI 统一选择器**：
      - 默认测试 **北京、上海、广州 × 电信、联通、移动** 共 9 个核心槽位；
      - **交互式 TUI 分级节点选择器**：在 `network.taier` 设置中打开 `Select nodes (tree)`，按 **省级行政区 → 地级市 → 运营商** 三级下钻多选（北京、上海、天津、重庆四个**直辖市自动扁平化为二级直达运营商**，同时精确区分吉林省/吉林市、海南省/青海海南州等同名地名），仅展示该城市实际存在节点的运营商，支持 `/` 实时搜索过滤、`Space` 任意层级批量勾选/反选、`d` 恢复默认与预估总耗时提示；
