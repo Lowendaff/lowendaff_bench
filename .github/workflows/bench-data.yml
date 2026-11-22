@@ -1,0 +1,153 @@
+# Synchronizes and validates server catalogs from Lowendaff/bench_data every four hours (15 minutes
+# after bench_data's scheduled refresh), on cross-repository dispatch, or manually. Validates every
+# live server/target list against the Rust parsers, builds fresh static x86_64 and aarch64 musl
+# artifacts with the latest servers/taier.json fallback snapshot embedded, verifies offline fallback
+# behavior, and smoke-tests live CAICT GlobalSpeed carrier nodes. There is deliberately no
+# concurrency block (.github/zizmor.yml).
+name: bench-data
+
+on:
+  schedule:
+    - cron: "30 */4 * * *"
+  repository_dispatch:
+    types: [bench-data-updated]
+  workflow_dispatch:
+
+permissions: {}
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  sync:
+    name: sync and embed bench_data (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-24.04
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    env:
+      ARCH: ${{ matrix.arch }}
+      TARGET: ${{ matrix.arch }}-unknown-linux-musl
+      RUSTC_WRAPPER: sccache
+      SCCACHE_GHA_ENABLED: "true"
+      RUSTFLAGS: -C link-arg=-fuse-ld=mold
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Resolve Lowendaff/bench_data commit and fetch Taier catalog
+        id: data
+        env:
+          DISPATCH_SHA: ${{ github.event.client_payload.sha }}
+        run: |
+          if [[ ${DISPATCH_SHA:-} =~ ^[0-9a-f]{40}$ ]]; then
+            data_sha=$DISPATCH_SHA
+          else
+            data_sha=$(git ls-remote https://github.com/Lowendaff/bench_data.git refs/heads/main |
+              awk '{print $1}')
+          fi
+          [[ $data_sha =~ ^[0-9a-f]{40}$ ]]
+          curl --fail --silent --show-error --location \
+            --proto '=https' --proto-redir '=https' \
+            --max-time 60 --retry 3 --max-filesize 65536 \
+            --output "$RUNNER_TEMP/taier-snapshot.json" \
+            "https://raw.githubusercontent.com/Lowendaff/bench_data/$data_sha/servers/taier.json"
+          taier_sha256=$(sha256sum "$RUNNER_TEMP/taier-snapshot.json" | awk '{print $1}')
+          locations=$(jq '.locations | length' "$RUNNER_TEMP/taier-snapshot.json")
+          nodes=$(jq '[.locations[].nodes | length] | add' "$RUNNER_TEMP/taier-snapshot.json")
+          printf 'data_sha=%s\ntaier_sha256=%s\n' "$data_sha" "$taier_sha256" >> "$GITHUB_OUTPUT"
+          {
+            echo "### \`Lowendaff/bench_data\` snapshot ($ARCH)"
+            echo
+            echo "- Commit: \`$data_sha\`"
+            echo "- \`servers/taier.json\` SHA-256: \`$taier_sha256\`"
+            echo "- Catalog size: \`$locations\` locations, \`$nodes\` carrier nodes"
+            echo
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Install the pinned toolchain and the musl target
+        run: |
+          rustup toolchain install
+          rustup target add "$TARGET"
+      - name: Install musl-gcc and mold
+        run: |
+          if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then
+            sudo find /etc/apt/sources.list.d -maxdepth 1 ! -name ubuntu.sources -type f -delete
+          fi
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends \
+            -o Dpkg::Options::=--path-exclude='/usr/share/man/*' \
+            musl-tools mold
+      - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+        with:
+          version: v0.19.0
+      - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
+        with:
+          tool: cargo-nextest@0.9.151
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - name: Validate live bench_data lists against Rust parsers
+        env:
+          BENCH_DATA_REF: ${{ steps.data.outputs.data_sha }}
+        run: cargo nextest run -p bench --test lists --locked --run-ignored only
+      - name: Static build with embedded Taier fallback snapshot
+        env:
+          BENCH_TAIER_SNAPSHOT_PATH: ${{ runner.temp }}/taier-snapshot.json
+        run: |
+          cargo build --release --locked --target "$TARGET" --bin lowendaff-bench
+          bin="target/$TARGET/release/lowendaff-bench"
+          ldd "$bin" 2>&1 | grep -Eq 'not a dynamic executable|statically linked'
+          # Force an instant connection-refused on live GitHub fetch to verify offline fallback.
+          "$bin" --github-proxy http://127.0.0.1:9 --taier-list > "$RUNNER_TEMP/offline-list.txt"
+          grep -q "China carrier speed (network.taier):" "$RUNNER_TEMP/offline-list.txt"
+          bin_sha256=$(sha256sum "$bin" | awk '{print $1}')
+          echo "- Binary (\`lowendaff-bench-$ARCH\`) SHA-256: \`$bin_sha256\`" \
+            >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload synced static build
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: lowendaff-bench-${{ matrix.arch }}
+          path: target/${{ env.TARGET }}/release/lowendaff-bench
+          retention-days: 7
+          if-no-files-found: error
+
+  live-taier:
+    name: live Taier carrier check
+    needs: sync
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: lowendaff-bench-x86_64
+          path: ${{ runner.temp }}/build
+      - name: Probe random live Taier carrier slots
+        env:
+          DISPATCH_SHA: ${{ github.event.client_payload.sha }}
+        run: |
+          chmod 755 "$RUNNER_TEMP/build/lowendaff-bench"
+          if [[ ${DISPATCH_SHA:-} =~ ^[0-9a-f]{40}$ ]]; then
+            data_sha=$DISPATCH_SHA
+          else
+            data_sha=$(git ls-remote https://github.com/Lowendaff/bench_data.git refs/heads/main |
+              awk '{print $1}')
+          fi
+          [[ $data_sha =~ ^[0-9a-f]{40}$ ]]
+          curl --fail --silent --show-error --location \
+            --proto '=https' --proto-redir '=https' \
+            --max-time 60 --retry 3 --max-filesize 65536 \
+            --output "$RUNNER_TEMP/taier.json" \
+            "https://raw.githubusercontent.com/Lowendaff/bench_data/$data_sha/servers/taier.json"
+          scripts/taier-check.sh "$RUNNER_TEMP/build/lowendaff-bench" "$RUNNER_TEMP/taier.json"
