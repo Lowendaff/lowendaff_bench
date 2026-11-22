@@ -39,7 +39,12 @@ slots=$(jq -r '
 chosen=$(printf '%s\n' "$slots" | jq -R . | jq -s -c .)
 work=$(mktemp -d "$PWD/taier.XXXXXX")
 log=$work.log
-trap 'rm -f "$log"' EXIT
+cleanup() {
+    rm -f "$log"
+    # shellcheck disable=SC2086 # $as_root is one word or none
+    $as_root rm -rf "$work"
+}
+trap cleanup EXIT
 overrides=$(jq -n -c --arg list "$list" --argjson selections "$chosen" \
     '{"network.taier": {list: $list, selections: $selections, seconds: 2, streams: 2}}')
 

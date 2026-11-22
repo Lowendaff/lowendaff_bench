@@ -29,7 +29,12 @@ servers=$(jq -r '.servers[].id' "$list" | shuf -n "$count")
 chosen=$(printf '%s\n' "$servers" | jq -R . | jq -s -c .)
 work=$(mktemp -d "$PWD/network.XXXXXX")
 log=$work.log
-trap 'rm -f "$log"' EXIT
+cleanup() {
+    rm -f "$log"
+    # shellcheck disable=SC2086 # $as_root is one word or none
+    $as_root rm -rf "$work"
+}
+trap cleanup EXIT
 overrides=$(jq -n -c --arg list "$list" --argjson servers "$chosen" \
     '{"network.iperf3": {list: $list, servers: $servers, seconds: 3, streams: 2, rate: 100}}')
 
