@@ -5,6 +5,7 @@
 //! binds to the requested IP family (`0.0.0.0` or `[::]`) and ignores all download proxy settings
 //! and environment variables.
 
+use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::hash_map::RandomState;
@@ -14,8 +15,10 @@ use std::net::Ipv4Addr;
 use std::net::Ipv6Addr;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicU64;
+use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 use std::time::Instant;
@@ -64,9 +67,7 @@ pub async fn download(
         return Err(NetError::Cancelled);
     }
     let (client, base) = build_client(spec.family, &spec.base_url).await?;
-    let down_url = base
-        .join("/__down")
-        .map_err(|err| NetError::Transport(err.to_string()))?;
+    let down_url = endpoint_url(&base, "__down");
 
     let stop = Arc::new(AtomicBool::new(false));
     let total = Arc::new(AtomicU64::new(0));
@@ -189,29 +190,30 @@ pub async fn download(
     })
 }
 
-/// Multi-worker Cloudflare upload phase (`POST /__up`) streaming 64 KiB zero chunks with error
-/// byte rollback, 200 ms sampling, and concurrent loaded-latency probes.
+/// Multi-worker Cloudflare upload phase (`POST /__up`) streaming 64 KiB zero chunks, committing
+/// per-tick byte buckets only for confirmed `2xx` uploads so failed requests never skew or
+/// roll back [`ThroughputTick`] samples.
 pub async fn upload(
     spec: &CloudflareTransferSpec,
     cancel: &CancellationToken,
 ) -> Result<CloudflareTransfer, NetError> {
+    const MAX_TICK_BUCKETS: usize = 2048;
+
     if cancel.is_cancelled() {
         return Err(NetError::Cancelled);
     }
     let (client, base) = build_client(spec.family, &spec.base_url).await?;
-    let mut up_url = base
-        .join("/__up")
-        .map_err(|err| NetError::Transport(err.to_string()))?;
+    let mut up_url = endpoint_url(&base, "__up");
     up_url
         .query_pairs_mut()
         .append_pair("measId", &spec.meas_id);
-    let down_url = base
-        .join("/__down")
-        .map_err(|err| NetError::Transport(err.to_string()))?;
+    let down_url = endpoint_url(&base, "__down");
 
     let stop = Arc::new(AtomicBool::new(false));
     let total = Arc::new(AtomicU64::new(0));
     let failed = Arc::new(AtomicU64::new(0));
+    let current_tick = Arc::new(AtomicUsize::new(0));
+    let confirmed_buckets = Arc::new(Mutex::new(vec![0_u64; MAX_TICK_BUCKETS]));
     let workers = usize::from(spec.concurrency.max(1));
 
     let mut worker_tasks = JoinSet::new();
@@ -222,17 +224,20 @@ pub async fn upload(
         let stop_w = Arc::clone(&stop);
         let total_w = Arc::clone(&total);
         let failed_w = Arc::clone(&failed);
+        let tick_w = Arc::clone(&current_tick);
+        let buckets_w = Arc::clone(&confirmed_buckets);
         let cancel_w = cancel.clone();
 
         worker_tasks.spawn(async move {
             while !stop_w.load(Ordering::Relaxed) && !cancel_w.is_cancelled() {
-                let counted = Arc::new(AtomicU64::new(0));
-                let total_s = Arc::clone(&total_w);
-                let counted_s = Arc::clone(&counted);
+                let req_buckets: Arc<Mutex<BTreeMap<usize, u64>>> =
+                    Arc::new(Mutex::new(BTreeMap::new()));
+                let req_buckets_s = Arc::clone(&req_buckets);
+                let tick_s = Arc::clone(&tick_w);
                 let stop_s = Arc::clone(&stop_w);
                 let body_stream = stream::unfold(bytes_per_req, move |remaining| {
-                    let total_c = Arc::clone(&total_s);
-                    let counted_c = Arc::clone(&counted_s);
+                    let req_buckets_c = Arc::clone(&req_buckets_s);
+                    let tick_c = Arc::clone(&tick_s);
                     let stop_c = Arc::clone(&stop_s);
                     async move {
                         if remaining == 0 || stop_c.load(Ordering::Relaxed) {
@@ -240,8 +245,11 @@ pub async fn upload(
                         }
                         let step = remaining.min(UPLOAD_CHUNK_SIZE);
                         let chunk_len = usize::try_from(step).unwrap_or(65_536);
-                        total_c.fetch_add(step, Ordering::Relaxed);
-                        counted_c.fetch_add(step, Ordering::Relaxed);
+                        let bucket = tick_c.load(Ordering::Relaxed).min(MAX_TICK_BUCKETS - 1);
+                        if let Ok(mut guard) = req_buckets_c.lock() {
+                            let slot = guard.entry(bucket).or_insert(0);
+                            *slot = slot.saturating_add(step);
+                        }
                         Some((
                             Ok::<Vec<u8>, io::Error>(vec![0_u8; chunk_len]),
                             remaining - step,
@@ -265,21 +273,22 @@ pub async fn upload(
                     res = req_fut => matches!(res, Ok(true)),
                 };
 
-                if !ok {
-                    let rolled = counted.load(Ordering::Relaxed);
-                    let mut cur = total_w.load(Ordering::Relaxed);
-                    while let Err(actual) = total_w.compare_exchange_weak(
-                        cur,
-                        cur.saturating_sub(rolled),
-                        Ordering::Relaxed,
-                        Ordering::Relaxed,
-                    ) {
-                        cur = actual;
+                if ok {
+                    if let Ok(local) = req_buckets.lock() {
+                        let mut req_total = 0_u64;
+                        if let Ok(mut shared) = buckets_w.lock() {
+                            for (&idx, &b) in local.iter() {
+                                if let Some(slot) = shared.get_mut(idx) {
+                                    *slot = slot.saturating_add(b);
+                                }
+                                req_total = req_total.saturating_add(b);
+                            }
+                        }
+                        total_w.fetch_add(req_total, Ordering::Relaxed);
                     }
-                    if !stop_w.load(Ordering::Relaxed) && !cancel_w.is_cancelled() {
-                        failed_w.fetch_add(1, Ordering::Relaxed);
-                        tokio::time::sleep(WORKER_BACKOFF).await;
-                    }
+                } else if !stop_w.load(Ordering::Relaxed) && !cancel_w.is_cancelled() {
+                    failed_w.fetch_add(1, Ordering::Relaxed);
+                    tokio::time::sleep(WORKER_BACKOFF).await;
                 }
             }
         });
@@ -309,7 +318,7 @@ pub async fn upload(
         let _ = lat_tx.send(stats).await;
     });
 
-    let ticks_res = sample_ticks(spec.duration, &total, cancel).await;
+    let ticks_res = sample_upload_tick_times(spec.duration, &current_tick, cancel).await;
     stop.store(true, Ordering::Relaxed);
     let drain_workers = async { while worker_tasks.join_next().await.is_some() {} };
     if tokio::time::timeout(Duration::from_secs(2), drain_workers)
@@ -324,7 +333,24 @@ pub async fn upload(
         lat_tasks.abort_all();
         while lat_tasks.join_next().await.is_some() {}
     }
-    let (active_ms, ticks) = ticks_res?;
+    let (active_ms, tick_times) = ticks_res?;
+    let ticks = {
+        let guard = confirmed_buckets.lock().ok();
+        let mut cumulative = 0_u64;
+        let mut built = Vec::with_capacity(tick_times.len());
+        for (idx, elapsed_ms) in tick_times.into_iter().enumerate() {
+            if let Some(shared) = guard.as_deref()
+                && let Some(&b) = shared.get(idx)
+            {
+                cumulative = cumulative.saturating_add(b);
+            }
+            built.push(ThroughputTick {
+                elapsed_ms,
+                bytes: cumulative,
+            });
+        }
+        built
+    };
     let (loaded_sent, loaded_rtts_micros) =
         match tokio::time::timeout(Duration::from_secs(5), lat_rx.recv()).await {
             Ok(Some(pair)) => pair,
@@ -495,6 +521,39 @@ async fn sample_ticks(
     }
     let total_ms = u64::try_from(active.as_millis()).unwrap_or(u64::MAX);
     Ok((total_ms, ticks))
+}
+
+async fn sample_upload_tick_times(
+    duration: Duration,
+    current_tick: &AtomicUsize,
+    cancel: &CancellationToken,
+) -> Result<(u64, Vec<u64>), NetError> {
+    let mut active = Duration::ZERO;
+    let mut tick_times = Vec::with_capacity(128);
+    while active < duration {
+        let tick_start = Instant::now();
+        tokio::select! {
+            biased;
+            () = cancel.cancelled() => return Err(NetError::Cancelled),
+            () = tokio::time::sleep(SAMPLE_INTERVAL) => {}
+        }
+        active += tick_start.elapsed();
+        current_tick.fetch_add(1, Ordering::Relaxed);
+        let elapsed_ms = u64::try_from(active.as_millis()).unwrap_or(u64::MAX);
+        tick_times.push(elapsed_ms);
+    }
+    let total_ms = u64::try_from(active.as_millis()).unwrap_or(u64::MAX);
+    Ok((total_ms, tick_times))
+}
+
+fn endpoint_url(base: &Url, segment: &str) -> Url {
+    let mut out = base.clone();
+    let prefix = out.path().trim_end_matches('/');
+    let seg = segment.trim_start_matches('/');
+    out.set_path(&format!("{prefix}/{seg}"));
+    out.set_query(None);
+    out.set_fragment(None);
+    out
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -729,11 +788,12 @@ mod tests {
     async fn cloudflare_download_and_upload_stream_over_loopback_and_handle_429_backoff() {
         let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind tcp");
         let addr = listener.local_addr().expect("local addr");
-        let hit_429 = Arc::new(AtomicUsize::new(0));
-        let hit_429_srv = Arc::clone(&hit_429);
+        let up_seq = Arc::new(AtomicUsize::new(0));
+        let up_seq_srv = Arc::clone(&up_seq);
 
         tokio::spawn(async move {
             while let Ok((mut stream, _)) = listener.accept().await {
+                let up_counter = Arc::clone(&up_seq_srv);
                 tokio::spawn(async move {
                     let mut buf = vec![0_u8; 8192];
                     let n = stream.read(&mut buf).await.unwrap_or(0);
@@ -742,7 +802,7 @@ mod tests {
                     }
                     let head = String::from_utf8_lossy(&buf[..n]);
                     let first = head.lines().next().unwrap_or_default();
-                    if first.starts_with("GET /__down?") && first.contains("bytes=0") {
+                    if first.starts_with("GET /cf-prefix/__down?") && first.contains("bytes=0") {
                         let _ = stream
                             .write_all(
                                 b"HTTP/1.1 200 OK\r\n\
@@ -750,7 +810,9 @@ mod tests {
                                   Connection: close\r\n\r\n",
                             )
                             .await;
-                    } else if first.starts_with("GET /__down?") && first.contains("bytes=400000") {
+                    } else if first.starts_with("GET /cf-prefix/__down?")
+                        && first.contains("bytes=400000")
+                    {
                         let _ = stream
                             .write_all(
                                 b"HTTP/1.1 429 Too Many Requests\r\n\
@@ -758,7 +820,7 @@ mod tests {
                                   Connection: close\r\n\r\n",
                             )
                             .await;
-                    } else if first.starts_with("GET /__down?") {
+                    } else if first.starts_with("GET /cf-prefix/__down?") {
                         let body = vec![b'x'; 32_768];
                         let header = format!(
                             "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
@@ -766,7 +828,7 @@ mod tests {
                         );
                         let _ = stream.write_all(header.as_bytes()).await;
                         let _ = stream.write_all(&body).await;
-                    } else if first.starts_with("POST /__up?") {
+                    } else if first.starts_with("POST /cf-prefix/__up?") {
                         while !buf[..n].windows(5).any(|w| w == b"0\r\n\r\n") {
                             let mut more = [0_u8; 8192];
                             let r = stream.read(&mut more).await.unwrap_or(0);
@@ -774,22 +836,32 @@ mod tests {
                                 break;
                             }
                         }
-                        let _ = stream
-                            .write_all(
-                                b"HTTP/1.1 200 OK\r\n\
-                                  Content-Length: 2\r\n\
-                                  Connection: close\r\n\r\nok",
-                            )
-                            .await;
+                        let seq = up_counter.fetch_add(1, Ordering::Relaxed);
+                        if seq % 2 == 1 {
+                            let _ = stream
+                                .write_all(
+                                    b"HTTP/1.1 500 Internal Server Error\r\n\
+                                      Content-Length: 0\r\n\
+                                      Connection: close\r\n\r\n",
+                                )
+                                .await;
+                        } else {
+                            let _ = stream
+                                .write_all(
+                                    b"HTTP/1.1 200 OK\r\n\
+                                      Content-Length: 2\r\n\
+                                      Connection: close\r\n\r\nok",
+                                )
+                                .await;
+                        }
                     }
                 });
-                let _ = &hit_429_srv;
             }
         });
 
         let spec = CloudflareTransferSpec {
             family: IpFamily::Ipv4,
-            base_url: format!("http://{addr}"),
+            base_url: format!("http://{addr}/cf-prefix/"),
             meas_id: "987654321".to_owned(),
             concurrency: 1,
             duration: Duration::from_millis(450),
@@ -810,7 +882,16 @@ mod tests {
         };
         let up = super::upload(&up_spec, &cancel).await.expect("upload");
         assert!(up.bytes >= 65_536);
-        assert_eq!(hit_429.load(Ordering::Relaxed), 0);
+        assert!(up.failed_requests >= 1, "recorded interleaved 500 failure");
+        assert!(
+            up.ticks.windows(2).all(|w| w[0].bytes <= w[1].bytes),
+            "upload ticks must remain strictly monotonic: {:?}",
+            up.ticks
+        );
+        assert!(
+            up.ticks.last().expect("tick").bytes <= up.bytes,
+            "upload ticks must never exceed confirmed total bytes"
+        );
     }
 
     #[tokio::test]
