@@ -452,10 +452,22 @@ pub fn download_proxy(cli: &Cli) -> Result<DownloadProxy, Vec<String>> {
 
 /// Builds every selected plugin; all problems are reported together and nothing runs.
 pub fn prepare(cli: &Cli, registry: &[Entry]) -> Result<Vec<Planned<Measured>>, Vec<String>> {
+    prepare_with_proxy(cli, registry).map(|(planned, _)| planned)
+}
+
+/// Builds every selected plugin and validates download proxy flags in a single pass.
+pub fn prepare_with_proxy(
+    cli: &Cli,
+    registry: &[Entry],
+) -> Result<(Vec<Planned<Measured>>, DownloadProxy), Vec<String>> {
     let mut errors = Vec::new();
-    if let Err(proxy_errs) = download_proxy(cli) {
-        errors.extend(proxy_errs);
-    }
+    let proxy = match download_proxy(cli) {
+        Ok(proxy) => Some(proxy),
+        Err(proxy_errs) => {
+            errors.extend(proxy_errs);
+            None
+        }
+    };
     let mut settings = match parse_overrides(cli.internal_overrides.as_deref()) {
         Ok(settings) => settings,
         Err(err) => {
@@ -529,10 +541,10 @@ pub fn prepare(cli: &Cli, registry: &[Entry]) -> Result<Vec<Planned<Measured>>, 
             return Err(errors);
         }
     };
-    match orchestrator::plan(registry, &ids, &settings) {
-        Ok(planned) if errors.is_empty() => Ok(planned),
-        Ok(_) => Err(errors),
-        Err(plan_errs) => {
+    match (orchestrator::plan(registry, &ids, &settings), proxy) {
+        (Ok(planned), Some(proxy)) if errors.is_empty() => Ok((planned, proxy)),
+        (Ok(_), _) => Err(errors),
+        (Err(plan_errs), _) => {
             errors.extend(plan_errs);
             Err(errors)
         }
