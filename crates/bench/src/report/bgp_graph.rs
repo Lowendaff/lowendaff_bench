@@ -837,7 +837,8 @@ pub fn render_svg(graph: &PositionedGraph) -> String {
             ("#0f172a", "#64748b", "1.4", "#f1f5f9")
         };
         let star = if b.is_tier1 { " &#x2605;" } else { "" };
-        let short_name = truncate_chars(&b.name, 15);
+        let clean_name = strip_disallowed_xml_chars(&b.name);
+        let short_name = truncate_chars(clean_name.trim(), 15);
         let _ = writeln!(out, "  <g>");
         let _ = writeln!(
             out,
@@ -882,6 +883,8 @@ fn escape_xml(s: &str) -> String {
             '>' => out.push_str("&gt;"),
             '"' => out.push_str("&quot;"),
             '\'' => out.push_str("&apos;"),
+            '\t' | '\n' | '\r' => out.push(' '),
+            c if is_disallowed_xml_char(c) => {}
             other => out.push(other),
         }
     }
@@ -907,7 +910,8 @@ pub fn render_mermaid(graph: &PositionedGraph) -> String {
     for b in &graph.boxes {
         let id = format!("n_{}_{}", b.asn, b.col);
         let star = if b.is_tier1 { " ★" } else { "" };
-        let short = truncate_chars(&b.name, 16);
+        let clean_name = strip_disallowed_xml_chars(&b.name);
+        let short = truncate_chars(clean_name.trim(), 16);
         let label = if short.is_empty() {
             format!("AS{}{star}", b.asn)
         } else {
@@ -947,14 +951,103 @@ pub fn render_mermaid(graph: &PositionedGraph) -> String {
 
 fn sanitize_mermaid_label(s: &str) -> String {
     s.chars()
-        .map(|c| match c {
-            '"' | '`' | '\\' => '\'',
-            '\r' | '\n' => ' ',
-            other => other,
+        .filter_map(|c| match c {
+            '"' | '`' | '\\' => Some('\''),
+            '\r' | '\n' | '\t' => Some(' '),
+            other if is_disallowed_xml_char(other) => None,
+            other => Some(other),
         })
         .collect()
 }
 
+fn strip_disallowed_xml_chars(s: &str) -> String {
+    s.chars()
+        .filter_map(|c| match c {
+            '\r' | '\n' | '\t' => Some(' '),
+            other if is_disallowed_xml_char(other) => None,
+            other => Some(other),
+        })
+        .collect()
+}
+
+fn is_disallowed_xml_char(c: char) -> bool {
+    c.is_control() || matches!(c, '\u{fffe}' | '\u{ffff}')
+}
+
 fn truncate_chars(text: &str, max_chars: usize) -> String {
     text.chars().take(max_chars).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use plugin_network::bgp::BgpPath;
+    use plugin_network::bgp::FamilyBgp;
+    use plugin_network::bgp::OriginSummary;
+    use plugin_network::bgp::RpkiStatus;
+    use plugin_network::bgp::UpstreamShare;
+
+    use super::layout;
+    use super::render_mermaid;
+    use super::render_svg;
+
+    #[test]
+    fn svg_and_mermaid_strip_control_and_noncharacter_codepoints_from_asn_labels() {
+        let mut asn_names = BTreeMap::new();
+        asn_names.insert(
+            64500,
+            "\0\x07\x1b<\"Bad\">\x7f\u{0085}\u{fffe}\u{ffff}\nCo".to_owned(),
+        );
+        let rep = FamilyBgp {
+            address: "203.0.113.7".parse().expect("ipv4"),
+            announced: true,
+            prefix: Some("203.0.113.0/24".to_owned()),
+            prefix_base: Some("203.0.113.0".parse().expect("base")),
+            prefix_len: Some(24),
+            origin_asn: Some(64500),
+            origins: vec![OriginSummary {
+                asn: 64500,
+                peers: 5,
+            }],
+            rpki: RpkiStatus::Valid,
+            total_peers: 5,
+            distinct_paths: 1,
+            upstreams: vec![UpstreamShare {
+                asn: 3356,
+                peers: 5,
+            }],
+            paths: vec![BgpPath {
+                asns: vec![3356, 64500],
+                asns_raw: vec![3356, 64500],
+                peers: 5,
+                is_best: true,
+            }],
+            asn_names,
+            diagram_url: None,
+        };
+        let graph = layout(&rep, None).expect("layout succeeds");
+        let svg = render_svg(&graph);
+        let mermaid = render_mermaid(&graph);
+
+        assert!(
+            svg.contains("&lt;&quot;Bad&quot;&gt; Co"),
+            "SVG escapes XML entities and strips control characters:\n{svg}"
+        );
+        assert!(
+            !svg.chars()
+                .any(|c| (c.is_control() && c != '\n') || matches!(c, '\u{fffe}' | '\u{ffff}')),
+            "SVG must contain no illegal XML 1.0 characters:\n{svg}"
+        );
+        assert!(
+            mermaid.contains("<'Bad'> Co"),
+            "Mermaid sanitizes quotes and strips control characters:\n{mermaid}"
+        );
+        assert!(
+            !mermaid
+                .chars()
+                .any(|c| (c.is_control() && c != '\n') || matches!(c, '\u{fffe}' | '\u{ffff}')),
+            "Mermaid must contain no control characters:\n{mermaid}"
+        );
+    }
 }
