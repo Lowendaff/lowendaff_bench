@@ -255,22 +255,9 @@ impl Job {
             .and_then(|id| i32::try_from(id).ok())
             .and_then(Pid::from_raw);
         let group = self.group.then_some(Group { leader: pid });
-        let is_group = self.group;
-        let interrupt_after = self.interrupt_after;
-        let interrupt_task = interrupt_after.map(|after| {
-            tokio::spawn(async move {
-                tokio::time::sleep(after).await;
-                if let Some(target) = pid {
-                    if is_group {
-                        let _ = rustix::process::kill_process_group(target, Signal::INT);
-                    } else {
-                        let _ = rustix::process::kill_process(target, Signal::INT);
-                    }
-                }
-            })
-        });
+        let wait_fut = wait_with_bounded_output(child, pid, self.group, self.interrupt_after);
         let ended = tokio::select! {
-            finished = tokio::time::timeout(self.limit, wait_with_bounded_output(child)) => {
+            finished = tokio::time::timeout(self.limit, wait_fut) => {
                 match finished {
                     Ok(Ok(output)) => Ok(output),
                     Ok(Err(err)) => Err(RunError::Fault(Fault::Read(err.to_string()))),
@@ -279,9 +266,6 @@ impl Job {
             }
             () = cancel.cancelled() => Err(RunError::Cancelled),
         };
-        if let Some(handle) = interrupt_task {
-            handle.abort();
-        }
         // The leader ended on its own and was reaped: once any workers it left end too, the
         // group's id may be another group's.
         if ended.is_ok()
@@ -295,8 +279,14 @@ impl Job {
 
 /// Drains `child`'s `stdout` and `stderr` concurrently while waiting for it to exit, retaining at
 /// most [`STREAM_LIMIT`] bytes per stream and bounding post-exit pipe draining to
-/// [`PIPE_DRAIN_GRACE`].
-async fn wait_with_bounded_output(mut child: Child) -> io::Result<Output> {
+/// [`PIPE_DRAIN_GRACE`]. Optional `interrupt_after` sends `SIGINT` only before `child.wait()`
+/// reaps the child, so a recycled PID is never signalled.
+async fn wait_with_bounded_output(
+    mut child: Child,
+    pid: Option<Pid>,
+    is_group: bool,
+    interrupt_after: Option<Duration>,
+) -> io::Result<Output> {
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();
     let mut out_bytes = Vec::new();
@@ -309,12 +299,25 @@ async fn wait_with_bounded_output(mut child: Child) -> io::Result<Output> {
     let status = {
         let out_fut = drain_stream(stdout, &mut out_bytes, &mut out_truncated, STREAM_LIMIT);
         let err_fut = drain_stream(stderr, &mut err_bytes, &mut err_truncated, STREAM_LIMIT);
+        let mut interrupt_pending = interrupt_after.is_some();
+        let interrupt_fut = tokio::time::sleep(interrupt_after.unwrap_or(Duration::ZERO));
         tokio::pin!(out_fut);
         tokio::pin!(err_fut);
+        tokio::pin!(interrupt_fut);
 
         let status = loop {
             tokio::select! {
                 res = child.wait() => break res?,
+                () = &mut interrupt_fut, if interrupt_pending => {
+                    interrupt_pending = false;
+                    if let Some(target) = pid {
+                        if is_group {
+                            let _ = rustix::process::kill_process_group(target, Signal::INT);
+                        } else {
+                            let _ = rustix::process::kill_process(target, Signal::INT);
+                        }
+                    }
+                }
                 res = &mut out_fut, if !out_done => {
                     res?;
                     out_done = true;

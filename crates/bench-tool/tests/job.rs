@@ -146,6 +146,84 @@ async fn exited_child_with_inherited_background_pipe_returns_after_drain_grace()
 }
 
 #[tokio::test]
+async fn interrupt_after_sends_sigint_before_limit() {
+    let (ctx, _channels) = context(CancellationToken::new());
+    let script = "trap 'kill $bg 2>/dev/null; echo flushed; exit 0' INT; \
+                  sleep 30 & bg=$!; wait $bg";
+    let mut job = shell(script, Duration::from_secs(15));
+    job.group = true;
+    job.interrupt_after = Some(Duration::from_millis(150));
+    let started = std::time::Instant::now();
+    let outcome = job.run(&ctx).await;
+    assert_eq!(
+        outcome.ended,
+        Ok(Output {
+            code: Some(0),
+            text: "flushed\n".to_owned(),
+        })
+    );
+    assert!(
+        started.elapsed() < Duration::from_secs(5),
+        "interrupt_after stopped the run cleanly well before its hard limit"
+    );
+}
+
+#[tokio::test]
+async fn interrupt_after_never_signals_after_child_is_reaped() {
+    if let Some(pid_path) = std::env::var_os("BENCH_JOB_LATE_INT_SUBTEST") {
+        let child = std::process::Command::new("/bin/sleep")
+            .arg("10")
+            .spawn()
+            .expect("spawn background sleep");
+        std::fs::write(pid_path, child.id().to_string()).expect("write sleep pid");
+        println!("reaped-soon");
+        std::process::exit(0);
+    }
+
+    let (ctx, _channels) = context(CancellationToken::new());
+    let dir = tempfile::tempdir().expect("temp dir");
+    let pid_file = dir.path().join("sleep.pid");
+    let exe = std::env::current_exe().expect("test binary path");
+    let mut job = Job::new(
+        exe,
+        [
+            "--exact",
+            "interrupt_after_never_signals_after_child_is_reaped",
+            "--nocapture",
+        ],
+        Duration::from_secs(10),
+    );
+    job.envs = vec![("BENCH_JOB_LATE_INT_SUBTEST".into(), pid_file.clone().into())];
+    job.group = true;
+    // Direct child exits immediately while `/bin/sleep 10` holds inherited stdout open across
+    // PIPE_DRAIN_GRACE (200ms); 80ms falls inside that post-reap drain window.
+    job.interrupt_after = Some(Duration::from_millis(80));
+    let outcome = job.run(&ctx).await;
+    let Ok(output) = outcome.ended else {
+        panic!("helper child should exit cleanly: {:?}", outcome.ended);
+    };
+    assert_eq!(output.code, Some(0));
+    assert!(
+        output.text.contains("reaped-soon"),
+        "unexpected output: {}",
+        output.text
+    );
+
+    let raw_pid = std::fs::read_to_string(&pid_file).expect("sleep pid recorded");
+    let pid_num: i32 = raw_pid.trim().parse().expect("numeric pid");
+    let pid = rustix::process::Pid::from_raw(pid_num).expect("valid pid");
+    #[cfg(target_os = "linux")]
+    let alive_proc = !matches!(state(raw_pid.trim()), None | Some('Z'));
+    #[cfg(not(target_os = "linux"))]
+    let alive_proc = true;
+    let kill_res = rustix::process::kill_process(pid, rustix::process::Signal::KILL);
+    assert!(
+        alive_proc && kill_res.is_ok(),
+        "grandchild in group must not receive late SIGINT after leader is reaped: {kill_res:?}"
+    );
+}
+
+#[tokio::test]
 async fn inherited_proxy_variables_are_removed_from_tool_environment() {
     let vars = [
         "HTTP_PROXY",
