@@ -500,3 +500,73 @@ async fn zip_archive_unpacks_per_architecture_and_verifies_crc() {
         b"hello"
     );
 }
+
+#[tokio::test]
+async fn tar_unpack_masks_world_write_bits_and_replaces_stale_staging_or_broken_install_dir() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    // Leave behind both a stale `.unpack` staging directory and a broken `geekbench/` directory
+    // lacking the `geekbench7` executable from an interrupted prior run.
+    let stale_staging = dir.path().join("geekbench.unpack");
+    std::fs::create_dir_all(&stale_staging).unwrap();
+    std::fs::write(stale_staging.join("leftover"), b"stale").unwrap();
+    let broken_installed = dir.path().join("geekbench");
+    std::fs::create_dir_all(&broken_installed).unwrap();
+    std::fs::write(broken_installed.join("orphan.dat"), b"orphan").unwrap();
+
+    let world_writable = archive(&[
+        file(&format!("{TOP}/"), 0o777, b""),
+        file(&format!("{TOP}/geekbench7"), 0o777, b"#!/bin/sh\n"),
+        file(&format!("{TOP}/geekbench.plxr"), 0o666, b"workloads"),
+    ]);
+    let path = provision::install(
+        &world_writable[..],
+        &GEEKBENCH,
+        &asset(&world_writable),
+        dir.path(),
+    )
+    .await
+    .expect("replaces stale dirs cleanly");
+
+    assert_eq!(path, broken_installed.join("geekbench7"));
+    assert!(!broken_installed.join("orphan.dat").exists());
+    assert!(!stale_staging.exists());
+    let data_mode = std::fs::metadata(broken_installed.join("geekbench.plxr"))
+        .unwrap()
+        .permissions()
+        .mode();
+    assert_eq!(
+        data_mode & 0o022,
+        0,
+        "group/world write bits must be masked off unpacked files: {data_mode:o}"
+    );
+}
+
+#[tokio::test]
+async fn archives_exceeding_entry_limit_are_refused_and_cleaned_up() {
+    let mut builder = tar::Builder::new(flate2::write::GzEncoder::new(
+        Vec::new(),
+        flate2::Compression::fast(),
+    ));
+    for idx in 0..4_097 {
+        let mut hdr = Header::new_gnu();
+        hdr.set_mode(0o644);
+        hdr.set_size(0);
+        builder
+            .append_data(&mut hdr, format!("{TOP}/f{idx}"), io::empty())
+            .expect("entry");
+    }
+    let many_tar_gz = finish(builder);
+    let dir = tempfile::tempdir().unwrap();
+    let err = provision::install(
+        &many_tar_gz[..],
+        &GEEKBENCH,
+        &asset(&many_tar_gz),
+        dir.path(),
+    )
+    .await
+    .expect_err("archive with > 4096 entries must be rejected");
+    assert!(err.starts_with("damaged archive: "), "{err}");
+    assert!(names(dir.path()).is_empty());
+}

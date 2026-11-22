@@ -62,6 +62,13 @@ const ATTEMPTS: u32 = 4;
 /// The largest file that a plugin may ask for: such a file is a list, not a tool.
 pub const FILE_LIMIT: u64 = 64 * 1024;
 
+/// Maximum total uncompressed bytes extracted from a tool archive (`4 GiB`, comfortably above
+/// Geekbench while bounding decompression bombs on disk).
+const MAX_UNPACKED_BYTES: u64 = 4 * 1024 * 1024 * 1024;
+
+/// Maximum number of entries accepted in a tool archive.
+const MAX_ARCHIVE_ENTRIES: usize = 4_096;
+
 /// The wait before the first retry; it doubles before each further one.
 const FIRST_WAIT: Duration = Duration::from_secs(1);
 
@@ -809,13 +816,26 @@ async fn unpack(
 
     let staging = dir.join(format!("{name}.unpack"));
     let installed = dir.join(name);
+    let _ = fs::remove_dir_all(&staging).await;
+    let _ = fs::remove_file(&staging).await;
     let unpacked = {
         let (archive, staging) = (archive.to_path_buf(), staging.clone());
         tokio::task::spawn_blocking(move || match kind {
-            ArchiveKind::TarGz => unpack_tar_gz(&archive, &staging),
-            ArchiveKind::TarGzFlat => unpack_tar_gz_flat(&archive, &staging),
-            ArchiveKind::TarXz => unpack_tar_xz(&archive, &staging),
-            ArchiveKind::Zip => unpack_zip(&archive, &staging),
+            ArchiveKind::TarGz => {
+                unpack_tar_gz_bounded(&archive, &staging, MAX_UNPACKED_BYTES, MAX_ARCHIVE_ENTRIES)
+            }
+            ArchiveKind::TarGzFlat => unpack_tar_gz_flat_bounded(
+                &archive,
+                &staging,
+                MAX_UNPACKED_BYTES,
+                MAX_ARCHIVE_ENTRIES,
+            ),
+            ArchiveKind::TarXz => {
+                unpack_tar_xz_bounded(&archive, &staging, MAX_UNPACKED_BYTES, MAX_ARCHIVE_ENTRIES)
+            }
+            ArchiveKind::Zip => {
+                unpack_zip_bounded(&archive, &staging, MAX_UNPACKED_BYTES, MAX_ARCHIVE_ENTRIES)
+            }
         })
         .await
         .unwrap_or_else(|err| Err(locale::words().unpack_failed(&err)))
@@ -826,6 +846,13 @@ async fn unpack(
             Ok(metadata) if metadata.is_file() => {
                 let install_res = async {
                     fs::set_permissions(&exe_in_staging, Permissions::from_mode(0o755)).await?;
+                    if let Ok(existing) = fs::symlink_metadata(&installed).await {
+                        if existing.is_dir() {
+                            fs::remove_dir_all(&installed).await?;
+                        } else {
+                            fs::remove_file(&installed).await?;
+                        }
+                    }
                     fs::rename(&staging, &installed).await
                 }
                 .await;
@@ -841,24 +868,97 @@ async fn unpack(
     outcome.map(|()| installed.join(executable))
 }
 
-fn unpack_tar_gz(archive: &Path, staging: &Path) -> Result<(), String> {
-    let write_error = |err: io::Error| locale::words().unpack_failed(&err);
-    let file = StdFile::open(archive).map_err(write_error)?;
-    unpack_tar_stripped(
-        tar::Archive::new(flate2::read::GzDecoder::new(file)),
-        staging,
-    )
+struct BoundedReader<R> {
+    inner: R,
+    remaining: u64,
 }
 
-fn unpack_tar_xz(archive: &Path, staging: &Path) -> Result<(), String> {
+impl<R> BoundedReader<R> {
+    fn new(inner: R, limit: u64) -> Self {
+        Self {
+            inner,
+            remaining: limit,
+        }
+    }
+}
+
+impl<R: io::Read> io::Read for BoundedReader<R> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let n = self.inner.read(buf)?;
+        let n_u64 = n as u64;
+        if n_u64 > self.remaining {
+            self.remaining = 0;
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "archive exceeds maximum unpacked size",
+            ));
+        }
+        self.remaining -= n_u64;
+        Ok(n)
+    }
+}
+
+struct BoundedWriter<W> {
+    inner: W,
+    remaining: u64,
+}
+
+impl<W> BoundedWriter<W> {
+    fn new(inner: W, limit: u64) -> Self {
+        Self {
+            inner,
+            remaining: limit,
+        }
+    }
+}
+
+impl<W: io::Write> io::Write for BoundedWriter<W> {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        let len_u64 = buf.len() as u64;
+        if len_u64 > self.remaining {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "archive exceeds maximum unpacked size",
+            ));
+        }
+        let n = self.inner.write(buf)?;
+        self.remaining -= n as u64;
+        Ok(n)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.inner.flush()
+    }
+}
+
+fn unpack_tar_gz_bounded(
+    archive: &Path,
+    staging: &Path,
+    max_bytes: u64,
+    max_entries: usize,
+) -> Result<(), String> {
+    let write_error = |err: io::Error| locale::words().unpack_failed(&err);
+    let file = StdFile::open(archive).map_err(write_error)?;
+    let stream_cap = max_bytes.saturating_add((max_entries as u64).saturating_mul(2048));
+    let bounded = BoundedReader::new(flate2::read::GzDecoder::new(file), stream_cap);
+    unpack_tar_stripped(tar::Archive::new(bounded), staging, max_bytes, max_entries)
+}
+
+fn unpack_tar_xz_bounded(
+    archive: &Path,
+    staging: &Path,
+    max_bytes: u64,
+    max_entries: usize,
+) -> Result<(), String> {
     let damaged = |err: lzma_rs::error::Error| locale::words().damaged_archive(&err);
     let write_error = |err: io::Error| locale::words().unpack_failed(&err);
     let temp_tar = staging.with_extension("tar");
+    let stream_cap = max_bytes.saturating_add((max_entries as u64).saturating_mul(2048));
     let decompressed = (|| -> Result<(), String> {
         let input = StdFile::open(archive).map_err(write_error)?;
         let mut reader = BufReader::new(input);
         let output = StdFile::create(&temp_tar).map_err(write_error)?;
-        let mut writer = BufWriter::new(output);
+        let mut writer = BoundedWriter::new(BufWriter::new(output), stream_cap);
         lzma_rs::xz_decompress(&mut reader, &mut writer).map_err(damaged)?;
         io::Write::flush(&mut writer).map_err(write_error)
     })();
@@ -868,7 +968,9 @@ fn unpack_tar_xz(archive: &Path, staging: &Path) -> Result<(), String> {
     }
     let result = StdFile::open(&temp_tar)
         .map_err(write_error)
-        .and_then(|tar_file| unpack_tar_stripped(tar::Archive::new(tar_file), staging));
+        .and_then(|tar_file| {
+            unpack_tar_stripped(tar::Archive::new(tar_file), staging, max_bytes, max_entries)
+        });
     let _ = std_fs::remove_file(&temp_tar);
     result
 }
@@ -879,15 +981,24 @@ fn unpack_tar_xz(archive: &Path, staging: &Path) -> Result<(), String> {
 fn unpack_tar_stripped<R: io::Read>(
     mut archive: tar::Archive<R>,
     staging: &Path,
+    max_bytes: u64,
+    max_entries: usize,
 ) -> Result<(), String> {
     use std::path::Component;
 
     let damaged = |err: io::Error| locale::words().damaged_archive(&err);
+    let damaged_msg = |msg: &str| locale::words().damaged_archive(&msg);
     let write_error = |err: io::Error| locale::words().unpack_failed(&err);
     std_fs::create_dir(staging).map_err(write_error)?;
     let entries = archive.entries().map_err(damaged)?;
     let mut top: Option<OsString> = None;
+    let mut count = 0_usize;
+    let mut total_bytes = 0_u64;
     for entry in entries {
+        count += 1;
+        if count > max_entries {
+            return Err(damaged_msg("archive exceeds maximum entry count"));
+        }
         let mut entry = entry.map_err(damaged)?;
         let path = entry.path().map_err(damaged)?.into_owned();
         let unsupported = || locale::words().unsupported_entry(&path);
@@ -911,9 +1022,14 @@ fn unpack_tar_stripped<R: io::Read>(
         if kind.is_dir() {
             std_fs::create_dir_all(&target).map_err(write_error)?;
         } else if kind.is_file() && target != staging {
+            total_bytes = total_bytes.saturating_add(entry.size());
+            if total_bytes > max_bytes {
+                return Err(damaged_msg("archive exceeds maximum unpacked size"));
+            }
             if let Some(parent) = target.parent() {
                 std_fs::create_dir_all(parent).map_err(write_error)?;
             }
+            entry.set_mask(0o022);
             entry.unpack(&target).map_err(write_error)?;
         } else {
             return Err(unsupported());
@@ -925,17 +1041,31 @@ fn unpack_tar_stripped<R: io::Read>(
 /// Writes the entries of a flat gzip-compressed tar archive directly under `staging`. Accepts
 /// regular files, directories, and plain sibling symlinks (`libgmp.so.10 -> libgmp.so.10.4.1`)
 /// whose target is a single plain file name in the same directory.
-fn unpack_tar_gz_flat(archive: &Path, staging: &Path) -> Result<(), String> {
+fn unpack_tar_gz_flat_bounded(
+    archive: &Path,
+    staging: &Path,
+    max_bytes: u64,
+    max_entries: usize,
+) -> Result<(), String> {
     use std::os::unix::fs as unix_fs;
     use std::path::Component;
 
     let damaged = |err: io::Error| locale::words().damaged_archive(&err);
+    let damaged_msg = |msg: &str| locale::words().damaged_archive(&msg);
     let write_error = |err: io::Error| locale::words().unpack_failed(&err);
     let file = StdFile::open(archive).map_err(write_error)?;
-    let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(file));
+    let stream_cap = max_bytes.saturating_add((max_entries as u64).saturating_mul(2048));
+    let bounded = BoundedReader::new(flate2::read::GzDecoder::new(file), stream_cap);
+    let mut archive = tar::Archive::new(bounded);
     std_fs::create_dir(staging).map_err(write_error)?;
     let entries = archive.entries().map_err(damaged)?;
+    let mut count = 0_usize;
+    let mut total_bytes = 0_u64;
     for entry in entries {
+        count += 1;
+        if count > max_entries {
+            return Err(damaged_msg("archive exceeds maximum entry count"));
+        }
         let mut entry = entry.map_err(damaged)?;
         let path = entry.path().map_err(damaged)?.into_owned();
         let unsupported = || locale::words().unsupported_entry(&path);
@@ -955,9 +1085,14 @@ fn unpack_tar_gz_flat(archive: &Path, staging: &Path) -> Result<(), String> {
         if kind.is_dir() {
             std_fs::create_dir_all(&target).map_err(write_error)?;
         } else if kind.is_file() && saw_any {
+            total_bytes = total_bytes.saturating_add(entry.size());
+            if total_bytes > max_bytes {
+                return Err(damaged_msg("archive exceeds maximum unpacked size"));
+            }
             if let Some(parent) = target.parent() {
                 std_fs::create_dir_all(parent).map_err(write_error)?;
             }
+            entry.set_mask(0o022);
             entry.unpack(&target).map_err(write_error)?;
         } else if kind.is_symlink() && saw_any {
             let link = entry
@@ -982,7 +1117,12 @@ fn unpack_tar_gz_flat(archive: &Path, staging: &Path) -> Result<(), String> {
 
 /// Unpacks a standard 32-bit ZIP archive with one top-level directory into `staging`, verifying
 /// every entry's CRC-32 and uncompressed size.
-fn unpack_zip(archive: &Path, staging: &Path) -> Result<(), String> {
+fn unpack_zip_bounded(
+    archive: &Path,
+    staging: &Path,
+    max_bytes: u64,
+    max_entries: usize,
+) -> Result<(), String> {
     use std::io::Read;
     use std::os::unix::fs::PermissionsExt;
     use std::path::Component;
@@ -992,6 +1132,9 @@ fn unpack_zip(archive: &Path, staging: &Path) -> Result<(), String> {
     let bytes = std_fs::read(archive).map_err(write_error)?;
     let eocd = find_zip_eocd(&bytes).ok_or_else(|| damaged_msg("missing ZIP central directory"))?;
     let total_entries = usize::from(read_u16_le(&bytes, eocd + 10)?);
+    if total_entries > max_entries {
+        return Err(damaged_msg("archive exceeds maximum entry count"));
+    }
     let cd_size = usize::try_from(read_u32_le(&bytes, eocd + 12)?)
         .map_err(|_| damaged_msg("central directory size overflow"))?;
     let cd_offset = usize::try_from(read_u32_le(&bytes, eocd + 16)?)
@@ -1004,6 +1147,7 @@ fn unpack_zip(archive: &Path, staging: &Path) -> Result<(), String> {
     std_fs::create_dir(staging).map_err(write_error)?;
     let mut top: Option<OsString> = None;
     let mut cursor = cd_offset;
+    let mut total_unpacked = 0_u64;
     for _ in 0..total_entries {
         if cursor + 46 > cd_end || read_u32_le(&bytes, cursor)? != 0x0201_4b50 {
             return Err(damaged_msg("invalid central directory file header"));
@@ -1013,6 +1157,10 @@ fn unpack_zip(archive: &Path, staging: &Path) -> Result<(), String> {
         let comp_size = usize::try_from(read_u32_le(&bytes, cursor + 20)?)
             .map_err(|_| damaged_msg("compressed size overflow"))?;
         let uncomp_size = u64::from(read_u32_le(&bytes, cursor + 24)?);
+        total_unpacked = total_unpacked.saturating_add(uncomp_size);
+        if total_unpacked > max_bytes {
+            return Err(damaged_msg("archive exceeds maximum unpacked size"));
+        }
         let name_len = usize::from(read_u16_le(&bytes, cursor + 28)?);
         let extra_len = usize::from(read_u16_le(&bytes, cursor + 30)?);
         let comment_len = usize::from(read_u16_le(&bytes, cursor + 32)?);
@@ -1152,4 +1300,35 @@ fn read_u32_le(bytes: &[u8], offset: usize) -> Result<u32, String> {
         .get(offset..offset + 4)
         .ok_or_else(|| locale::words().damaged_archive(&"unexpected end of ZIP"))?;
     Ok(u32::from_le_bytes([slice[0], slice[1], slice[2], slice[3]]))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io;
+    use std::io::Read as _;
+    use std::io::Write as _;
+
+    #[test]
+    fn bounded_reader_and_writer_abort_streaming_decompression_past_limit() {
+        let payload = vec![0xaa_u8; 64 * 1024];
+
+        let mut xz_bytes = Vec::new();
+        lzma_rs::xz_compress(&mut io::Cursor::new(&payload), &mut xz_bytes).expect("xz");
+        let mut xz_out = super::BoundedWriter::new(Vec::new(), 4096);
+        let xz_res = lzma_rs::xz_decompress(&mut io::Cursor::new(&xz_bytes), &mut xz_out);
+        assert!(xz_res.is_err(), "oversized xz stream must abort early");
+        assert!(xz_out.inner.len() <= 4096);
+
+        let mut gz_enc = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        gz_enc.write_all(&payload).expect("gz write");
+        let gz_bytes = gz_enc.finish().expect("gz finish");
+        let mut gz_dec = super::BoundedReader::new(
+            flate2::read::GzDecoder::new(io::Cursor::new(&gz_bytes)),
+            4096,
+        );
+        let mut sink = Vec::new();
+        let gz_res = gz_dec.read_to_end(&mut sink);
+        assert!(gz_res.is_err(), "oversized gzip stream must abort early");
+        assert!(sink.len() <= 4096);
+    }
 }
