@@ -596,6 +596,18 @@ fn ratatui_test_backend_renders_configure_running_and_results_across_sizes() {
 
     let _ = session.handle_key(press(KeyCode::Char('f')));
     assert_eq!(session.results.as_ref().unwrap().format, Format::Json);
+    let json_sections: Vec<&str> = session
+        .results
+        .as_ref()
+        .unwrap()
+        .sections
+        .iter()
+        .map(|sec| sec.title.as_str())
+        .collect();
+    assert_eq!(
+        json_sections,
+        ["Top / Overview", "system", "runs", "summary"]
+    );
 
     let _ = session.handle_key(press(KeyCode::Char('s')));
     assert!(session.editor.is_some());
