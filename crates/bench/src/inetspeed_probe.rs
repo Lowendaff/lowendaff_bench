@@ -48,7 +48,9 @@ pub async fn resolve_system(
     let clean = host.trim_matches(['[', ']']);
     let parsed_ip: Result<IpAddr, _> = clean.parse();
     if let Ok(ip) = parsed_ip {
-        return if (ip.is_ipv4() && families.ipv4) || (ip.is_ipv6() && families.ipv6) {
+        let allowed = ((ip.is_ipv4() && families.ipv4) || (ip.is_ipv6() && families.ipv6))
+            && bench_api::is_routable_endpoint_ip(ip);
+        return if allowed {
             Ok(vec![ip])
         } else {
             Err(NetError::NoAddress)
@@ -64,6 +66,9 @@ pub async fn resolve_system(
     let mut v4 = Vec::new();
     let mut v6 = Vec::new();
     for addr in resolved {
+        if !bench_api::is_routable_endpoint_ip(addr.ip()) {
+            continue;
+        }
         match addr.ip() {
             IpAddr::V4(ip) if families.ipv4 => {
                 let ip = IpAddr::V4(ip);
