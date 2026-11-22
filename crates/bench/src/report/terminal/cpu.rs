@@ -711,6 +711,14 @@ fn first_to_go_note(adjustment: &Adjustment) -> Option<String> {
 }
 
 fn tenths(bytes: u64) -> String {
-    let tenths = bytes * 10 / GIB;
+    let tenths = u128::from(bytes) * 10 / u128::from(GIB);
     format!("{}.{}", tenths / 10, tenths % 10)
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn tenths_handles_u64_max_without_overflow() {
+        assert_eq!(super::tenths(u64::MAX), "17179869183.9");
+    }
 }

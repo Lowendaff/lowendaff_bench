@@ -70,14 +70,17 @@ pub fn swap_unused(root: &Root) -> bool {
 /// The runners measured 3.6 GiB with 4 threads and about 1.3 GiB with one.
 #[must_use]
 pub fn need(threads: usize) -> u64 {
-    (1 + threads as u64) * GIB
+    u64::try_from(threads)
+        .unwrap_or(u64::MAX)
+        .saturating_add(1)
+        .saturating_mul(GIB)
 }
 
 /// Available memory and free swap; in a cgroup with a memory limit, at most the limit minus
 /// the usage.
 #[must_use]
 pub fn available(memory: &Memory, limits: Option<&CgroupLimits>) -> u64 {
-    let host = memory.available + memory.swap_free;
+    let host = memory.available.saturating_add(memory.swap_free);
     let left = limits.and_then(|limits| Some(limits.memory?.saturating_sub(limits.memory_used?)));
     left.map_or(host, |left| host.min(left))
 }
@@ -126,4 +129,22 @@ pub fn oom_kills(root: &Root) -> Option<u64> {
         .trim()
         .parse()
         .ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use bench_host::memory::Memory;
+
+    #[test]
+    fn need_and_available_saturate_on_extreme_inputs() {
+        assert_eq!(super::need(usize::MAX), u64::MAX);
+        let mem = Memory {
+            total: u64::MAX,
+            available: u64::MAX,
+            estimated: false,
+            swap_total: u64::MAX,
+            swap_free: u64::MAX,
+        };
+        assert_eq!(super::available(&mem, None), u64::MAX);
+    }
 }
