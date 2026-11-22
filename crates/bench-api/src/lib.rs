@@ -238,6 +238,92 @@ pub enum FileSource {
     Path(PathBuf),
 }
 
+/// Validates an `https://` endpoint URL or a loopback `http://127.0.0.1` / `http://[::1]` test
+/// override, rejecting credentials (`@`), query strings (`?`), fragments (`#`), backslashes,
+/// control characters, empty or malformed hosts, and invalid ports. When `strip_trailing_slash` is
+/// `true`, trailing `/` characters after a valid authority are removed.
+#[must_use]
+pub fn validate_endpoint_url(raw: &str, strip_trailing_slash: bool) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty()
+        || trimmed
+            .bytes()
+            .any(|b| b <= b' ' || b == 0x7f || matches!(b, b'?' | b'#' | b'\\' | b'@'))
+    {
+        return None;
+    }
+    let (scheme, after_scheme) = trimmed.split_once("://")?;
+    if scheme != "https" && scheme != "http" {
+        return None;
+    }
+    let authority = after_scheme.split('/').next().unwrap_or_default();
+    if !is_valid_authority(authority, scheme == "http") {
+        return None;
+    }
+    let normalized = if strip_trailing_slash {
+        trimmed.trim_end_matches('/')
+    } else {
+        trimmed
+    };
+    Some(normalized.to_owned())
+}
+
+fn is_valid_authority(authority: &str, loopback_only: bool) -> bool {
+    if authority.is_empty() {
+        return false;
+    }
+    if let Some(rest) = authority.strip_prefix('[') {
+        let Some((v6_text, port_rest)) = rest.split_once(']') else {
+            return false;
+        };
+        if !is_valid_port_suffix(port_rest) {
+            return false;
+        }
+        let Ok(v6) = v6_text.parse::<std::net::Ipv6Addr>() else {
+            return false;
+        };
+        return !loopback_only || (v6 == std::net::Ipv6Addr::LOCALHOST && v6_text == "::1");
+    }
+    if authority.contains(']') {
+        return false;
+    }
+    let (host, port_rest) = match authority.find(':') {
+        Some(idx) => (&authority[..idx], &authority[idx..]),
+        None => (authority, ""),
+    };
+    if host.is_empty() || !is_valid_port_suffix(port_rest) {
+        return false;
+    }
+    if loopback_only {
+        return host == "127.0.0.1";
+    }
+    if host.parse::<Ipv4Addr>().is_ok() {
+        return true;
+    }
+    (1..=253).contains(&host.len())
+        && host.split('.').all(|label| {
+            (1..=63).contains(&label.len())
+                && !label.starts_with('-')
+                && !label.ends_with('-')
+                && label
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'-')
+        })
+}
+
+fn is_valid_port_suffix(port_rest: &str) -> bool {
+    if port_rest.is_empty() {
+        return true;
+    }
+    let Some(digits) = port_rest.strip_prefix(':') else {
+        return false;
+    };
+    !digits.is_empty()
+        && !digits.starts_with('0')
+        && digits.bytes().all(|b| b.is_ascii_digit())
+        && digits.parse::<u16>().is_ok_and(|port| port > 0)
+}
+
 /// Static facts about a plugin type.
 #[derive(Debug, Clone, Copy)]
 pub struct Descriptor {

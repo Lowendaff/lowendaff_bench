@@ -110,15 +110,8 @@ impl Plugin for Quality {
 /// Validates `base_url`: accepts `https://...` or loopback `http://127.0.0.1` / `http://[::1]`.
 #[must_use = "returns the validated base URL or the failure reason"]
 pub fn validate_base_url(raw: &str) -> Result<String, Failure> {
-    let trimmed = raw.trim().trim_end_matches('/');
-    let valid = trimmed.starts_with("https://")
-        || is_loopback_http(trimmed, "http://127.0.0.1")
-        || is_loopback_http(trimmed, "http://[::1]");
-    if valid && trimmed.len() > "https://".len() {
-        Ok(trimmed.to_owned())
-    } else {
-        Err(Failure::InvalidEndpoint(raw.to_owned()))
-    }
+    bench_api::validate_endpoint_url(raw, true)
+        .ok_or_else(|| Failure::InvalidEndpoint(raw.to_owned()))
 }
 
 /// Validates a socket override, allowing loopback addresses (`127.0.0.0/8` or `::1`) with a
@@ -133,11 +126,4 @@ pub fn validate_loopback_socket(raw: &str) -> Result<SocketAddr, Failure> {
     } else {
         Err(Failure::InvalidEndpoint(raw.to_owned()))
     }
-}
-
-fn is_loopback_http(url: &str, prefix: &str) -> bool {
-    let Some(rest) = url.strip_prefix(prefix) else {
-        return false;
-    };
-    rest.is_empty() || rest.starts_with(':') || rest.starts_with('/')
 }
