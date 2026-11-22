@@ -78,6 +78,8 @@ jobs:
             --max-time 60 --retry 3 --max-filesize 65536 \
             --output "$RUNNER_TEMP/taier-snapshot.json" \
             "https://raw.githubusercontent.com/Lowendaff/bench_data/$data_sha/servers/taier.json"
+          BENCH_DATA_REF="$data_sha" \
+            cargo test -p bench --test lists --locked -- --ignored
           BENCH_TAIER_SNAPSHOT_PATH="$RUNNER_TEMP/taier-snapshot.json" \
             cargo build --release --locked --target "$TARGET" --bin lowendaff-bench
           bin="target/$TARGET/release/lowendaff-bench"
