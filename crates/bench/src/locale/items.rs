@@ -720,6 +720,33 @@ pub enum BgpField {
     Upstreams,
 }
 
+/// Typed `network.bgp` query or parser failure passed to [`BgpWords`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BgpIssueRef<'a> {
+    /// API host has no DNS address for this IP family.
+    NoAddress,
+    /// HTTP probe timed out.
+    TimedOut,
+    /// Redirect hop cap exceeded.
+    TooManyRedirects,
+    /// Redirect target was malformed or unsafe.
+    InvalidRedirect(&'a str),
+    /// Non-HTTPS endpoint rejected.
+    NotHttps(&'a str),
+    /// Underlying HTTP/TLS/TCP transport error.
+    Transport(&'a str),
+    /// Non-200 HTTP status returned by `bgp-state`.
+    HttpStatus(u16),
+    /// Malformed JSON payload returned by `bgp-state`.
+    InvalidJson(&'a str),
+    /// Non-`ok` envelope `status` field returned by `bgp-state`.
+    ApiStatus(&'a str),
+    /// Envelope lacked a `data` object.
+    MissingData,
+    /// No family returned BGP data.
+    NoData,
+}
+
 /// BGP path topology words (`network.bgp`).
 pub trait BgpWords {
     /// Method line at the top of `[BGP paths]`.
@@ -747,6 +774,16 @@ pub trait BgpWords {
     fn bgp_paths_title(&self, ipv6: bool) -> &'static str;
     /// Headers of the observed paths table (`["Peers", "Hops", "AS_PATH"]`).
     fn bgp_paths_headers(&self) -> [&'static str; 3];
+    /// Renders a [`BgpIssueRef`] lookup or parser failure in the catalog's language.
+    fn bgp_issue(&self, issue: BgpIssueRef<'_>) -> String;
+    /// HTTP status + message returned by the topology image host.
+    fn bgp_upload_http_error(&self, status: u16, reason: &str) -> String;
+    /// Malformed JSON returned by the topology image host.
+    fn bgp_upload_invalid_json(&self) -> String;
+    /// Generic rejection when the topology image host returned `success: false` without a message.
+    fn bgp_upload_rejected(&self) -> String;
+    /// Response from the topology image host lacked a safe `imageKey`.
+    fn bgp_upload_missing_key(&self) -> String;
     /// Per-family note when topology image upload failed in `text` mode.
     fn bgp_upload_failed(&self, ipv6: bool, reason: &str) -> String;
     /// Per-family note when one family's BGP lookup failed.
@@ -833,6 +870,26 @@ pub enum TaierRule {
     DuplicateEndpoint,
 }
 
+/// Syntax problem in a `--taier` target selector passed to [`TaierWords`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TaierSelectorProblem<'a> {
+    /// Selector string was empty or whitespace-only.
+    Empty,
+    /// Malformed `<place>` or multiple `:` / `/` separators.
+    Format(&'a str),
+    /// Missing `<place>` before `:`.
+    EmptyPlace(&'a str),
+    /// Empty carrier list or trailing `+` after `:`.
+    EmptyOperators(&'a str),
+    /// Unknown carrier token after `:`.
+    UnknownOperator {
+        /// Original selector token.
+        selector: &'a str,
+        /// Unrecognized carrier part.
+        operator: &'a str,
+    },
+}
+
 /// China carrier speed's words (`network.taier`).
 pub trait TaierWords {
     /// Method line at the top of `[China carrier speed]`.
@@ -853,6 +910,22 @@ pub trait TaierWords {
     fn taier_node_failed(&self, place: &str, operator: &str, reason: &str) -> String;
     /// Failure/skip reason when the Taier server list cannot be used.
     fn taier_list_problem(&self, problem: TaierListProblem<'_>) -> String;
+    /// Syntax error message for a malformed `<place>[:<op>[+<op>...]]` selector.
+    fn taier_selector_problem(&self, problem: TaierSelectorProblem<'_>) -> String;
+    /// Top summary line of `--taier-list` overview.
+    fn taier_catalog_header(&self, regions: usize, locations: usize) -> String;
+    /// Carrier short-code legend line of `--taier-list` overview.
+    fn taier_catalog_carriers_legend(&self) -> &'static str;
+    /// Region kind label (`municipality`, `province`, or `overseas`) in `--taier-list`.
+    fn taier_region_kind(&self, code: &str) -> &'static str;
+    /// Column headers of `--taier-list` overview table.
+    fn taier_catalog_overview_headers(&self) -> [&'static str; 5];
+    /// Footer hint of `--taier-list` overview.
+    fn taier_catalog_footer_hint(&self) -> &'static str;
+    /// Heading line of a region section in `--taier-list <REGION>`.
+    fn taier_catalog_region_heading(&self, name: &str, municipality: bool, count: usize) -> String;
+    /// Column headers of a region's city table in `--taier-list <REGION>`.
+    fn taier_catalog_city_headers(&self) -> [&'static str; 3];
     /// Skip reason when no `(location, operator)` slot matched the selection.
     fn taier_no_node(&self, unknown: &[String]) -> String;
     /// Failure reason when every attempted `(location, operator)` slot failed.

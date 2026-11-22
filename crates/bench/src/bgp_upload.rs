@@ -278,6 +278,7 @@ pub fn origin_of(endpoint: &str) -> &str {
 
 /// Parses an `imageupload.app` JSON response into a validated `{origin}/i/{imageKey}` link.
 pub fn parse_response(status: u16, body: &[u8], origin: &str) -> Result<String, String> {
+    let words = locale::words();
     let parsed: Option<UploadEnvelope> = serde_json::from_slice(body).ok();
     if !(200..300).contains(&status) {
         if let Some(env) = parsed
@@ -288,13 +289,13 @@ pub fn parse_response(status: u16, body: &[u8], origin: &str) -> Result<String, 
                 .map(sanitize_reason)
                 .filter(|s| !s.is_empty())
         {
-            return Err(format!("HTTP {status}: {msg}"));
+            return Err(words.bgp_upload_http_error(status, &msg));
         }
-        return Err(locale::words().http_status(status));
+        return Err(words.http_status(status));
     }
 
     let Some(env) = parsed else {
-        return Err("invalid JSON response".to_owned());
+        return Err(words.bgp_upload_invalid_json());
     };
     if env.success == Some(false) {
         let why = env
@@ -303,7 +304,7 @@ pub fn parse_response(status: u16, body: &[u8], origin: &str) -> Result<String, 
             .or(env.message.as_deref())
             .map(sanitize_reason)
             .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| "upload rejected".to_owned());
+            .unwrap_or_else(|| words.bgp_upload_rejected());
         return Err(why);
     }
 
@@ -324,7 +325,7 @@ pub fn parse_response(status: u16, body: &[u8], origin: &str) -> Result<String, 
         return Ok(format!("{base}/i/{key}"));
     }
 
-    Err("response missing valid imageKey".to_owned())
+    Err(words.bgp_upload_missing_key())
 }
 
 fn is_safe_key(key: &str) -> bool {

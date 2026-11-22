@@ -1340,7 +1340,8 @@ impl TuiConfig {
                     let parts = split_csv(trimmed);
                     let mut normalized = Vec::with_capacity(parts.len());
                     for part in &parts {
-                        let parsed = TaierSelector::try_new(part).map_err(|err| err.to_string())?;
+                        let parsed = TaierSelector::try_new(part)
+                            .map_err(|err| app::format_taier_selector_error(&err))?;
                         normalized.push(parsed.to_string());
                     }
                     let joined = normalized.join(",");

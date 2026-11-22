@@ -44,6 +44,7 @@ use super::Out;
 use super::tool;
 use crate::locale;
 use crate::locale::BgpField;
+use crate::locale::BgpIssueRef;
 use crate::locale::CloudflareChoice;
 use crate::locale::CloudflareField;
 use crate::locale::CloudflareIssueRef;
@@ -641,8 +642,13 @@ pub(super) fn bgp(
             out.field(&sub, &words.note(), &words.bgp_upload_failed(*ipv6, reason));
         }
     }
-    for (ipv6, reason) in &output.notes {
-        out.field(&sub, &words.note(), &words.bgp_family_failed(*ipv6, reason));
+    for (ipv6, err) in &output.notes {
+        let reason = format_bgp_query_error(err);
+        out.field(
+            &sub,
+            &words.note(),
+            &words.bgp_family_failed(*ipv6, &reason),
+        );
     }
 }
 
@@ -786,9 +792,28 @@ pub(super) fn bgp_failure(failure: &bgp::Failure) -> String {
         bgp::Failure::InvalidEndpoint(raw) => words.ip_invalid_endpoint(raw),
         bgp::Failure::NoFamily => words.no_family(),
         bgp::Failure::NoPublicAddress => words.ip_no_public_address(),
-        bgp::Failure::QueryFailed(reason) => words.bgp_query_failed(reason),
+        bgp::Failure::QueryFailed(err) => words.bgp_query_failed(&format_bgp_query_error(err)),
         bgp::Failure::Cancelled => words.interrupted(),
     }
+}
+
+fn format_bgp_query_error(err: &bgp::result::QueryError) -> String {
+    use bgp::result::QueryError as E;
+
+    let issue = match err {
+        E::NoAddress => BgpIssueRef::NoAddress,
+        E::TimedOut => BgpIssueRef::TimedOut,
+        E::TooManyRedirects => BgpIssueRef::TooManyRedirects,
+        E::InvalidRedirect(why) => BgpIssueRef::InvalidRedirect(why),
+        E::NotHttps(why) => BgpIssueRef::NotHttps(why),
+        E::Transport(why) => BgpIssueRef::Transport(why),
+        E::HttpStatus(status) => BgpIssueRef::HttpStatus(*status),
+        E::InvalidJson(why) => BgpIssueRef::InvalidJson(why),
+        E::ApiStatus(status) => BgpIssueRef::ApiStatus(status),
+        E::MissingData => BgpIssueRef::MissingData,
+        E::NoData => BgpIssueRef::NoData,
+    };
+    locale::words().bgp_issue(issue)
 }
 
 /// Cloudflare speed (`network.cloudflare`): method line, IPv4 / IPv6 side-by-side summary table

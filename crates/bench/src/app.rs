@@ -29,6 +29,7 @@ use plugin_network::inetspeed::Inetspeed;
 use plugin_network::iperf3::Iperf3;
 use plugin_network::taier;
 use plugin_network::taier::Selector as TaierSelector;
+use plugin_network::taier::SelectorError as TaierSelectorError;
 use plugin_network::taier::Taier;
 use plugin_network::taier::nodes::Location as TaierLocation;
 use plugin_network::trace::Trace;
@@ -43,6 +44,7 @@ use crate::fetcher::Socks5Proxy;
 use crate::locale;
 use crate::locale::TaierListProblem;
 use crate::locale::TaierRule;
+use crate::locale::TaierSelectorProblem;
 use crate::netprobe::NetProbers;
 use crate::orchestrator;
 use crate::orchestrator::Observer;
@@ -469,7 +471,7 @@ pub fn prepare(cli: &Cli, registry: &[Entry]) -> Result<Vec<Planned<Measured>>, 
     }
     for raw_sel in &cli.taier {
         if let Err(err) = TaierSelector::try_new(raw_sel) {
-            errors.push(err.to_string());
+            errors.push(format_taier_selector_error(&err));
         }
     }
     if !cli.taier.is_empty() || !cli.taier_cities.is_empty() || !cli.taier_operators.is_empty() {
@@ -728,33 +730,46 @@ fn parse_taier_locations(buf: &[u8]) -> Result<Vec<TaierLocation>, String> {
     })
 }
 
+/// Formats a [`TaierSelectorError`] through the active [`locale`] catalog.
+#[must_use]
+pub fn format_taier_selector_error(err: &TaierSelectorError) -> String {
+    let problem = match err {
+        TaierSelectorError::Empty => TaierSelectorProblem::Empty,
+        TaierSelectorError::Format(raw) => TaierSelectorProblem::Format(raw),
+        TaierSelectorError::EmptyPlace(raw) => TaierSelectorProblem::EmptyPlace(raw),
+        TaierSelectorError::EmptyOperators(raw) => TaierSelectorProblem::EmptyOperators(raw),
+        TaierSelectorError::UnknownOperator { selector, operator } => {
+            TaierSelectorProblem::UnknownOperator { selector, operator }
+        }
+    };
+    locale::words().taier_selector_problem(problem)
+}
+
 /// Formats `--taier-list [PROVINCE]` output from validated `locations`.
 pub fn format_taier_list(
     locations: &[TaierLocation],
     filter: &str,
     out: &mut impl Write,
 ) -> Result<(), String> {
+    let words = locale::words();
     let regions = tui::taier_picker::build_regions(locations);
     let trimmed = filter.trim();
     if trimmed.is_empty() {
         let _ = writeln!(
             out,
-            "China carrier speed (network.taier): {} regions, {} locations",
-            regions.len(),
-            locations.len()
+            "{}",
+            words.taier_catalog_header(regions.len(), locations.len())
         );
-        let _ = writeln!(
-            out,
-            "Carriers: ct = Telecom, cu = Unicom, cm = Mobile, edu = CERNET, \
-             cbn = Broadnet, other = Other\n"
-        );
+        let _ = writeln!(out, "{}\n", words.taier_catalog_carriers_legend());
+        let headers = words.taier_catalog_overview_headers();
         let mut rows = Vec::with_capacity(regions.len());
         for reg in &regions {
-            let kind = match reg.kind {
+            let kind_code = match reg.kind {
                 RegionKind::Municipality => "municipality",
                 RegionKind::Province => "province",
                 RegionKind::Overseas => "overseas",
             };
+            let kind = words.taier_region_kind(kind_code);
             let ops: Vec<&str> = reg.operators.iter().map(|op| op.short_code()).collect();
             let example = match reg.kind {
                 RegionKind::Municipality => {
@@ -783,52 +798,72 @@ pub fn format_taier_list(
                 example,
             ));
         }
-        let w_reg = rows.iter().map(|r| r.0.len()).max().unwrap_or(6).max(6);
-        let w_kind = rows.iter().map(|r| r.1.len()).max().unwrap_or(4).max(4);
-        let w_cities = rows.iter().map(|r| r.2.len()).max().unwrap_or(6).max(6);
-        let w_ops = rows.iter().map(|r| r.3.len()).max().unwrap_or(8).max(8);
+        let w_reg = rows
+            .iter()
+            .map(|r| display_width(r.0))
+            .max()
+            .unwrap_or(0)
+            .max(display_width(headers[0]));
+        let w_kind = rows
+            .iter()
+            .map(|r| display_width(r.1))
+            .max()
+            .unwrap_or(0)
+            .max(display_width(headers[1]));
+        let w_cities = rows
+            .iter()
+            .map(|r| display_width(&r.2))
+            .max()
+            .unwrap_or(0)
+            .max(display_width(headers[2]));
+        let w_ops = rows
+            .iter()
+            .map(|r| display_width(&r.3))
+            .max()
+            .unwrap_or(0)
+            .max(display_width(headers[3]));
         let _ = writeln!(
             out,
-            "{:<w_reg$}  {:<w_kind$}  {:>w_cities$}  {:<w_ops$}  Example --taier selector",
-            "Region", "Type", "Cities", "Carriers"
+            "{}  {}  {}  {}  {}",
+            pad_right(headers[0], w_reg),
+            pad_right(headers[1], w_kind),
+            pad_left(headers[2], w_cities),
+            pad_right(headers[3], w_ops),
+            headers[4]
         );
         for (name, kind, cities, ops, example) in rows {
             let _ = writeln!(
                 out,
-                "{name:<w_reg$}  {kind:<w_kind$}  {cities:>w_cities$}  {ops:<w_ops$}  {example}"
+                "{}  {}  {}  {}  {example}",
+                pad_right(name, w_reg),
+                pad_right(kind, w_kind),
+                pad_left(&cities, w_cities),
+                pad_right(&ops, w_ops),
             );
         }
-        let _ = writeln!(
-            out,
-            "\nPass --taier-list <REGION> (e.g. --taier-list guangdong) to list cities in a region."
-        );
+        let _ = writeln!(out, "\n{}", words.taier_catalog_footer_hint());
         return Ok(());
     }
 
     let matched = filter_taier_regions(&regions, trimmed);
     if matched.is_empty() {
-        return Err(locale::words().taier_unknown_cities(&[trimmed.to_owned()]));
+        return Err(words.taier_unknown_cities(&[trimmed.to_owned()]));
     }
 
+    let city_headers = words.taier_catalog_city_headers();
     for (idx, (reg, cities)) in matched.into_iter().enumerate() {
         if idx > 0 {
             let _ = writeln!(out);
         }
-        let loc_word = if cities.len() == 1 {
-            "location"
-        } else {
-            "locations"
-        };
-        if reg.kind == RegionKind::Municipality {
-            let _ = writeln!(
-                out,
-                "{} (municipality, {} {loc_word}):",
-                reg.name,
+        let _ = writeln!(
+            out,
+            "{}",
+            words.taier_catalog_region_heading(
+                &reg.name,
+                reg.kind == RegionKind::Municipality,
                 cities.len()
-            );
-        } else {
-            let _ = writeln!(out, "{} ({} {loc_word}):", reg.name, cities.len());
-        }
+            )
+        );
         let mut rows = Vec::with_capacity(cities.len());
         for city in cities {
             let selector = if reg.kind == RegionKind::Municipality {
@@ -848,21 +883,51 @@ pub fn format_taier_list(
                 .collect();
             rows.push((selector, city_label, ops_parts.join(", ")));
         }
-        let w_sel = rows.iter().map(|r| r.0.len()).max().unwrap_or(8).max(8);
-        let w_city = rows.iter().map(|r| r.1.len()).max().unwrap_or(4).max(4);
+        let w_sel = rows
+            .iter()
+            .map(|r| display_width(&r.0))
+            .max()
+            .unwrap_or(0)
+            .max(display_width(city_headers[0]));
+        let w_city = rows
+            .iter()
+            .map(|r| display_width(&r.1))
+            .max()
+            .unwrap_or(0)
+            .max(display_width(city_headers[1]));
         let _ = writeln!(
             out,
-            "  {:<w_sel$}  {:<w_city$}  Carriers (candidate nodes)",
-            "Selector", "City"
+            "  {}  {}  {}",
+            pad_right(city_headers[0], w_sel),
+            pad_right(city_headers[1], w_city),
+            city_headers[2]
         );
         for (selector, city_label, ops_text) in rows {
             let _ = writeln!(
                 out,
-                "  {selector:<w_sel$}  {city_label:<w_city$}  {ops_text}"
+                "  {}  {}  {ops_text}",
+                pad_right(&selector, w_sel),
+                pad_right(&city_label, w_city),
             );
         }
     }
     Ok(())
+}
+
+fn display_width(text: &str) -> usize {
+    use unicode_width::UnicodeWidthStr;
+
+    UnicodeWidthStr::width(text)
+}
+
+fn pad_right(text: &str, width: usize) -> String {
+    let pad = width.saturating_sub(display_width(text));
+    format!("{text}{}", " ".repeat(pad))
+}
+
+fn pad_left(text: &str, width: usize) -> String {
+    let pad = width.saturating_sub(display_width(text));
+    format!("{}{text}", " ".repeat(pad))
 }
 
 fn filter_taier_regions<'a>(
