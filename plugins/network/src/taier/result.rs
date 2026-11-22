@@ -42,6 +42,19 @@ impl Operator {
         }
     }
 
+    /// Compact carrier alias used in `<place>:<op>[+<op>...]` selectors and TUI badges.
+    #[must_use]
+    pub const fn short_code(self) -> &'static str {
+        match self {
+            Self::Telecom => "ct",
+            Self::Unicom => "cu",
+            Self::Mobile => "cm",
+            Self::Cernet => "edu",
+            Self::Cbn => "cbn",
+            Self::Other => "other",
+        }
+    }
+
     /// Canonical execution order across carriers.
     pub const ALL: [Self; 6] = [
         Self::Telecom,
@@ -82,6 +95,39 @@ pub enum OperatorChoice {
     All,
 }
 
+impl OperatorChoice {
+    /// Parses a canonical carrier name or short alias (`ct`, `cu`, `cm`, `edu`, `cbn`, `other`,
+    /// `all`), ignoring ASCII case.
+    #[must_use]
+    pub fn parse_token(raw: &str) -> Option<Self> {
+        let lower = raw.trim().to_ascii_lowercase();
+        match lower.as_str() {
+            "telecom" | "ct" => Some(Self::Telecom),
+            "unicom" | "cu" => Some(Self::Unicom),
+            "mobile" | "cm" => Some(Self::Mobile),
+            "cernet" | "edu" => Some(Self::Cernet),
+            "cbn" => Some(Self::Cbn),
+            "other" => Some(Self::Other),
+            "all" => Some(Self::All),
+            _ => None,
+        }
+    }
+
+    /// Compact code written in `<place>:<op>` selector strings.
+    #[must_use]
+    pub const fn short_code(self) -> &'static str {
+        match self {
+            Self::Telecom => "ct",
+            Self::Unicom => "cu",
+            Self::Mobile => "cm",
+            Self::Cernet => "edu",
+            Self::Cbn => "cbn",
+            Self::Other => "other",
+            Self::All => "all",
+        }
+    }
+}
+
 /// Effective measurement parameters recorded in [`Output`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Settings {
@@ -89,6 +135,10 @@ pub struct Settings {
     pub seconds: u16,
     /// Parallel TCP streams per direction (`8` by default).
     pub streams: u8,
+    /// Explicit `<place>[:<op>[+<op>...]]` selectors when `--taier` or the TUI node picker was
+    /// used.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub selections: Vec<String>,
     /// Requested city/province filters (empty when defaults were used).
     pub cities: Vec<String>,
     /// Resolved carrier filter in execution order.

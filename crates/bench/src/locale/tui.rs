@@ -72,10 +72,28 @@ pub trait TuiWords {
     fn tui_field_streams(&self) -> &'static str;
     /// `network.iperf3` field: per-stream bandwidth cap in Mbit/s.
     fn tui_field_rate(&self) -> &'static str;
-    /// `network.taier` field: carrier toggle.
-    fn tui_field_taier_operator(&self, operator: &str) -> String;
-    /// `network.taier` field: city/province filter or `all`.
-    fn tui_field_taier_cities(&self) -> &'static str;
+    /// `network.taier` field: interactive hierarchical node picker action.
+    fn tui_field_taier_browse(&self) -> &'static str;
+    /// `network.taier` field: `<place>[:<op>[+<op>...]]` selector string.
+    fn tui_field_taier_targets(&self) -> &'static str;
+    /// `network.taier` value shown on the interactive picker row.
+    fn tui_taier_browse_value(&self, selections: &str) -> String;
+    /// `network.taier` picker modal title.
+    fn tui_taier_picker_title(&self) -> &'static str;
+    /// `network.taier` picker root breadcrumb label.
+    fn tui_taier_picker_root(&self) -> &'static str;
+    /// `network.taier` picker loading message while fetching `servers/taier.json`.
+    fn tui_taier_picker_loading(&self) -> &'static str;
+    /// `network.taier` picker error retry hint.
+    fn tui_taier_picker_error_hint(&self) -> &'static str;
+    /// `network.taier` picker tip shown when no filter is active.
+    fn tui_taier_picker_tip(&self) -> &'static str;
+    /// `network.taier` picker keybar help.
+    fn tui_taier_picker_keys(&self) -> &'static str;
+    /// `network.taier` picker carrier display name (`China Telecom (ct)`, etc.).
+    fn tui_taier_operator_label(&self, code: &str) -> &'static str;
+    /// `network.taier` picker validation error when 0 slots are selected.
+    fn tui_taier_picker_empty_err(&self) -> String;
     /// `network.cloudflare` field: concurrent HTTP workers.
     fn tui_field_cloudflare_concurrency(&self) -> &'static str;
     /// `network.cloudflare` field: STUN UDP packet-loss probe toggle.

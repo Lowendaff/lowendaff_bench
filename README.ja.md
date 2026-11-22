@@ -65,8 +65,9 @@ sudo ./lowendaff-bench -o report.json -f json
 sudo ./lowendaff-bench --only disk.fio --work-dir /mnt/data
 
 # 9. 地域を絞って測定：日本と米国の速度測定、中国主要キャリア（Taier）速度測定、中国向け経路、アジア圏の配信サービスのみ確認
+./lowendaff-bench --taier-list guangdong
 sudo ./lowendaff-bench --only network.iperf3 --countries JP,US
-sudo ./lowendaff-bench --only network.taier --taier-cities Beijing,Shanghai,Jiangsu --taier-operators telecom,unicom
+sudo ./lowendaff-bench --only network.taier --taier beijing:cu,guangdong/shenzhen:ct+cm,jiangsu:ct
 sudo ./lowendaff-bench --only network.trace --trace-groups china
 sudo ./lowendaff-bench --only ip.media --media-groups global,asia
 
@@ -96,6 +97,8 @@ sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-
 | `--work-dir` | `<ディレクトリ>` | カレント `.` | 一時ファイルの作成先（終了時に自動削除）。測定したいディスクのパスを指定します（`/tmp` は不可） |
 | `--cpu-bench` | `<スイート,...>` | 既定の 6 種 | `cpu.bench` で実行する CPU サブスイートを選びます（`sysbench`、`7zip`、`unixbench`、`hpl`、`passmark`、`ycruncher`、`prime95`、`geekbench`、または `all`） |
 | `--countries` | `<国コード,...>` | 既定の 5 拠点 | `network.iperf3` の測定先を 2 文字の国コード（`JP,US,SG` など）または `all` で絞り込みます |
+| `--taier` | `<セレクタ,...>` | 北京・上海・広州 | `network.taier` の測定先を `<拠点>[:<キャリア>[+<キャリア>...]]` 形式で個別指定します（例：`beijing:cu,guangdong/shenzhen:ct+cm,jiangsu:ct`） |
+| `--taier-list` | `[省名]` | — | `network.taier` の全地域（または指定した省の都市・セレクタ・キャリア数）を表示して終了します（`root` 不要） |
 | `--taier-cities` | `<都市/省,...>` | 北京・上海・広州 | `network.taier` の測定先を都市・省名・拠点 ID（`Beijing,Jiangsu` など）または `all` で絞り込みます |
 | `--taier-operators` | `<キャリア,...>` | `telecom,unicom,mobile` | `network.taier` で測定する通信キャリアを選びます（`telecom`、`unicom`、`mobile`、`cernet`、`cbn`、`other`、または `all`） |
 | `--no-cloudflare-udp` | 値なし | オフ | `network.cloudflare` 内の RFC 5389 STUN UDP パケットロス測定を省略します |
@@ -149,6 +152,7 @@ sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-
 | | `all` | 全 5 地域・合計 68 サービスすべてを確認（既定） |
 | `--countries` | 2 文字の国コード *（例：`JP`, `US`, `DE`, `SG`, `GB`）* | 指定した国の公開 `iperf3` サーバーすべてで速度を測定（大文字・小文字不問） |
 | | `all` | サーバー一覧にあるすべての公開 `iperf3` サーバーで測定 |
+| `--taier` | `<拠点>[:<キャリア>[+<キャリア>...]]` *（例：`beijing:cu`, `guangdong/shenzhen:ct+cm`, `jiangsu:ct`, `all:cm`）* | 直轄市・`省/都市`・省単位でキャリア（`ct`/`cu`/`cm`/`edu`/`cbn`/`other`/`all`）を組み合わせて指定 |
 | `--taier-cities` | 都市・省名・拠点 ID *（例：`Beijing`, `Jiangsu`, `guangdong-shenzhen`）* | 指定した中国本土の CAICT GlobalSpeed（Taier）拠点で速度を測定（大文字・小文字不問） |
 | | `all` | Taier ノード一覧にあるすべての拠点で測定 |
 | `--taier-operators` | `telecom`, `unicom`, `mobile`, `cernet`, `cbn`, `other`, または `all` | CAICT GlobalSpeed の通信キャリアを絞り込みます（既定：`telecom,unicom,mobile`） |

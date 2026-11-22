@@ -28,6 +28,9 @@ fn main() -> ExitCode {
         app::list(&registry, &mut io::stdout());
         return ExitCode::SUCCESS;
     }
+    if let Some(filter) = &cli.taier_list {
+        return run_taier_list(&cli, filter);
+    }
     if !rustix::process::geteuid().is_root() {
         eprintln!("{}", locale::words().not_root());
         return ExitCode::from(app::EXIT_USAGE);
@@ -123,6 +126,39 @@ fn main() -> ExitCode {
         Ok(code) => ExitCode::from(code),
         Err(error) => {
             eprintln!("{error}");
+            ExitCode::from(app::EXIT_USAGE)
+        }
+    }
+}
+
+fn run_taier_list(cli: &Cli, filter: &str) -> ExitCode {
+    let proxy = match app::download_proxy(cli) {
+        Ok(proxy) => proxy,
+        Err(errors) => {
+            for error in errors {
+                eprintln!("{error}");
+            }
+            return ExitCode::from(app::EXIT_USAGE);
+        }
+    };
+    let runtime = match runtime::Builder::new_current_thread().enable_all().build() {
+        Ok(runtime) => runtime,
+        Err(err) => {
+            eprintln!("{}", locale::words().runtime_failed(&err));
+            return ExitCode::from(app::EXIT_USAGE);
+        }
+    };
+    let locations = match runtime.block_on(app::fetch_taier_locations(&proxy)) {
+        Ok(locations) => locations,
+        Err(err) => {
+            eprintln!("{err}");
+            return ExitCode::from(app::EXIT_USAGE);
+        }
+    };
+    match app::format_taier_list(&locations, filter, &mut io::stdout()) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(err) => {
+            eprintln!("{err}");
             ExitCode::from(app::EXIT_USAGE)
         }
     }

@@ -96,6 +96,16 @@ impl ProgramWords for English {
             .to_owned()
     }
 
+    fn help_taier(&self) -> String {
+        "Target selectors for network.taier as <place>[:<op>[+<op>...]] (e.g. \
+         beijing:cu,guangdong/shenzhen:ct+cm,jiangsu:ct,all:cm)"
+            .to_owned()
+    }
+
+    fn help_taier_list(&self) -> String {
+        "List available network.taier regions (or cities in PROVINCE), then exit".to_owned()
+    }
+
     fn help_taier_cities(&self) -> String {
         "Cities, provinces, or location IDs for network.taier (e.g. Beijing,Shanghai,Jiangsu), \
          or all"

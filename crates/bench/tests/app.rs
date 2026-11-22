@@ -1798,6 +1798,77 @@ fn zero_args_selects_tui_flag_is_gone_and_all_runs_full_cli_suite() {
         &all,
     );
     assert!(bad_ep.is_err(), "non-IP --inetspeed-endpoint must fail");
+
+    // Unified --taier selectors and --taier-list parsing & formatting.
+    let ok_taier = app::prepare(
+        &cli(&[
+            "--only",
+            "network.taier",
+            "--taier",
+            "beijing:cu,guangdong/shenzhen:ct+cm,jiangsu",
+            "--taier-operators",
+            "telecom",
+        ]),
+        &all,
+    )
+    .expect("valid --taier selectors");
+    assert_eq!(ok_taier.len(), 1);
+
+    let bad_taier = app::prepare(
+        &cli(&["--only", "network.taier", "--taier", "beijing:invalidop"]),
+        &all,
+    );
+    assert!(bad_taier.is_err(), "invalid --taier carrier must fail");
+
+    let list_all = cli(&["--taier-list", "--github-proxy", "https://ghfast.top/"]);
+    assert_eq!(list_all.taier_list.as_deref(), Some(""));
+    assert_eq!(
+        list_all.github_proxy.as_deref(),
+        Some("https://ghfast.top/")
+    );
+    let list_gd = cli(&["--taier-list", "guangdong"]);
+    assert_eq!(list_gd.taier_list.as_deref(), Some("guangdong"));
+    let list_eq = cli(&["--taier-list=beijing"]);
+    assert_eq!(list_eq.taier_list.as_deref(), Some("beijing"));
+
+    let sample_taier = plugin_network::taier::nodes::parse(
+        br#"{
+            "version": 1,
+            "locations": [
+                {
+                    "id": "beijing",
+                    "province": "Beijing",
+                    "city": "Beijing",
+                    "default": true,
+                    "nodes": [
+                        {"operator": "telecom", "ip": "198.51.100.1", "port": 65499},
+                        {"operator": "cernet", "ip": "198.51.100.2", "port": 65499}
+                    ]
+                },
+                {
+                    "id": "guangdong-shenzhen",
+                    "province": "Guangdong",
+                    "city": "Shenzhen",
+                    "nodes": [
+                        {"operator": "mobile", "ip": "198.51.100.11", "port": 9443},
+                        {"operator": "mobile", "ip": "198.51.100.12", "port": 9443}
+                    ]
+                }
+            ]
+        }"#,
+    )
+    .expect("sample taier list");
+    let mut overview_buf = Vec::new();
+    app::format_taier_list(&sample_taier, "", &mut overview_buf).expect("overview");
+    let overview_str = String::from_utf8(overview_buf).unwrap();
+    assert!(overview_str.contains("Beijing") && overview_str.contains("municipality"));
+    assert!(overview_str.contains("guangdong/shenzhen:cm"));
+
+    let mut gd_buf = Vec::new();
+    app::format_taier_list(&sample_taier, "guangdong", &mut gd_buf).expect("guangdong");
+    let gd_str = String::from_utf8(gd_buf).unwrap();
+    assert!(gd_str.contains("guangdong/shenzhen") && gd_str.contains("cm (2)"));
+    assert!(app::format_taier_list(&sample_taier, "atlantis", &mut Vec::new()).is_err());
 }
 
 #[tokio::test]

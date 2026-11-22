@@ -65,8 +65,9 @@ sudo ./lowendaff-bench -o report.json -f json
 sudo ./lowendaff-bench --only disk.fio --work-dir /mnt/data
 
 # 9. 按地区筛选：只测日本和美国的带宽节点、中国三网泰尔测速节点、三网去程路由或亚洲流媒体
+./lowendaff-bench --taier-list guangdong
 sudo ./lowendaff-bench --only network.iperf3 --countries JP,US
-sudo ./lowendaff-bench --only network.taier --taier-cities Beijing,Shanghai,Jiangsu --taier-operators telecom,unicom
+sudo ./lowendaff-bench --only network.taier --taier beijing:cu,guangdong/shenzhen:ct+cm,jiangsu:ct
 sudo ./lowendaff-bench --only network.trace --trace-groups china
 sudo ./lowendaff-bench --only ip.media --media-groups global,asia
 
@@ -96,6 +97,8 @@ sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-
 | `--work-dir` | `<目录路径>` | 当前目录 `.` | 存放临时测试文件的目录，跑完会自动清理。测哪块盘就指到哪块盘的挂载目录（请避开 `/tmp`） |
 | `--cpu-bench` | `<子套件,...>` | 默认启用 6 项 | 选择 `cpu.bench` 要运行的 CPU 子测试（可选 `sysbench`、`7zip`、`unixbench`、`hpl`、`passmark`、`ycruncher`、`prime95`、`geekbench` 或 `all`） |
 | `--countries` | `<国家代码,...>` | 默认精选节点 | 限制 `network.iperf3` 只测指定国家/地区的节点（如 `JP,SG,US`），填 `all` 测全部节点 |
+| `--taier` | `<选择器,...>` | 北上广 × 三网 | 按 `<地区>[:<运营商>[+<运营商>...]]` 精确组合测速节点（如 `beijing:cu,guangdong/shenzhen:ct+cm,jiangsu:ct,all:cm`） |
+| `--taier-list` | `[省份]` | — | 列出全部泰尔测速省级/直辖市区域（或指定省份下的全部城市、选择器与运营商节点数）后退出（无需 `root`） |
 | `--taier-cities` | `<城市/省份,...>` | 北上广默认节点 | 限制 `network.taier` 仅测指定城市、省份英文名或节点 ID（如 `Beijing,Jiangsu`），填 `all` 测全部节点 |
 | `--taier-operators` | `<运营商,...>` | `telecom,unicom,mobile` | 选择 `network.taier` 要测的运营商（可选 `telecom`、`unicom`、`mobile`、`cernet`、`cbn`、`other` 或 `all`） |
 | `--no-cloudflare-udp` | 无需带值 | 关闭 | 在 `network.cloudflare` 中跳过 RFC 5389 STUN UDP 丢包与抖动探测 |
@@ -149,6 +152,7 @@ sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-
 | | `all` | 一次测完五大区域共 68 个平台（默认） |
 | `--countries` | 两位国家/地区代码 *（如 `US`、`JP`、`DE`、`SG`、`GB`）* | 只连接对应国家/地区的公共 `iperf3` 测速节点（大小写均可） |
 | | `all` | 连接节点列表里的所有可用公共 `iperf3` 服务器 |
+| `--taier` | `<地区>[:<运营商>[+<运营商>...]]` *（如 `beijing:cu`、`guangdong/shenzhen:ct+cm`、`jiangsu:ct`、`all:cm`）* | 按直辖市、`省份/城市` 或全省粒度自由多选运营商（支持简写 `ct`/`cu`/`cm`/`edu`/`cbn`/`other`/`all`） |
 | `--taier-cities` | 城市/省份英文名或节点 ID *（如 `Beijing`、`Jiangsu`、`guangdong-shenzhen`）* | 连接匹配的中国信通院全球网测（泰尔）节点（不区分大小写） |
 | | `all` | 测试泰尔节点列表中的全部可用地区 |
 | `--taier-operators` | `telecom`、`unicom`、`mobile`、`cernet`、`cbn`、`other` 或 `all` | 按运营商筛选泰尔测速节点（默认测试电信、联通、移动三网） |

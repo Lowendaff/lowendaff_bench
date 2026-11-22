@@ -243,6 +243,7 @@ pub(super) fn taier(out: &mut Out, report: &Report<taier::Output, taier::Failure
     let choice = TaierChoice {
         streams: settings.streams,
         seconds: settings.seconds,
+        selections: settings.selections.clone(),
         cities: settings.cities.clone(),
         operators: non_default_ops,
         custom_list: settings.custom_list,

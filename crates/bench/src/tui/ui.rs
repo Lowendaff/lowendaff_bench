@@ -39,6 +39,11 @@ use super::session::ResultsState;
 use super::session::RunningState;
 use super::session::Screen;
 use super::session::Session;
+use super::taier_picker::CheckState;
+use super::taier_picker::PickerLevel;
+use super::taier_picker::RegionKind;
+use super::taier_picker::TaierPicker;
+use super::taier_picker::TaierPickerModal;
 use crate::locale;
 use crate::report_path;
 
@@ -65,6 +70,10 @@ pub fn draw(frame: &mut Frame<'_>, session: &mut Session) {
         Screen::Configure => draw_configure(frame, session, area),
         Screen::Running => draw_running(frame, session, area),
         Screen::Results => draw_results(frame, session, area),
+    }
+
+    if let Some(picker_modal) = &session.taier_picker {
+        draw_taier_picker_modal(frame, picker_modal, area);
     }
 
     if let Some(editor) = &session.editor {
@@ -105,7 +114,8 @@ fn draw_configure(frame: &mut Frame<'_>, session: &Session, area: Rect) {
 
 fn draw_config_left(frame: &mut Frame<'_>, session: &Session, area: Rect) {
     let words = locale::words();
-    let active = session.focus == Pane::Left && session.editor.is_none();
+    let active =
+        session.focus == Pane::Left && session.editor.is_none() && session.taier_picker.is_none();
     let block = pane_block(words.tui_items_pane(), active);
 
     let total = session.nav_len();
@@ -210,7 +220,8 @@ fn draw_config_left(frame: &mut Frame<'_>, session: &Session, area: Rect) {
 
 fn draw_config_right(frame: &mut Frame<'_>, session: &Session, area: Rect) {
     let words = locale::words();
-    let active = session.focus == Pane::Right && session.editor.is_none();
+    let active =
+        session.focus == Pane::Right && session.editor.is_none() && session.taier_picker.is_none();
 
     match session.current_target() {
         NavTarget::Start => {
@@ -812,6 +823,401 @@ fn draw_editor_modal(
                 hint_rect,
             );
         }
+    }
+}
+
+fn draw_taier_picker_modal(frame: &mut Frame<'_>, modal: &TaierPickerModal, area: Rect) {
+    let words = locale::words();
+    match modal {
+        TaierPickerModal::Loading => {
+            let modal_w = area.width.saturating_sub(8).clamp(48, 76).min(area.width);
+            let modal_h = 6_u16.min(area.height);
+            let rect = centered_rect(modal_w, modal_h, area);
+            frame.render_widget(Clear, rect);
+            let block = Block::bordered()
+                .border_type(BorderType::Rounded)
+                .title(format!(" {} ", words.tui_taier_picker_title()))
+                .border_style(
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                );
+            let inner = block.inner(rect).inner(Margin {
+                vertical: 1,
+                horizontal: 1,
+            });
+            frame.render_widget(block, rect);
+            frame.render_widget(
+                Paragraph::new(words.tui_taier_picker_loading())
+                    .style(Style::default().fg(Color::Cyan))
+                    .wrap(Wrap { trim: false }),
+                inner,
+            );
+        }
+        TaierPickerModal::Error(err) => {
+            let modal_w = area.width.saturating_sub(8).clamp(48, 78).min(area.width);
+            let modal_h = 8_u16.min(area.height);
+            let rect = centered_rect(modal_w, modal_h, area);
+            frame.render_widget(Clear, rect);
+            let block = Block::bordered()
+                .border_type(BorderType::Rounded)
+                .title(format!(" {} ", words.tui_taier_picker_title()))
+                .border_style(Style::default().fg(Color::Red).add_modifier(Modifier::BOLD));
+            let inner = block.inner(rect).inner(Margin {
+                vertical: 0,
+                horizontal: 1,
+            });
+            frame.render_widget(block, rect);
+            if inner.height >= 2 {
+                let rows =
+                    Layout::vertical([Constraint::Min(1), Constraint::Length(1)]).split(inner);
+                frame.render_widget(
+                    Paragraph::new(err.as_str())
+                        .style(Style::default().fg(Color::Red))
+                        .wrap(Wrap { trim: false }),
+                    rows[0],
+                );
+                frame.render_widget(
+                    Paragraph::new(words.tui_taier_picker_error_hint())
+                        .style(Style::default().add_modifier(Modifier::BOLD)),
+                    rows[1],
+                );
+            }
+        }
+        TaierPickerModal::Ready(picker) => draw_taier_picker_ready(frame, picker, area),
+    }
+}
+
+fn draw_taier_picker_ready(frame: &mut Frame<'_>, picker: &TaierPicker, area: Rect) {
+    let words = locale::words();
+    let modal_w = area.width.saturating_sub(6).clamp(56, 94).min(area.width);
+    let modal_h = area.height.saturating_sub(3).clamp(14, 28).min(area.height);
+    let rect = centered_rect(modal_w, modal_h, area);
+
+    frame.render_widget(Clear, rect);
+    let block = Block::bordered()
+        .border_type(BorderType::Rounded)
+        .title(format!(" {} ", words.tui_taier_picker_title()))
+        .border_style(
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        );
+    let inner = block.inner(rect);
+    frame.render_widget(block, rect);
+    if inner.width < 10 || inner.height < 6 {
+        return;
+    }
+
+    let padded = inner.inner(Margin {
+        vertical: 0,
+        horizontal: 1,
+    });
+    let sections = Layout::vertical([
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Min(3),
+        Constraint::Length(1),
+        Constraint::Length(1),
+    ])
+    .split(padded);
+
+    // 1. Breadcrumb + selected count & estimated runtime badge.
+    let crumb = picker.breadcrumb();
+    let est_secs = picker.estimated_seconds();
+    let est_text = if est_secs >= 60 {
+        format!("~{}m {:02}s", est_secs / 60, est_secs % 60)
+    } else {
+        format!("~{est_secs}s")
+    };
+    let slot_word = if picker.selected.len() == 1 {
+        "slot"
+    } else {
+        "slots"
+    };
+    let badge = format!("{} {slot_word} ({est_text})", picker.selected.len());
+    let badge_w = u16::try_from(badge.width()).unwrap_or(0);
+    let top_cols =
+        Layout::horizontal([Constraint::Min(0), Constraint::Length(badge_w)]).split(sections[0]);
+    frame.render_widget(
+        Paragraph::new(crumb).style(
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ),
+        top_cols[0],
+    );
+    let badge_color = if picker.selected.is_empty() {
+        Color::Yellow
+    } else {
+        Color::Green
+    };
+    frame.render_widget(
+        Paragraph::new(badge).style(
+            Style::default()
+                .fg(badge_color)
+                .add_modifier(Modifier::BOLD),
+        ),
+        top_cols[1],
+    );
+
+    // 2. Search filter bar or contextual tip.
+    if picker.filtering {
+        let prefix = "Filter: ";
+        let max_q = usize::from(sections[1].width).saturating_sub(prefix.len() + 2);
+        let q_cols = picker.filter.width();
+        let skip = q_cols.saturating_sub(max_q.saturating_sub(1));
+        let shown = slice_columns(&picker.filter, skip, max_q);
+        let line = Line::from(vec![
+            Span::styled(
+                prefix,
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(shown, Style::default().add_modifier(Modifier::BOLD)),
+        ]);
+        frame.render_widget(Paragraph::new(line), sections[1]);
+        let cx =
+            sections[1].x + u16::try_from(prefix.len() + q_cols.saturating_sub(skip)).unwrap_or(0);
+        let cy = sections[1].y;
+        if cx < rect.x + rect.width - 1 && cy < rect.y + rect.height - 1 {
+            frame.set_cursor_position(Position::new(cx, cy));
+        }
+    } else if !picker.filter.is_empty() {
+        let filter_line = format!(
+            "Filter: \"{}\"  (/: edit, Esc: clear)",
+            picker.filter.trim()
+        );
+        frame.render_widget(
+            Paragraph::new(filter_line).style(Style::default().fg(Color::Yellow)),
+            sections[1],
+        );
+    } else {
+        frame.render_widget(
+            Paragraph::new(words.tui_taier_picker_tip())
+                .style(Style::default().add_modifier(Modifier::DIM)),
+            sections[1],
+        );
+    }
+
+    // 3. Hierarchical list for the active level.
+    let (items, cursor) = build_picker_list_items(picker);
+    let total_rows = items.len();
+    if total_rows == 0 {
+        frame.render_widget(
+            Paragraph::new("No matching locations (press Esc to clear filter)")
+                .style(Style::default().add_modifier(Modifier::DIM)),
+            sections[2],
+        );
+    } else {
+        let list = List::new(items)
+            .highlight_style(
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD | Modifier::REVERSED),
+            )
+            .highlight_symbol("> ")
+            .highlight_spacing(HighlightSpacing::Always);
+        let mut state = ListState::default().with_selected(Some(cursor.min(total_rows - 1)));
+        frame.render_stateful_widget(list, sections[2], &mut state);
+
+        let vis_h = usize::from(sections[2].height);
+        if total_rows > vis_h {
+            let mut sb = ScrollbarState::new(total_rows).position(cursor.min(total_rows - 1));
+            frame.render_stateful_widget(
+                Scrollbar::new(ScrollbarOrientation::VerticalRight),
+                sections[2],
+                &mut sb,
+            );
+        }
+    }
+
+    // 4. Error banner or live selector preview.
+    if let Some(err) = &picker.error_note {
+        frame.render_widget(
+            Paragraph::new(err.as_str())
+                .style(Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
+            sections[3],
+        );
+    } else {
+        let preview = if picker.is_default_selection() {
+            format!("Targets: {}", words.tui_default_taier_cities())
+        } else {
+            let csv = picker.to_selector_csv();
+            if csv.is_empty() {
+                "Targets: (none selected)".to_owned()
+            } else {
+                format!("Targets: {csv}")
+            }
+        };
+        let clipped = slice_columns(&preview, 0, usize::from(sections[3].width));
+        let style = if picker.is_default_selection() {
+            Style::default().add_modifier(Modifier::DIM)
+        } else {
+            Style::default().fg(Color::Yellow)
+        };
+        frame.render_widget(Paragraph::new(clipped).style(style), sections[3]);
+    }
+
+    // 5. Keybar help.
+    let clipped_keys = slice_columns(
+        words.tui_taier_picker_keys(),
+        0,
+        usize::from(sections[4].width),
+    );
+    frame.render_widget(
+        Paragraph::new(clipped_keys).style(Style::default().add_modifier(Modifier::BOLD)),
+        sections[4],
+    );
+}
+
+fn build_picker_list_items(picker: &TaierPicker) -> (Vec<ListItem<'static>>, usize) {
+    let words = locale::words();
+    match picker.level {
+        PickerLevel::Regions => {
+            let vis = picker.visible_regions();
+            let mut items = Vec::with_capacity(vis.len());
+            for region_idx in vis {
+                let Some(reg) = picker.regions.get(region_idx) else {
+                    continue;
+                };
+                let (chosen, total, state) = picker.region_counts(region_idx);
+                let (mark, mark_style) = checkbox_span(state);
+                let ops: Vec<&str> = reg.operators.iter().map(|op| op.short_code()).collect();
+                let kind_meta = match reg.kind {
+                    RegionKind::Municipality => "  (municipality)".to_owned(),
+                    RegionKind::Province => {
+                        let c_len = reg.cities.len();
+                        let noun = if c_len == 1 { "city" } else { "cities" };
+                        format!("  ({c_len} {noun})")
+                    }
+                    RegionKind::Overseas => {
+                        let c_len = reg.cities.len();
+                        format!("  ({c_len} overseas)")
+                    }
+                };
+                let mut spans = vec![
+                    Span::styled(mark, mark_style),
+                    Span::styled(reg.name.clone(), row_name_style(state)),
+                    Span::styled(kind_meta, Style::default().add_modifier(Modifier::DIM)),
+                    Span::styled(
+                        format!("  [{}]", ops.join(" ")),
+                        Style::default().add_modifier(Modifier::DIM),
+                    ),
+                ];
+                if chosen > 0 {
+                    spans.push(Span::styled(
+                        format!("  {chosen}/{total}"),
+                        Style::default().fg(Color::Green),
+                    ));
+                }
+                items.push(ListItem::new(Line::from(spans)));
+            }
+            (items, picker.region_cursor)
+        }
+        PickerLevel::Cities { region_idx } => {
+            let vis = picker.visible_cities(region_idx);
+            let mut items = Vec::with_capacity(vis.len());
+            if let Some(reg) = picker.regions.get(region_idx) {
+                for city_idx in vis {
+                    let Some(city) = reg.cities.get(city_idx) else {
+                        continue;
+                    };
+                    let (chosen, total, state) = picker.city_counts(city);
+                    let (mark, mark_style) = checkbox_span(state);
+                    let ops: Vec<&str> = city
+                        .operators
+                        .iter()
+                        .map(|(op, _)| op.short_code())
+                        .collect();
+                    let label = if city.default {
+                        format!("{} *", city.name)
+                    } else {
+                        city.name.clone()
+                    };
+                    let mut spans = vec![
+                        Span::styled(mark, mark_style),
+                        Span::styled(label, row_name_style(state)),
+                        Span::styled(
+                            format!("  [{}]", ops.join(" ")),
+                            Style::default().add_modifier(Modifier::DIM),
+                        ),
+                    ];
+                    if chosen > 0 {
+                        spans.push(Span::styled(
+                            format!("  {chosen}/{total}"),
+                            Style::default().fg(Color::Green),
+                        ));
+                    }
+                    items.push(ListItem::new(Line::from(spans)));
+                }
+            }
+            (items, picker.city_cursor)
+        }
+        PickerLevel::Operators {
+            region_idx,
+            city_idx,
+        } => {
+            let mut items = Vec::new();
+            if let Some(city) = picker
+                .regions
+                .get(region_idx)
+                .and_then(|reg| reg.cities.get(city_idx))
+            {
+                for &(op, node_count) in &city.operators {
+                    let on = picker.is_slot_selected(&city.id, op);
+                    let state = if on {
+                        CheckState::All
+                    } else {
+                        CheckState::None
+                    };
+                    let (mark, mark_style) = checkbox_span(state);
+                    let noun = if node_count == 1 {
+                        "1 node".to_owned()
+                    } else {
+                        format!("{node_count} fallback nodes")
+                    };
+                    items.push(ListItem::new(Line::from(vec![
+                        Span::styled(mark, mark_style),
+                        Span::styled(
+                            words.tui_taier_operator_label(op.code()).to_owned(),
+                            row_name_style(state),
+                        ),
+                        Span::styled(
+                            format!("  ({noun})"),
+                            Style::default().add_modifier(Modifier::DIM),
+                        ),
+                    ])));
+                }
+            }
+            (items, picker.operator_cursor)
+        }
+    }
+}
+
+fn checkbox_span(state: CheckState) -> (&'static str, Style) {
+    match state {
+        CheckState::All => (
+            "[x] ",
+            Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::BOLD),
+        ),
+        CheckState::Partial => (
+            "[-] ",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        ),
+        CheckState::None => ("[ ] ", Style::default().add_modifier(Modifier::DIM)),
+    }
+}
+
+fn row_name_style(state: CheckState) -> Style {
+    match state {
+        CheckState::All | CheckState::Partial => Style::default().add_modifier(Modifier::BOLD),
+        CheckState::None => Style::default(),
     }
 }
 

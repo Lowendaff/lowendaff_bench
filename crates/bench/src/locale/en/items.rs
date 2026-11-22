@@ -1442,11 +1442,22 @@ impl TaierWords for English {
             "CAICT GlobalSpeed (Taier): {streams}, {} s each way, HTTP/1.1",
             choice.seconds
         );
-        if !choice.cities.is_empty() {
-            method.push_str(&format!("; cities {}", choice.cities.join(", ")));
-        }
-        if !choice.operators.is_empty() {
-            method.push_str(&format!("; carriers {}", choice.operators.join(", ")));
+        if !choice.selections.is_empty() {
+            const MAX_SHOWN: usize = 5;
+            if choice.selections.len() <= MAX_SHOWN {
+                method.push_str(&format!("; targets {}", choice.selections.join(", ")));
+            } else {
+                let head = choice.selections[..MAX_SHOWN].join(", ");
+                let rest = choice.selections.len() - MAX_SHOWN;
+                method.push_str(&format!("; targets {head} (+{rest} more)"));
+            }
+        } else {
+            if !choice.cities.is_empty() {
+                method.push_str(&format!("; cities {}", choice.cities.join(", ")));
+            }
+            if !choice.operators.is_empty() {
+                method.push_str(&format!("; carriers {}", choice.operators.join(", ")));
+            }
         }
         if choice.custom_list {
             method.push_str("; custom server list");

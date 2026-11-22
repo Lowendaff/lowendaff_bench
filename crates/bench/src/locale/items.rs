@@ -762,6 +762,8 @@ pub struct TaierChoice {
     pub streams: u8,
     /// Duration per direction in seconds.
     pub seconds: u16,
+    /// Non-empty when explicit `<place>[:<op>[+<op>...]]` selectors were requested.
+    pub selections: Vec<String>,
     /// Non-empty when city/province filters were requested.
     pub cities: Vec<String>,
     /// Non-empty when non-default carrier filters were requested.

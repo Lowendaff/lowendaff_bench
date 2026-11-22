@@ -86,8 +86,9 @@ sudo ./lowendaff-bench -o report.json -f json
 sudo ./lowendaff-bench --only disk.fio --work-dir /mnt/data
 
 # 9. Filter by region: test only Japan & US speed servers, Chinese carrier nodes, Cloudflare/Apple CDN, China routes, or Asian streaming apps
+./lowendaff-bench --taier-list guangdong
 sudo ./lowendaff-bench --only network.iperf3 --countries JP,US
-sudo ./lowendaff-bench --only network.taier --taier-cities Beijing,Shanghai,Jiangsu --taier-operators telecom,unicom
+sudo ./lowendaff-bench --only network.taier --taier beijing:cu,guangdong/shenzhen:ct+cm,jiangsu:ct
 sudo ./lowendaff-bench --only network.cloudflare,network.inetspeed --inetspeed-threads 8
 sudo ./lowendaff-bench --only network.trace --trace-groups china
 sudo ./lowendaff-bench --only ip.media --media-groups global,asia
@@ -118,6 +119,8 @@ sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-
 | `--work-dir` | `<DIR>` | `.` | Directory used for temporary test files, cleaned up on exit (point this at the disk you want to test; avoid `/tmp`) |
 | `--cpu-bench` | `<SUITE,...>` | 6 default suites | Choose which sub-suites `cpu.bench` runs (`sysbench`, `7zip`, `unixbench`, `hpl`, `passmark`, `ycruncher`, `prime95`, `geekbench`, or `all`) |
 | `--countries` | `<CODE,...>` | Default locations | Limit `network.iperf3` to two-letter country codes (such as `JP,US,DE`) or `all` |
+| `--taier` | `<SELECTOR,...>` | Beijing, Shanghai, Guangzhou | Select `network.taier` targets as `<place>[:<op>[+<op>...]]` (such as `beijing:cu,guangdong/shenzhen:ct+cm,jiangsu:ct,all:cm`) |
+| `--taier-list` | `[PROVINCE]` | — | List all `network.taier` regions (or every city in `PROVINCE` with its selector and carrier counts), then exit (no root needed) |
 | `--taier-cities` | `<CITY,...>` | Beijing, Shanghai, Guangzhou | Limit `network.taier` to cities, provinces, location IDs (such as `Beijing,Jiangsu`), or `all` |
 | `--taier-operators` | `<ISP,...>` | `telecom,unicom,mobile` | Choose which carriers `network.taier` tests (`telecom`, `unicom`, `mobile`, `cernet`, `cbn`, `other`, or `all`) |
 | `--no-cloudflare-udp` | *(flag)* | Off | Skip the RFC 5389 STUN UDP packet-loss probe inside `network.cloudflare` |
@@ -171,6 +174,7 @@ sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-
 | | `all` | All 68 platforms across all five regions (default) |
 | `--countries` | Two-letter country code *(e.g. `US`, `JP`, `DE`, `SG`, `GB`)* | Test all public `iperf3` servers in the selected countries (case-insensitive) |
 | | `all` | Test every public server in the server list |
+| `--taier` | `<place>[:<op>[+<op>...]]` *(e.g. `beijing:cu`, `guangdong/shenzhen:ct+cm`, `jiangsu:ct`, `all:cm`)* | Fine-grained per-city / per-province carrier selection (`ct`/`telecom`, `cu`/`unicom`, `cm`/`mobile`, `edu`/`cernet`, `cbn`, `other`, `all`) |
 | `--taier-cities` | City, province, or ID *(e.g. `Beijing`, `Jiangsu`, `guangdong-shenzhen`)* | Test all matching CAICT GlobalSpeed locations in mainland China (case-insensitive) |
 | | `all` | Test every location in the Taier node list |
 | `--taier-operators` | `telecom`, `unicom`, `mobile`, `cernet`, `cbn`, `other`, or `all` | Filter CAICT GlobalSpeed carrier nodes (default: `telecom,unicom,mobile`) |
