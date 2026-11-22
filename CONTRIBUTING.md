@@ -243,7 +243,7 @@ under pinned SHA-256 and size:
 - `7-Zip` (`7zz`) 26.06 without unRAR (`LGPL-2.1-or-later`; `BSD-3-Clause`) — `7zip-26.06-1`
   (`cpu.bench`)
 - `fio` 3.43 with `libaio` 0.3.113 static (`GPL-2.0`; `LGPL-2.1`) — `fio-3.43-2` (`disk.fio`)
-- `HPL` 2.3 with `OpenBLAS` 0.3.34 OpenMP static (`BSD-3-Clause`) — `hpl-2.3-1` (`cpu.bench`)
+- `HPL` 2.3 with `OpenBLAS` 0.3.34 OpenMP static (`BSD-3-Clause`) — `hpl-2.3-2` (`cpu.bench`)
 - `iperf3` 3.22 without OpenSSL or SCTP (`BSD-3-Clause`) — `iperf3-3.22-1` (`network.iperf3`)
 - `passmark-libs` (`ncurses` 6.5 ABI 5 + `curl` 8.12.1 runtime, `MIT`; `curl`) —
   `passmark-libs-1.0-1` (`cpu.bench`)
