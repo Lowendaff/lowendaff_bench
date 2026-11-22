@@ -99,7 +99,7 @@ pub const GEEKBENCH: ToolSpec = ToolSpec {
 };
 
 /// High-Performance Linpack (HPL) 2.3 linked statically against OpenBLAS 0.3.34 (`DYNAMIC_ARCH=1`
-/// + OpenMP) and single-node MPI stubs, from the release `hpl-2.3-1`.
+/// + OpenMP) and single-node MPI stubs, from the release `hpl-2.3-2`.
 pub const HPL: ToolSpec = ToolSpec {
     name: "hpl",
     version: "2.3",
@@ -110,19 +110,19 @@ pub const HPL: ToolSpec = ToolSpec {
         ToolAsset {
             arch: "x86_64",
             url: concat!(
-                "https://github.com/Lowendaff/lowendaff_bench/releases/download/hpl-2.3-1/",
+                "https://github.com/Lowendaff/lowendaff_bench/releases/download/hpl-2.3-2/",
                 "hpl-x86_64"
             ),
-            sha256: "f3ea9b272c4469a6f919f6d8a9929afb1126e57f7dd9daa2e15de7946cbcfd49",
+            sha256: "9a0db08deca2c3c3a6ac6964844818e55739a2705496c819987e1753b93baa34",
             size: 21_250_248,
         },
         ToolAsset {
             arch: "aarch64",
             url: concat!(
-                "https://github.com/Lowendaff/lowendaff_bench/releases/download/hpl-2.3-1/",
+                "https://github.com/Lowendaff/lowendaff_bench/releases/download/hpl-2.3-2/",
                 "hpl-aarch64"
             ),
-            sha256: "4ea8933757dab2008eab71227f9e07070560ee690419fabb6f09206bf4153cb5",
+            sha256: "5b5c23a4f9f03ac9f85e1b0229a2c7950a48f1d6c667d79bba2c3bf7f872c698",
             size: 12_341_824,
         },
     ],
