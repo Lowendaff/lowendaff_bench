@@ -39,17 +39,8 @@ fn main() -> ExitCode {
         return tui::run(&registry);
     }
     progress::init(cli.verbose);
-    let planned = match app::prepare(&cli, &registry) {
-        Ok(planned) => planned,
-        Err(errors) => {
-            for error in errors {
-                eprintln!("{error}");
-            }
-            return ExitCode::from(app::EXIT_USAGE);
-        }
-    };
-    let proxy = match app::download_proxy(&cli) {
-        Ok(proxy) => proxy,
+    let (planned, proxy) = match app::prepare_with_proxy(&cli, &registry) {
+        Ok(ready) => ready,
         Err(errors) => {
             for error in errors {
                 eprintln!("{error}");

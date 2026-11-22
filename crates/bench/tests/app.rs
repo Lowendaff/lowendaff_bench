@@ -884,7 +884,10 @@ fn socks5_and_github_proxy_flags_validate_upfront_with_other_cli_errors() {
     let proxy = app::download_proxy(&valid_dual).expect("valid dual proxy flags");
     assert!(proxy.socks5.is_some());
     assert!(proxy.github.is_some());
-    assert!(app::prepare(&valid_dual, &plugins()).is_ok());
+    let (planned, prepared_proxy) =
+        app::prepare_with_proxy(&valid_dual, &plugins()).expect("prepare_with_proxy succeeds");
+    assert_eq!(planned.len(), 1);
+    assert_eq!(prepared_proxy, proxy);
 
     let valid_socks5 = cli(&["--socks5-proxy", "socks5://127.0.0.1:1080"]);
     assert!(app::download_proxy(&valid_socks5).is_ok());
