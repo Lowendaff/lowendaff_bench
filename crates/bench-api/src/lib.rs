@@ -94,6 +94,36 @@ pub enum IpFamily {
     Ipv6,
 }
 
+/// Whether `address` is safe to contact as an external endpoint: rejects unspecified (`0.0.0.0/8`,
+/// `::`), loopback (`127.0.0.0/8`, `::1`), RFC 1918 private (`10/8`, `172.16/12`, `192.168/16`),
+/// link-local / cloud metadata (`169.254.0.0/16`, `fe80::/10`), carrier-grade NAT / shared space
+/// (`100.64.0.0/10`, including `100.100.100.200`), multicast, broadcast, Class E reserved blocks,
+/// and non-global IPv6 addresses (`::ffff:0:0/96`, `64:ff9b::/96`, `fc00::/7`, `ff00::/8`).
+///
+/// IANA documentation prefixes (`192.0.2.0/24`, `198.51.100.0/24`, `203.0.113.0/24`,
+/// `2001:db8::/32`) remain accepted so offline test fixtures can name deterministic example
+/// endpoints without opening local or internal network ranges.
+#[must_use]
+pub fn is_routable_endpoint_ip(address: IpAddr) -> bool {
+    match address {
+        IpAddr::V4(v4) => {
+            let [a, b, ..] = v4.octets();
+            !(v4.is_unspecified()
+                || v4.is_loopback()
+                || v4.is_private()
+                || v4.is_link_local()
+                || v4.is_multicast()
+                || a == 0
+                || a >= 224
+                || (a == 100 && (64..128).contains(&b)))
+        }
+        IpAddr::V6(v6) => {
+            let [first, ..] = v6.segments();
+            first & 0xe000 == 0x2000
+        }
+    }
+}
+
 /// A pinned external tool. Plugins that share a tool must declare identical specs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ToolSpec {

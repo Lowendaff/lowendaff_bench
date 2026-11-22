@@ -1,9 +1,14 @@
 //! Direct, proxy-free HTTP probing over each IP family, for plugins that inspect HTTP status
 //! codes, redirects, headers and payloads as outside services serve them to this host.
 
+use std::collections::HashMap;
+use std::io;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::net::Ipv6Addr;
+use std::net::SocketAddr;
+use std::sync::Arc;
+use std::sync::Mutex;
 use std::time::Duration;
 
 use bench_api::HttpClient;
@@ -17,6 +22,10 @@ use bench_api::RedirectPolicy;
 use reqwest::Client;
 use reqwest::Proxy;
 use reqwest::Url;
+use reqwest::dns::Addrs;
+use reqwest::dns::Name;
+use reqwest::dns::Resolve;
+use reqwest::dns::Resolving;
 use reqwest::header;
 use reqwest::redirect::Policy;
 
@@ -35,34 +44,105 @@ const ACCEPT_LANGUAGE: &str = "en-US,en;q=0.9";
 /// Time allowed for the TCP and TLS handshake of one hop.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(8);
 
+/// Maximum cached hostname pin entries per family resolver before eviction.
+const MAX_PINNED_HOSTS: usize = 256;
+
+/// Family-scoped DNS resolver that serves pre-validated addresses pinned by [`ensure_target`],
+/// eliminating double-lookup DNS rebinding windows and rejecting non-public addresses on fallback.
+struct SafeFamilyResolver {
+    ipv6: bool,
+    pinned: Mutex<HashMap<String, Vec<IpAddr>>>,
+}
+
+impl SafeFamilyResolver {
+    fn new(ipv6: bool) -> Self {
+        Self {
+            ipv6,
+            pinned: Mutex::new(HashMap::new()),
+        }
+    }
+
+    fn store(&self, host: &str, ips: Vec<IpAddr>) {
+        if let Ok(mut guard) = self.pinned.lock() {
+            if guard.len() >= MAX_PINNED_HOSTS {
+                guard.clear();
+            }
+            guard.insert(host.to_ascii_lowercase(), ips);
+        }
+    }
+
+    fn load(&self, host: &str) -> Option<Vec<IpAddr>> {
+        self.pinned
+            .lock()
+            .ok()
+            .and_then(|guard| guard.get(&host.to_ascii_lowercase()).cloned())
+    }
+}
+
+impl Resolve for SafeFamilyResolver {
+    fn resolve(&self, name: Name) -> Resolving {
+        let host = name.as_str().to_owned();
+        let ipv6 = self.ipv6;
+        let cached = self.load(&host);
+        Box::pin(async move {
+            if let Some(ips) = cached {
+                let addrs: Addrs = Box::new(ips.into_iter().map(|ip| SocketAddr::new(ip, 0)));
+                return Ok(addrs);
+            }
+            let resolved: Vec<SocketAddr> = tokio::net::lookup_host((host.as_str(), 0))
+                .await?
+                .filter(|addr| {
+                    addr.is_ipv6() == ipv6 && bench_api::is_routable_endpoint_ip(addr.ip())
+                })
+                .collect();
+            if resolved.is_empty() {
+                return Err(Box::new(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "DNS resolved to no public address for family",
+                ))
+                    as Box<dyn std::error::Error + Send + Sync>);
+            }
+            let addrs: Addrs = Box::new(resolved.into_iter());
+            Ok(addrs)
+        })
+    }
+}
+
 /// Direct HTTP clients bound to IPv4 and IPv6, bypassing environment proxies.
 pub struct Probers {
     ipv4: Client,
     ipv6: Client,
+    v4_dns: Arc<SafeFamilyResolver>,
+    v6_dns: Arc<SafeFamilyResolver>,
 }
 
 impl Probers {
     /// Builds both clients; fails only if the TLS configuration is rejected.
     pub fn try_new() -> Result<Self, String> {
+        let v4_dns = Arc::new(SafeFamilyResolver::new(false));
+        let v6_dns = Arc::new(SafeFamilyResolver::new(true));
         Ok(Self {
-            ipv4: build_for(IpFamily::Ipv4, None)?,
-            ipv6: build_for(IpFamily::Ipv6, None)?,
+            ipv4: build_for(IpFamily::Ipv4, None, Arc::clone(&v4_dns))?,
+            ipv6: build_for(IpFamily::Ipv6, None, Arc::clone(&v6_dns))?,
+            v4_dns,
+            v6_dns,
         })
     }
 
     /// Runs `request` over its IP family.
     pub async fn probe(&self, request: &HttpRequest) -> Result<HttpResponse, HttpError> {
-        let client = match request.family {
-            IpFamily::Ipv4 => &self.ipv4,
-            IpFamily::Ipv6 => &self.ipv6,
+        let (client, resolver) = match request.family {
+            IpFamily::Ipv4 => (&self.ipv4, &self.v4_dns),
+            IpFamily::Ipv6 => (&self.ipv6, &self.v6_dns),
         };
         let ipv6 = request.family == IpFamily::Ipv6;
         let method = method_text(request.method);
         let first_host = host_label(&request.url);
-        let outcome = match tokio::time::timeout(request.timeout, execute(client, request)).await {
-            Ok(result) => result,
-            Err(_) => Err(HttpError::TimedOut),
-        };
+        let outcome =
+            match tokio::time::timeout(request.timeout, execute(client, resolver, request)).await {
+                Ok(result) => result,
+                Err(_) => Err(HttpError::TimedOut),
+            };
         let summary = match &outcome {
             Ok(response) => format!("HTTP {}", response.status),
             Err(error) => error_summary(error),
@@ -83,7 +163,11 @@ impl HttpClient for Probers {
 
 /// Builds a direct client for `family`; `proxy`, which `.no_proxy()` must override, stands in for
 /// the environment's in tests.
-fn build_for(family: IpFamily, proxy: Option<Proxy>) -> Result<Client, String> {
+fn build_for(
+    family: IpFamily,
+    proxy: Option<Proxy>,
+    resolver: Arc<SafeFamilyResolver>,
+) -> Result<Client, String> {
     let local = match family {
         IpFamily::Ipv4 => IpAddr::V4(Ipv4Addr::UNSPECIFIED),
         IpFamily::Ipv6 => IpAddr::V6(Ipv6Addr::UNSPECIFIED),
@@ -91,7 +175,8 @@ fn build_for(family: IpFamily, proxy: Option<Proxy>) -> Result<Client, String> {
     let mut builder = fetcher::builder()?
         .user_agent(BROWSER_USER_AGENT)
         .redirect(Policy::none())
-        .connect_timeout(CONNECT_TIMEOUT);
+        .connect_timeout(CONNECT_TIMEOUT)
+        .dns_resolver(resolver);
     if let Some(proxy) = proxy {
         builder = builder.proxy(proxy);
     }
@@ -102,15 +187,21 @@ fn build_for(family: IpFamily, proxy: Option<Proxy>) -> Result<Client, String> {
         .map_err(|err| locale::words().http_client_failed(&err))
 }
 
-async fn execute(client: &Client, request: &HttpRequest) -> Result<HttpResponse, HttpError> {
+async fn execute(
+    client: &Client,
+    resolver: &SafeFamilyResolver,
+    request: &HttpRequest,
+) -> Result<HttpResponse, HttpError> {
     let mut url = parse_allowed(&request.url, false)?;
+    let initial_loopback = url.scheme() == "http" && is_loopback(&url);
     let mut method = request.method;
     let mut body = request.body.clone();
     let mut hops: u8 = 0;
     let ipv6 = request.family == IpFamily::Ipv6;
 
     loop {
-        ensure_family(&url, ipv6).await?;
+        let allow_loopback = initial_loopback && url.scheme() == "http";
+        ensure_target(&url, ipv6, allow_loopback, hops > 0, resolver).await?;
         let mut builder = match method {
             HttpMethod::Get => client.get(url.clone()),
             HttpMethod::Post => client.post(url.clone()),
@@ -221,30 +312,63 @@ fn is_loopback(url: &Url) -> bool {
         .is_ok_and(|addr| addr.is_loopback())
 }
 
-/// Checks that `url`'s host resolves to at least one address of `ipv6`'s family.
-async fn ensure_family(url: &Url, ipv6: bool) -> Result<(), HttpError> {
+/// Checks that `url` resolves to at least one permitted address of `ipv6`'s family, rejecting
+/// private, loopback, link-local, metadata, and reserved addresses (except explicit loopback
+/// `http://` test URLs when `allow_loopback` is set) and pinning resolved host IPs into
+/// `resolver`.
+async fn ensure_target(
+    url: &Url,
+    ipv6: bool,
+    allow_loopback: bool,
+    is_redirect: bool,
+    resolver: &SafeFamilyResolver,
+) -> Result<(), HttpError> {
+    let non_public_err = |why: &str| {
+        if is_redirect {
+            HttpError::InvalidRedirect(why.to_owned())
+        } else {
+            HttpError::Transport(why.to_owned())
+        }
+    };
     let host = url
         .host_str()
-        .ok_or_else(|| HttpError::Transport("URL has no host".to_owned()))?
+        .ok_or_else(|| non_public_err("URL has no host"))?
         .trim_matches(['[', ']']);
     if let Ok(ip) = host.parse::<IpAddr>() {
-        return if ip.is_ipv6() == ipv6 {
+        if ip.is_ipv6() != ipv6 {
+            return Err(HttpError::NoAddress);
+        }
+        let permitted =
+            (allow_loopback && ip.is_loopback()) || bench_api::is_routable_endpoint_ip(ip);
+        return if permitted {
             Ok(())
         } else {
-            Err(HttpError::NoAddress)
+            Err(non_public_err("non-public target address refused"))
         };
     }
     let port = url
         .port_or_known_default()
-        .ok_or_else(|| HttpError::Transport("unknown port".to_owned()))?;
-    let mut addresses = tokio::net::lookup_host((host, port))
+        .ok_or_else(|| non_public_err("unknown port"))?;
+    let family_addrs: Vec<IpAddr> = tokio::net::lookup_host((host, port))
         .await
-        .map_err(|err| HttpError::Transport(err.to_string()))?;
-    if addresses.any(|address| address.is_ipv6() == ipv6) {
-        Ok(())
-    } else {
-        Err(HttpError::NoAddress)
+        .map_err(|err| HttpError::Transport(err.to_string()))?
+        .filter(|address| address.is_ipv6() == ipv6)
+        .map(|address| address.ip())
+        .collect();
+    if family_addrs.is_empty() {
+        return Err(HttpError::NoAddress);
     }
+    let mut safe_ips = Vec::with_capacity(family_addrs.len());
+    for ip in family_addrs {
+        if bench_api::is_routable_endpoint_ip(ip) && !safe_ips.contains(&ip) {
+            safe_ips.push(ip);
+        }
+    }
+    if safe_ips.is_empty() {
+        return Err(non_public_err("DNS resolved to non-public address"));
+    }
+    resolver.store(host, safe_ips);
+    Ok(())
 }
 
 fn method_text(method: HttpMethod) -> &'static str {
@@ -307,6 +431,18 @@ mod tests {
                         .to_owned()
                 } else if first_line.starts_with("GET /loop ") {
                     "HTTP/1.1 302 Found\r\nLocation: /loop\r\nContent-Length: 0\r\n\r\n".to_owned()
+                } else if first_line.starts_with("GET /ssrf-private ") {
+                    "HTTP/1.1 302 Found\r\nLocation: https://10.0.0.1/secret\r\n\
+                     Content-Length: 0\r\n\r\n"
+                        .to_owned()
+                } else if first_line.starts_with("GET /ssrf-loopback-https ") {
+                    "HTTP/1.1 302 Found\r\nLocation: https://127.0.0.1:8443/admin\r\n\
+                     Content-Length: 0\r\n\r\n"
+                        .to_owned()
+                } else if first_line.starts_with("GET /ssrf-imds ") {
+                    "HTTP/1.1 302 Found\r\nLocation: https://169.254.169.254/latest/meta-data\r\n\
+                     Content-Length: 0\r\n\r\n"
+                        .to_owned()
                 } else {
                     concat!(
                         "HTTP/1.1 403 Forbidden\r\nCF-Mitigated: challenge\r\n",
@@ -324,9 +460,15 @@ mod tests {
     async fn probers_bind_family_ignore_proxy_handle_redirects_and_truncate_bodies() {
         let site = serve_redirects().await;
         let proxy = Proxy::all("socks5h://127.0.0.1:9").expect("proxy URL");
+        let v4_dns = std::sync::Arc::new(super::SafeFamilyResolver::new(false));
+        let v6_dns = std::sync::Arc::new(super::SafeFamilyResolver::new(true));
         let probers = Probers {
-            ipv4: super::build_for(IpFamily::Ipv4, Some(proxy)).expect("v4 client"),
-            ipv6: super::build_for(IpFamily::Ipv6, None).expect("v6 client"),
+            ipv4: super::build_for(IpFamily::Ipv4, Some(proxy), std::sync::Arc::clone(&v4_dns))
+                .expect("v4 client"),
+            ipv6: super::build_for(IpFamily::Ipv6, None, std::sync::Arc::clone(&v6_dns))
+                .expect("v6 client"),
+            v4_dns,
+            v6_dns,
         };
 
         // Non-HTTPS outside loopback is refused.
@@ -375,5 +517,43 @@ mod tests {
         assert_eq!(res.status, 403);
         assert_eq!(res.header("cf-mitigated"), Some("challenge"));
         assert_eq!(Ipv4Addr::LOCALHOST.to_string(), "127.0.0.1");
+
+        // Initial HTTPS probes to private, loopback, or metadata IPs are refused before connect.
+        for internal in [
+            "https://127.0.0.1/secret",
+            "https://10.0.0.1/secret",
+            "https://169.254.169.254/latest/meta-data",
+            "https://100.100.100.200/latest/meta-data",
+        ] {
+            let req = HttpRequest::get(IpFamily::Ipv4, internal);
+            assert!(
+                matches!(probers.probe(&req).await, Err(HttpError::Transport(_))),
+                "initial HTTPS probe to {internal} must be refused"
+            );
+        }
+        for internal_v6 in [
+            "https://[::1]/secret",
+            "https://[fe80::1]/secret",
+            "https://[fd00::1]/secret",
+        ] {
+            let req = HttpRequest::get(IpFamily::Ipv6, internal_v6);
+            assert!(
+                matches!(probers.probe(&req).await, Err(HttpError::Transport(_))),
+                "initial HTTPS probe to {internal_v6} must be refused"
+            );
+        }
+
+        // Redirects to private, metadata, or HTTPS loopback targets are rejected as SSRF.
+        for path in ["/ssrf-private", "/ssrf-loopback-https", "/ssrf-imds"] {
+            let req = HttpRequest::get(IpFamily::Ipv4, format!("http://{site}{path}"))
+                .with_redirect(RedirectPolicy::Follow { max: 3 });
+            assert!(
+                matches!(
+                    probers.probe(&req).await,
+                    Err(HttpError::InvalidRedirect(_))
+                ),
+                "redirect {path} must fail with InvalidRedirect"
+            );
+        }
     }
 }

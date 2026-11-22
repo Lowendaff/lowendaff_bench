@@ -237,21 +237,26 @@ async fn address(v6: bool, sources: &[Source], cancel: &CancellationToken) -> Ad
     Address::NotFound(failed)
 }
 
-/// The family's client; `None` when its TLS configuration is refused, which leaves every
-/// source unreachable.
-fn client(v6: bool) -> Option<Client> {
+/// The family's base client builder; `None` when its TLS configuration is refused.
+fn client_builder(v6: bool) -> Option<reqwest::ClientBuilder> {
     let local = if v6 {
         IpAddr::V6(Ipv6Addr::UNSPECIFIED)
     } else {
         IpAddr::V4(Ipv4Addr::UNSPECIFIED)
     };
-    fetcher::builder()
-        .ok()?
-        .no_proxy()
-        .redirect(reqwest::redirect::Policy::none())
-        .local_address(local)
-        .build()
-        .ok()
+    Some(
+        fetcher::builder()
+            .ok()?
+            .no_proxy()
+            .redirect(reqwest::redirect::Policy::none())
+            .local_address(local),
+    )
+}
+
+/// The family's client; `None` when its TLS configuration is refused, which leaves every
+/// source unreachable.
+fn client(v6: bool) -> Option<Client> {
+    client_builder(v6)?.build().ok()
 }
 
 async fn ask(
@@ -266,13 +271,24 @@ async fn ask(
     parse(read(&body).unwrap_or_default(), v6)
 }
 
-/// The first [`BODY_LIMIT`] bytes of the answer.
+/// The first [`BODY_LIMIT`] bytes of the answer, pinning resolved DNS addresses so name lookup is
+/// performed once and `https://` sources never connect to non-public addresses.
 async fn fetch(client: &Client, url: &str, v6: bool) -> Result<String, Why> {
     let parsed = Url::parse(url).map_err(|_| Why::Unreachable)?;
-    if !has_address(&parsed, v6).await? {
-        return Err(Why::NoAddress);
-    }
-    let mut response = client
+    let require_public = parsed.scheme() == "https";
+    let pinned_client;
+    let active_client = match resolve_source_addrs(&parsed, v6, require_public).await? {
+        SourceTarget::Literal => client,
+        SourceTarget::Pinned { host, addrs } => {
+            pinned_client = client_builder(v6)
+                .ok_or(Why::Unreachable)?
+                .resolve_to_addrs(&host, &addrs)
+                .build()
+                .map_err(|_| Why::Unreachable)?;
+            &pinned_client
+        }
+    };
+    let mut response = active_client
         .get(parsed)
         .send()
         .await
@@ -296,15 +312,57 @@ async fn fetch(client: &Client, url: &str, v6: bool) -> Result<String, Why> {
     Ok(String::from_utf8_lossy(&body).into_owned())
 }
 
-/// Whether the URL's host has an address of the family. A name is looked up, and a literal
-/// address stands for itself without a lookup; a failed lookup is an unreachable source.
-async fn has_address(url: &Url, v6: bool) -> Result<bool, Why> {
-    let host = url.host_str().ok_or(Why::Unreachable)?;
+enum SourceTarget {
+    Literal,
+    Pinned {
+        host: String,
+        addrs: Vec<SocketAddr>,
+    },
+}
+
+/// Resolves and validates `url`'s target addresses for `v6` once.
+async fn resolve_source_addrs(
+    url: &Url,
+    v6: bool,
+    require_public: bool,
+) -> Result<SourceTarget, Why> {
+    let clean = url
+        .host_str()
+        .ok_or(Why::Unreachable)?
+        .trim_matches(['[', ']']);
+    if let Ok(ip) = clean.parse::<IpAddr>() {
+        if ip.is_ipv6() != v6 {
+            return Err(Why::NoAddress);
+        }
+        if require_public && !bench_api::is_routable_endpoint_ip(ip) {
+            return Err(Why::Unreachable);
+        }
+        return Ok(SourceTarget::Literal);
+    }
     let port = url.port_or_known_default().ok_or(Why::Unreachable)?;
-    let mut addresses = tokio::net::lookup_host((host.trim_matches(['[', ']']), port))
+    let family_addrs: Vec<SocketAddr> = tokio::net::lookup_host((clean, port))
         .await
-        .map_err(|_| Why::Unreachable)?;
-    Ok(addresses.any(|address| address.is_ipv6() == v6))
+        .map_err(|_| Why::Unreachable)?
+        .filter(|address| address.is_ipv6() == v6)
+        .collect();
+    if family_addrs.is_empty() {
+        return Err(Why::NoAddress);
+    }
+    let allowed: Vec<SocketAddr> = if require_public {
+        family_addrs
+            .into_iter()
+            .filter(|addr| bench_api::is_routable_endpoint_ip(addr.ip()))
+            .collect()
+    } else {
+        family_addrs
+    };
+    if allowed.is_empty() {
+        return Err(Why::Unreachable);
+    }
+    Ok(SourceTarget::Pinned {
+        host: clean.to_owned(),
+        addrs: allowed,
+    })
 }
 
 /// The address in an answer, when it is a public address of the family.
@@ -324,20 +382,13 @@ pub fn parse(text: &str, v6: bool) -> Result<IpAddr, Why> {
 /// unicast, `2000::/3`, outside the documentation prefixes `2001:db8::/32` and `3fff::/20`.
 #[must_use]
 pub fn public(address: IpAddr) -> bool {
+    if !bench_api::is_routable_endpoint_ip(address) {
+        return false;
+    }
     match address {
         IpAddr::V4(v4) => {
             let [a, b, c, _] = v4.octets();
-            !(v4.is_unspecified()
-                || v4.is_loopback()
-                || v4.is_private()
-                || v4.is_link_local()
-                || v4.is_documentation()
-                || v4.is_multicast()
-                // "This network", and the reserved block with the broadcast address.
-                || a == 0
-                || a >= 240
-                // Shared address space for carrier-grade NAT, 100.64.0.0/10.
-                || (a == 100 && (64..128).contains(&b))
+            !(v4.is_documentation()
                 // IETF protocol assignments, 192.0.0.0/24.
                 || (a == 192 && b == 0 && c == 0)
                 // Benchmarking, 198.18.0.0/15.
@@ -345,9 +396,7 @@ pub fn public(address: IpAddr) -> bool {
         }
         IpAddr::V6(v6) => {
             let [first, second, ..] = v6.segments();
-            first & 0xe000 == 0x2000
-                && !(first == 0x2001 && second == 0x0db8)
-                && !(first == 0x3fff && second < 0x1000)
+            !(first == 0x2001 && second == 0x0db8) && !(first == 0x3fff && second < 0x1000)
         }
     }
 }

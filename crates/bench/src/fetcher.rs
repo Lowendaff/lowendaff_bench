@@ -369,18 +369,28 @@ fn timeouts(builder: ClientBuilder) -> ClientBuilder {
         .read_timeout(Duration::from_secs(30))
 }
 
+/// Cached rustls client configuration with bundled Mozilla roots and the `ring` crypto provider.
+fn shared_tls_config() -> Result<ClientConfig, String> {
+    use std::sync::OnceLock;
+
+    static TLS: OnceLock<Result<ClientConfig, String>> = OnceLock::new();
+    TLS.get_or_init(|| {
+        let roots = RootCertStore {
+            roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
+        };
+        ClientConfig::builder_with_provider(Arc::new(ring::default_provider()))
+            .with_safe_default_protocol_versions()
+            .map_err(|err| locale::words().tls_failed(&err))
+            .map(|cfg| cfg.with_root_certificates(roots).with_no_client_auth())
+    })
+    .clone()
+}
+
 /// A client builder with the program's TLS configuration (rustls with ring, and the bundled
 /// Mozilla roots), its user agent, and `.no_proxy()` so environment proxy variables are ignored
 /// across both downloads and benchmark probes.
 pub fn builder() -> Result<ClientBuilder, String> {
-    let roots = RootCertStore {
-        roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
-    };
-    let tls = ClientConfig::builder_with_provider(Arc::new(ring::default_provider()))
-        .with_safe_default_protocol_versions()
-        .map_err(|err| locale::words().tls_failed(&err))?
-        .with_root_certificates(roots)
-        .with_no_client_auth();
+    let tls = shared_tls_config()?;
     Ok(Client::builder()
         .no_proxy()
         .tls_backend_preconfigured(tls)

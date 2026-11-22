@@ -135,7 +135,8 @@ fn push_filtered_ip(out: &mut Vec<IpAddr>, raw: &str, families: FamilyFilter) {
     let Ok(ip) = parsed else {
         return;
     };
-    let allowed = (ip.is_ipv4() && families.ipv4) || (ip.is_ipv6() && families.ipv6);
+    let allowed = ((ip.is_ipv4() && families.ipv4) || (ip.is_ipv6() && families.ipv6))
+        && bench_api::is_routable_endpoint_ip(ip);
     if allowed && !out.contains(&ip) {
         out.push(ip);
     }
@@ -263,10 +264,17 @@ mod tests {
         let dual = super::extract_doh_ips(cf_json, dual_filter);
         assert_eq!(dual.len(), 2);
 
-        let ali_short = br#"["198.51.100.11","198.51.100.10"]"#;
+        let ali_short =
+            br#"["198.51.100.11","198.51.100.10","127.0.0.1","10.0.0.1","169.254.169.254"]"#;
         let ali_ips = super::extract_doh_ips(ali_short, v4_filter);
         let merged = super::merge_unique_ips(&[v4_only, ali_ips]);
-        assert_eq!(merged, vec![ip_10, ip_11]);
+        assert_eq!(
+            merged,
+            vec![ip_10, ip_11],
+            "loopback, RFC1918, and link-local/metadata IPs in DoH answers must be discarded"
+        );
+        let poisoned_v6 = br#"{"Answer":[{"data":"::1"},{"data":"fe80::1"},{"data":"fd00::1"}]}"#;
+        assert!(super::extract_doh_ips(poisoned_v6, dual_filter).is_empty());
 
         let raw_cands = vec![
             CandidateEndpoint {
