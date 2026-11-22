@@ -62,7 +62,7 @@ fn by_default_the_item_tests_yabss_way_the_repositorys_list_and_its_default_serv
     );
     assert_eq!(
         SERVERS_URL,
-        "https://raw.githubusercontent.com/Lowendaff/lowendaff_bench/main/servers/iperf3.json"
+        "https://raw.githubusercontent.com/Lowendaff/bench_data/main/servers/iperf3.json"
     );
     assert_eq!(Iperf3::default().settings(), Settings::YABS);
 }

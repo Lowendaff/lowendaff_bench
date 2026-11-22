@@ -691,7 +691,7 @@ mod tests {
 
         // 1. GitHub download (`family == None`) goes DIRECT to `gh_mirror` (NOT through SOCKS5!).
         let gh_url =
-            "https://github.com/Lowendaff/lowendaff_bench/releases/download/fio-3.43-2/fio-x86_64";
+            "https://github.com/Lowendaff/bench_data/releases/download/fio-3.43-2/fio-x86_64";
         let Ok(Part::Whole(mut gh_body)) = fetchers.open(None, gh_url, None).await else {
             panic!("GitHub mirror download should succeed")
         };

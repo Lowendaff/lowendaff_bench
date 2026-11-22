@@ -422,8 +422,8 @@ async fn provisioning_through_github_mirror_rewrites_github_tool_urls_and_verifi
     use tokio::io::AsyncReadExt;
     use tokio::io::AsyncWriteExt;
 
-    let gh_fio = "https://github.com/Lowendaff/lowendaff_bench/releases/download/fio-3.39/fio";
-    let gh_big = "https://github.com/Lowendaff/lowendaff_bench/releases/download/big-1.0/big";
+    let gh_fio = "https://github.com/Lowendaff/bench_data/releases/download/fio-3.39/fio";
+    let gh_big = "https://github.com/Lowendaff/bench_data/releases/download/big-1.0/big";
     let listener = TcpListener::bind("127.0.0.1:0")
         .await
         .expect("bind local GitHub mirror");

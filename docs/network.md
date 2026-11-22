@@ -19,8 +19,8 @@
 
 ### 测试逻辑
 1. **动态节点列表与自动巡检机制**：
-   - 每次运行时从仓库主分支实时拉取经过校验的服务器列表（`servers/iperf3.json`，限制 `<= 64 KiB` 且最多 100 台节点，严格校验主机名、端口区间与控制字符）。
-   - 仓库每日两次通过自动化流水线拉取 `iperf3serverlist.net` 实时状态，从人工审核过的候选池（`servers/iperf3-candidates.json`）中为每个地区挑选首个在线且支持反向下载（`-R`）的节点并自动提交更新，无需发版即可剔除宕机节点。
+   - 每次运行时从数据仓库 [`Lowendaff/bench_data`](https://github.com/Lowendaff/bench_data) 主分支实时拉取经过校验的服务器列表（`servers/iperf3.json`，限制 `<= 64 KiB` 且最多 100 台节点，严格校验主机名、端口区间与控制字符）。
+   - `Lowendaff/bench_data` 每日两次通过自动化流水线拉取 `iperf3serverlist.net` 实时状态，从人工审核过的候选池（`servers/iperf3-candidates.json`）中为每个地区挑选首个在线且支持反向下载（`-R`）的节点并自动提交更新，无需发版即可剔除宕机节点。
    - 默认测试列表标记为 `default = true` 的 5 个核心地区（洛杉矶、纽约、弗吉尼亚、东京、法兰克福）；可通过 `--countries JP,DE` 或 `--countries all` 按国家/地区筛选。
 2. **双向双栈测量流程（对齐 YABS）**：
    - 先对所有选中节点跑完 **IPv4**，若本机支持 IPv6 再跑 **IPv6**。
@@ -53,8 +53,8 @@ sudo ./lowendaff-bench --only network.iperf3 --countries all
 | 快捷参数 | `--taier-cities <城市/省份列表或 all>`、`--taier-operators <运营商列表或 all>` |
 
 ### 测试逻辑
-1. **全国三网节点库与自动巡检同步（`servers/taier.json`）**：
-   - 节点列表由 `scripts/taier-servers.sh` 将上游中国信通院“全球网测（`com.cnspeedtest.globalspeed`）”全国服务器表归一化转换为纯 ASCII JSON（`<= 64 KiB`），涵盖全国 30+ 省级行政区、250+ 地级市/自治州及中国电信（`telecom`）、中国联通（`unicom`）、中国移动（`mobile`）、教育网（`cernet`）、中国广电（`cbn`）等 600+ 个测速节点，并通过 `.github/workflows/data.yml` 每日自动同步更新。
+1. **全国三网节点库与自动巡检同步（`Lowendaff/bench_data`）**：
+   - 节点列表由 [`Lowendaff/bench_data`](https://github.com/Lowendaff/bench_data) 中的 `scripts/taier-servers.sh` 将上游中国信通院“全球网测（`com.cnspeedtest.globalspeed`）”全国服务器表归一化转换为纯 ASCII JSON（`<= 64 KiB`），涵盖全国 30+ 省级行政区、250+ 地级市/自治州及中国电信（`telecom`）、中国联通（`unicom`）、中国移动（`mobile`）、教育网（`cernet`）、中国广电（`cbn`）等 600+ 个测速节点，并通过 `data.yml` 每日自动同步更新。
    - **默认范围与按需勾选**：默认测试 **北京、上海、广州 × 电信、联通、移动** 共 9 个核心槽位；既支持在命令行通过 `--taier-cities Beijing,Jiangsu`、`--taier-operators telecom,unicom,cernet` 按城市/省份/运营商筛选，也支持在交互式 TUI 中直接勾选运营商、编辑城市、调节单向时长与并发流数。
 2. **原生 `dovalid` 队列鉴权、繁忙自动回退与租约释放**：
    - 内置纯 Rust RFC 1321 MD5 摘要、HTTP `chunked` 分块响应解帧与 Luhn 校验算法生成 15 位合规合成 Android IMEI，向节点发起 `GET /speed/dovalid` 鉴权握手：
@@ -135,11 +135,11 @@ sudo ./lowendaff-bench --only network.taier --taier-cities Jiangsu,guangdong-she
    - 若宿主机开启了 `no_new_privs`、容器裁剪了 `CAP_NET_RAW` 能力边界集，或运行目录位于 `nosuid` 挂载分区上，插件会在启动前精准检测并以清晰原因安全跳过（提示可通过 `--work-dir` 换至非 `nosuid` 分区）。
 2. **三类追踪目标**：
    - **流媒体边缘缓存节点**：分别在 IPv4 与 IPv6 下直连请求 Google `redirector.googlevideo.com/report_mapping?di=no`（还原出 `r1---sn-<code>.googlevideo.com` 边缘域名）和 Netflix `fast.com` API，自动定位离当前主机最近的 YouTube 与 Netflix 缓存服务器（且不保存或展示接口响应中回显的本机 IP）。
-   - **中国大陆三网与精品网目标**：从 `servers/traceroute.json` 拉取北京、上海、广州等地的电信（163 / CN2 GT / CN2 GIA `AS4809`）、联通（169 / CUII `AS9929`）、移动（CMNET / CMIN2 `AS58807`）标准测试目标。
+   - **中国大陆三网与精品网目标**：从 `Lowendaff/bench_data`（`servers/traceroute.json`）拉取北京、上海、广州等地的电信（163 / CN2 GT / CN2 GIA `AS4809`）、联通（169 / CUII `AS9929`）、移动（CMNET / CMIN2 `AS58807`）标准测试目标。
    - **国际骨干与云服务目标**：涵盖 Telegram 数据中心、AWS、GCP 以及十大国际 Tier-1 骨干网运营商，共计 71 个预设目标（默认运行精简代表集或按配置展开）。
 3. **逐跳解析与 Netflix IX 交换中心标注**：
    - 执行参数：`nexttrace --traceroute -j -M -C -g en -q 3 -m 30 --timeout 1000 -4|-6 <target>`（每跳 3 探针、最多 30 跳、单探针超时 1 秒、始终禁用 `-M` 轨迹地图上传，单目标限时 60 秒）。
-   - 结合仓库自动同步 PeeringDB 生成的 `servers/netflix-ix.json`（`net_id=457`），当路由经过 Netflix 在全球各大互联网交换中心（如 Equinix、DE-CIX、HKIX、BBIX 等）的对等互联端口 IP 时，自动在跳点网络名旁标注所属 IX 名称。
+   - 结合 `Lowendaff/bench_data` 自动同步 PeeringDB 生成的 `servers/netflix-ix.json`（`net_id=457`），当路由经过 Netflix 在全球各大互联网交换中心（如 Equinix、DE-CIX、HKIX、BBIX 等）的对等互联端口 IP 时，自动在跳点网络名旁标注所属 IX 名称。
    - **本机跳点脱敏**：未传入 `--show-ip` 时，路由路径中凡是匹配本机公网 IPv4 / IPv6 的跳点均自动打码（中间运营商路由器 IP 原样保留）。
 
 ### `--trace-groups` 命令行枚举与示例

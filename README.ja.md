@@ -150,7 +150,7 @@ sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-
 | `--countries` | 2 文字の国コード *（例：`JP`, `US`, `DE`, `SG`, `GB`）* | 指定した国の公開 `iperf3` サーバーすべてで速度を測定（大文字・小文字不問） |
 | | `all` | サーバー一覧にあるすべての公開 `iperf3` サーバーで測定 |
 | `--taier-cities` | 都市・省名・拠点 ID *（例：`Beijing`, `Jiangsu`, `guangdong-shenzhen`）* | 指定した中国本土の CAICT GlobalSpeed（Taier）拠点で速度を測定（大文字・小文字不問） |
-| | `all` | `servers/taier.json` にあるすべての拠点で測定 |
+| | `all` | Taier ノード一覧にあるすべての拠点で測定 |
 | `--taier-operators` | `telecom`, `unicom`, `mobile`, `cernet`, `cbn`, `other`, または `all` | CAICT GlobalSpeed の通信キャリアを絞り込みます（既定：`telecom,unicom,mobile`） |
 | `--socks5-proxy` | `socks5://[user:pass@]host[:port]` | ローカルでホスト名を解決してから SOCKS5 プロキシ経由でファイルをダウンロード |
 | | `socks5h://[user:pass@]host[:port]` | リモートの SOCKS5 プロキシ側でホスト名を解決してファイルをダウンロード |

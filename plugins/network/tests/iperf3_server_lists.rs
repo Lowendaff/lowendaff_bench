@@ -1,6 +1,6 @@
 //! The fixtures of server lists in `tests/fixtures/server-lists`, which the program's reader and
-//! `scripts/iperf3-servers.sh` both read: a list named `good-*` follows every rule and one named
-//! `bad-*` breaks one, so that the two readers agree on each of them.
+//! `Lowendaff/bench_data` (`scripts/iperf3-servers.sh`) both read: a list named `good-*` follows
+//! every rule and one named `bad-*` breaks one, so that the two readers agree on each of them.
 
 use std::path::Path;
 

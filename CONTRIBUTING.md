@@ -45,9 +45,6 @@ plugins/
                network.trace, network.bgp
   ip/          ip.quality, ip.media
 docs/          detailed module-by-module guides explaining how each test item measures and judges
-servers/       the lists that the network items download at run time: network speed's servers,
-               with their candidates, China carrier speed's nodes, route tracing's targets and
-               Netflix's exchange ports
 ```
 
 Each test item is a plugin, whose id is `<group>.<name>`, in the crate of its group,
@@ -96,30 +93,16 @@ A new test item starts with a design document (below). Then:
    joins their `wrappers` lists in `deny.toml` and gets an entry of its own, used by `bench`
    alone. The rule against printing covers `plugins/*/src` already.
 
-## The network test's server list
+## Runtime server and target lists
 
-`servers/iperf3-candidates.json` holds the reviewed candidates of each location, in order of
-preference: a location's id, country and whether it is a default, then for each candidate its place,
-provider, host, ports, families and link. `servers/iperf3.json`, which the program downloads, is
-written from it by `scripts/iperf3-servers.sh update <export>`, with the export of
-iperf3serverlist.net (`https://export.iperf3serverlist.net/listed_iperf3_servers.json`): for each
-location, the first candidate that the export lists with the same host and ports and with downloads.
-To add, remove or reorder servers, change the candidates in a pull request, run `update` with a
-fresh export, and `scripts/iperf3-servers.sh check`. The list is never edited by hand: `check`
-refuses a server that is no candidate. From then on, the `data` workflow keeps the list current by
-itself: twice a day, it runs `update` with a fresh export and, when the list changes, opens a pull
-request as the GitHub App `lowendaff-bench-data`, which merges itself once the required checks pass;
-`scripts/check-commits.sh` lets a bot's pull request change the generated lists, this one,
-`servers/taier.json` and `servers/netflix-ix.json`, and nothing else. Nothing builds from a list in
-`servers/`, so that a change of the lists alone needs no build: `check` refuses a file that names
-one, other than Markdown, the lists' scripts and their cases, ci-scope and its cases, check-commits
-and its cases, and the workflows that test and update the lists, and Rust code that names one other
-than by the address that the program downloads it from. A rule of the list changes in the program's
-reader (`plugins/network/src/iperf3/servers.rs`) and in the script together, with a fixture in
-`plugins/network/tests/fixtures/server-lists/` that both read. The same workflow keeps China
-carrier speed's list (`servers/taier.json`, via `scripts/taier-servers.sh update`) and route
-tracing's list of Netflix's exchange ports (`servers/netflix-ix.json`, via
-`scripts/netflix-ix.sh update`) current.
+Runtime node and exchange lists (`servers/iperf3.json` with `servers/iperf3-candidates.json`,
+`servers/taier.json`, `servers/traceroute.json`, and `servers/netflix-ix.json`), their validation
+and update scripts (`scripts/{iperf3-servers,taier-servers,traceroute-targets,netflix-ix}.sh` and
+`scripts/list-rules.jq`), and the twice-daily refresh workflow (`.github/workflows/data.yml`) live
+in [`Lowendaff/bench_data`](https://github.com/Lowendaff/bench_data), where the program downloads
+them over HTTPS at run time. When a rule of a list changes, update the program's reader in
+`plugins/network/` and the corresponding script and shared fixtures in `Lowendaff/bench_data`
+together.
 
 ## Code
 
@@ -170,10 +153,9 @@ used), with these rules of this repository:
 
 - Parsers are tested against recorded tool output in `tests/fixtures/`, and host facts against
   captures of real hosts (`crates/bench-host/tests/fixtures/README.md`).
-- The scripts that check the lists in `servers/` take the rules that the lists share, of an IPv4
-  address, an IPv6 address, a DNS name and a text, from `scripts/list-rules.jq`. The lists'
-  fixtures, which the scripts and the program's readers both read, hold every edge of those
-  rules, so that a script and its reader agree on each.
+- The shared list fixtures in `plugins/network/tests/fixtures/` mirror those in
+  `Lowendaff/bench_data`, holding every edge of the IPv4, IPv6, DNS name and text rules so that
+  each script in `Lowendaff/bench_data` and its Rust reader agree on every case.
 - Whole reports are compared with insta snapshots in `crates/bench/tests/snapshots/`. A change to
   the report shows in its snapshots, which the pull request holds for review:
   `INSTA_UPDATE=always` rewrites them locally, and CI writes none, so a difference fails there.
@@ -234,11 +216,12 @@ points into them: a comment or a document gives the reason itself.
 
 ## Third-party tools
 
-External tools are built reproducibly by `.github/workflows/tools.yml` from `scripts/build-*.sh`
-and published as immutable GitHub releases of this repository (with sources, licenses and
-`SHA256SUMS`), except vendor-distributed suites (`Geekbench 7`, `PassMark PerformanceTest`,
-`y-cruncher`, and `Prime95`), which are downloaded directly from their upstream distributions
-under pinned SHA-256 and size:
+External open-source tools are built reproducibly in
+[`Lowendaff/bench_data`](https://github.com/Lowendaff/bench_data) (`.github/workflows/tools.yml`
+and `scripts/build-*.sh`) and published as GitHub releases there (with sources, licenses and
+`SHA256SUMS`), while vendor-distributed suites (`Geekbench 7`, `PassMark PerformanceTest`,
+`y-cruncher`, and `Prime95`) are downloaded directly from their upstream distributions under pinned
+SHA-256 and size:
 
 - `7-Zip` (`7zz`) 26.06 without unRAR (`LGPL-2.1-or-later`; `BSD-3-Clause`) — `7zip-26.06-1`
   (`cpu.bench`)
@@ -268,7 +251,6 @@ ones before pushing:
 - `cargo deny check`, `zizmor --persona pedantic .`, `actionlint`, and `shellcheck` across `*.sh`
 - `scripts/check-commits-cases.sh` and `scripts/check-commits.sh origin/main HEAD`
 - `ast-grep test`, `ast-grep scan`, `scripts/check-docs-cases.sh` and `scripts/check-docs.sh`
-- `scripts/{iperf3-servers,taier-servers,traceroute-targets,netflix-ix}{-cases,}.sh` (`check`)
 - On Linux (`x86_64` and `aarch64`): static `musl` release build, `swap-file` roundtrip example,
   `scripts/smoke.sh` with local responders
   (`smoke-{iperf3,taier,cloudflare,inetspeed,trace,ip,media,bgp}.sh`), `scripts/smoke-mutants.sh`,

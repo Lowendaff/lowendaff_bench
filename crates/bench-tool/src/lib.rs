@@ -1,9 +1,10 @@
 //! The external tools of lowendaff-bench, each pinned to one build: the URL, SHA-256 and size of
-//! its download for each architecture. This repository builds and publishes its open-source tools,
-//! while proprietary or prebuilt vendor suites (Geekbench, PassMark, y-cruncher, Prime95) are
-//! downloaded from their upstream distributions and verified by size and SHA-256 before unpacking.
-//! Test items take the tools they need from here, so that items sharing a tool share its pin and
-//! none depends on another, and run them through the shared code of [`job`] and [`retried`].
+//! its download for each architecture. The companion repository `Lowendaff/bench_data` builds and
+//! publishes the open-source tools, while proprietary or prebuilt vendor suites (Geekbench,
+//! PassMark, y-cruncher, Prime95) are downloaded from their upstream distributions and verified by
+//! size and SHA-256 before unpacking. Test items take the tools they need from here, so that items
+//! sharing a tool share its pin and none depends on another, and run them through the shared code
+//! of [`job`] and [`retried`].
 
 #![warn(missing_docs)]
 
@@ -25,7 +26,7 @@ pub const SEVENZIP: ToolSpec = ToolSpec {
         ToolAsset {
             arch: "x86_64",
             url: concat!(
-                "https://github.com/Lowendaff/lowendaff_bench/releases/download/7zip-26.06-1/",
+                "https://github.com/Lowendaff/bench_data/releases/download/7zip-26.06-1/",
                 "7zip-x86_64"
             ),
             sha256: "2ca1d7a93960113b84405ed211fe85f00b797b37927b76bcce0c58ca11646db5",
@@ -34,7 +35,7 @@ pub const SEVENZIP: ToolSpec = ToolSpec {
         ToolAsset {
             arch: "aarch64",
             url: concat!(
-                "https://github.com/Lowendaff/lowendaff_bench/releases/download/7zip-26.06-1/",
+                "https://github.com/Lowendaff/bench_data/releases/download/7zip-26.06-1/",
                 "7zip-aarch64"
             ),
             sha256: "11b600d2c362a1e6ffbd4142f29857a5f6b888606f7f0b48fb50168097d5c841",
@@ -54,7 +55,7 @@ pub const FIO: ToolSpec = ToolSpec {
         ToolAsset {
             arch: "x86_64",
             url: concat!(
-                "https://github.com/Lowendaff/lowendaff_bench/releases/download/fio-3.43-2/",
+                "https://github.com/Lowendaff/bench_data/releases/download/fio-3.43-2/",
                 "fio-x86_64"
             ),
             sha256: "f5d10f8743eac99b644924302b693deb3f3a1bb3ea3a2572f0efe385e6de9af6",
@@ -63,7 +64,7 @@ pub const FIO: ToolSpec = ToolSpec {
         ToolAsset {
             arch: "aarch64",
             url: concat!(
-                "https://github.com/Lowendaff/lowendaff_bench/releases/download/fio-3.43-2/",
+                "https://github.com/Lowendaff/bench_data/releases/download/fio-3.43-2/",
                 "fio-aarch64"
             ),
             sha256: "7f592e890267e9d92f9de487263ccccb94addb513a23bb54be18a155ad6ebd77",
@@ -110,7 +111,7 @@ pub const HPL: ToolSpec = ToolSpec {
         ToolAsset {
             arch: "x86_64",
             url: concat!(
-                "https://github.com/Lowendaff/lowendaff_bench/releases/download/hpl-2.3-2/",
+                "https://github.com/Lowendaff/bench_data/releases/download/hpl-2.3-2/",
                 "hpl-x86_64"
             ),
             sha256: "9a0db08deca2c3c3a6ac6964844818e55739a2705496c819987e1753b93baa34",
@@ -119,7 +120,7 @@ pub const HPL: ToolSpec = ToolSpec {
         ToolAsset {
             arch: "aarch64",
             url: concat!(
-                "https://github.com/Lowendaff/lowendaff_bench/releases/download/hpl-2.3-2/",
+                "https://github.com/Lowendaff/bench_data/releases/download/hpl-2.3-2/",
                 "hpl-aarch64"
             ),
             sha256: "5b5c23a4f9f03ac9f85e1b0229a2c7950a48f1d6c667d79bba2c3bf7f872c698",
@@ -140,7 +141,7 @@ pub const IPERF3: ToolSpec = ToolSpec {
         ToolAsset {
             arch: "x86_64",
             url: concat!(
-                "https://github.com/Lowendaff/lowendaff_bench/releases/download/iperf3-3.22-1/",
+                "https://github.com/Lowendaff/bench_data/releases/download/iperf3-3.22-1/",
                 "iperf3-x86_64"
             ),
             sha256: "d3ae394c3b8d2a16c18b86d223339887062881cd89fcd27f3650144c804c9355",
@@ -149,7 +150,7 @@ pub const IPERF3: ToolSpec = ToolSpec {
         ToolAsset {
             arch: "aarch64",
             url: concat!(
-                "https://github.com/Lowendaff/lowendaff_bench/releases/download/iperf3-3.22-1/",
+                "https://github.com/Lowendaff/bench_data/releases/download/iperf3-3.22-1/",
                 "iperf3-aarch64"
             ),
             sha256: "2d82185e2706cce73a01f90f43bbf4e231032af06bba1b5fc8255cb5039865b4",
@@ -171,7 +172,7 @@ pub const MULTICHASE: ToolSpec = ToolSpec {
         ToolAsset {
             arch: "x86_64",
             url: concat!(
-                "https://github.com/Lowendaff/lowendaff_bench/releases/download/",
+                "https://github.com/Lowendaff/bench_data/releases/download/",
                 "multichase-2026.10.01-1/multichase-x86_64.tar.gz"
             ),
             sha256: "8a2cb5f805c2faa194852e2504f7e563592ced3d3a5da74c04b14428d4bc00d0",
@@ -180,7 +181,7 @@ pub const MULTICHASE: ToolSpec = ToolSpec {
         ToolAsset {
             arch: "aarch64",
             url: concat!(
-                "https://github.com/Lowendaff/lowendaff_bench/releases/download/",
+                "https://github.com/Lowendaff/bench_data/releases/download/",
                 "multichase-2026.10.01-1/multichase-aarch64.tar.gz"
             ),
             sha256: "5d4188157c5579c88994a9de8df5ddcd96cfef639da5510066a61f2892aee915",
@@ -203,7 +204,7 @@ pub const NEXTTRACE: ToolSpec = ToolSpec {
         ToolAsset {
             arch: "x86_64",
             url: concat!(
-                "https://github.com/Lowendaff/lowendaff_bench/releases/download/nexttrace-1.7.6-1/",
+                "https://github.com/Lowendaff/bench_data/releases/download/nexttrace-1.7.6-1/",
                 "nexttrace-x86_64"
             ),
             sha256: "834364c4bf51a8537c9313a36dd9dfacdb00bc3490c5ba83f2e6d8fa01477a4d",
@@ -212,7 +213,7 @@ pub const NEXTTRACE: ToolSpec = ToolSpec {
         ToolAsset {
             arch: "aarch64",
             url: concat!(
-                "https://github.com/Lowendaff/lowendaff_bench/releases/download/nexttrace-1.7.6-1/",
+                "https://github.com/Lowendaff/bench_data/releases/download/nexttrace-1.7.6-1/",
                 "nexttrace-aarch64"
             ),
             sha256: "78b7054a8255b29dfa46201942600e4a6383ad2f6663e4fa8808269c3c75a100",
@@ -261,7 +262,7 @@ pub const PASSMARK_LIBS: ToolSpec = ToolSpec {
         ToolAsset {
             arch: "x86_64",
             url: concat!(
-                "https://github.com/Lowendaff/lowendaff_bench/releases/download/",
+                "https://github.com/Lowendaff/bench_data/releases/download/",
                 "passmark-libs-1.0-1/passmark-libs-x86_64.tar.gz"
             ),
             sha256: "a965f18bb5038f5a9cb3cfba21f43777e5ab1985afd96953de1de8420fdb06a6",
@@ -270,7 +271,7 @@ pub const PASSMARK_LIBS: ToolSpec = ToolSpec {
         ToolAsset {
             arch: "aarch64",
             url: concat!(
-                "https://github.com/Lowendaff/lowendaff_bench/releases/download/",
+                "https://github.com/Lowendaff/bench_data/releases/download/",
                 "passmark-libs-1.0-1/passmark-libs-aarch64.tar.gz"
             ),
             sha256: "4a2b6fe85c0113c2c65144a775da83167f13009c182fe6bb1a9fa273b4ed1a9f",
@@ -308,7 +309,7 @@ pub const SMARTCTL: ToolSpec = ToolSpec {
         ToolAsset {
             arch: "x86_64",
             url: concat!(
-                "https://github.com/Lowendaff/lowendaff_bench/releases/download/smartctl-7.5-1/",
+                "https://github.com/Lowendaff/bench_data/releases/download/smartctl-7.5-1/",
                 "smartctl-x86_64"
             ),
             sha256: "dbf17079b2b8469ede7002a7b15ac4b65f833cae658f229a3ba8ed158e4d6345",
@@ -317,7 +318,7 @@ pub const SMARTCTL: ToolSpec = ToolSpec {
         ToolAsset {
             arch: "aarch64",
             url: concat!(
-                "https://github.com/Lowendaff/lowendaff_bench/releases/download/smartctl-7.5-1/",
+                "https://github.com/Lowendaff/bench_data/releases/download/smartctl-7.5-1/",
                 "smartctl-aarch64"
             ),
             sha256: "ea4c64b5c38678fc40847598d83537395b7749ee7f274e8c228dd09172ae962f",
@@ -340,7 +341,7 @@ pub const STREAM: ToolSpec = ToolSpec {
         ToolAsset {
             arch: "x86_64",
             url: concat!(
-                "https://github.com/Lowendaff/lowendaff_bench/releases/download/",
+                "https://github.com/Lowendaff/bench_data/releases/download/",
                 "stream-5.10-1/stream-x86_64.tar.gz"
             ),
             sha256: "cd0bba47b10c6ef5e02cb7a5218ad65183d83f23061b0cc71cf0128b0a1e585f",
@@ -349,7 +350,7 @@ pub const STREAM: ToolSpec = ToolSpec {
         ToolAsset {
             arch: "aarch64",
             url: concat!(
-                "https://github.com/Lowendaff/lowendaff_bench/releases/download/",
+                "https://github.com/Lowendaff/bench_data/releases/download/",
                 "stream-5.10-1/stream-aarch64.tar.gz"
             ),
             sha256: "3f422aef2895bd424071c0d2d398c379c2cb391ac671b018ec3b033087c43fa7",
@@ -370,7 +371,7 @@ pub const SYSBENCH: ToolSpec = ToolSpec {
         ToolAsset {
             arch: "x86_64",
             url: concat!(
-                "https://github.com/Lowendaff/lowendaff_bench/releases/download/",
+                "https://github.com/Lowendaff/bench_data/releases/download/",
                 "sysbench-1.0.20-1/sysbench-x86_64"
             ),
             sha256: "a090a82b15b74efaffa2d80c8e1a74c28127ce38c4f8512e7fddcc13d3b5fd78",
@@ -379,7 +380,7 @@ pub const SYSBENCH: ToolSpec = ToolSpec {
         ToolAsset {
             arch: "aarch64",
             url: concat!(
-                "https://github.com/Lowendaff/lowendaff_bench/releases/download/",
+                "https://github.com/Lowendaff/bench_data/releases/download/",
                 "sysbench-1.0.20-1/sysbench-aarch64"
             ),
             sha256: "0d132f10716254e24ada1b9c4e7b0d37c5cadfc42e32bfaf9a7483ee8789569f",
@@ -403,7 +404,7 @@ pub const UNIXBENCH: ToolSpec = ToolSpec {
         ToolAsset {
             arch: "x86_64",
             url: concat!(
-                "https://github.com/Lowendaff/lowendaff_bench/releases/download/",
+                "https://github.com/Lowendaff/bench_data/releases/download/",
                 "unixbench-6.0.1-1/unixbench-x86_64.tar.gz"
             ),
             sha256: "bd7a8951ea3939c77d8eeaddbe88f43151e3fd4b0b5a86bbcaf38eb7295003f8",
@@ -412,7 +413,7 @@ pub const UNIXBENCH: ToolSpec = ToolSpec {
         ToolAsset {
             arch: "aarch64",
             url: concat!(
-                "https://github.com/Lowendaff/lowendaff_bench/releases/download/",
+                "https://github.com/Lowendaff/bench_data/releases/download/",
                 "unixbench-6.0.1-1/unixbench-aarch64.tar.gz"
             ),
             sha256: "8408bdde367b51dc0486c9f7a771fcf50a1fa9e04eeb9aa59402977128c84aba",

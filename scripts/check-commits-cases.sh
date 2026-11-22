@@ -186,81 +186,9 @@ verdict reject "a git that fails after it lists the commits" \
 verdict reject "a git that cannot tell a merge commit's parents" \
     env PATH="$scratch/parents-fail:$PATH" "$checker" "$base" "$merge"
 
-# A bot's pull request changes the generated lists, servers/iperf3.json and
-# servers/netflix-ix.json, and nothing else.
-# files <message> [<path> <content>]...: a commit with these files on top of the base.
-files() {
-    git checkout -q --detach "$base"
-    message=$1
-    shift
-    while [ $# -ge 2 ]; do
-        mkdir -p "$(dirname "$1")"
-        printf '%s\n' "$2" > "$1"
-        git add "$1"
-        shift 2
-    done
-    git commit -q -m "$message"
-    git rev-parse HEAD
-}
-title="build: update the iperf3 server list"
-list=$(files "$title
-
-los-angeles: Clouvider to Leaseweb" servers/iperf3.json '{"version": 1}')
-check accept "a bot's pull request of the list" "$base" "$list" "$title" 16 Bot
-check accept "a person's pull request of the list" "$base" "$list" "$title" 16 User
-both=$(files "$title
-
-los-angeles: Clouvider to Leaseweb" servers/iperf3.json '{}' scripts/run.sh 'echo run')
-check reject "a bot's pull request of the list and a script" "$base" "$both" "$title" 16 Bot
-check accept "a person's pull request of the list and a script" "$base" "$both" "$title" 16 User
-check accept "a pull request of the list and a script, without an author" "$base" "$both" \
-    "$title" 16
-candidates=$(files "$title
-
-tokyo: Leaseweb, added to the candidates" servers/iperf3-candidates.json '{"version": 1}')
-check reject "a bot's pull request of the candidates" "$base" "$candidates" "$title" 16 Bot
-ports="build: update Netflix's exchange ports"
-exchanges=$(files "$ports
-
-206.223.116.133: Equinix San Jose, added" servers/netflix-ix.json '{"version": 1}')
-check accept "a bot's pull request of the exchange ports" "$base" "$exchanges" "$ports" 16 Bot
-taier_title="build: update the Taier server list"
-taier_list=$(files "$taier_title
-
-beijing: 3 nodes, added" servers/taier.json '{"version": 1}')
-check accept "a bot's pull request of the Taier server list" "$base" "$taier_list" \
-    "$taier_title" 16 Bot
-generated=$(files "$ports
-
-All three generated lists in one pull request." servers/iperf3.json '{}' \
-    servers/taier.json '{}' servers/netflix-ix.json '{}')
-check accept "a bot's pull request of all generated lists" "$base" "$generated" "$ports" 16 Bot
-targets=$(files "build: change route tracing's targets
-
-pek-4809: another name" servers/traceroute.json '{"version": 1}')
-check reject "a bot's pull request of the target list" "$base" "$targets" \
-    "build: change route tracing's targets" 16 Bot
-check accept "a person's pull request of the target list" "$base" "$targets" \
-    "build: change route tracing's targets" 16 User
-git checkout -q --detach "$list"
-git mv servers/iperf3.json servers/iperf3-old.json
-git commit -q -m "$title
-
-los-angeles: the list under another name"
-renamed=$(git rev-parse HEAD)
-check reject "a bot's pull request that renames the list" "$list" "$renamed" "$title" 16 Bot
-check accept "a person's pull request that renames the list" "$list" "$renamed" "$title" 16 User
-script=$(files "test: add a script
-
-The script stands for any file that is not the server list." scripts/run.sh 'echo run')
-git checkout -q --detach "$script"
-mkdir -p servers
-git mv scripts/run.sh servers/iperf3.json
-git commit -q -m "$title
-
-los-angeles: a script under the list's name"
-check reject "a bot's pull request that renames a script to the list" "$script" \
-    "$(git rev-parse HEAD)" "$title" 16 Bot
+# Dependabot skips commits.yml; no other bot pull requests are accepted in this repository.
+check reject "a bot's pull request" "$base" "$good" "ci: check the commit messages" 16 Bot
+check accept "a person's pull request" "$base" "$good" "ci: check the commit messages" 16 User
 
 if [ "$failures" -gt 0 ]; then
     echo "check-commits-cases: $failures of $cases cases failed" >&2

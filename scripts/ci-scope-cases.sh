@@ -50,13 +50,9 @@ git checkout -q --detach "$base"
 git mv src/lib.rs src/lib.md
 renamed_pull_request=$(commit 'rename only')
 git checkout -q --detach "$base"
-lists_pull_request=$(commit 'server lists' servers/iperf3.json '{"version": 1}' \
-    servers/iperf3-candidates.json '{"version": 1}' README.md '# readme, with lists')
+docs_and_license=$(commit 'docs and license' LICENSE 'Apache-2.0' README.md '# readme, updated')
 git checkout -q --detach "$base"
-list_and_code=$(commit 'a server list and code' servers/iperf3.json '{"version": 1}' \
-    src/lib.rs 'fn d() {}')
-git checkout -q --detach "$base"
-not_a_list=$(commit 'not a list' servers/iperf3.txt 'iperf3.example.net')
+docs_and_code=$(commit 'docs and code' README.md '# readme' src/lib.rs 'fn d() {}')
 
 # The canned API answers of each group of cases live in a directory of their own.
 group=0
@@ -133,8 +129,8 @@ expect() {
 }
 
 reused="reusing an earlier validation"
-skipped="skipped: only Markdown, LICENSE or server lists changed"
-since="files other than Markdown, LICENSE or server lists changed since"
+skipped="skipped: only Markdown or LICENSE changed"
+since="files other than Markdown or LICENSE changed since"
 unconfirmed="GitHub's job records do not show full, successful runs"
 pr="EVENT=pull_request PR_NUMBER=7"
 
@@ -297,7 +293,7 @@ fresh
     expect true "the API answers nothing" "cannot be listed" \
         $pr BASE_SHA="$base" HEAD_SHA="$markdown"
     expect true "a pull request with code, without records" \
-        "changes files other than Markdown, LICENSE or server lists" \
+        "changes files other than Markdown or LICENSE" \
         $pr BASE_SHA="$base" HEAD_SHA="$markdown"
     expect false "a pull request of Markdown only, without records" "$skipped" \
         $pr BASE_SHA="$base" HEAD_SHA="$docs_pull_request"
@@ -311,16 +307,13 @@ fresh
         EVENT=workflow_dispatch HEAD_SHA="$docs_pull_request"
     expect false "a Markdown-only pull request after its base moved" "$skipped" \
         $pr BASE_SHA="$moved" HEAD_SHA="$docs_pull_request"
-    expect false "a pull request of server lists and Markdown, without records" "$skipped" \
-        $pr BASE_SHA="$base" HEAD_SHA="$lists_pull_request"
-    expect true "a pull request of a server list and code" \
-        "changes files other than Markdown, LICENSE or server lists" \
-        $pr BASE_SHA="$base" HEAD_SHA="$list_and_code"
-    expect true "a pull request of a file in servers/ that is no list" \
-        "changes files other than Markdown, LICENSE or server lists" \
-        $pr BASE_SHA="$base" HEAD_SHA="$not_a_list"
+    expect false "a pull request of LICENSE and Markdown, without records" "$skipped" \
+        $pr BASE_SHA="$base" HEAD_SHA="$docs_and_license"
+    expect true "a pull request of Markdown and code" \
+        "changes files other than Markdown or LICENSE" \
+        $pr BASE_SHA="$base" HEAD_SHA="$docs_and_code"
     expect true "a pull request that renames a code file into Markdown" \
-        "changes files other than Markdown, LICENSE or server lists" \
+        "changes files other than Markdown or LICENSE" \
         $pr BASE_SHA="$base" HEAD_SHA="$renamed_pull_request"
     expect true "no architecture" "the event does not say what to compare" \
         $pr BASE_SHA="$base" HEAD_SHA="$docs_pull_request" ARCH=
@@ -334,14 +327,14 @@ fresh
 validated_at main "$validated" ""
 expect false "a push of Markdown after a validated main commit" "$reused" \
     EVENT=push BEFORE_SHA="$validated" HEAD_SHA="$markdown"
-expect true "a push of a script" "changes files other than Markdown, LICENSE or server lists" \
+expect true "a push of a script" "changes files other than Markdown or LICENSE" \
     EVENT=push BEFORE_SHA="$markdown" HEAD_SHA="$script_change"
 
 fresh
 expect false "a push of Markdown only, without records" "$skipped" \
     EVENT=push BEFORE_SHA="$validated" HEAD_SHA="$markdown"
 expect true "a push of two commits, code in the first" \
-    "changes files other than Markdown, LICENSE or server lists" \
+    "changes files other than Markdown or LICENSE" \
     EVENT=push BEFORE_SHA="$base" HEAD_SHA="$markdown"
 expect true "a push that names no commit before it" "the push names no commit before it" \
     EVENT=push BEFORE_SHA=0000000000000000000000000000000000000000 HEAD_SHA="$markdown"
