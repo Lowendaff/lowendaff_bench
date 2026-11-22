@@ -388,13 +388,30 @@ async fn run_upload_worker(
 
 fn parse_allowed_url(raw: &str) -> Result<Url, NetError> {
     let parsed = Url::parse(raw).map_err(|err| NetError::Transport(err.to_string()))?;
-    let loopback = parsed
+    let host_clean = parsed
         .host_str()
-        .and_then(|h| h.trim_matches(['[', ']']).parse::<IpAddr>().ok())
-        .is_some_and(|ip| ip.is_loopback());
+        .map(|h| h.trim_matches(['[', ']']))
+        .unwrap_or_default();
+    let host_ip = host_clean.parse::<IpAddr>().ok();
     match parsed.scheme() {
-        "https" => Ok(parsed),
-        "http" if loopback => Ok(parsed),
+        "https" => {
+            if let Some(ip) = host_ip {
+                if !bench_api::is_routable_endpoint_ip(ip) {
+                    return Err(NetError::Transport(
+                        "non-public Apple CDN endpoint address refused".to_owned(),
+                    ));
+                }
+            } else {
+                let lower = host_clean.to_ascii_lowercase();
+                if lower == "localhost" || lower.ends_with(".localhost") {
+                    return Err(NetError::Transport(
+                        "non-public Apple CDN endpoint host refused".to_owned(),
+                    ));
+                }
+            }
+            Ok(parsed)
+        }
+        "http" if host_ip.is_some_and(|ip| ip.is_loopback()) => Ok(parsed),
         _ => Err(NetError::Transport(format!(
             "non-HTTPS Apple CDN endpoint URL: {raw}"
         ))),
@@ -413,6 +430,8 @@ fn build_pinned_client(
     let port = url
         .port_or_known_default()
         .ok_or_else(|| NetError::Transport("endpoint URL has unknown port".to_owned()))?;
+    let host_ip = host.parse::<IpAddr>().ok();
+    let allow_loopback = url.scheme() == "http" && host_ip.is_some_and(|ip| ip.is_loopback());
 
     let mut builder = fetcher::builder()
         .map_err(NetError::Transport)?
@@ -423,22 +442,31 @@ fn build_pinned_client(
         .no_proxy();
 
     if let Some(ip) = pin_ip {
+        let permitted =
+            (allow_loopback && ip.is_loopback()) || bench_api::is_routable_endpoint_ip(ip);
+        if !permitted {
+            return Err(NetError::Transport(
+                "non-public pinned endpoint IP refused".to_owned(),
+            ));
+        }
         let local = if ip.is_ipv6() {
             IpAddr::V6(Ipv6Addr::UNSPECIFIED)
         } else {
             IpAddr::V4(Ipv4Addr::UNSPECIFIED)
         };
         builder = builder.local_address(local);
-        if host.parse::<IpAddr>().is_err() {
+        if host_ip.is_none() {
             builder = builder.resolve(host, SocketAddr::new(ip, port));
         }
-    } else if let Ok(ip) = host.parse::<IpAddr>() {
+    } else if let Some(ip) = host_ip {
         let local = if ip.is_ipv6() {
             IpAddr::V6(Ipv6Addr::UNSPECIFIED)
         } else {
             IpAddr::V4(Ipv4Addr::UNSPECIFIED)
         };
         builder = builder.local_address(local);
+    } else {
+        builder = builder.dns_resolver(Arc::new(fetcher::PublicDnsResolver::new(None)));
     }
 
     builder
@@ -604,5 +632,46 @@ mod tests {
         .expect("failed upload returns raw");
         assert_eq!(failed_ul.bytes, 0, "500 status rolls back counted bytes");
         assert_eq!(failed_ul.fault_count, 1);
+
+        for non_public_pin in [
+            IpAddr::V4(Ipv4Addr::LOCALHOST),
+            IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)),
+            IpAddr::V4(Ipv4Addr::new(169, 254, 169, 254)),
+        ] {
+            let blocked = super::probe_rtt(
+                &InetspeedTarget {
+                    url: "https://mensura.cdn-apple.com/api/v1/gm/small".to_owned(),
+                    pin_ip: Some(non_public_pin),
+                },
+                1,
+                Duration::from_millis(50),
+                &cancel,
+            )
+            .await;
+            assert!(
+                blocked.is_err(),
+                "HTTPS probe pinned to non-public IP {non_public_pin} must fail"
+            );
+        }
+        for blocked_url in [
+            "https://127.0.0.1/api/v1/gm/small",
+            "https://169.254.169.254/api/v1/gm/small",
+            "https://localhost/api/v1/gm/small",
+        ] {
+            let blocked = super::probe_rtt(
+                &InetspeedTarget {
+                    url: blocked_url.to_owned(),
+                    pin_ip: None,
+                },
+                1,
+                Duration::from_millis(50),
+                &cancel,
+            )
+            .await;
+            assert!(
+                blocked.is_err(),
+                "non-public HTTPS URL {blocked_url} must fail"
+            );
+        }
     }
 }

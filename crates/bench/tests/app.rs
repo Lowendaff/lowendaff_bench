@@ -1804,6 +1804,22 @@ fn zero_args_selects_tui_flag_is_gone_and_all_runs_full_cli_suite() {
     );
     assert!(bad_ep.is_err(), "non-IP --inetspeed-endpoint must fail");
 
+    for non_public_ep in ["127.0.0.1", "10.0.0.1", "169.254.169.254", "::1", "fe80::1"] {
+        let res = app::prepare(
+            &cli(&[
+                "--only",
+                "network.inetspeed",
+                "--inetspeed-endpoint",
+                non_public_ep,
+            ]),
+            &all,
+        );
+        assert!(
+            res.is_err(),
+            "non-public --inetspeed-endpoint {non_public_ep} must fail"
+        );
+    }
+
     // Unified --taier selectors and --taier-list parsing & formatting.
     let ok_taier = app::prepare(
         &cli(&[

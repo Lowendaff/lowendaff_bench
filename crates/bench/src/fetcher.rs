@@ -12,6 +12,7 @@ use std::io;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::net::Ipv6Addr;
+use std::net::SocketAddr;
 use std::ops::Range;
 use std::sync::Arc;
 use std::time::Duration;
@@ -22,6 +23,10 @@ use reqwest::ClientBuilder;
 use reqwest::Proxy;
 use reqwest::StatusCode;
 use reqwest::Url;
+use reqwest::dns::Addrs;
+use reqwest::dns::Name;
+use reqwest::dns::Resolve;
+use reqwest::dns::Resolving;
 use reqwest::header;
 use reqwest::header::HeaderValue;
 use rustls::ClientConfig;
@@ -384,6 +389,50 @@ fn shared_tls_config() -> Result<ClientConfig, String> {
             .map(|cfg| cfg.with_root_certificates(roots).with_no_client_auth())
     })
     .clone()
+}
+
+/// DNS resolver for direct benchmark and upload clients that rejects private, loopback,
+/// link-local, cloud-metadata, and reserved addresses on hostname lookups (optionally restricted
+/// to one [`IpFamily`]).
+pub struct PublicDnsResolver {
+    family: Option<IpFamily>,
+}
+
+impl PublicDnsResolver {
+    /// Creates a public-IP-only DNS resolver, optionally restricted to `family`.
+    #[must_use]
+    pub fn new(family: Option<IpFamily>) -> Self {
+        Self { family }
+    }
+}
+
+impl Resolve for PublicDnsResolver {
+    fn resolve(&self, name: Name) -> Resolving {
+        let host = name.as_str().to_owned();
+        let family = self.family;
+        Box::pin(async move {
+            let resolved: Vec<SocketAddr> = tokio::net::lookup_host((host.as_str(), 0))
+                .await?
+                .filter(|addr| {
+                    let family_ok = match family {
+                        Some(IpFamily::Ipv4) => addr.is_ipv4(),
+                        Some(IpFamily::Ipv6) => addr.is_ipv6(),
+                        None => true,
+                    };
+                    family_ok && bench_api::is_routable_endpoint_ip(addr.ip())
+                })
+                .collect();
+            if resolved.is_empty() {
+                return Err(Box::new(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "DNS resolved to no public routable address",
+                ))
+                    as Box<dyn std::error::Error + Send + Sync>);
+            }
+            let addrs: Addrs = Box::new(resolved.into_iter());
+            Ok(addrs)
+        })
+    }
 }
 
 /// A client builder with the program's TLS configuration (rustls with ring, and the bundled

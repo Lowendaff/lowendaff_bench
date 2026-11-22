@@ -596,16 +596,34 @@ async fn build_client(family: IpFamily, raw_base: &str) -> Result<(Client, Url),
         if ip.is_ipv6() != ipv6 {
             return Err(NetError::NoAddress);
         }
+        let permitted =
+            (scheme == "http" && ip.is_loopback()) || bench_api::is_routable_endpoint_ip(ip);
+        if !permitted {
+            return Err(NetError::Transport(
+                "non-public Cloudflare target address refused".to_owned(),
+            ));
+        }
     } else {
-        let addrs: Vec<SocketAddr> = tokio::net::lookup_host((host.as_str(), port))
+        let family_addrs: Vec<SocketAddr> = tokio::net::lookup_host((host.as_str(), port))
             .await
             .map_err(|err| NetError::Transport(err.to_string()))?
             .filter(|addr| addr.is_ipv6() == ipv6)
             .collect();
-        if addrs.is_empty() {
+        if family_addrs.is_empty() {
             return Err(NetError::NoAddress);
         }
-        builder = builder.resolve_to_addrs(&host, &addrs);
+        let safe_addrs: Vec<SocketAddr> = family_addrs
+            .into_iter()
+            .filter(|addr| bench_api::is_routable_endpoint_ip(addr.ip()))
+            .collect();
+        if safe_addrs.is_empty() {
+            return Err(NetError::Transport(
+                "Cloudflare host resolved to non-public address".to_owned(),
+            ));
+        }
+        builder = builder
+            .dns_resolver(Arc::new(fetcher::PublicDnsResolver::new(Some(family))))
+            .resolve_to_addrs(&host, &safe_addrs);
     }
 
     let client = builder
@@ -621,21 +639,34 @@ async fn resolve_stun_addrs(
 ) -> Result<Vec<SocketAddr>, NetError> {
     let clean = host.trim_matches(['[', ']']);
     if let Ok(ip) = clean.parse::<IpAddr>() {
-        return if ip.is_ipv6() == ipv6 {
-            Ok(vec![SocketAddr::new(ip, port)])
-        } else {
-            Err(NetError::NoAddress)
-        };
+        if ip.is_ipv6() != ipv6 {
+            return Err(NetError::NoAddress);
+        }
+        if !ip.is_loopback() && !bench_api::is_routable_endpoint_ip(ip) {
+            return Err(NetError::Transport(
+                "non-public STUN target address refused".to_owned(),
+            ));
+        }
+        return Ok(vec![SocketAddr::new(ip, port)]);
     }
-    let addrs: Vec<SocketAddr> = tokio::net::lookup_host((clean, port))
+    let family_addrs: Vec<SocketAddr> = tokio::net::lookup_host((clean, port))
         .await
         .map_err(|err| NetError::Transport(err.to_string()))?
         .filter(|addr| addr.is_ipv6() == ipv6)
         .collect();
-    if addrs.is_empty() {
-        Err(NetError::NoAddress)
+    if family_addrs.is_empty() {
+        return Err(NetError::NoAddress);
+    }
+    let safe_addrs: Vec<SocketAddr> = family_addrs
+        .into_iter()
+        .filter(|addr| bench_api::is_routable_endpoint_ip(addr.ip()))
+        .collect();
+    if safe_addrs.is_empty() {
+        Err(NetError::Transport(
+            "STUN host resolved to non-public address".to_owned(),
+        ))
     } else {
-        Ok(addrs)
+        Ok(safe_addrs)
     }
 }
 
@@ -822,5 +853,41 @@ mod tests {
             ..ok_spec
         };
         assert!(super::udp_loss(&bh_spec, &cancel).await.is_err());
+
+        for non_public in ["10.0.0.1", "169.254.169.254", "localhost"] {
+            let blocked_stun = CloudflareStunSpec {
+                family: IpFamily::Ipv4,
+                host: non_public.to_owned(),
+                port: stun_addr.port(),
+                packets: 1,
+                interval: Duration::from_millis(5),
+                timeout: Duration::from_millis(50),
+            };
+            assert!(
+                super::udp_loss(&blocked_stun, &cancel).await.is_err(),
+                "non-public STUN target {non_public} must be rejected"
+            );
+        }
+        for blocked_base in [
+            "https://127.0.0.1",
+            "https://10.0.0.1",
+            "https://169.254.169.254",
+            "https://localhost",
+        ] {
+            let blocked_dl = CloudflareTransferSpec {
+                family: IpFamily::Ipv4,
+                base_url: blocked_base.to_owned(),
+                meas_id: "1".to_owned(),
+                concurrency: 1,
+                duration: Duration::from_millis(50),
+                bytes_per_req: 1024,
+                probe_interval: Duration::from_millis(50),
+                probe_timeout: Duration::from_millis(50),
+            };
+            assert!(
+                super::download(&blocked_dl, &cancel).await.is_err(),
+                "non-public Cloudflare base URL {blocked_base} must be rejected"
+            );
+        }
     }
 }

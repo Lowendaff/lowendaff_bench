@@ -504,10 +504,13 @@ pub fn prepare_with_proxy(
         .filter(|s| !s.is_empty())
     {
         Some(raw) => {
-            let parsed_ip: Result<IpAddr, _> = raw.parse();
+            let parsed_ip = raw
+                .parse::<IpAddr>()
+                .ok()
+                .filter(|&ip| bench_api::is_routable_endpoint_ip(ip));
             match parsed_ip {
-                Ok(ip) => Some(ip.to_string()),
-                Err(_) => {
+                Some(ip) => Some(ip.to_string()),
+                None => {
                     errors.push(locale::words().invalid_inetspeed_endpoint(raw));
                     None
                 }
