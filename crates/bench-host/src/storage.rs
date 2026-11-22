@@ -433,24 +433,37 @@ fn decode_udev(text: &str) -> String {
 }
 
 /// The disks below a block device: partitions belong to their disk, and LVM or RAID
-/// devices to the disks of their members.
+/// devices to the disks of their members. A `visited` set guards against cyclic `slaves` links.
 fn physical(devices: &[BlockDevice], name: &str) -> BTreeSet<String> {
     let mut disks = BTreeSet::new();
+    let mut visited = BTreeSet::new();
+    collect_physical(devices, name, &mut visited, &mut disks);
+    disks
+}
+
+fn collect_physical<'a>(
+    devices: &'a [BlockDevice],
+    name: &'a str,
+    visited: &mut BTreeSet<&'a str>,
+    disks: &mut BTreeSet<String>,
+) {
+    if !visited.insert(name) {
+        return;
+    }
     let Some(device) = devices.iter().find(|device| device.name == name) else {
-        return disks;
+        return;
     };
     if device.partition {
         if let Some(parent) = parent_of(devices, name) {
-            disks.extend(physical(devices, parent));
+            collect_physical(devices, parent, visited, disks);
         }
     } else if !device.slaves.is_empty() {
         for slave in &device.slaves {
-            disks.extend(physical(devices, slave));
+            collect_physical(devices, slave, visited, disks);
         }
     } else if device.is_disk() {
         disks.insert(device.name.clone());
     }
-    disks
 }
 
 /// The device a partition belongs to. The kernel names partitions after their device,

@@ -241,6 +241,29 @@ fn partitions_raid_and_btrfs_subvolumes_lead_to_their_disks() {
 }
 
 #[test]
+fn cyclic_block_device_slaves_do_not_recurse_forever() {
+    let dir = common::host((
+        &[(
+            "/proc/self/mountinfo",
+            "20 1 9:0 / / rw - ext4 /dev/md0 rw\n",
+        )],
+        &[],
+    ));
+    let gib = 2 * 1024 * 1024;
+    common::block(&dir, "sda", "8:0", gib, false, &[]);
+    common::block(&dir, "sda1", "8:1", gib, true, &[]);
+    common::block(&dir, "md0", "9:0", gib, false, &["dm-0", "sda1"]);
+    common::block(&dir, "dm-0", "253:0", gib, false, &["md0", "dm-0"]);
+
+    let storage = storage::read(&Root::new(dir.path()), |_| None);
+    assert_eq!(storage.disks.len(), 1);
+    assert_eq!(storage.disks[0].name, "sda");
+    assert_eq!(storage.disks[0].uses, [Use::Mount("/".to_owned())]);
+    assert_eq!(storage.filesystems.len(), 1);
+    assert_eq!(storage.filesystems[0].disks, ["sda".to_owned()]);
+}
+
+#[test]
 fn a_container_shows_its_own_root_filesystem() {
     for (name, fs_type) in [
         ("docker-debian13-aarch64", "overlay"),
