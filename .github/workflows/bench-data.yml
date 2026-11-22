@@ -20,8 +20,31 @@ env:
   CARGO_INCREMENTAL: "0"
 
 jobs:
+  resolve:
+    name: resolve bench_data snapshot
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions: {}
+    outputs:
+      data_sha: ${{ steps.data.outputs.data_sha }}
+    steps:
+      - name: Resolve Lowendaff/bench_data commit
+        id: data
+        env:
+          DISPATCH_SHA: ${{ github.event.client_payload.sha }}
+        run: |
+          if [[ ${DISPATCH_SHA:-} =~ ^[0-9a-f]{40}$ ]]; then
+            data_sha=$DISPATCH_SHA
+          else
+            data_sha=$(git ls-remote https://github.com/Lowendaff/bench_data.git refs/heads/main |
+              awk '{print $1}')
+          fi
+          [[ $data_sha =~ ^[0-9a-f]{40}$ ]]
+          printf 'data_sha=%s\n' "$data_sha" >> "$GITHUB_OUTPUT"
+
   sync:
     name: sync and embed bench_data (${{ matrix.arch }})
+    needs: resolve
     strategy:
       fail-fast: false
       matrix:
@@ -44,31 +67,23 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Resolve Lowendaff/bench_data commit and fetch Taier catalog
-        id: data
+      - name: Fetch Taier catalog
         env:
-          DISPATCH_SHA: ${{ github.event.client_payload.sha }}
+          DATA_SHA: ${{ needs.resolve.outputs.data_sha }}
         run: |
-          if [[ ${DISPATCH_SHA:-} =~ ^[0-9a-f]{40}$ ]]; then
-            data_sha=$DISPATCH_SHA
-          else
-            data_sha=$(git ls-remote https://github.com/Lowendaff/bench_data.git refs/heads/main |
-              awk '{print $1}')
-          fi
-          [[ $data_sha =~ ^[0-9a-f]{40}$ ]]
+          [[ $DATA_SHA =~ ^[0-9a-f]{40}$ ]]
           curl --fail --silent --show-error --location \
             --proto '=https' --proto-redir '=https' \
             --max-time 60 --retry 3 --max-filesize 65536 \
             --output "$RUNNER_TEMP/taier-snapshot.json" \
-            "https://raw.githubusercontent.com/Lowendaff/bench_data/$data_sha/servers/taier.json"
+            "https://raw.githubusercontent.com/Lowendaff/bench_data/$DATA_SHA/servers/taier.json"
           taier_sha256=$(sha256sum "$RUNNER_TEMP/taier-snapshot.json" | awk '{print $1}')
           locations=$(jq '.locations | length' "$RUNNER_TEMP/taier-snapshot.json")
-          nodes=$(jq '[.locations[].nodes | length] | add' "$RUNNER_TEMP/taier-snapshot.json")
-          printf 'data_sha=%s\ntaier_sha256=%s\n' "$data_sha" "$taier_sha256" >> "$GITHUB_OUTPUT"
+          nodes=$(jq '[.locations[].nodes | length] | add // 0' "$RUNNER_TEMP/taier-snapshot.json")
           {
             echo "### \`Lowendaff/bench_data\` snapshot ($ARCH)"
             echo
-            echo "- Commit: \`$data_sha\`"
+            echo "- Commit: \`$DATA_SHA\`"
             echo "- \`servers/taier.json\` SHA-256: \`$taier_sha256\`"
             echo "- Catalog size: \`$locations\` locations, \`$nodes\` carrier nodes"
             echo
@@ -95,7 +110,7 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - name: Validate live bench_data lists against Rust parsers
         env:
-          BENCH_DATA_REF: ${{ steps.data.outputs.data_sha }}
+          BENCH_DATA_REF: ${{ needs.resolve.outputs.data_sha }}
         run: cargo nextest run -p bench --test lists --locked --run-ignored only
       - name: Static build with embedded Taier fallback snapshot
         env:
@@ -120,7 +135,7 @@ jobs:
 
   live-taier:
     name: live Taier carrier check
-    needs: sync
+    needs: [resolve, sync]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -135,19 +150,13 @@ jobs:
           path: ${{ runner.temp }}/build
       - name: Probe random live Taier carrier slots
         env:
-          DISPATCH_SHA: ${{ github.event.client_payload.sha }}
+          DATA_SHA: ${{ needs.resolve.outputs.data_sha }}
         run: |
           chmod 755 "$RUNNER_TEMP/build/lowendaff-bench"
-          if [[ ${DISPATCH_SHA:-} =~ ^[0-9a-f]{40}$ ]]; then
-            data_sha=$DISPATCH_SHA
-          else
-            data_sha=$(git ls-remote https://github.com/Lowendaff/bench_data.git refs/heads/main |
-              awk '{print $1}')
-          fi
-          [[ $data_sha =~ ^[0-9a-f]{40}$ ]]
+          [[ $DATA_SHA =~ ^[0-9a-f]{40}$ ]]
           curl --fail --silent --show-error --location \
             --proto '=https' --proto-redir '=https' \
             --max-time 60 --retry 3 --max-filesize 65536 \
             --output "$RUNNER_TEMP/taier.json" \
-            "https://raw.githubusercontent.com/Lowendaff/bench_data/$data_sha/servers/taier.json"
+            "https://raw.githubusercontent.com/Lowendaff/bench_data/$DATA_SHA/servers/taier.json"
           scripts/taier-check.sh "$RUNNER_TEMP/build/lowendaff-bench" "$RUNNER_TEMP/taier.json"
