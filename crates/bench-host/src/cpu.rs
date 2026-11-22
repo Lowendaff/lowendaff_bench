@@ -133,7 +133,12 @@ pub fn read(root: &Root) -> Cpu {
             .read_line("/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq")
             .and_then(|khz| khz.parse::<f64>().ok())
             .map(|khz| khz / 1000.0)
-            .or_else(|| field(first, "cpu MHz").and_then(|mhz| mhz.parse().ok())),
+            .filter(|mhz| mhz.is_finite() && *mhz > 0.0)
+            .or_else(|| {
+                field(first, "cpu MHz")
+                    .and_then(|mhz| mhz.parse::<f64>().ok())
+                    .filter(|mhz| mhz.is_finite() && *mhz > 0.0)
+            }),
         caches: caches(root, first),
         aes: (!words.is_empty()).then(|| has("aes")),
         virtualization: if flags.is_none() {
@@ -244,7 +249,7 @@ pub(crate) fn bytes(text: &str) -> Option<u64> {
         "G" | "GB" | "GIB" => 1 << 30,
         _ => return None,
     };
-    Some(number * factor)
+    number.checked_mul(factor)
 }
 
 /// The vendor and core name for ARM CPUs, from util-linux's table of implementer and
