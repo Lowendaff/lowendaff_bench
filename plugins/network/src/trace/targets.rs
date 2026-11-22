@@ -158,7 +158,8 @@ fn check(target: WrittenTarget, allow_local: bool) -> Result<Target, Rule> {
 fn name_of(name: &str, ipv6: bool, allow_local: bool) -> bool {
     match name.parse::<IpAddr>() {
         Ok(address) => {
-            address.is_ipv6() == ipv6 && (allow_local || crate::endpoint::is_routable_ip(address))
+            address.is_ipv6() == ipv6
+                && (allow_local || bench_api::is_routable_endpoint_ip(address))
         }
         Err(_) => lists::host(name) && (allow_local || lists::is_remote_safe_host(name)),
     }
