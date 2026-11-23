@@ -359,6 +359,15 @@ fn a_cpu_quota_counts_only_below_the_cpus_a_container_may_use() {
         &[],
     ));
     assert_eq!(cpus(wide), (Some(2), None));
+    let equal = container((
+        &[
+            ("/proc/cpuinfo", CPUINFO),
+            ("/sys/fs/cgroup/cpuset.cpus.effective", "0-1\n"),
+            ("/sys/fs/cgroup/cpu.max", "200000 100000\n"),
+        ],
+        &[],
+    ));
+    assert_eq!(cpus(equal), (Some(2), None));
     let narrow = container((
         &[
             ("/proc/cpuinfo", CPUINFO),
@@ -391,6 +400,24 @@ fn a_memory_limit_counts_only_below_what_proc_shows() {
     ));
     assert_eq!(
         memory(above),
+        MemoryFacts {
+            total: 1 << 30,
+            used: 256 << 20,
+            estimated: false,
+            swap_total: 0,
+            swap_used: 0,
+        }
+    );
+    let exact = container((
+        &[
+            ("/proc/meminfo", MEMINFO),
+            ("/sys/fs/cgroup/memory.max", "1073741824\n"),
+            ("/sys/fs/cgroup/memory.current", "104857600\n"),
+        ],
+        &[],
+    ));
+    assert_eq!(
+        memory(exact),
         MemoryFacts {
             total: 1 << 30,
             used: 256 << 20,

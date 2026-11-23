@@ -33,6 +33,14 @@ const OOM_SCORE_ADJ: &str = "/proc/self/oom_score_adj";
 /// The lines of a failed run's output that the log quotes.
 const TAIL: usize = 3;
 
+/// Maximum UTF-8 characters retained per quoted line in [`Output::last_line`] and [`Output::tail`].
+const MAX_QUOTED_CHARS: usize = 512;
+
+/// Process-wide lock serializing `/proc/self/oom_score_adj` modifications across concurrent spawns;
+/// stores the error string if restoring `oom_score_adj` ever fails so later spawns do not mistake
+/// the stranded `1000` for the program's baseline score.
+static OOM_SCORE_LOCK: tokio::sync::RwLock<Option<String>> = tokio::sync::RwLock::const_new(None);
+
 /// Maximum bytes retained from each of a tool's standard output and standard error (`4 MiB`).
 /// Bytes beyond this cap are drained and discarded so a runaway or compromised child cannot
 /// exhaust memory in the parent process.
@@ -173,7 +181,7 @@ impl Job {
             let (spawned, adjustment) = spawn_first_to_go(command, cpus).await;
             (spawned, Some(adjustment))
         } else {
-            (spawn(command, cpus).await, None)
+            (spawn_plain(command, cpus).await, None)
         };
         // Once the tool has started, or failed to, its file need not stay open.
         drop(opened);
@@ -248,15 +256,16 @@ impl Job {
     /// Waits for `child` within the limit, or until `cancel` fires, and kills its group when it
     /// does not end on its own.
     async fn wait(&self, child: Child, cancel: &CancellationToken) -> Result<Output, RunError> {
-        // On a timeout or a cancellation the group is killed when this is dropped, at the end:
-        // its id is not given to another group while any of its processes lives.
         let pid = child
             .id()
             .and_then(|id| i32::try_from(id).ok())
             .and_then(Pid::from_raw);
-        let group = self.group.then_some(Group { leader: pid });
-        let wait_fut = wait_with_bounded_output(child, pid, self.group, self.interrupt_after);
-        let ended = tokio::select! {
+        let guarded = GuardedChild {
+            group: self.group.then_some(Group { leader: pid }),
+            child,
+        };
+        let wait_fut = wait_with_bounded_output(guarded, pid, self.group, self.interrupt_after);
+        tokio::select! {
             finished = tokio::time::timeout(self.limit, wait_fut) => {
                 match finished {
                     Ok(Ok(output)) => Ok(output),
@@ -265,16 +274,15 @@ impl Job {
                 }
             }
             () = cancel.cancelled() => Err(RunError::Cancelled),
-        };
-        // The leader ended on its own and was reaped: once any workers it left end too, the
-        // group's id may be another group's.
-        if ended.is_ok()
-            && let Some(group) = group
-        {
-            group.disarm();
         }
-        ended
     }
+}
+
+/// Pairs the process-group guard ahead of `Child` so field drop order always sends `SIGKILL` to
+/// the process group before `Child` drops and reaps the group leader's PID.
+struct GuardedChild {
+    group: Option<Group>,
+    child: Child,
 }
 
 /// Drains `child`'s `stdout` and `stderr` concurrently while waiting for it to exit, retaining at
@@ -282,13 +290,13 @@ impl Job {
 /// [`PIPE_DRAIN_GRACE`]. Optional `interrupt_after` sends `SIGINT` only before `child.wait()`
 /// reaps the child, so a recycled PID is never signalled.
 async fn wait_with_bounded_output(
-    mut child: Child,
+    mut guarded: GuardedChild,
     pid: Option<Pid>,
     is_group: bool,
     interrupt_after: Option<Duration>,
 ) -> io::Result<Output> {
-    let stdout = child.stdout.take();
-    let stderr = child.stderr.take();
+    let stdout = guarded.child.stdout.take();
+    let stderr = guarded.child.stderr.take();
     let mut out_bytes = Vec::new();
     let mut err_bytes = Vec::new();
     let mut out_truncated = false;
@@ -307,7 +315,13 @@ async fn wait_with_bounded_output(
 
         let status = loop {
             tokio::select! {
-                res = child.wait() => break res?,
+                res = guarded.child.wait() => {
+                    let status = res?;
+                    if let Some(group) = &mut guarded.group {
+                        group.disarm();
+                    }
+                    break status;
+                }
                 () = &mut interrupt_fut, if interrupt_pending => {
                     interrupt_pending = false;
                     if let Some(target) = pid {
@@ -438,23 +452,23 @@ pub struct Output {
 }
 
 impl Output {
-    /// The last line with text, trimmed, to quote in a reason.
+    /// The last line with text, trimmed and bounded, to quote in a reason.
     #[must_use]
     pub fn last_line(&self) -> Option<&str> {
         self.text
-            .lines()
+            .split(['\n', '\r'])
             .rev()
-            .map(str::trim)
+            .map(trim_quoted_line)
             .find(|line| !line.is_empty())
     }
 
-    /// The last `count` lines with text, trimmed, oldest first.
+    /// The last `count` lines with text, trimmed and bounded, oldest first.
     fn tail(&self, count: usize) -> Vec<String> {
         let mut tail: Vec<String> = self
             .text
-            .lines()
+            .split(['\n', '\r'])
             .rev()
-            .map(str::trim)
+            .map(trim_quoted_line)
             .filter(|line| !line.is_empty())
             .take(count)
             .map(str::to_owned)
@@ -472,6 +486,14 @@ impl Output {
             Some(code) => Some(Fault::Exit { code, last }),
             None => Some(Fault::Signal { last }),
         }
+    }
+}
+
+fn trim_quoted_line(line: &str) -> &str {
+    let trimmed = line.trim();
+    match trimmed.char_indices().nth(MAX_QUOTED_CHARS) {
+        Some((idx, _)) => &trimmed[..idx],
+        None => trimmed,
     }
 }
 
@@ -530,7 +552,7 @@ struct Group {
 
 impl Group {
     /// The group ended on its own: dropping it kills nothing.
-    fn disarm(mut self) {
+    fn disarm(&mut self) {
         self.leader = None;
     }
 }
@@ -568,12 +590,24 @@ impl Drop for OomScoreGuard {
     }
 }
 
+/// Starts `command` while holding a shared read guard on [`OOM_SCORE_LOCK`] so concurrent jobs
+/// without [`Job::first_to_go`] never inherit a temporary `1000` `oom_score_adj`.
+async fn spawn_plain(command: Command, cpus: Option<Vec<usize>>) -> io::Result<Child> {
+    let _shared = OOM_SCORE_LOCK.read().await;
+    spawn(command, cpus).await
+}
+
 /// Starts `command` with `oom_score_adj` 1000, which the tool and the workers it starts inherit,
 /// then restores the program's own value (even if cancelled mid-await).
 async fn spawn_first_to_go(
     command: Command,
     cpus: Option<Vec<usize>>,
 ) -> (io::Result<Child>, Adjustment) {
+    let mut stranded = OOM_SCORE_LOCK.write().await;
+    if let Some(reason) = stranded.as_ref() {
+        let adjustment = Adjustment::NotRestored(reason.clone());
+        return (spawn(command, cpus).await, adjustment);
+    }
     let previous = match std::fs::read_to_string(OOM_SCORE_ADJ) {
         Ok(previous) => previous,
         Err(err) => {
@@ -594,6 +628,9 @@ async fn spawn_first_to_go(
     };
     let child = spawn(command, cpus).await;
     let adjustment = guard.restore();
+    if let Adjustment::NotRestored(reason) = &adjustment {
+        *stranded = Some(reason.clone());
+    }
     (child, adjustment)
 }
 
