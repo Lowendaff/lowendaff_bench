@@ -235,18 +235,16 @@ fn remote_safe_host(host: &str) -> bool {
     if !self::host(host) {
         return false;
     }
-    let last = host.rsplit('.').next().unwrap_or(host);
-    if !last.is_empty()
-        && (last.bytes().all(|b| b.is_ascii_digit())
-            || last
-                .strip_prefix("0x")
-                .or_else(|| last.strip_prefix("0X"))
-                .is_some_and(|hex| hex.bytes().all(|b| b.is_ascii_hexdigit())))
-    {
-        return false;
-    }
     let lower = host.to_ascii_lowercase();
-    lower != "localhost" && !lower.ends_with(".localhost")
+    let Some((_, tld)) = lower.rsplit_once('.') else {
+        return false;
+    };
+    let valid_tld =
+        tld.bytes().all(|b| b.is_ascii_alphabetic()) || (tld.starts_with("xn--") && tld.len() > 4);
+    valid_tld
+        && !matches!(tld, "localhost" | "local" | "internal")
+        && lower != "home.arpa"
+        && !lower.ends_with(".home.arpa")
 }
 
 /// `5201` or `5201-5210`: from 1024 to 65535, the first not after the last, at most

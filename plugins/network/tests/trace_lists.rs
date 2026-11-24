@@ -336,6 +336,11 @@ fn remote_safe_host_and_target_source_guard_loopback_and_private_v4_and_v6() {
         "0177.0.0.1",
         "127.1",
         "999.999.999.999",
+        "metadata",
+        "notlocalhost",
+        "metadata.google.internal",
+        "host.local",
+        "home.arpa",
     ] {
         assert!(
             !lists::is_remote_safe_host(forbidden),
@@ -343,7 +348,7 @@ fn remote_safe_host_and_target_source_guard_loopback_and_private_v4_and_v6() {
         );
     }
     for allowed in [
-        "notlocalhost",
+        "notlocalhost.example",
         "my-localhost.example",
         "192.0.2.1",
         "2001:db8::1",

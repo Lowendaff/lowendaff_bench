@@ -118,7 +118,15 @@ pub fn is_remote_safe_host(host: &str) -> bool {
         return false;
     }
     let lower = host.to_ascii_lowercase();
-    lower != "localhost" && !lower.ends_with(".localhost")
+    let Some((_, tld)) = lower.rsplit_once('.') else {
+        return false;
+    };
+    let valid_tld =
+        tld.bytes().all(|b| b.is_ascii_alphabetic()) || (tld.starts_with("xn--") && tld.len() > 4);
+    valid_tld
+        && !matches!(tld, "localhost" | "local" | "internal")
+        && lower != "home.arpa"
+        && !lower.ends_with(".home.arpa")
 }
 
 pub(crate) fn ends_in_a_number(host: &str) -> bool {

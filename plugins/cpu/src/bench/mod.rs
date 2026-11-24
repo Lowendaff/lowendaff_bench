@@ -62,7 +62,7 @@ pub const ALL_CPU_TOOLS: [ToolSpec; 9] = [
 #[derive(Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 struct RawCpuBench {
-    suites: Vec<String>,
+    suites: Option<Vec<String>>,
 }
 
 /// Unified CPU benchmark plugin (`cpu.bench`).
@@ -86,11 +86,11 @@ impl TryFrom<RawCpuBench> for CpuBench {
     type Error = String;
 
     fn try_from(raw: RawCpuBench) -> Result<Self, Self::Error> {
-        if raw.suites.is_empty() {
+        let Some(suites) = raw.suites else {
             return Ok(Self::default());
-        }
+        };
         let mut enabled = [false; 8];
-        for token in &raw.suites {
+        for token in &suites {
             let trimmed = token.trim();
             if trimmed == "all" {
                 enabled = [true; 8];
@@ -100,20 +100,7 @@ impl TryFrom<RawCpuBench> for CpuBench {
                 return Err(format!("unknown CPU benchmark suite `{trimmed}`"));
             }
         }
-        let custom_codes = if enabled == DEFAULT_SUITES {
-            Vec::new()
-        } else {
-            SUITE_CODES
-                .iter()
-                .zip(enabled.iter())
-                .filter(|(_, on)| **on)
-                .map(|(code, _)| (*code).to_owned())
-                .collect()
-        };
-        Ok(Self {
-            enabled,
-            custom_codes,
-        })
+        Ok(Self::new(enabled))
     }
 }
 
@@ -614,9 +601,19 @@ async fn run_geekbench(
         Err(skip) => return SuiteOutcome::Skipped { reason: skip },
     };
     let (output, result) = geekbench::run_in_suite(ctx, &program, |partial| {
+        if *partial == geekbench::Output::default() {
+            return;
+        }
         let mut snap = base.clone();
-        snap.geekbench = Some(SuiteOutcome::Done {
-            output: partial.clone(),
+        snap.geekbench = Some(if partial.scores.is_some() {
+            SuiteOutcome::Done {
+                output: partial.clone(),
+            }
+        } else {
+            SuiteOutcome::Failed {
+                partial: Some(partial.clone()),
+                failure: geekbench::Failure::Cancelled,
+            }
         });
         ctx.publish(&snap);
     })

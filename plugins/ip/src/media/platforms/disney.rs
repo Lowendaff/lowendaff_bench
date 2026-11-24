@@ -67,14 +67,20 @@ pub fn parse(web: &HttpResponse) -> Verdict {
         return early;
     }
     let body = web.text();
-    if body.contains("Disney+ is not available in your region")
-        || body.contains("unavailable in your location")
+    let lower = body.to_ascii_lowercase();
+    if lower.contains("not available in your region")
+        || lower.contains("unavailable in your location")
+        || lower.contains("\"insupportedlocation\":false")
+        || lower.contains("\"insupportedlocation\": false")
     {
         return Verdict::no();
     }
+    if !(200..400).contains(&web.status) {
+        return Verdict::Unexpected(format!("HTTP {}", web.status));
+    }
     let region = web
         .header("location")
-        .and_then(parse::url_country)
+        .and_then(location_country)
         .or_else(|| {
             parse::extract_between(&body, "\"countryCode\":\"", "\"").and_then(parse::country_code)
         });
@@ -82,4 +88,50 @@ pub fn parse(web: &HttpResponse) -> Verdict {
         Some(code) => Verdict::yes_in(code),
         None => parse::no_region(),
     }
+}
+
+fn location_country(url_or_path: &str) -> Option<String> {
+    let clean = url_or_path
+        .trim()
+        .split(['?', '#'])
+        .next()
+        .unwrap_or_default();
+    let path = if let Some(scheme_end) = clean.find("://") {
+        let after_host = &clean[scheme_end + 3..];
+        let slash = after_host.find('/')?;
+        &after_host[slash..]
+    } else if let Some(after_slashes) = clean.strip_prefix("//") {
+        let slash = after_slashes.find('/')?;
+        &after_slashes[slash..]
+    } else {
+        clean
+    };
+    for segment in path.split('/') {
+        if segment.is_empty() {
+            continue;
+        }
+        let parts: Vec<&str> = segment.split('-').collect();
+        let candidate = match parts.as_slice() {
+            [cc] if cc.len() == 2 => Some(*cc),
+            [lang, region]
+                if (2..=3).contains(&lang.len())
+                    && lang.bytes().all(|b| b.is_ascii_alphabetic()) =>
+            {
+                Some(*region)
+            }
+            [lang, script, region]
+                if (2..=3).contains(&lang.len())
+                    && script.len() == 4
+                    && lang.bytes().all(|b| b.is_ascii_alphabetic())
+                    && script.bytes().all(|b| b.is_ascii_alphabetic()) =>
+            {
+                Some(*region)
+            }
+            _ => None,
+        };
+        if let Some(code) = candidate.and_then(parse::country_code) {
+            return Some(code);
+        }
+    }
+    None
 }

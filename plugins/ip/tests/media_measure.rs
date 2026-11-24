@@ -239,4 +239,73 @@ async fn unlock_skips_without_network_or_matching_services_and_rejects_bad_base_
             "http://example.com".to_owned()
         )))
     );
+
+    let blank_only = Media {
+        groups: Vec::new(),
+        services: vec!["   ".to_owned()],
+        base_url: None,
+    };
+    assert_eq!(
+        blank_only.run(&ctx).await,
+        Err(Stop::Skipped(Failure::NoService(Vec::new())))
+    );
+}
+
+#[tokio::test]
+async fn mid_run_cancellation_publishes_only_completed_continents() {
+    struct CancelOnAsia {
+        cancel: CancellationToken,
+    }
+    impl HttpClient for CancelOnAsia {
+        fn send<'a>(&'a self, request: &'a HttpRequest) -> HttpFuture<'a> {
+            Box::pin(async move {
+                if request.url.contains("abema") {
+                    self.cancel.cancel();
+                    return Err(HttpError::Cancelled);
+                }
+                Ok(HttpResponse {
+                    status: 200,
+                    final_url: "https://www.netflix.com/us/title/81280792".to_owned(),
+                    headers: Vec::new(),
+                    body: b"ok".to_vec(),
+                })
+            })
+        }
+    }
+
+    let cancel = CancellationToken::new();
+    let http: Arc<dyn HttpClient> = Arc::new(CancelOnAsia {
+        cancel: cancel.clone(),
+    });
+    let host = HostProfile {
+        network: Network {
+            ipv4: connected_family("1.1.1.1:443"),
+            ipv6: Family::default(),
+        },
+        ..HostProfile::default()
+    };
+    let (ctx, channels) = Context::new(
+        Arc::new(host),
+        Arc::new(BTreeMap::new()),
+        Arc::new(BTreeMap::new()),
+        Instant::now() + Duration::from_secs(60),
+        PathBuf::from("/run/work"),
+        cancel,
+    );
+    let ctx = ctx.with_http(http);
+    let plugin = Media {
+        groups: Vec::new(),
+        services: vec!["  netflix  ".to_owned(), " ".to_owned(), "abema".to_owned()],
+        base_url: Some("http://127.0.0.1:18080".to_owned()),
+    };
+
+    assert_eq!(
+        plugin.run(&ctx).await,
+        Err(Stop::Failed(Failure::Cancelled))
+    );
+    let published = channels.published.borrow().clone().expect("partial output");
+    assert_eq!(published.settings.services, ["netflix", "abema"]);
+    assert_eq!(published.results.len(), 1);
+    assert_eq!(published.results[0].id, "netflix");
+    assert_eq!(published.results[0].ipv4, Some(Verdict::yes_in("US")));
 }

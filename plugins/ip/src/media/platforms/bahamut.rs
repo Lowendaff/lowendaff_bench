@@ -66,7 +66,11 @@ pub fn device_id(response: &HttpResponse) -> Option<String> {
     }
     let val = parse::json(response)?;
     let id = val.get("deviceid")?.as_str()?.trim();
-    (!id.is_empty()).then(|| id.to_owned())
+    let safe = (1..=128).contains(&id.len())
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_'));
+    safe.then(|| id.to_owned())
 }
 
 /// Maps a failed `getdeviceid.php` response to a [`Verdict`].
@@ -90,10 +94,16 @@ pub fn parse(response: &HttpResponse) -> Verdict {
     if matches!(response.status, 403 | 451) {
         return Verdict::no();
     }
+    if response.status != 200 {
+        return Verdict::Unexpected(format!("HTTP {}", response.status));
+    }
     let Some(val) = parse::json(response) else {
         return Verdict::Unexpected(format!("HTTP {}", response.status));
     };
-    if val.get("animeSn").is_some() {
+    let has_sn = val.get("animeSn").is_some_and(|v| {
+        v.as_i64().is_some_and(|n| n > 0) || v.as_str().is_some_and(|s| !s.trim().is_empty())
+    });
+    if has_sn {
         let region = val
             .get("country")
             .and_then(serde_json::Value::as_str)
@@ -101,7 +111,10 @@ pub fn parse(response: &HttpResponse) -> Verdict {
             .unwrap_or_else(|| "TW".to_owned());
         return Verdict::yes_in(region);
     }
-    if val.get("error").is_some() {
+    if val
+        .get("error")
+        .is_some_and(|v| !v.is_null() && v.as_bool() != Some(false))
+    {
         return Verdict::no();
     }
     Verdict::Unexpected("unrecognized Bahamut token response".to_owned())

@@ -111,6 +111,10 @@ fn plan_orchestrates_by_continent_lets_services_win_and_tracks_unknown_ids() {
         "services win over groups and stay ordered by continent"
     );
     assert_eq!(picked.unknown, ["missing-one"]);
+
+    let blanks = measure::plan(&[], &["   ".to_owned(), String::new()]);
+    assert!(blanks.scheduled.is_empty());
+    assert!(blanks.unknown.is_empty());
 }
 
 #[test]

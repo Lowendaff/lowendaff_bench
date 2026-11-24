@@ -187,6 +187,19 @@ async fn cpu_bench_config_preconditions_and_partial_arm64_skips_work_cleanly() {
     // Unknown suite name is rejected at config deserialization time.
     assert!(serde_json::from_value::<CpuBench>(serde_json::json!({ "suites": ["pts"] })).is_err());
 
+    // Explicit `"suites": []` disables all suites and skips with `NoSuitesSelected`.
+    let none_selected: CpuBench =
+        serde_json::from_value(serde_json::json!({ "suites": [] })).unwrap();
+    assert_eq!(none_selected.enabled(), &[false; 8]);
+    let empty_work = tempfile::tempdir().unwrap();
+    let empty_ctx = suite_ctx(empty_work.path());
+    assert_eq!(
+        none_selected.run(&empty_ctx).await,
+        Err(bench_api::Stop::Skipped(
+            plugin_cpu::bench::Failure::NoSuitesSelected
+        ))
+    );
+
     // Sole `geekbench` selection enforces glibc >= 2.35 and Net::Ipv4 at preflight.
     let gb_only: CpuBench =
         serde_json::from_value(serde_json::json!({ "suites": ["geekbench"] })).unwrap();

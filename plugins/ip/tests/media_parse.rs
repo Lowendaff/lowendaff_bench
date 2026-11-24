@@ -158,6 +158,35 @@ fn gate_classifies_turnstile_waf_rate_limits_and_transport_errors_without_bypass
         parse::error_verdict(&HttpError::TimedOut),
         Verdict::TimedOut
     );
+    assert_eq!(
+        parse::url_country("https://tv.apple.com/au?l=en"),
+        Some("AU".to_owned())
+    );
+    assert_eq!(
+        parse::url_country("//www.max.com/gb-en?utm_source=x"),
+        Some("GB".to_owned())
+    );
+    assert_eq!(
+        parse::url_country("https://www.hbomax.com/login?returnUrl=/us/home"),
+        None
+    );
+    let cookie_res = response(
+        200,
+        "https://www.max.com/",
+        &[
+            ("set-cookie", "countryCode=; Max-Age=0; domain=.max.com"),
+            (
+                "set-cookie",
+                "countryCode=\"EU\"; path=/; domain=.hbomax.com",
+            ),
+            ("set-cookie", "other=1; countryCode=US"),
+        ],
+        "",
+    );
+    assert_eq!(
+        parse::cookie(&cookie_res, "countryCode").as_deref(),
+        Some("EU")
+    );
 }
 
 #[test]
@@ -239,6 +268,20 @@ fn global_platform_modules_distinguish_full_originals_regions_and_restrictions()
         "",
     );
     assert_eq!(disney::web_early(&disney_unavail), Some(Verdict::no()));
+    let disney_bcp47 = response(
+        302,
+        "https://www.disneyplus.com/",
+        &[("location", "https://www.disneyplus.com/fr-ca?cid=1")],
+        "",
+    );
+    assert_eq!(disney::parse(&disney_bcp47), Verdict::yes_in("CA"));
+    let disney_unsup = response(
+        200,
+        "https://www.disneyplus.com/",
+        &[],
+        r#"{"countryCode":"CN","inSupportedLocation":false}"#,
+    );
+    assert_eq!(disney::parse(&disney_unsup), Verdict::no());
 
     let pv = response(
         200,
@@ -250,6 +293,16 @@ fn global_platform_modules_distinguish_full_originals_regions_and_restrictions()
 
     let atv = response(200, "https://tv.apple.com/au", &[], "");
     assert_eq!(apple_tv::parse(&atv), Verdict::yes_in("AU"));
+    let atv_cn = response(
+        200,
+        "https://tv.apple.com/",
+        &[],
+        concat!(
+            r#"<a href="https://tv.apple.com/assets/app.js"></a>"#,
+            r#"<a href="https://tv.apple.com/cn?l=zh"></a>"#
+        ),
+    );
+    assert_eq!(apple_tv::parse(&atv_cn), Verdict::no());
 
     let tt_ok = response(
         200,
@@ -296,6 +349,13 @@ fn global_platform_modules_distinguish_full_originals_regions_and_restrictions()
         r#"{"Region":{"isAllowed":true,"GeolocatedCountry":"de"}}"#,
     );
     assert_eq!(dazn::parse(&dazn_res), Verdict::yes_in("DE"));
+    let dazn_odata = response(
+        400,
+        "https://startup.core.indazn.com/misl/v5/Startup",
+        &[],
+        r#"{"odata.error":{"code":10000,"message":{"value":"NotAvailableInCountry"}}}"#,
+    );
+    assert_eq!(dazn::parse(&dazn_odata), Verdict::no());
 
     let cr = response(
         200,
@@ -368,6 +428,15 @@ fn asia_platform_modules_cover_hk_mo_tw_japan_korea_and_singapore_services() {
         r#"{"deviceid":"dev123"}"#,
     );
     assert_eq!(bahamut::device_id(&baha_dev).as_deref(), Some("dev123"));
+    assert_eq!(
+        bahamut::device_id(&response(
+            200,
+            "https://ani.gamer.com.tw/ajax/getdeviceid.php",
+            &[],
+            r#"{"deviceid":"bad&sn=1"}"#
+        )),
+        None
+    );
     let baha_tok = response(
         200,
         "https://ani.gamer.com.tw/ajax/token.php",
@@ -375,6 +444,10 @@ fn asia_platform_modules_cover_hk_mo_tw_japan_korea_and_singapore_services() {
         r#"{"animeSn":37783}"#,
     );
     assert_eq!(bahamut::parse(&baha_tok), Verdict::yes_in("TW"));
+    assert_eq!(
+        bahamut::parse(&response(404, "https://x", &[], r#"{"error":"Not Found"}"#)),
+        Verdict::Unexpected("HTTP 404".to_owned())
+    );
 
     let viu_sg = response(200, "https://www.viu.com/ott/sg/en-us", &[], "");
     let viu_no = response(200, "https://www.viu.com/ott/no-service/", &[], "");
@@ -407,6 +480,15 @@ fn asia_platform_modules_cover_hk_mo_tw_japan_korea_and_singapore_services() {
         Verdict::yes_in("TW")
     );
     assert_eq!(
+        litv::parse(&response(
+            200,
+            "https://x",
+            &[],
+            r#"{"errorMessage":"member.error.accessdeniederror"}"#
+        )),
+        Verdict::Unexpected("unrecognized LiTV payload".to_owned())
+    );
+    assert_eq!(
         myvideo::parse(&response(200, "https://www.myvideo.net.tw/", &[], "ok")),
         parse::no_region()
     );
@@ -422,6 +504,15 @@ fn asia_platform_modules_cover_hk_mo_tw_japan_korea_and_singapore_services() {
     assert_eq!(
         linetv::parse(&response(200, "https://x", &[], r#"{"eps_info":{}}"#)),
         Verdict::yes_in("TW")
+    );
+    assert_eq!(
+        linetv::parse(&response(
+            200,
+            "https://x",
+            &[],
+            r#"{"countryCode":100,"allowCountries":[228],"eps_info":null}"#
+        )),
+        Verdict::no()
     );
     assert_eq!(
         friday_video::parse(&response(200, "https://x", &[], r#"{"code":0}"#)),
@@ -479,6 +570,19 @@ fn asia_platform_modules_cover_hk_mo_tw_japan_korea_and_singapore_services() {
     assert_eq!(
         dmm::parse(&response(200, "https://x", &[], r#"{"is_foreign":true}"#)),
         Verdict::no()
+    );
+    assert_eq!(
+        dmm::parse(&response(
+            200,
+            "https://x",
+            &[],
+            r#"{"result":{"is_foreign":true}}"#
+        )),
+        Verdict::no()
+    );
+    assert_eq!(
+        dmm::parse(&response(200, "https://x", &[], "{}")),
+        Verdict::Unexpected("unrecognized DMM payload".to_owned())
     );
     let tver_c = response(
         200,
@@ -839,6 +943,15 @@ fn europe_americas_and_oceania_platform_modules_cover_every_regional_service() {
             ""
         )),
         parse::no_region()
+    );
+    assert_eq!(
+        max::parse(&response(
+            404,
+            "https://www.max.com/",
+            &[("x-wbd-country", "US")],
+            ""
+        )),
+        Verdict::Unexpected("HTTP 404".to_owned())
     );
     assert_eq!(
         peacock::parse(&response(

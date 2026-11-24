@@ -46,15 +46,26 @@ pub fn parse(response: &HttpResponse) -> Verdict {
         return Verdict::no();
     }
     let body = response.text();
-    if body.contains("Apple TV+ is not available in your country")
-        || response.final_url.contains("/unsupported")
+    if body
+        .to_ascii_lowercase()
+        .contains("not available in your country")
+        || response
+            .final_url
+            .to_ascii_lowercase()
+            .contains("/unsupported")
     {
         return Verdict::no();
     }
     let region = parse::url_country(&response.final_url).or_else(|| {
-        parse::extract_between(&body, "https://tv.apple.com/", "\"")
-            .and_then(|tail| tail.split('/').next())
-            .and_then(parse::country_code)
+        body.split("https://tv.apple.com/")
+            .skip(1)
+            .find_map(|rest| {
+                let path = rest
+                    .split(['"', '\'', '?', '#', ' ', '<', '>'])
+                    .next()
+                    .unwrap_or_default();
+                parse::url_country(path.split('/').next().unwrap_or_default())
+            })
     });
     if let Some(code) = region.as_deref()
         && matches!(code, "CN" | "CU" | "IR" | "KP" | "SY")
