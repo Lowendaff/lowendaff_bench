@@ -34,6 +34,7 @@ pub use host::family_text;
 pub use host::kind_text;
 pub use host::platform_text;
 pub use host::why_text;
+pub(super) use ip::redact_ip_in_note;
 pub use network::bits;
 pub use network::latency;
 pub use summary::fault_text;
@@ -250,7 +251,10 @@ fn plugin(out: &mut Out, run: &Run<Measured>, indent: &str, page: &Page) {
             network::trace(out, report, indent, &own, page.show_ip);
         }
         Some(Measured::NetworkBgp(report)) => network::bgp(out, report, indent, page.show_ip),
-        Some(Measured::IpQuality(report)) => ip::quality(out, report, indent, page.show_ip),
+        Some(Measured::IpQuality(report)) => {
+            let own = collect_own_addresses(page.host, page.runs);
+            ip::quality(out, report, indent, &own, page.show_ip);
+        }
         Some(Measured::IpMedia(report)) => ip::media(out, report, indent),
         None => {}
     }

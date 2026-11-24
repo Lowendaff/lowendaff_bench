@@ -1416,3 +1416,85 @@ fn cloudflare_and_inetspeed_render_text_markdown_json_and_mask_client_ip() {
         "2001:db8::77"
     );
 }
+
+#[test]
+fn ip_quality_notes_redact_own_and_prefix_overlapping_ips_across_all_formats() {
+    let mut host = host();
+    host.network.ipv6 = Family {
+        targets: vec![(
+            "[2606:4700:4700::1111]:443".parse().expect("target"),
+            Reach::Connected,
+        )],
+        address: Address::Found {
+            address: "2001:db8::7".parse().expect("ipv6"),
+            source: "ipify",
+        },
+    };
+    let leak_detail = concat!(
+        "err 203%2E0%2E113%2E7 / 203.0.113.79 / ",
+        "2001%3A0db8%3A0000%3A0000%3A0000%3A0000%3A0000%3A0007"
+    );
+    let v4_rep = FamilyReport {
+        address: "203.0.113.79".parse().expect("secondary egress"),
+        asn: Some(13335),
+        org: Some("Cloudflare".to_owned()),
+        hostname: None,
+        rir: Some("APNIC".to_owned()),
+        registered_country: Some("AU".to_owned()),
+        geo_country: Some("AU".to_owned()),
+        geo_votes: Vec::new(),
+        geo_total: 0,
+        origin: Origin::Native {
+            country: "AU".to_owned(),
+        },
+        usage: None,
+        scores: vec![(
+            "Scamalytics",
+            plugin_ip::quality::ScoreVerdict::Unexpected(leak_detail.to_owned()),
+        )],
+        factors: Vec::new(),
+        dnsbl: None,
+        mail: Vec::new(),
+        notes: vec![("ipinfo.io", leak_detail.to_owned())],
+    };
+    let runs = vec![run(
+        "ip.quality",
+        Status::Completed,
+        Some(1.0),
+        Some(Measured::IpQuality(Report {
+            output: Some(quality::Output {
+                settings: quality::Settings::default(),
+                ipv4_reachable: true,
+                ipv6_reachable: true,
+                ipv4: Some(Box::new(v4_rep)),
+                ipv6: None,
+            }),
+            stop: None,
+        })),
+    )];
+    let page = Page {
+        version: "0.1.0",
+        host: &host,
+        show_ip: false,
+        not_applicable: &[],
+        runs: &runs,
+        total: Duration::from_secs(1),
+    };
+
+    for fmt in [Format::Text, Format::Markdown, Format::Json] {
+        let rendered = report::render(&page, fmt, None);
+        for leaked in [
+            "203%2E0%2E113%2E7",
+            "203.0.113.79",
+            "203.0.*.*9",
+            "203.0.\\*.\\*9",
+            "2001%3A0db8",
+            "0007",
+        ] {
+            assert!(
+                !rendered.contains(leaked),
+                "{fmt:?} leaked {leaked:?}:\n{rendered}"
+            );
+        }
+    }
+}

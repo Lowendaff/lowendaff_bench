@@ -258,9 +258,12 @@ pub fn device_of(path: &Path) -> Option<(u32, u32)> {
 fn linux_mount_device_of(path: &Path) -> Option<(u32, u32)> {
     use std::os::fd::AsRawFd;
 
-    let file = std::fs::File::open(path).ok()?;
+    use rustix::fs::Mode;
+    use rustix::fs::OFlags;
+
+    let fd = rustix::fs::open(path, OFlags::PATH | OFlags::CLOEXEC, Mode::empty()).ok()?;
     let root = Root::system();
-    let fdinfo = root.read(&format!("/proc/self/fdinfo/{}", file.as_raw_fd()))?;
+    let fdinfo = root.read(&format!("/proc/self/fdinfo/{}", fd.as_raw_fd()))?;
     let mountinfo = root.read("/proc/self/mountinfo")?;
     mountinfo_device_for_fdinfo(&fdinfo, &mountinfo)
 }

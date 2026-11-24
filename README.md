@@ -168,7 +168,7 @@ sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-
 | | `all` | Every route target above (73 targets in total) |
 | `--media-groups` | `global` | Global platforms (Netflix, YouTube Premium, Disney+, Prime Video, Spotify, TikTok, etc.) |
 | | `asia` | Asian platforms (Bilibili HK/MO/TW, Bahamut, Abema, U-NEXT, TVer, Viu, etc.) |
-| | `europe` | European platforms (BBC iPlayer, ITVX, Channel 4, Canal+, ZDF, ARTE, RAI Play, etc.) |
+| | `europe` | European platforms (BBC iPlayer, ITVX, Channel 4, Canal+, ZDF, France TV, RAI Play, etc.) |
 | | `americas` | North & Latin American platforms (Hulu, Max, Peacock, Paramount+, Starz, Crave, etc.) |
 | | `oceania` | Australian & New Zealand platforms (Stan, 9Now, 7plus, ABC iview, TVNZ+, etc.) |
 | | `all` | All 68 platforms across all five regions (default) |

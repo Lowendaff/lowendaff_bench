@@ -146,7 +146,7 @@ sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-
 | | `all` | 上記すべての経路ターゲット（計 73 カ所） |
 | `--media-groups` | `global` | 世界共通の主要サービス（Netflix、YouTube Premium、Disney+、Prime Video、Spotify、TikTok など） |
 | | `asia` | アジア圏のサービス（Abema、U-NEXT、TVer、Bilibili 港澳台、Bahamut、Viu など） |
-| | `europe` | 欧州圏のサービス（BBC iPlayer、ITVX、Channel 4、Canal+、ZDF、ARTE、RAI Play など） |
+| | `europe` | 欧州圏のサービス（BBC iPlayer、ITVX、Channel 4、Canal+、ZDF、France TV、RAI Play など） |
 | | `americas` | 北米・中南米圏のサービス（Hulu、Max、Peacock、Paramount+、Starz、Crave など） |
 | | `oceania` | オセアニア圏のサービス（Stan、9Now、7plus、ABC iview、TVNZ+ など） |
 | | `all` | 全 5 地域・合計 68 サービスすべてを確認（既定） |

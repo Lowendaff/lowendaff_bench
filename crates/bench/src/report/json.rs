@@ -216,18 +216,13 @@ fn mask_quality_family(root: &mut Value, key: &str, address: IpAddr, redact_addr
     };
     family.insert("address".to_owned(), Value::String(network::mask(address)));
     family.insert("hostname".to_owned(), Value::Null);
-    let scrub_all = |text: &str| {
-        redact_addrs.iter().fold(text.to_owned(), |acc, &ip| {
-            plugin_ip::quality::parse::scrub_ip(&acc, ip)
-        })
-    };
     if let Some(notes) = family.get_mut("notes").and_then(Value::as_array_mut) {
         for entry in notes {
             if let Some(pair) = entry.as_array_mut()
                 && let Some(reason) = pair.get_mut(1)
                 && let Some(text) = reason.as_str()
             {
-                *reason = Value::String(scrub_all(text));
+                *reason = Value::String(terminal::redact_ip_in_note(text, redact_addrs));
             }
         }
     }
@@ -244,7 +239,7 @@ fn mask_quality_family(root: &mut Value, key: &str, address: IpAddr, redact_addr
                 if let Some(detail) = verdict.get_mut(field)
                     && let Some(text) = detail.as_str()
                 {
-                    *detail = Value::String(scrub_all(text));
+                    *detail = Value::String(terminal::redact_ip_in_note(text, redact_addrs));
                 }
             }
         }
