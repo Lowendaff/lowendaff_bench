@@ -235,4 +235,41 @@ async fn a_cancellation_ends_the_measurement_without_retries() {
     let outcome = measure(4, vec![ran("12842.07"), Err(RunError::Cancelled)]).await;
     assert_eq!(outcome.result, Err(Stop::Failed(Failure::Cancelled)));
     assert_eq!(outcome.published, Some(single("12842.07", Vec::new())));
+
+    let cancel = CancellationToken::new();
+    cancel.cancel();
+    let (pre_ctx, mut pre_channels) = Context::<Output>::new(
+        Arc::new(HostProfile::default()),
+        Arc::new(BTreeMap::new()),
+        Arc::new(BTreeMap::new()),
+        Instant::now() + Duration::from_secs(600),
+        ".".into(),
+        cancel,
+    );
+    let pre = measure::measure(&pre_ctx, Path::new(SYSBENCH), 4, |_| async {
+        panic!("pre-cancelled run must not invoke job runner")
+    })
+    .await;
+    assert_eq!(pre, Err(Stop::Failed(Failure::Cancelled)));
+    assert!(pre_channels.progress.try_recv().is_err());
+
+    let inter_cancel = CancellationToken::new();
+    let (inter_ctx, _) = Context::<Output>::new(
+        Arc::new(HostProfile::default()),
+        Arc::new(BTreeMap::new()),
+        Arc::new(BTreeMap::new()),
+        Instant::now() + Duration::from_secs(600),
+        ".".into(),
+        inter_cancel.clone(),
+    );
+    let inter = measure::measure(&inter_ctx, Path::new(SYSBENCH), 2, |_| {
+        inter_cancel.cancel();
+        async { exited(1, "transient") }
+    })
+    .await;
+    assert_eq!(
+        inter,
+        Err(Stop::Failed(Failure::Cancelled)),
+        "inter-attempt cancellation must report Cancelled rather than Single"
+    );
 }

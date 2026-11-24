@@ -252,7 +252,7 @@ fn vm(root: &Root, cpuid: Option<&Cpuid>) -> Option<Hypervisor> {
 
     // Xen PV guests show no CPUID hypervisor, so `/proc/xen` comes first. The control
     // domain (dom0) is the host itself, unless CPUID reveals an outer hypervisor.
-    let xen_dom0 = root.exists("/proc/xen") && xen_dom0(root);
+    let xen_dom0 = xen_dom0(root);
     if root.exists("/proc/xen") && !xen_dom0 {
         return Some(Hypervisor::Xen);
     }
@@ -263,6 +263,7 @@ fn vm(root: &Root, cpuid: Option<&Cpuid>) -> Option<Hypervisor> {
         match from_cpuid(signature) {
             // QEMU offers the Hyper-V signature for its enlightenments; decide last.
             Some(Hypervisor::HyperV) => hyperv = true,
+            Some(Hypervisor::Xen) if xen_dom0 => {}
             Some(Hypervisor::Kvm) if dmi == Some(Hypervisor::GoogleCompute) => {
                 return Some(Hypervisor::GoogleCompute);
             }

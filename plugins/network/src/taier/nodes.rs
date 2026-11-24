@@ -526,6 +526,9 @@ pub fn match_locations<'a>(locations: &'a [Location], place: &str) -> Vec<&'a Lo
     if let Some((prov, city)) = trimmed.split_once('/') {
         let prov = prov.trim();
         let city = city.trim();
+        if prov.is_empty() || city.is_empty() || city.contains('/') {
+            return Vec::new();
+        }
         if city.eq_ignore_ascii_case("all") || city == "*" {
             return locations
                 .iter()
@@ -583,7 +586,11 @@ fn append_location_slots(
 }
 
 fn names_match(candidate: &str, query: &str) -> bool {
-    candidate.eq_ignore_ascii_case(query) || slug(candidate) == slug(query)
+    if candidate.eq_ignore_ascii_case(query) {
+        return true;
+    }
+    let query_slug = slug(query);
+    !query_slug.is_empty() && slug(candidate) == query_slug
 }
 
 fn resolve_operators(choices: &[OperatorChoice]) -> Vec<Operator> {

@@ -6,10 +6,12 @@
 //! formatting.
 
 use std::env;
+use std::time::Duration;
 
 use bench::app;
 use bench::fetcher::Fetcher;
 use bench::provision;
+use bench::provision::DownloadError;
 use bench::provision::Part;
 use bench::tui;
 use plugin_network::iperf3;
@@ -74,26 +76,43 @@ async fn download_list(fetcher: &Fetcher, git_ref: &str, name: &str) -> Vec<u8> 
 
     let url =
         format!("https://raw.githubusercontent.com/Lowendaff/bench_data/{git_ref}/servers/{name}");
-    let part = fetcher
-        .open(&url, None)
-        .await
-        .unwrap_or_else(|err| panic!("failed to download {url}: {err}"));
-    let reader = match part {
-        Part::Whole(r) | Part::Range(r) => r,
-    };
-    let mut buf = Vec::new();
-    reader
-        .take(provision::FILE_LIMIT + 1)
-        .read_to_end(&mut buf)
-        .await
-        .unwrap_or_else(|err| panic!("failed to read {url}: {err}"));
-    assert!(
-        (buf.len() as u64) <= provision::FILE_LIMIT,
-        "{name} exceeds {} bytes ({} bytes)",
-        provision::FILE_LIMIT,
-        buf.len()
-    );
-    buf
+    let mut last_err = String::new();
+    for attempt in 0_u32..4 {
+        if attempt > 0 {
+            tokio::time::sleep(Duration::from_secs(1_u64 << (attempt - 1))).await;
+        }
+        let part = match fetcher.open(&url, None).await {
+            Ok(part) => part,
+            Err(DownloadError::Transient(err)) => {
+                last_err = err;
+                continue;
+            }
+            Err(DownloadError::Final(err)) => panic!("failed to download {url}: {err}"),
+        };
+        let reader = match part {
+            Part::Whole(r) | Part::Range(r) => r,
+        };
+        let mut buf = Vec::new();
+        match reader
+            .take(provision::FILE_LIMIT + 1)
+            .read_to_end(&mut buf)
+            .await
+        {
+            Ok(_) => {
+                assert!(
+                    (buf.len() as u64) <= provision::FILE_LIMIT,
+                    "{name} exceeds {} bytes ({} bytes)",
+                    provision::FILE_LIMIT,
+                    buf.len()
+                );
+                return buf;
+            }
+            Err(err) => {
+                last_err = err.to_string();
+            }
+        }
+    }
+    panic!("failed to download {url} after 4 attempts: {last_err}");
 }
 
 #[tokio::test]
@@ -135,5 +154,6 @@ async fn live_bench_data_lists_parse_and_render() {
     assert!(!trace_targets.is_empty(), "traceroute.json has targets");
 
     let ix_raw = download_list(&fetcher, &git_ref, "netflix-ix.json").await;
-    let _exchanges = trace::exchanges::parse(&ix_raw).expect("netflix-ix.json parses");
+    let exchanges = trace::exchanges::parse(&ix_raw).expect("netflix-ix.json parses");
+    assert!(!exchanges.is_empty(), "netflix-ix.json has ports");
 }

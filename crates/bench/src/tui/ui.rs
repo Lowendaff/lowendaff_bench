@@ -45,6 +45,7 @@ use super::taier_picker::RegionKind;
 use super::taier_picker::TaierPicker;
 use super::taier_picker::TaierPickerModal;
 use crate::locale;
+use crate::report;
 use crate::report_path;
 
 /// Minimum terminal columns for full multi-pane layout.
@@ -73,6 +74,10 @@ pub fn draw(frame: &mut Frame<'_>, session: &mut Session) {
     }
 
     if let Some(picker_modal) = &session.taier_picker {
+        if matches!(picker_modal, TaierPickerModal::Ready(_)) {
+            let modal_h = area.height.saturating_sub(3).clamp(14, 28).min(area.height);
+            session.viewport_rows = usize::from(modal_h);
+        }
         draw_taier_picker_modal(frame, picker_modal, area);
     }
 
@@ -81,7 +86,7 @@ pub fn draw(frame: &mut Frame<'_>, session: &mut Session) {
     }
 }
 
-fn draw_configure(frame: &mut Frame<'_>, session: &Session, area: Rect) {
+fn draw_configure(frame: &mut Frame<'_>, session: &mut Session, area: Rect) {
     let words = locale::words();
     let chunks = Layout::vertical([
         Constraint::Length(1),
@@ -101,6 +106,7 @@ fn draw_configure(frame: &mut Frame<'_>, session: &Session, area: Rect) {
     } else {
         Layout::vertical([Constraint::Percentage(50), Constraint::Percentage(50)]).split(chunks[1])
     };
+    session.viewport_rows = usize::from(panes[0].height.saturating_sub(2)).max(1);
 
     draw_config_left(frame, session, panes[0]);
     draw_config_right(frame, session, panes[1]);
@@ -385,11 +391,8 @@ fn draw_field_list(
     frame.render_stateful_widget(list, area, &mut state);
 }
 
-fn draw_running(frame: &mut Frame<'_>, session: &Session, area: Rect) {
+fn draw_running(frame: &mut Frame<'_>, session: &mut Session, area: Rect) {
     let words = locale::words();
-    let Some(run) = &session.running else {
-        return;
-    };
     let chunks = Layout::vertical([
         Constraint::Length(1),
         Constraint::Length(1),
@@ -399,6 +402,18 @@ fn draw_running(frame: &mut Frame<'_>, session: &Session, area: Rect) {
         Constraint::Length(1),
     ])
     .split(area);
+
+    let panes = if chunks[3].width >= 88 {
+        Layout::horizontal([Constraint::Percentage(42), Constraint::Percentage(58)])
+            .split(chunks[3])
+    } else {
+        Layout::vertical([Constraint::Percentage(45), Constraint::Percentage(55)]).split(chunks[3])
+    };
+    session.viewport_rows = usize::from(panes[1].height.saturating_sub(2)).max(1);
+
+    let Some(run) = &session.running else {
+        return;
+    };
 
     let elapsed = format_hms(run.elapsed.as_secs());
     let title = words.tui_running_title(env!("CARGO_PKG_VERSION"), &elapsed);
@@ -434,13 +449,6 @@ fn draw_running(frame: &mut Frame<'_>, session: &Session, area: Rect) {
         Paragraph::new(format!(" {host_line}")).style(Style::default().add_modifier(Modifier::DIM)),
         chunks[2],
     );
-
-    let panes = if chunks[3].width >= 88 {
-        Layout::horizontal([Constraint::Percentage(42), Constraint::Percentage(58)])
-            .split(chunks[3])
-    } else {
-        Layout::vertical([Constraint::Percentage(45), Constraint::Percentage(55)]).split(chunks[3])
-    };
 
     draw_running_items(frame, run, panes[0], done);
     draw_running_logs(frame, run, panes[1]);
@@ -481,7 +489,8 @@ fn draw_running_items(frame: &mut Frame<'_>, run: &RunningState, area: Rect, don
                 ),
             ])),
             ItemRunState::Running { step } => {
-                let detail = step.as_deref().unwrap_or_else(|| words.tui_state_running());
+                let raw_detail = step.as_deref().unwrap_or_else(|| words.tui_state_running());
+                let detail = report::terminal::strip_terminal_controls(raw_detail, false);
                 ListItem::new(Line::from(vec![
                     Span::styled(
                         "[>] ",
@@ -503,6 +512,7 @@ fn draw_running_items(frame: &mut Frame<'_>, run: &RunningState, area: Rect, don
                 failed,
                 skipped,
             } => {
+                let clean_status = report::terminal::strip_terminal_controls(status, false);
                 let (icon, color, dim) = if *failed {
                     ("[!] ", Color::Red, false)
                 } else if *skipped {
@@ -519,7 +529,7 @@ fn draw_running_items(frame: &mut Frame<'_>, run: &RunningState, area: Rect, don
                     Span::styled(icon, style),
                     Span::styled(item.title, style),
                     Span::styled(
-                        format!(" ({status})"),
+                        format!(" ({clean_status})"),
                         Style::default().add_modifier(Modifier::DIM),
                     ),
                 ]))
@@ -567,7 +577,7 @@ fn draw_running_logs(frame: &mut Frame<'_>, run: &RunningState, area: Rect) {
         .iter()
         .skip(start)
         .take(visible)
-        .map(|line| Line::raw(line.as_str()))
+        .map(|line| Line::raw(report::terminal::strip_terminal_controls(line, false)))
         .collect();
     frame.render_widget(
         Paragraph::new(lines),
@@ -611,9 +621,21 @@ fn draw_results(frame: &mut Frame<'_>, session: &mut Session, area: Rect) {
     } else {
         (None, chunks[1])
     };
+    session.viewport_rows = usize::from(report_area.height.saturating_sub(2)).max(1);
 
     let text_inner_w = report_area.width.saturating_sub(4);
     session.sync_results_width(text_inner_w);
+    if let Some(results) = &mut session.results {
+        results.sidebar_visible = show_sidebar;
+        if !show_sidebar {
+            results.focus = Pane::Right;
+        }
+        if results.max_width <= usize::from(text_inner_w) {
+            results.scroll_x = 0;
+        } else {
+            results.scroll_x = results.scroll_x.min(results.max_width.saturating_sub(20));
+        }
+    }
 
     let Some(results) = &session.results else {
         return;
@@ -678,7 +700,7 @@ fn draw_results_sidebar(
 
 fn draw_results_body(frame: &mut Frame<'_>, results: &ResultsState, modal_free: bool, area: Rect) {
     let words = locale::words();
-    let active = modal_free && (results.focus == Pane::Right || !results.sidebar_open);
+    let active = modal_free && (results.focus == Pane::Right || !results.sidebar_visible);
     let pane_title = words.tui_report_pane(
         config::format_name(results.format),
         results.wrap_text,
@@ -776,7 +798,7 @@ fn draw_editor_modal(
 
     let field_w = usize::from(inner.width.saturating_sub(4));
     let prefix_chars: String = editor.buffer.chars().take(editor.cursor).collect();
-    let cursor_col = prefix_chars.width();
+    let cursor_col = slice_columns(&prefix_chars, 0, usize::MAX).width();
     let h_scroll = cursor_col.saturating_sub(field_w.saturating_sub(1));
     let shown = slice_columns(&editor.buffer, h_scroll, field_w);
 
@@ -811,8 +833,10 @@ fn draw_editor_modal(
             height: 1,
         };
         if let Some((NoteKind::Error, err)) = note {
+            let clean = report::terminal::strip_terminal_controls(err, false);
+            let clipped = slice_columns(&clean, 0, usize::from(hint_rect.width));
             frame.render_widget(
-                Paragraph::new(err.as_str())
+                Paragraph::new(clipped)
                     .style(Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
                 hint_rect,
             );
@@ -871,8 +895,9 @@ fn draw_taier_picker_modal(frame: &mut Frame<'_>, modal: &TaierPickerModal, area
             if inner.height >= 2 {
                 let rows =
                     Layout::vertical([Constraint::Min(1), Constraint::Length(1)]).split(inner);
+                let clean = report::terminal::strip_terminal_controls(err, false);
                 frame.render_widget(
-                    Paragraph::new(err.as_str())
+                    Paragraph::new(clean)
                         .style(Style::default().fg(Color::Red))
                         .wrap(Wrap { trim: false }),
                     rows[0],
@@ -953,8 +978,9 @@ fn draw_taier_picker_ready(frame: &mut Frame<'_>, picker: &TaierPicker, area: Re
     // 2. Search filter bar or contextual tip.
     if picker.filtering {
         let prefix = words.tui_taier_filter_prefix();
-        let max_q = usize::from(sections[1].width).saturating_sub(prefix.len() + 2);
-        let q_cols = picker.filter.width();
+        let prefix_w = prefix.width();
+        let max_q = usize::from(sections[1].width).saturating_sub(prefix_w + 2);
+        let q_cols = slice_columns(&picker.filter, 0, usize::MAX).width();
         let skip = q_cols.saturating_sub(max_q.saturating_sub(1));
         let shown = slice_columns(&picker.filter, skip, max_q);
         let line = Line::from(vec![
@@ -967,16 +993,16 @@ fn draw_taier_picker_ready(frame: &mut Frame<'_>, picker: &TaierPicker, area: Re
             Span::styled(shown, Style::default().add_modifier(Modifier::BOLD)),
         ]);
         frame.render_widget(Paragraph::new(line), sections[1]);
-        let cx =
-            sections[1].x + u16::try_from(prefix.len() + q_cols.saturating_sub(skip)).unwrap_or(0);
+        let cx = sections[1].x + u16::try_from(prefix_w + q_cols.saturating_sub(skip)).unwrap_or(0);
         let cy = sections[1].y;
         if cx < rect.x + rect.width - 1 && cy < rect.y + rect.height - 1 {
             frame.set_cursor_position(Position::new(cx, cy));
         }
     } else if !picker.filter.is_empty() {
         let filter_line = words.tui_taier_filter_active(picker.filter.trim());
+        let clipped_filter = slice_columns(&filter_line, 0, usize::from(sections[1].width));
         frame.render_widget(
-            Paragraph::new(filter_line).style(Style::default().fg(Color::Yellow)),
+            Paragraph::new(clipped_filter).style(Style::default().fg(Color::Yellow)),
             sections[1],
         );
     } else {
@@ -1021,20 +1047,23 @@ fn draw_taier_picker_ready(frame: &mut Frame<'_>, picker: &TaierPicker, area: Re
 
     // 4. Error banner or live selector preview.
     if let Some(err) = &picker.error_note {
+        let clean = report::terminal::strip_terminal_controls(err, false);
+        let clipped = slice_columns(&clean, 0, usize::from(sections[3].width));
         frame.render_widget(
-            Paragraph::new(err.as_str())
+            Paragraph::new(clipped)
                 .style(Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
             sections[3],
         );
     } else {
-        let preview = if picker.is_default_selection() {
+        let is_default = !picker.selected.is_empty() && picker.is_default_selection();
+        let preview = if is_default {
             words.tui_taier_targets_preview(Some(words.tui_default_taier_cities()))
         } else {
             let csv = picker.to_selector_csv();
             words.tui_taier_targets_preview((!csv.is_empty()).then_some(csv.as_str()))
         };
         let clipped = slice_columns(&preview, 0, usize::from(sections[3].width));
-        let style = if picker.is_default_selection() {
+        let style = if is_default {
             Style::default().add_modifier(Modifier::DIM)
         } else {
             Style::default().fg(Color::Yellow)
@@ -1239,14 +1268,16 @@ fn draw_note_and_keys(
             NoteKind::Info => Color::Green,
             NoteKind::Error => Color::Red,
         };
+        let clipped_note = slice_columns(&format!(" {msg}"), 0, usize::from(note_area.width));
         frame.render_widget(
-            Paragraph::new(format!(" {msg}"))
+            Paragraph::new(clipped_note)
                 .style(Style::default().fg(color).add_modifier(Modifier::BOLD)),
             note_area,
         );
     }
+    let clipped_keys = slice_columns(&format!(" {keys}"), 0, usize::from(keys_area.width));
     frame.render_widget(
-        Paragraph::new(format!(" {keys}")).style(Style::default().add_modifier(Modifier::BOLD)),
+        Paragraph::new(clipped_keys).style(Style::default().add_modifier(Modifier::BOLD)),
         keys_area,
     );
 }
@@ -1263,24 +1294,19 @@ fn centered_rect(width: u16, height: u16, area: Rect) -> Rect {
 }
 
 /// Slices `text` starting at display column `skip_cols` up to `max_cols` display columns,
-/// padding cleanly if a 2-column character straddles the left scroll boundary.
+/// stripping terminal escape/control sequences and padding cleanly if a 2-column character
+/// straddles the left scroll boundary.
 #[must_use]
 pub fn slice_columns(text: &str, skip_cols: usize, max_cols: usize) -> String {
     if max_cols == 0 {
         return String::new();
     }
+    let sanitized = report::terminal::strip_terminal_controls(text, false);
     let mut out = String::new();
     let mut col = 0_usize;
     let mut used = 0_usize;
-    for ch in text.chars() {
-        let clean = if ch == '\t' {
-            ' '
-        } else if ch.is_control() {
-            continue;
-        } else {
-            ch
-        };
-        let w = clean.width().unwrap_or(0);
+    for ch in sanitized.chars() {
+        let w = ch.width().unwrap_or(0);
         if w == 0 {
             continue;
         }
@@ -1300,7 +1326,7 @@ pub fn slice_columns(text: &str, skip_cols: usize, max_cols: usize) -> String {
         if used + w > max_cols {
             break;
         }
-        out.push(clean);
+        out.push(ch);
         used += w;
         col = next_col;
     }

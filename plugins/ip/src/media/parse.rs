@@ -47,15 +47,33 @@ pub fn no_region() -> Verdict {
 /// Value of cookie `name` set by `response`, if any.
 #[must_use]
 pub fn cookie(response: &HttpResponse, name: &str) -> Option<String> {
-    response
-        .header_values("set-cookie")
-        .into_iter()
-        .find_map(|value| {
-            let (key, rest) = value.split_once('=')?;
-            key.trim()
-                .eq_ignore_ascii_case(name)
-                .then(|| rest.split(';').next().unwrap_or_default().trim().to_owned())
-        })
+    let mut found = None;
+    for value in response.header_values("set-cookie") {
+        let (pair, attrs) = value.split_once(';').unwrap_or((value, ""));
+        let Some((key, raw_val)) = pair.split_once('=') else {
+            continue;
+        };
+        if !key.trim().eq_ignore_ascii_case(name) {
+            continue;
+        }
+        let trimmed = raw_val.trim();
+        let unquoted = trimmed
+            .strip_prefix('"')
+            .and_then(|rest| rest.strip_suffix('"'))
+            .unwrap_or(trimmed)
+            .trim();
+        let expired = unquoted.is_empty()
+            || attrs.split(';').any(|attr| {
+                attr.split_once('=').is_some_and(|(k, v)| {
+                    k.trim().eq_ignore_ascii_case("max-age")
+                        && v.trim().parse::<i64>().is_ok_and(|secs| secs <= 0)
+                })
+            });
+        if !expired {
+            found = Some(unquoted.to_owned());
+        }
+    }
+    found
 }
 
 /// Checks universal rate-limit (`429`), anti-bot/WAF challenge, and `5xx` server errors before a
@@ -104,13 +122,20 @@ pub fn country_code(raw: &str) -> Option<String> {
 /// `/hk-en/title/...` or `https://example.com/ott/sg/index`.
 #[must_use]
 pub fn url_country(url_or_path: &str) -> Option<String> {
-    let path = match url_or_path.find("://") {
-        Some(scheme_end) => {
-            let after_host = &url_or_path[scheme_end + 3..];
-            let slash = after_host.find('/')?;
-            &after_host[slash..]
-        }
-        None => url_or_path,
+    let clean = url_or_path
+        .trim()
+        .split(['?', '#'])
+        .next()
+        .unwrap_or_default();
+    let path = if let Some(scheme_end) = clean.find("://") {
+        let after_host = &clean[scheme_end + 3..];
+        let slash = after_host.find('/')?;
+        &after_host[slash..]
+    } else if let Some(after_slashes) = clean.strip_prefix("//") {
+        let slash = after_slashes.find('/')?;
+        &after_slashes[slash..]
+    } else {
+        clean
     };
     for segment in path.split('/') {
         if segment.is_empty() {

@@ -3,6 +3,8 @@
 
 use std::cmp::Ordering;
 use std::net::IpAddr;
+use std::net::Ipv4Addr;
+use std::net::Ipv6Addr;
 
 use bench_api::FamilyFilter;
 use serde_json::Value;
@@ -74,15 +76,65 @@ pub fn parse_size(raw: &str) -> Result<u64, SizeError> {
 /// Extracts hostname from an `http://` or `https://` URL without brackets.
 #[must_use]
 pub fn host_from_url(raw_url: &str) -> Option<String> {
-    let (_, rest) = raw_url.split_once("://")?;
+    let trimmed = raw_url.trim();
+    if trimmed.is_empty() || !trimmed.bytes().all(|b| b.is_ascii_graphic() && b != b'\\') {
+        return None;
+    }
+    let (scheme, rest) = trimmed.split_once("://")?;
+    if !scheme.eq_ignore_ascii_case("http") && !scheme.eq_ignore_ascii_case("https") {
+        return None;
+    }
     let authority = rest.split(['/', '?', '#']).next()?;
-    let host_port = authority.rsplit('@').next().unwrap_or(authority);
-    let host = if let Some(stripped) = host_port.strip_prefix('[') {
-        stripped.split(']').next()?
-    } else {
-        host_port.split(':').next()?
+    if authority.is_empty() || authority.contains('@') {
+        return None;
+    }
+    if let Some(stripped) = authority.strip_prefix('[') {
+        let (v6_raw, tail) = stripped.split_once(']')?;
+        let valid_port = tail.is_empty()
+            || tail
+                .strip_prefix(':')
+                .and_then(|port| port.parse::<u16>().ok())
+                .is_some_and(|port| port > 0);
+        if !valid_port || v6_raw.parse::<Ipv6Addr>().is_err() {
+            return None;
+        }
+        return Some(v6_raw.to_ascii_lowercase());
+    }
+    let (host, port) = match authority.split_once(':') {
+        Some((host, port)) => (host, Some(port)),
+        None => (authority, None),
     };
-    (!host.is_empty()).then(|| host.to_ascii_lowercase())
+    if let Some(port) = port {
+        let parsed = port.parse::<u16>().ok()?;
+        if parsed == 0 {
+            return None;
+        }
+    }
+    if host.is_empty() || host.len() > 253 {
+        return None;
+    }
+    let lower = host.trim_end_matches('.').to_ascii_lowercase();
+    if lower.is_empty() {
+        return None;
+    }
+    if lower.parse::<Ipv4Addr>().is_ok() {
+        return Some(lower);
+    }
+    let valid_labels = lower.split('.').all(|label| {
+        !label.is_empty()
+            && label.len() <= 63
+            && !label.starts_with('-')
+            && !label.ends_with('-')
+            && label
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'-')
+    });
+    let last_label = lower.rsplit('.').next()?;
+    let numeric_tail = last_label
+        .bytes()
+        .next()
+        .is_some_and(|b| b.is_ascii_digit());
+    (valid_labels && !numeric_tail).then_some(lower)
 }
 
 /// Extracts deduplicated `IpAddr`s from a Cloudflare or AliDNS DoH response body (`Answer[].data`
@@ -91,27 +143,40 @@ pub fn host_from_url(raw_url: &str) -> Option<String> {
 pub fn extract_doh_ips(body: &[u8], families: FamilyFilter) -> Vec<IpAddr> {
     let mut out = Vec::new();
     if let Ok(val) = serde_json::from_slice::<Value>(body) {
-        if let Some(answers) = val.get("Answer").and_then(Value::as_array) {
-            for item in answers {
-                if let Some(data) = item.get("data").and_then(Value::as_str) {
-                    push_filtered_ip(&mut out, data.trim(), families);
+        if val.is_object() {
+            let rcode = val.get("Status").and_then(Value::as_u64).unwrap_or(0);
+            if rcode != 0 {
+                return out;
+            }
+            if let Some(answers) = val.get("Answer").and_then(Value::as_array) {
+                for item in answers {
+                    let rr_ok = item
+                        .get("type")
+                        .and_then(Value::as_u64)
+                        .is_none_or(|rr| matches!(rr, 1 | 28));
+                    if !rr_ok {
+                        continue;
+                    }
+                    if let Some(data) = item.get("data").and_then(Value::as_str) {
+                        push_filtered_ip(&mut out, data.trim(), families);
+                    }
                 }
             }
-        } else if let Some(arr) = val.as_array() {
+            return out;
+        }
+        if let Some(arr) = val.as_array() {
             for item in arr {
                 if let Some(data) = item.as_str() {
                     push_filtered_ip(&mut out, data.trim(), families);
                 }
             }
-        }
-        if !out.is_empty() {
             return out;
         }
     }
 
     let text = String::from_utf8_lossy(body);
-    for token in text.split(|ch: char| !(ch.is_ascii_hexdigit() || ch == '.' || ch == ':')) {
-        push_filtered_ip(&mut out, token, families);
+    for line in text.lines() {
+        push_filtered_ip(&mut out, line.trim(), families);
     }
     out
 }
@@ -146,15 +211,15 @@ fn push_filtered_ip(out: &mut Vec<IpAddr>, raw: &str, families: FamilyFilter) {
 /// discovery order for ties and failed candidates.
 #[must_use]
 pub fn order_candidates(candidates: &[CandidateEndpoint]) -> Vec<CandidateEndpoint> {
+    let clean_rtt = |rtt: Option<f64>| {
+        rtt.filter(|val| val.is_finite() && *val >= 0.0)
+            .unwrap_or(f64::INFINITY)
+    };
     let mut ordered = candidates.to_vec();
     ordered.sort_by(|left, right| match (left.ok, right.ok) {
         (true, false) => Ordering::Less,
         (false, true) => Ordering::Greater,
-        (true, true) => left
-            .rtt_ms
-            .unwrap_or(f64::INFINITY)
-            .partial_cmp(&right.rtt_ms.unwrap_or(f64::INFINITY))
-            .unwrap_or(Ordering::Equal),
+        (true, true) => clean_rtt(left.rtt_ms).total_cmp(&clean_rtt(right.rtt_ms)),
         (false, false) => Ordering::Equal,
     });
     ordered
@@ -177,14 +242,15 @@ pub fn compute_latency(rtts_micros: &[u64]) -> Option<LatencyStats> {
     if rtts_micros.is_empty() {
         return None;
     }
-    let mut sorted: Vec<f64> = rtts_micros
+    let samples_ms: Vec<f64> = rtts_micros
         .iter()
         .map(|&u| ((u as f64) / 1000.0).max(0.01))
         .collect();
-    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
+    let mut sorted = samples_ms.clone();
+    sorted.sort_by(f64::total_cmp);
 
-    let n = sorted.len();
-    let sum: f64 = sorted.iter().sum();
+    let n = samples_ms.len();
+    let sum: f64 = samples_ms.iter().sum();
     let avg = sum / (n as f64);
     let min = sorted[0];
     let max = sorted[n - 1];
@@ -196,7 +262,7 @@ pub fn compute_latency(rtts_micros: &[u64]) -> Option<LatencyStats> {
     let jitter = if n > 1 {
         let mut diff_sum = 0.0;
         for idx in 1..n {
-            diff_sum += (sorted[idx] - sorted[idx - 1]).abs();
+            diff_sum += (samples_ms[idx] - samples_ms[idx - 1]).abs();
         }
         diff_sum / ((n - 1) as f64)
     } else {
@@ -303,11 +369,22 @@ mod tests {
         let chosen = super::choose_auto(&raw_cands, &ordered).expect("chosen");
         assert_eq!(chosen.ip, ip_12);
 
-        let lat = super::compute_latency(&[10_000, 20_000, 30_000, 40_000]).expect("lat");
+        let lat = super::compute_latency(&[10_000, 40_000, 10_000, 40_000]).expect("lat");
         assert_eq!(lat.samples, 4);
         assert_eq!(lat.min_ms, 10.0);
         assert_eq!(lat.median_ms, 25.0);
         assert_eq!(lat.max_ms, 40.0);
-        assert_eq!(lat.jitter_ms, 10.0);
+        assert_eq!(lat.jitter_ms, 30.0);
+
+        let nodata_json = br#"{"Status":0,"Comment":"198.51.100.99"}"#;
+        assert!(super::extract_doh_ips(nodata_json, v4_filter).is_empty());
+        let html_banner = b"<html><hr>openresty/1.25.3.1</hr></html>";
+        assert!(super::extract_doh_ips(html_banner, v4_filter).is_empty());
+        assert_eq!(
+            super::host_from_url("https://[2001:db8::1]:8443/path").as_deref(),
+            Some("2001:db8::1")
+        );
+        assert_eq!(super::host_from_url("ftp://cdn.example/a"), None);
+        assert_eq!(super::host_from_url("https://user@cdn.example/a"), None);
     }
 }

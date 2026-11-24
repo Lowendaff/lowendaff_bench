@@ -1090,12 +1090,21 @@ async fn a_tool_that_needs_raw_sockets_has_them_or_is_unavailable_with_the_reaso
     #[cfg(target_os = "linux")]
     {
         use rustix::fs::StatVfsMountFlags;
+        use rustix::thread::CapabilitySet;
 
         let nosuid = rustix::fs::statvfs(dir.path())
             .is_ok_and(|stat| stat.f_flag.contains(StatVfsMountFlags::NOSUID));
         if rustix::thread::no_new_privs().unwrap_or(false) {
             assert!(
                 provisioned.failed["big"].contains("no_new_privs"),
+                "{provisioned:?}"
+            );
+            assert_eq!(asked, 0, "not downloaded");
+        } else if !rustix::thread::capability_is_in_bounding_set(CapabilitySet::NET_RAW)
+            .unwrap_or(true)
+        {
+            assert!(
+                provisioned.failed["big"].contains("capability bounding set"),
                 "{provisioned:?}"
             );
             assert_eq!(asked, 0, "not downloaded");
@@ -1148,7 +1157,13 @@ fn the_raw_sockets_capability_is_cap_net_raw_ep_as_setcap_writes_it() {
 #[tokio::test]
 async fn a_tool_that_needs_raw_sockets_is_not_downloaded_onto_a_filesystem_mounted_nosuid() {
     use rustix::fs::StatVfsMountFlags;
+    use rustix::thread::CapabilitySet;
 
+    if rustix::thread::no_new_privs().unwrap_or(false)
+        || !rustix::thread::capability_is_in_bounding_set(CapabilitySet::NET_RAW).unwrap_or(true)
+    {
+        return;
+    }
     let shm = Path::new("/dev/shm");
     let Ok(stat) = rustix::fs::statvfs(shm) else {
         return;
@@ -1156,7 +1171,9 @@ async fn a_tool_that_needs_raw_sockets_is_not_downloaded_onto_a_filesystem_mount
     if !stat.f_flag.contains(StatVfsMountFlags::NOSUID) {
         return;
     }
-    let dir = tempfile::tempdir_in(shm).expect("a directory in /dev/shm");
+    let Ok(dir) = tempfile::tempdir_in(shm) else {
+        return;
+    };
     let (provisioned, asked) = provision_counted(raw("big", SCRIPT), dir.path(), SCRIPT).await;
     assert_eq!(
         provisioned.failed["big"],
@@ -1176,17 +1193,38 @@ async fn a_tool_with_raw_sockets_runs_as_nobody_with_cap_net_raw_alone() {
 
     use bench_tool::job::Job;
     use bench_tool::job::User;
+    use rustix::fs::StatVfsMountFlags;
+    use rustix::thread::CapabilitySet;
 
-    if !rustix::process::geteuid().is_root() {
+    if !rustix::process::geteuid().is_root()
+        || rustix::thread::no_new_privs().unwrap_or(false)
+        || !rustix::thread::capability_is_in_bounding_set(CapabilitySet::NET_RAW).unwrap_or(true)
+    {
         return;
     }
+    let candidates = [
+        std::env::temp_dir(),
+        PathBuf::from("/var/tmp"),
+        PathBuf::from(env!("CARGO_TARGET_TMPDIR")),
+    ];
+    let Some(closed) = candidates.iter().find_map(|base| {
+        let stat = rustix::fs::statvfs(base).ok()?;
+        if stat
+            .f_flag
+            .intersects(StatVfsMountFlags::NOSUID | StatVfsMountFlags::NOEXEC)
+        {
+            return None;
+        }
+        tempfile::tempdir_in(base).ok()
+    }) else {
+        return;
+    };
     let shell: &'static [u8] = Box::leak(
         std::fs::read("/bin/sh")
             .expect("the system's shell")
             .into_boxed_slice(),
     );
     // As the program has it: a tools directory that others may search, in one closed to them.
-    let closed = tempfile::tempdir().expect("a run directory");
     std::fs::set_permissions(closed.path(), std::fs::Permissions::from_mode(0o700))
         .expect("the run directory is closed to others");
     let tools = closed.path().join("tools");

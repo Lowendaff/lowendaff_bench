@@ -47,19 +47,32 @@ pub fn parse(response: &HttpResponse) -> Verdict {
         return early;
     }
     let body = response.text();
-    if matches!(response.status, 403 | 451) || body.contains("forbidden_by_country") {
+    if matches!(response.status, 403 | 451)
+        || body.to_ascii_lowercase().contains("forbidden_by_country")
+    {
         return Verdict::no();
     }
     if let Some(val) = parse::json(response) {
-        if val.get("error").is_some() {
-            return Verdict::no();
+        if let Some(err) = val.get("error").filter(|v| !v.is_null()) {
+            let err_text = err.as_str().map_or_else(|| err.to_string(), str::to_owned);
+            let lower = err_text.to_ascii_lowercase();
+            if lower.contains("country") || lower.contains("geo") || lower.contains("region") {
+                return Verdict::no();
+            }
+            return Verdict::Unexpected(format!("OAuth error: {err_text}"));
         }
-        let country = val
-            .get("country")
-            .and_then(serde_json::Value::as_str)
-            .and_then(parse::country_code);
-        if country.is_some() || val.get("access_token").is_some() {
-            return Verdict::Yes { region: country };
+        if (200..300).contains(&response.status) {
+            let country = val
+                .get("country")
+                .and_then(serde_json::Value::as_str)
+                .and_then(parse::country_code);
+            let has_token = val
+                .get("access_token")
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|tok| !tok.trim().is_empty());
+            if country.is_some() || has_token {
+                return Verdict::Yes { region: country };
+            }
         }
     }
     Verdict::Unexpected(format!("HTTP {}", response.status))

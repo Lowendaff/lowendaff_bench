@@ -481,17 +481,20 @@ pub fn prepare_with_proxy(
     if !cli.countries.is_empty() {
         countries(&mut settings, &cli.countries);
     }
+    let mut valid_taier = Vec::new();
     for raw_sel in &cli.taier {
-        if let Err(err) = TaierSelector::try_new(raw_sel) {
-            errors.push(format_taier_selector_error(&err));
+        match TaierSelector::try_new(raw_sel) {
+            Ok(_) => valid_taier.push(raw_sel.clone()),
+            Err(err) => errors.push(format_taier_selector_error(&err)),
         }
     }
     if !cli.taier.is_empty() || !cli.taier_cities.is_empty() || !cli.taier_operators.is_empty() {
         taier_settings(
             &mut settings,
-            &cli.taier,
+            &valid_taier,
             &cli.taier_cities,
             &cli.taier_operators,
+            !cli.taier.is_empty(),
         );
     }
     if cli.no_cloudflare_udp {
@@ -613,10 +616,11 @@ pub fn taier_settings(
     selections: &[String],
     cities: &[String],
     operators: &[TaierOperator],
+    override_selections: bool,
 ) {
     let table = plugin_table(settings, Taier::DESCRIPTOR.id);
     if let Some(table) = table.as_object_mut() {
-        if !selections.is_empty() {
+        if override_selections || !selections.is_empty() {
             let values = selections
                 .iter()
                 .map(|sel| serde_json::Value::String(sel.clone()))
@@ -645,15 +649,16 @@ pub fn taier_settings(
 /// retrieval fails.
 pub async fn fetch_taier_locations(proxy: &DownloadProxy) -> Result<Vec<TaierLocation>, String> {
     let embedded = taier::embedded_servers();
-    let live = if embedded.is_some() {
-        match tokio::time::timeout(Duration::from_secs(5), fetch_taier_bytes(proxy)).await {
-            Ok(result) => result,
-            Err(_) => {
-                Err(locale::words().taier_list_problem(TaierListProblem::Unreadable("timed out")))
-            }
-        }
+    let timeout = if embedded.is_some() {
+        Duration::from_secs(5)
     } else {
-        fetch_taier_bytes(proxy).await
+        Duration::from_secs(20)
+    };
+    let live = match tokio::time::timeout(timeout, fetch_taier_bytes(proxy)).await {
+        Ok(result) => result,
+        Err(_) => {
+            Err(locale::words().taier_list_problem(TaierListProblem::Unreadable("timed out")))
+        }
     };
     resolve_taier_locations(live.as_deref(), embedded)
 }
@@ -689,7 +694,7 @@ pub fn resolve_taier_locations(
     live: Result<&[u8], &String>,
     embedded: Option<&[u8]>,
 ) -> Result<Vec<TaierLocation>, String> {
-    match live {
+    let outcome = match live {
         Ok(bytes) => match parse_taier_locations(bytes) {
             Ok(locations) => Ok(locations),
             Err(err) => match embedded {
@@ -704,14 +709,16 @@ pub fn resolve_taier_locations(
         },
         Err(err) => match embedded {
             Some(snapshot) => {
+                let clean = crate::report::terminal::strip_terminal_controls(err, false);
                 tracing::debug!(
-                    "live Taier list download failed ({err}); falling back to embedded snapshot"
+                    "live Taier list download failed ({clean}); falling back to embedded snapshot"
                 );
                 parse_taier_locations(snapshot)
             }
             None => Err(err.clone()),
         },
-    }
+    };
+    outcome.map_err(|err| crate::report::terminal::strip_terminal_controls(&err, false))
 }
 
 fn parse_taier_locations(buf: &[u8]) -> Result<Vec<TaierLocation>, String> {
@@ -741,7 +748,8 @@ fn parse_taier_locations(buf: &[u8]) -> Result<Vec<TaierLocation>, String> {
             }
             E::Duplicate(id) => TaierListProblem::Duplicate(id),
         };
-        locale::words().taier_list_problem(problem)
+        let rendered = locale::words().taier_list_problem(problem);
+        crate::report::terminal::strip_terminal_controls(&rendered, false)
     })
 }
 

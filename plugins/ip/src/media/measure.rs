@@ -42,6 +42,9 @@ pub fn plan(groups: &[Choice], services: &[String]) -> Plan {
         let mut unknown: Vec<String> = Vec::new();
         for wanted in services {
             let trimmed = wanted.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
             let exists = Group::ALL.into_iter().any(|group| {
                 platforms::in_group(group)
                     .iter()
@@ -57,9 +60,10 @@ pub fn plan(groups: &[Choice], services: &[String]) -> Plan {
         let mut scheduled = Vec::new();
         for group in Group::ALL {
             for &platform in platforms::in_group(group) {
-                let picked = services
-                    .iter()
-                    .any(|wanted| platform.id.eq_ignore_ascii_case(wanted.trim()));
+                let picked = services.iter().any(|wanted| {
+                    let trimmed = wanted.trim();
+                    !trimmed.is_empty() && platform.id.eq_ignore_ascii_case(trimmed)
+                });
                 if picked {
                     scheduled.push(Scheduled { group, platform });
                 }
@@ -96,8 +100,11 @@ pub async fn measure(
     if !ipv4_reachable && !ipv6_reachable {
         return Err(Stop::Skipped(Failure::NoFamily));
     }
+    if ctx.cancel_token().is_cancelled() {
+        return Err(Stop::Failed(Failure::Cancelled));
+    }
 
-    let results: Vec<ServiceResult> = chosen
+    let mut slots: Vec<ServiceResult> = chosen
         .scheduled
         .iter()
         .map(|entry| ServiceResult {
@@ -113,7 +120,7 @@ pub async fn measure(
         unknown: chosen.unknown,
         ipv4_reachable,
         ipv6_reachable,
-        results,
+        results: Vec::new(),
     };
     ctx.publish(&output);
 
@@ -153,11 +160,16 @@ pub async fn measure(
             }
             for (idx, verdict) in verdicts {
                 if ipv6 {
-                    output.results[idx].ipv6 = Some(verdict);
+                    slots[idx].ipv6 = Some(verdict);
                 } else {
-                    output.results[idx].ipv4 = Some(verdict);
+                    slots[idx].ipv4 = Some(verdict);
                 }
             }
+            output.results = slots
+                .iter()
+                .filter(|slot| slot.ipv4.is_some() || slot.ipv6.is_some())
+                .cloned()
+                .collect();
             ctx.publish(&output);
         }
     }

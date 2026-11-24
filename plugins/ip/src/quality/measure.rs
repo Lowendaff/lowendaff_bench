@@ -13,6 +13,7 @@ use bench_host::network::Address;
 
 use super::dnsbl;
 use super::mail;
+use super::parse;
 use super::parse::ProviderData;
 use super::parse::ProviderFailure;
 use super::providers;
@@ -65,6 +66,9 @@ pub async fn measure(
     if v4_ip.is_none() && v6_ip.is_none() {
         return Err(Stop::Skipped(Failure::NoPublicAddress));
     }
+    if ctx.cancel_token().is_cancelled() {
+        return Err(Stop::Failed(Failure::Cancelled));
+    }
 
     let mut output = Output {
         settings: settings.clone(),
@@ -73,7 +77,6 @@ pub async fn measure(
         ipv4: None,
         ipv6: None,
     };
-    ctx.publish(&output);
 
     let targets = [
         (IpFamily::Ipv4, v4_ip, ipv6_reachable, false),
@@ -187,9 +190,25 @@ pub fn aggregate(
     let asn = priority_ids
         .iter()
         .find_map(|id| find_ok(id).and_then(|d| d.asn));
-    let org = priority_ids
-        .iter()
-        .find_map(|id| find_ok(id).and_then(|d| d.org.clone()));
+    let org = match asn {
+        Some(chosen) => priority_ids
+            .iter()
+            .find_map(|id| {
+                find_ok(id)
+                    .filter(|d| d.asn == Some(chosen))
+                    .and_then(|d| d.org.clone())
+            })
+            .or_else(|| {
+                priority_ids.iter().find_map(|id| {
+                    find_ok(id)
+                        .filter(|d| d.asn.is_none())
+                        .and_then(|d| d.org.clone())
+                })
+            }),
+        None => priority_ids
+            .iter()
+            .find_map(|id| find_ok(id).and_then(|d| d.org.clone())),
+    };
     let hostname = ["ipinfo", "shodan"]
         .iter()
         .find_map(|id| find_ok(id).and_then(|d| d.hostname.clone()));
@@ -227,11 +246,17 @@ pub fn aggregate(
                 }
             }
             Err(fail) => {
-                if let ProviderFailure::Unexpected(why) = fail {
+                let scrubbed = match fail {
+                    ProviderFailure::Unexpected(why) => {
+                        ProviderFailure::Unexpected(parse::scrub_ip(why, address))
+                    }
+                    other => other.clone(),
+                };
+                if let ProviderFailure::Unexpected(why) = &scrubbed {
                     notes.push((spec.name, why.clone()));
                 }
                 if spec.has_score {
-                    scores.push((spec.name, fail.clone().into_score()));
+                    scores.push((spec.name, scrubbed.into_score()));
                 }
             }
         }

@@ -169,6 +169,9 @@ where
     };
     for (family, servers) in &plan {
         for server in servers {
+            if cancel.is_cancelled() {
+                return Err(Stop::Failed(Failure::Cancelled));
+            }
             let ipv6 = *family == Family::Ipv6;
             ctx.progress(Step::Upload {
                 location: Cow::Owned(server.location.clone()),
@@ -250,6 +253,9 @@ where
         version: &mut Option<String>,
         pick: &mut impl FnMut(usize) -> usize,
     ) -> Result<Way, Stop<Failure>> {
+        if self.cancel.is_cancelled() {
+            return Err(Stop::Failed(Failure::Cancelled));
+        }
         let mut ports = server.port_list();
         let mut reached = None;
         for tries in 1..=TRIES {
@@ -293,6 +299,9 @@ where
             if way != Way::Unreachable {
                 reached = Some(way);
             }
+        }
+        if self.cancel.is_cancelled() {
+            return Err(Stop::Failed(Failure::Cancelled));
         }
         Ok(reached.unwrap_or(Way::Unreachable))
     }

@@ -3,6 +3,8 @@
 //! streaming media unlock (`ip.media`), with regional OTT availability tables; and why either item
 //! stopped short.
 
+use std::net::IpAddr;
+
 use plugin_ip::media;
 use plugin_ip::media::Group;
 use plugin_ip::media::Restriction;
@@ -98,17 +100,77 @@ pub(super) fn quality(
     }
 
     // Unexpected provider notes.
+    let redact_addrs: Vec<IpAddr> = [v4.map(|r| r.address), v6.map(|r| r.address)]
+        .into_iter()
+        .flatten()
+        .collect();
     for (ipv6, fam) in [(false, v4), (true, v6)] {
         if let Some(rep) = fam {
             for (provider, reason) in &rep.notes {
+                let shown_reason = if show_ip {
+                    reason.clone()
+                } else {
+                    redact_ip_in_note(reason, &redact_addrs)
+                };
                 out.field(
                     &sub,
                     &words.note(),
-                    &words.ip_unexpected(provider, ipv6, reason),
+                    &words.ip_unexpected(provider, ipv6, &shown_reason),
                 );
             }
         }
     }
+}
+
+fn redact_ip_in_note(reason: &str, addrs: &[IpAddr]) -> String {
+    let mut text = reason.to_owned();
+    for &addr in addrs {
+        let masked = network::mask(addr);
+        let raw = addr.to_string();
+        text = replace_ip_token(&text, &raw, &masked, addr.is_ipv6());
+        if addr.is_ipv6() {
+            let encoded = raw.replace(':', "%3A");
+            text = replace_ip_token(&text, &encoded, &masked, true);
+        }
+    }
+    text
+}
+
+fn replace_ip_token(haystack: &str, needle: &str, replacement: &str, ipv6: bool) -> String {
+    if needle.is_empty() || haystack.len() < needle.len() {
+        return haystack.to_owned();
+    }
+    let is_token_cont = |b: u8| {
+        if ipv6 {
+            b.is_ascii_hexdigit() || b == b':'
+        } else {
+            b.is_ascii_digit()
+        }
+    };
+    let bytes = haystack.as_bytes();
+    let nlen = needle.len();
+    let mut out = String::with_capacity(haystack.len());
+    let mut cursor = 0;
+    let mut i = 0;
+    while i + nlen <= bytes.len() {
+        if haystack.is_char_boundary(i)
+            && haystack.is_char_boundary(i + nlen)
+            && haystack[i..i + nlen].eq_ignore_ascii_case(needle)
+        {
+            let prev_ok = i == 0 || !is_token_cont(bytes[i - 1]);
+            let next_ok = i + nlen == bytes.len() || !is_token_cont(bytes[i + nlen]);
+            if prev_ok && next_ok {
+                out.push_str(&haystack[cursor..i]);
+                out.push_str(replacement);
+                i += nlen;
+                cursor = i;
+                continue;
+            }
+        }
+        i += 1;
+    }
+    out.push_str(&haystack[cursor..]);
+    out
 }
 
 fn build_summary_rows(
@@ -439,7 +501,11 @@ pub(super) fn media(out: &mut Out, report: &Report<media::Output, media::Failure
         let members: Vec<&ServiceResult> = output
             .results
             .iter()
-            .filter(|service| service.group == group)
+            .filter(|service| {
+                service.group == group
+                    && ((output.ipv4_reachable && service.ipv4.is_some())
+                        || (output.ipv6_reachable && service.ipv6.is_some()))
+            })
             .collect();
         if members.is_empty() {
             continue;
@@ -452,8 +518,11 @@ pub(super) fn media(out: &mut Out, report: &Report<media::Output, media::Failure
             .collect();
         out.table_left(&sub, &headers, &rows);
         for service in &members {
-            for (ipv6, verdict) in [(false, &service.ipv4), (true, &service.ipv6)] {
-                if let Some(Verdict::Unexpected(reason)) = verdict {
+            for (ipv6, reachable, verdict) in [
+                (false, output.ipv4_reachable, &service.ipv4),
+                (true, output.ipv6_reachable, &service.ipv6),
+            ] {
+                if reachable && let Some(Verdict::Unexpected(reason)) = verdict {
                     out.field(
                         &sub,
                         &words.note(),

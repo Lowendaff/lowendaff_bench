@@ -54,21 +54,23 @@ pub fn parse(response: &HttpResponse) -> Verdict {
         return Verdict::no();
     }
     let body = response.text();
-    if body.contains("OutsideRegionError") || body.contains("vod.error.outsideregionerror") {
+    if body.to_ascii_lowercase().contains("outsideregionerror") {
         return Verdict::no();
     }
-    if response.status == 200 && (body.contains("fullpath") || body.contains("errorMessage\":null"))
+    if response.status == 200
+        && let Some(val) = parse::json(response)
     {
-        return Verdict::yes_in("TW");
-    }
-    if let Some(val) = parse::json(response) {
-        if val
+        let has_path = val
+            .get("fullpath")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|s| !s.trim().is_empty());
+        let no_err = val
             .get("errorMessage")
-            .is_some_and(serde_json::Value::is_null)
-        {
+            .is_some_and(serde_json::Value::is_null);
+        if has_path || no_err {
             return Verdict::yes_in("TW");
         }
-        return Verdict::no();
+        return Verdict::Unexpected("unrecognized LiTV payload".to_owned());
     }
     Verdict::Unexpected(format!("HTTP {}", response.status))
 }

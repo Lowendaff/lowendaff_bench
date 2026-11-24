@@ -52,7 +52,7 @@ pub enum ItemParams {
         countries: String,
         /// Comma-separated server IDs; overrides `countries` when non-empty.
         servers: String,
-        /// Test duration per direction in seconds (`1..=3600`).
+        /// Test duration per direction in seconds (`1..=60`).
         seconds: u16,
         /// Parallel TCP streams (`1..=128`).
         streams: u8,
@@ -970,7 +970,7 @@ impl TuiConfig {
                 value: report_path::auto_label(g.format),
                 customized: false,
                 dimmed: false,
-                edit_raw: Some(report_path::default_path(g.format).display().to_string()),
+                edit_raw: Some(String::new()),
             }
         } else {
             FieldRow {
@@ -1066,7 +1066,7 @@ impl TuiConfig {
         {
             match field_idx {
                 3 => {
-                    *seconds = step_u16(*seconds, delta, 1, 3600);
+                    *seconds = step_u16(*seconds, delta, 1, 60);
                     item.enabled = true;
                     return;
                 }
@@ -1300,8 +1300,8 @@ impl TuiConfig {
                     if trimmed.is_empty() {
                         *seconds = IperfSettings::YABS.seconds;
                     } else {
-                        let val = parse_range(trimmed, 1, 3600).ok_or_else(|| {
-                            words.tui_invalid_number(words.tui_field_seconds(), 1, 3600)
+                        let val = parse_range(trimmed, 1, 60).ok_or_else(|| {
+                            words.tui_invalid_number(words.tui_field_seconds(), 1, 60)
                         })?;
                         *seconds = u16::try_from(val).unwrap_or(IperfSettings::YABS.seconds);
                         item.enabled = true;
@@ -1539,6 +1539,9 @@ impl TuiConfig {
 
     /// Adjusts `field_idx` on [`GlobalConfig`] via `Left` (`-1`) or `Right` (`+1`).
     pub fn step_global_field(&mut self, field_idx: usize, delta: i32) {
+        if delta == 0 {
+            return;
+        }
         match field_idx {
             0 => self.global.format = cycle_format(self.global.format, delta),
             3 => self.global.show_ip = !self.global.show_ip,
@@ -1652,7 +1655,10 @@ pub const fn format_name(format: Format) -> &'static str {
 /// Cycles report [`Format`] forward or backward.
 #[must_use]
 pub const fn cycle_format(format: Format, delta: i32) -> Format {
-    if delta >= 0 {
+    if delta == 0 {
+        return format;
+    }
+    if delta > 0 {
         match format {
             Format::Text => Format::Markdown,
             Format::Markdown => Format::Json,
@@ -1736,11 +1742,14 @@ fn redact_url_password(raw: &str) -> String {
     let Some((scheme, rest)) = trimmed.split_once("://") else {
         return trimmed.to_owned();
     };
-    let Some((userinfo, host_part)) = rest.rsplit_once('@') else {
+    let boundary = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+    let (authority, suffix) = rest.split_at(boundary);
+    let Some((userinfo, host_part)) = authority.rsplit_once('@') else {
         return trimmed.to_owned();
     };
     match userinfo.split_once(':') {
-        Some((user, _)) => format!("{scheme}://{user}:***@{host_part}"),
+        Some((user, _)) => format!("{scheme}://{user}:***@{host_part}{suffix}"),
+        None if !userinfo.is_empty() => format!("{scheme}://***@{host_part}{suffix}"),
         None => trimmed.to_owned(),
     }
 }
@@ -1772,11 +1781,11 @@ fn parse_range(raw: &str, min: u32, max: u32) -> Option<u32> {
 }
 
 fn step_u16(current: u16, delta: i32, min: u16, max: u16) -> u16 {
-    let next = i32::from(current) + delta;
+    let next = i32::from(current).saturating_add(delta);
     u16::try_from(next.clamp(i32::from(min), i32::from(max))).unwrap_or(current)
 }
 
 fn step_u8(current: u8, delta: i32, min: u8, max: u8) -> u8 {
-    let next = i32::from(current) + delta;
+    let next = i32::from(current).saturating_add(delta);
     u8::try_from(next.clamp(i32::from(min), i32::from(max))).unwrap_or(current)
 }

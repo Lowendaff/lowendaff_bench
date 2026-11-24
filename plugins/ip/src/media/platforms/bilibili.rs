@@ -60,13 +60,21 @@ pub fn parse(tw: &HttpResponse, hmt: &HttpResponse) -> Verdict {
     if let Some(early) = parse::gate(hmt) {
         return early;
     }
-    match (code(tw), code(hmt)) {
+    let tw_code = code(tw);
+    let hmt_code = code(hmt);
+    if tw.status == 412
+        || hmt.status == 412
+        || matches!(tw_code, Some(-412))
+        || matches!(hmt_code, Some(-412))
+    {
+        return Verdict::BlockedWaf;
+    }
+    match (tw_code, hmt_code) {
         (Some(0), _) => Verdict::yes_in("TW"),
-        (_, Some(0)) => Verdict::Yes {
+        (Some(-10403), Some(0)) => Verdict::Yes {
             region: Some("HK/MO".to_owned()),
         },
-        (Some(-10403), _) | (_, Some(-10403)) => Verdict::no(),
-        _ if tw.status == 412 || hmt.status == 412 => Verdict::BlockedWaf,
+        (Some(-10403), Some(-10403)) => Verdict::no(),
         _ => Verdict::Unexpected(format!("HTTP {}/{}", tw.status, hmt.status)),
     }
 }

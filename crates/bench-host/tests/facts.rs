@@ -219,6 +219,11 @@ fn threads_are_the_logical_cpus_or_a_containers_cpuset() {
         "a container without a cpuset has the logical CPUs"
     );
     assert_eq!(
+        cpu::threads(2, PlatformKind::Container, Some(64)),
+        2,
+        "a wider host cpuset never exceeds lxcfs logical CPUs"
+    );
+    assert_eq!(
         cpu::usable_threads(
             &common::fixture("dedicated-pve-x86_64"),
             PlatformKind::Dedicated

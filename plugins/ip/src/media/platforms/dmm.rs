@@ -43,16 +43,43 @@ pub fn parse(response: &HttpResponse) -> Verdict {
     if let Some(early) = parse::gate(response) {
         return early;
     }
-    let body = response.text();
-    if matches!(response.status, 403 | 451)
-        || body.contains("\"is_foreign\":true")
-        || body.contains("foreign service")
-        || body.contains("not available in your region")
-    {
+    if matches!(response.status, 403 | 451) {
         return Verdict::no();
     }
-    if response.status == 200 {
-        return Verdict::yes_in("JP");
+    let lower = response.text().to_ascii_lowercase();
+    if lower.contains("foreign service") || lower.contains("not available in your region") {
+        return Verdict::no();
+    }
+    if let Some(val) = parse::json(response) {
+        let is_foreign = val
+            .get("is_foreign")
+            .and_then(serde_json::Value::as_bool)
+            .or_else(|| {
+                val.pointer("/result/is_foreign")
+                    .and_then(serde_json::Value::as_bool)
+            })
+            .or_else(|| {
+                val.pointer("/data/is_foreign")
+                    .and_then(serde_json::Value::as_bool)
+            });
+        let country = val
+            .get("country_code")
+            .and_then(serde_json::Value::as_str)
+            .and_then(parse::country_code)
+            .or_else(|| {
+                val.pointer("/result/country_code")
+                    .and_then(serde_json::Value::as_str)
+                    .and_then(parse::country_code)
+            });
+        match (is_foreign, country.as_deref()) {
+            (Some(true), _) => return Verdict::no(),
+            (_, Some(cc)) if cc != "JP" => return Verdict::no(),
+            (Some(false), _) | (None, Some("JP")) if response.status == 200 => {
+                return Verdict::yes_in("JP");
+            }
+            _ => {}
+        }
+        return Verdict::Unexpected("unrecognized DMM payload".to_owned());
     }
     Verdict::Unexpected(format!("HTTP {}", response.status))
 }

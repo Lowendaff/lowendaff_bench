@@ -13,6 +13,7 @@ pub mod result;
 pub mod targets;
 
 use std::io;
+use std::net::IpAddr;
 use std::path::Path;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -257,6 +258,13 @@ async fn planned(
     if chosen.netflix {
         let cache = answer(ctx, NETFLIX[index]).await.and_then(|answer| {
             let parsed = lookup::netflix(&answer).map_err(Unavailable::Answer)?;
+            if parsed
+                .host
+                .parse::<IpAddr>()
+                .is_ok_and(|ip| ip.is_ipv6() != (family == IpFamily::Ipv6))
+            {
+                return Err(Unavailable::Answer(lookup::LookupError::Url));
+            }
             if !local_netflix && !lists::is_remote_safe_host(&parsed.host) {
                 return Err(Unavailable::Answer(lookup::LookupError::Url));
             }

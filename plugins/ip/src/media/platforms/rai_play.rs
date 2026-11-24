@@ -43,8 +43,13 @@ pub fn parse(response: &HttpResponse) -> Verdict {
     if let Some(early) = parse::gate(response) {
         return early;
     }
-    let body = response.text();
+    let loc_blocked = response.header("location").is_some_and(|loc| {
+        let lower = loc.to_ascii_lowercase();
+        lower.contains("video_no_available") || lower.contains("geoprotetto")
+    });
+    let body = response.text().to_ascii_lowercase();
     if matches!(response.status, 403 | 451)
+        || loc_blocked
         || body.contains("video_no_available")
         || body.contains("geoprotetto")
     {

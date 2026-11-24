@@ -83,9 +83,12 @@ impl NetProbers {
         server: Option<SocketAddr>,
         timeout: Duration,
     ) -> Result<DnsAnswer, NetError> {
+        let deadline = tokio::time::Instant::now() + timeout;
         let resolvers = match server {
             Some(addr) => vec![addr],
-            None => read_resolv_conf().await?,
+            None => tokio::time::timeout_at(deadline, read_resolv_conf())
+                .await
+                .map_err(|_| NetError::TimedOut)??,
         };
         if resolvers.is_empty() {
             return Err(NetError::NoResolver);
@@ -95,9 +98,17 @@ impl NetProbers {
             .min(timeout);
         let mut last_err = NetError::NoResolver;
         for resolver in resolvers {
+            let Some(remaining) = deadline
+                .checked_duration_since(tokio::time::Instant::now())
+                .filter(|d| !d.is_zero())
+            else {
+                return Err(NetError::TimedOut);
+            };
             let tx_id = next_tx_id(qname, resolver);
             let query = encode_query(tx_id, qname)?;
-            match tokio::time::timeout(per_try, query_resolver(resolver, &query, tx_id)).await {
+            let attempt_limit = per_try.min(remaining);
+            match tokio::time::timeout(attempt_limit, query_resolver(resolver, &query, tx_id)).await
+            {
                 Ok(Ok(answer)) => return Ok(answer),
                 Ok(Err(err)) => last_err = err,
                 Err(_) => last_err = NetError::TimedOut,
@@ -255,6 +266,28 @@ async fn read_resolv_conf() -> Result<Vec<SocketAddr>, NetError> {
 }
 
 fn parse_resolv_conf(text: &str) -> Vec<SocketAddr> {
+    parse_resolv_conf_with_zone(text, lookup_interface_index)
+}
+
+fn lookup_interface_index(zone: &str) -> u32 {
+    if zone.is_empty()
+        || zone.len() > 64
+        || zone
+            .bytes()
+            .any(|b| b == b'/' || b == 0 || b.is_ascii_control())
+    {
+        return 0;
+    }
+    std::fs::read_to_string(format!("/sys/class/net/{zone}/ifindex"))
+        .ok()
+        .and_then(|raw| raw.trim().parse::<u32>().ok())
+        .unwrap_or(0)
+}
+
+fn parse_resolv_conf_with_zone(
+    text: &str,
+    mut resolve_zone: impl FnMut(&str) -> u32,
+) -> Vec<SocketAddr> {
     let mut servers = Vec::new();
     for line in text.lines() {
         let line = line.split(['#', ';']).next().unwrap_or_default().trim();
@@ -265,12 +298,40 @@ fn parse_resolv_conf(text: &str) -> Vec<SocketAddr> {
         let Some(raw) = parts.next() else {
             continue;
         };
-        let cleaned = raw.split('%').next().unwrap_or(raw);
-        if let Ok(ip) = cleaned.parse::<IpAddr>() {
-            servers.push(SocketAddr::new(ip, DNS_PORT));
-            if servers.len() >= MAX_RESOLVERS {
-                break;
+        let addr = if let Some((ip_part, zone)) = raw.split_once('%') {
+            if zone.is_empty() {
+                continue;
             }
+            let Ok(IpAddr::V6(v6)) = ip_part.parse::<IpAddr>() else {
+                continue;
+            };
+            if (v6.segments()[0] & 0xffc0) == 0xfe80 {
+                let scope_id = zone
+                    .parse::<u32>()
+                    .ok()
+                    .filter(|&id| id > 0)
+                    .unwrap_or_else(|| resolve_zone(zone));
+                if scope_id == 0 {
+                    continue;
+                }
+                SocketAddr::V6(std::net::SocketAddrV6::new(v6, DNS_PORT, 0, scope_id))
+            } else {
+                SocketAddr::new(IpAddr::V6(v6), DNS_PORT)
+            }
+        } else {
+            let Ok(ip) = raw.parse::<IpAddr>() else {
+                continue;
+            };
+            if let IpAddr::V6(v6) = ip
+                && (v6.segments()[0] & 0xffc0) == 0xfe80
+            {
+                continue;
+            }
+            SocketAddr::new(ip, DNS_PORT)
+        };
+        servers.push(addr);
+        if servers.len() >= MAX_RESOLVERS {
+            break;
         }
     }
     servers
@@ -571,8 +632,6 @@ fn net_error_summary(err: &NetError) -> String {
 #[cfg(test)]
 mod tests {
     use std::net::Ipv4Addr;
-    use std::sync::Arc;
-    use std::sync::Mutex;
     use std::time::Duration;
 
     use bench_api::DnsAnswer;
@@ -601,13 +660,36 @@ mod tests {
         assert_eq!(parsed[0], "1.1.1.1:53".parse().expect("v4"));
         assert_eq!(parsed[1], "[2606:4700:4700::1111]:53".parse().expect("v6"));
         assert_eq!(parsed[2], "8.8.8.8:53".parse().expect("v4"));
+        let scoped = super::parse_resolv_conf_with_zone(
+            "nameserver fe80::1\nnameserver fe80::1%eth0\nnameserver 1.1.1.1%eth0\n",
+            |zone| if zone == "eth0" { 7 } else { 0 },
+        );
+        assert_eq!(scoped.len(), 1);
+        assert_eq!(
+            scoped[0],
+            std::net::SocketAddr::V6(std::net::SocketAddrV6::new(
+                "fe80::1".parse().expect("ll"),
+                53,
+                0,
+                7,
+            ))
+        );
     }
 
     #[tokio::test]
     async fn dns_prober_handles_nxdomain_compressed_answers_and_tcp_fallback() {
-        let udp = UdpSocket::bind("127.0.0.1:0").await.expect("bind udp");
-        let addr = udp.local_addr().expect("udp addr");
-        let tcp = TcpListener::bind(addr).await.expect("bind tcp same port");
+        let (tcp, udp, addr) = {
+            let mut bound = None;
+            for _ in 0..16 {
+                let candidate_tcp = TcpListener::bind("127.0.0.1:0").await.expect("bind tcp");
+                let candidate_addr = candidate_tcp.local_addr().expect("tcp addr");
+                if let Ok(candidate_udp) = UdpSocket::bind(candidate_addr).await {
+                    bound = Some((candidate_tcp, candidate_udp, candidate_addr));
+                    break;
+                }
+            }
+            bound.expect("bind tcp and udp on same port")
+        };
 
         tokio::spawn(async move {
             let mut buf = [0_u8; 512];
@@ -648,6 +730,9 @@ mod tests {
                     continue;
                 }
                 let qlen = usize::from(u16::from_be_bytes(len_buf));
+                if qlen < 12 {
+                    continue;
+                }
                 let mut qbuf = vec![0_u8; qlen];
                 if stream.read_exact(&mut qbuf).await.is_err() {
                     continue;
@@ -691,15 +776,17 @@ mod tests {
     async fn smtp_prober_reads_greeting_sends_quit_and_checks_family() {
         let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind smtp");
         let addr = listener.local_addr().expect("smtp addr");
-        let received = Arc::new(Mutex::new(String::new()));
-        let rec_clone = Arc::clone(&received);
+        let (quit_tx, mut quit_rx) = tokio::sync::mpsc::channel(4);
 
         tokio::spawn(async move {
-            if let Ok((mut stream, _)) = listener.accept().await {
-                let _ = stream.write_all(b"220 mx.example ESMTP ready\r\n").await;
-                let mut buf = [0_u8; 64];
-                let n = stream.read(&mut buf).await.unwrap_or(0);
-                *rec_clone.lock().expect("lock") = String::from_utf8_lossy(&buf[..n]).into_owned();
+            while let Ok((mut stream, _)) = listener.accept().await {
+                let tx = quit_tx.clone();
+                tokio::spawn(async move {
+                    let _ = stream.write_all(b"220 mx.example ESMTP ready\r\n").await;
+                    let mut received = String::new();
+                    let _ = stream.read_to_string(&mut received).await;
+                    let _ = tx.send(received).await;
+                });
             }
         });
 
@@ -717,17 +804,30 @@ mod tests {
                 .await,
             Ok(SmtpBanner { code: 220 })
         );
-        tokio::time::sleep(Duration::from_millis(20)).await;
-        assert_eq!(received.lock().expect("lock").as_str(), "QUIT\r\n");
+        let quit_cmd = tokio::time::timeout(Duration::from_secs(2), quit_rx.recv())
+            .await
+            .expect("quit timeout")
+            .expect("quit message");
+        assert_eq!(quit_cmd, "QUIT\r\n");
 
-        for blocked_host in ["10.0.0.1", "169.254.169.254", "localhost"] {
-            assert!(
+        for blocked_ip in ["10.0.0.1", "169.254.169.254"] {
+            assert_eq!(
                 probers
-                    .probe_smtp(IpFamily::Ipv4, blocked_host, addr.port(), limit)
-                    .await
-                    .is_err(),
-                "non-public SMTP target {blocked_host} must be rejected"
+                    .probe_smtp(IpFamily::Ipv4, blocked_ip, addr.port(), limit)
+                    .await,
+                Err(NetError::Transport(
+                    "non-public SMTP target address refused".to_owned()
+                )),
+                "non-public SMTP IP {blocked_ip} must be rejected"
             );
         }
+        assert_eq!(
+            probers
+                .probe_smtp(IpFamily::Ipv4, "localhost", addr.port(), limit)
+                .await,
+            Err(NetError::Transport(
+                "SMTP host resolved to non-public address".to_owned()
+            ))
+        );
     }
 }

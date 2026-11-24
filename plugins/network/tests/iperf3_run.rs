@@ -103,7 +103,21 @@ async fn no_server_chosen_skips_the_item_with_what_was_asked_for() {
 #[tokio::test]
 async fn remote_server_list_rejects_loopback_localhost_and_private_ips_unless_local_override() {
     let dir = tempfile::tempdir().expect("tempdir");
-    for bad_host in ["127.0.0.1", "10.0.0.1", "169.254.169.254", "localhost"] {
+    for bad_host in [
+        "127.0.0.1",
+        "10.0.0.1",
+        "169.254.169.254",
+        "localhost",
+        "2130706433",
+        "0x7f000001",
+        "127.1",
+        "0177.0.0.1",
+        "169.254.43518",
+        "metadata",
+        "metadata.google.internal",
+        "host.local",
+        "home.arpa",
+    ] {
         let path = dir.path().join(format!("list-{bad_host}.json"));
         std::fs::write(
             &path,

@@ -77,6 +77,8 @@ pub trait CpuWords {
     fn unixbench_item_name(&self, id: &str) -> &'static str;
     /// UnixBench sub-item exited with 0 without printing a `COUNT|` reading.
     fn unixbench_no_count(&self, item: &str) -> String;
+    /// UnixBench sub-item ran past `seconds` and was stopped.
+    fn unixbench_timed_out(&self, item: &str, seconds: u64) -> String;
     /// HPL's method line (`HPL 2.3 (OpenBLAS): N=..., NB=..., ... threads`).
     fn hpl_parameters(&self, version: Option<&str>, n: u32, nb: u32, threads: usize) -> String;
     /// HPL field labels (`Throughput`, `Solve time`, `Residual check`).

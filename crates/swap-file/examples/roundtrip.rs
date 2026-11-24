@@ -3,6 +3,7 @@
 //!
 //! Usage: roundtrip <directory>
 
+use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -50,9 +51,35 @@ fn round_trip() -> Result<PathBuf, String> {
 
 /// Whether `/proc/swaps` lists `path`.
 fn listed(path: &Path) -> Result<bool, String> {
-    let swaps =
-        std::fs::read_to_string("/proc/swaps").map_err(|err| format!("/proc/swaps: {err}"))?;
-    Ok(swaps
-        .lines()
-        .any(|line| line.split_whitespace().next() == path.to_str()))
+    let swaps = std::fs::read("/proc/swaps").map_err(|err| format!("/proc/swaps: {err}"))?;
+    let target = path.as_os_str().as_bytes();
+    Ok(swaps.split(|&byte| byte == b'\n').skip(1).any(|line| {
+        let Some(field) = line
+            .split(|byte| byte.is_ascii_whitespace())
+            .find(|part| !part.is_empty())
+        else {
+            return false;
+        };
+        let unescaped = unescape_octal(field);
+        unescaped.as_slice() == target || unescaped.strip_suffix(b" (deleted)") == Some(target)
+    }))
+}
+
+fn unescape_octal(field: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(field.len());
+    let mut rest = field;
+    while let Some((&first, tail)) = rest.split_first() {
+        if first == b'\\'
+            && let [a, b, c, after @ ..] = tail
+            && let Ok(octal) = std::str::from_utf8(&[*a, *b, *c])
+            && let Ok(byte) = u8::from_str_radix(octal, 8)
+        {
+            out.push(byte);
+            rest = after;
+        } else {
+            out.push(first);
+            rest = tail;
+        }
+    }
+    out
 }

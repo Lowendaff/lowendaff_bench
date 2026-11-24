@@ -10,7 +10,6 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::atomic::AtomicBool;
-use std::sync::atomic::AtomicU8;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
@@ -36,6 +35,8 @@ use crate::fetcher;
 const USER_AGENT: &str = "networkQuality/194.80.3 CFNetwork/3860.400.51 Darwin/25.3.0";
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(8);
 const IDLE_PROBE_TIMEOUT: Duration = Duration::from_secs(3);
+const LOADED_PROBE_INTERVAL: Duration = Duration::from_millis(200);
+const MAX_PROBE_BODY_BYTES: usize = 64 * 1024;
 const UPLOAD_CHUNK_SIZE: u64 = 64 * 1024;
 
 /// System DNS fallback resolving `host` and filtering by reachable IP families (IPv4 first, then
@@ -108,6 +109,7 @@ pub async fn probe_rtt(
     let client = build_pinned_client(&url, target.pin_ip, timeout.saturating_add(CONNECT_TIMEOUT))?;
     let total = usize::from(count.max(1));
     let mut samples = Vec::with_capacity(total);
+    let mut last_err: Option<NetError> = None;
 
     for _ in 0..total {
         if cancel.is_cancelled() {
@@ -118,12 +120,15 @@ pub async fn probe_rtt(
             () = cancel.cancelled() => return Err(NetError::Cancelled),
             res = single_probe(&client, url.clone(), timeout) => res,
         };
-        if let Some(micros) = sample {
-            samples.push(micros);
+        match sample {
+            Ok(micros) => samples.push(micros),
+            Err(err) => last_err = Some(err),
         }
     }
-    if samples.is_empty() && count == 1 {
-        return Err(NetError::Transport("endpoint RTT probe failed".to_owned()));
+    if samples.is_empty() && total == 1 {
+        return Err(
+            last_err.unwrap_or_else(|| NetError::Transport("endpoint RTT probe failed".to_owned()))
+        );
     }
     Ok(samples)
 }
@@ -162,20 +167,27 @@ pub async fn transfer(
                 () = cancel_loaded.cancelled() => break,
                 res = single_probe(&lat_client, latency_url.clone(), IDLE_PROBE_TIMEOUT) => res,
             };
-            if let Some(micros) = sample
+            if let Ok(micros) = sample
                 && let Ok(mut guard) = loaded_samples_bg.lock()
             {
                 guard.push(micros);
+            }
+            if stop_loaded_bg.load(Ordering::Relaxed) || cancel_loaded.is_cancelled() {
+                break;
+            }
+            tokio::select! {
+                biased;
+                () = cancel_loaded.cancelled() => break,
+                () = tokio::time::sleep(LOADED_PROBE_INTERVAL) => {}
             }
         }
     });
 
     let total_bytes = Arc::new(AtomicU64::new(0));
-    let fault_count = Arc::new(AtomicU8::new(0));
     let workers = usize::from(spec.threads.max(1));
     let started = Instant::now();
 
-    let mut worker_tasks = JoinSet::new();
+    let mut worker_tasks: JoinSet<bool> = JoinSet::new();
     for _ in 0..workers {
         let http = client.clone();
         let url = transfer_url.clone();
@@ -183,7 +195,6 @@ pub async fn transfer(
         let max_bytes = spec.max_bytes.max(1);
         let timeout = spec.timeout;
         let bytes_ref = Arc::clone(&total_bytes);
-        let faults_ref = Arc::clone(&fault_count);
         let cancel_w = cancel.clone();
 
         worker_tasks.spawn(async move {
@@ -195,19 +206,40 @@ pub async fn transfer(
                     run_upload_worker(&http, url, max_bytes, timeout, &bytes_ref, &cancel_w).await
                 }
             };
-            if fault && !cancel_w.is_cancelled() {
-                faults_ref.fetch_add(1, Ordering::Relaxed);
-            }
+            fault && !cancel_w.is_cancelled()
         });
     }
 
+    let mut faults = 0_u8;
     let round_cap = spec.timeout.saturating_add(Duration::from_secs(6));
-    let wait_all = async { while worker_tasks.join_next().await.is_some() {} };
-    if tokio::time::timeout(round_cap, wait_all).await.is_err() {
-        let remaining = u8::try_from(worker_tasks.len()).unwrap_or(u8::MAX);
-        fault_count.fetch_add(remaining.max(1), Ordering::Relaxed);
-        worker_tasks.abort_all();
-        while worker_tasks.join_next().await.is_some() {}
+    let round_deadline = tokio::time::Instant::now() + round_cap;
+    loop {
+        if worker_tasks.is_empty() {
+            break;
+        }
+        tokio::select! {
+            biased;
+            () = cancel.cancelled() => {
+                worker_tasks.abort_all();
+                while worker_tasks.join_next().await.is_some() {}
+                break;
+            }
+            () = tokio::time::sleep_until(round_deadline) => {
+                let remaining = u8::try_from(worker_tasks.len()).unwrap_or(u8::MAX);
+                faults = faults.saturating_add(remaining.max(1));
+                worker_tasks.abort_all();
+                while worker_tasks.join_next().await.is_some() {}
+                break;
+            }
+            joined = worker_tasks.join_next() => match joined {
+                Some(Ok(true)) => faults = faults.saturating_add(1),
+                Some(Err(err)) if !err.is_cancelled() && !cancel.is_cancelled() => {
+                    faults = faults.saturating_add(1);
+                }
+                Some(Ok(false) | Err(_)) => {}
+                None => break,
+            },
+        }
     }
 
     let elapsed_micros = u64::try_from(started.elapsed().as_micros())
@@ -229,12 +261,12 @@ pub async fn transfer(
     Ok(InetspeedTransfer {
         bytes: total_bytes.load(Ordering::Relaxed),
         elapsed_micros,
-        fault_count: fault_count.load(Ordering::Relaxed),
+        fault_count: faults,
         loaded_rtts_micros,
     })
 }
 
-async fn single_probe(client: &Client, url: Url, timeout: Duration) -> Option<u64> {
+async fn single_probe(client: &Client, url: Url, timeout: Duration) -> Result<u64, NetError> {
     let started = Instant::now();
     let req = client
         .get(url)
@@ -243,21 +275,50 @@ async fn single_probe(client: &Client, url: Url, timeout: Duration) -> Option<u6
         .header(header::ACCEPT_ENCODING, "identity")
         .timeout(timeout)
         .send();
-    let Ok(Ok(mut resp)) = tokio::time::timeout(timeout, req).await else {
-        return None;
+    let mut resp = match tokio::time::timeout(timeout, req).await {
+        Ok(Ok(r)) => r,
+        Ok(Err(err)) => {
+            return Err(if err.is_timeout() {
+                NetError::TimedOut
+            } else {
+                NetError::Transport(fetcher::causes(&err))
+            });
+        }
+        Err(_) => return Err(NetError::TimedOut),
     };
-    if resp.status().as_u16() >= 400 {
-        return None;
+    let status = resp.status().as_u16();
+    if status >= 400 {
+        return Err(NetError::Transport(format!(
+            "endpoint RTT probe failed: HTTP {status}"
+        )));
     }
+    let mut drained = 0_usize;
     loop {
-        match tokio::time::timeout(timeout, resp.chunk()).await {
-            Ok(Ok(Some(_))) => {}
+        let Some(remaining) = timeout.checked_sub(started.elapsed()) else {
+            return Err(NetError::TimedOut);
+        };
+        match tokio::time::timeout(remaining, resp.chunk()).await {
+            Ok(Ok(Some(chunk))) => {
+                drained = drained.saturating_add(chunk.len());
+                if drained > MAX_PROBE_BODY_BYTES {
+                    return Err(NetError::Transport(
+                        "RTT probe response exceeded 64 KiB".to_owned(),
+                    ));
+                }
+            }
             Ok(Ok(None)) => break,
-            Ok(Err(_)) | Err(_) => return None,
+            Ok(Err(err)) => {
+                return Err(if err.is_timeout() {
+                    NetError::TimedOut
+                } else {
+                    NetError::Transport(fetcher::causes(&err))
+                });
+            }
+            Err(_) => return Err(NetError::TimedOut),
         }
     }
     let micros = u64::try_from(started.elapsed().as_micros()).unwrap_or(u64::MAX);
-    Some(micros.max(10))
+    Ok(micros.max(10))
 }
 
 async fn run_download_worker(
@@ -311,6 +372,14 @@ async fn run_download_worker(
     worker_total == 0
 }
 
+struct StreamStopGuard(Arc<AtomicBool>);
+
+impl Drop for StreamStopGuard {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::Relaxed);
+    }
+}
+
 async fn run_upload_worker(
     client: &Client,
     url: Url,
@@ -321,21 +390,26 @@ async fn run_upload_worker(
 ) -> bool {
     let started = Instant::now();
     let counted = Arc::new(AtomicU64::new(0));
-    let shared_s = Arc::clone(shared_bytes);
+    let stopped = Arc::new(AtomicBool::new(false));
+    let _stop_on_exit = StreamStopGuard(Arc::clone(&stopped));
     let counted_s = Arc::clone(&counted);
+    let stopped_s = Arc::clone(&stopped);
     let cancel_s = cancel.clone();
 
     let body_stream = stream::unfold(max_bytes, move |remaining| {
-        let shared_c = Arc::clone(&shared_s);
         let counted_c = Arc::clone(&counted_s);
+        let stopped_c = Arc::clone(&stopped_s);
         let cancel_c = cancel_s.clone();
         async move {
-            if remaining == 0 || started.elapsed() >= timeout || cancel_c.is_cancelled() {
+            if remaining == 0
+                || started.elapsed() >= timeout
+                || stopped_c.load(Ordering::Relaxed)
+                || cancel_c.is_cancelled()
+            {
                 return None;
             }
             let step = remaining.min(UPLOAD_CHUNK_SIZE);
             let chunk_len = usize::try_from(step).unwrap_or(65_536);
-            shared_c.fetch_add(step, Ordering::Relaxed);
             counted_c.fetch_add(step, Ordering::Relaxed);
             Some((
                 Ok::<Vec<u8>, io::Error>(vec![0_u8; chunk_len]),
@@ -369,20 +443,12 @@ async fn run_upload_worker(
     };
 
     match outcome {
-        Ok(Ok(status)) if status < 400 => counted.load(Ordering::Relaxed) == 0,
-        _ => {
+        Ok(Ok(status)) if status < 400 => {
             let sent = counted.load(Ordering::Relaxed);
-            let mut cur = shared_bytes.load(Ordering::Relaxed);
-            while let Err(actual) = shared_bytes.compare_exchange_weak(
-                cur,
-                cur.saturating_sub(sent),
-                Ordering::Relaxed,
-                Ordering::Relaxed,
-            ) {
-                cur = actual;
-            }
-            true
+            shared_bytes.fetch_add(sent, Ordering::Relaxed);
+            sent == 0
         }
+        _ => true,
     }
 }
 
@@ -501,12 +567,19 @@ mod tests {
             while let Ok((mut stream, _)) = listener.accept().await {
                 let put_rec = Arc::clone(&put_headers_srv);
                 tokio::spawn(async move {
-                    let mut buf = vec![0_u8; 8192];
-                    let n = stream.read(&mut buf).await.unwrap_or(0);
-                    if n == 0 {
-                        return;
-                    }
-                    let text = String::from_utf8_lossy(&buf[..n]).into_owned();
+                    let mut req = Vec::with_capacity(8192);
+                    let header_end = loop {
+                        if let Some(pos) = req.windows(4).position(|w| w == b"\r\n\r\n") {
+                            break pos + 4;
+                        }
+                        let mut chunk = [0_u8; 4096];
+                        let n = stream.read(&mut chunk).await.unwrap_or(0);
+                        if n == 0 {
+                            return;
+                        }
+                        req.extend_from_slice(&chunk[..n]);
+                    };
+                    let text = String::from_utf8_lossy(&req[..header_end]).into_owned();
                     let first = text.lines().next().unwrap_or_default();
                     if first.starts_with("GET /api/v1/gm/small ") {
                         let _ = stream
@@ -516,6 +589,8 @@ mod tests {
                                   Connection: close\r\n\r\nok",
                             )
                             .await;
+                    } else if first.starts_with("GET /api/v1/gm/slow ") {
+                        tokio::time::sleep(Duration::from_millis(250)).await;
                     } else if first.starts_with("GET /api/v1/gm/large ") {
                         let body = vec![b'a'; 65_536];
                         let head = format!(
@@ -526,12 +601,13 @@ mod tests {
                         let _ = stream.write_all(&body).await;
                     } else if first.starts_with("PUT /api/v1/gm/slurp ") {
                         put_rec.lock().expect("lock").push(text.clone());
-                        while !buf[..n].windows(5).any(|w| w == b"0\r\n\r\n") {
+                        while !req[header_end..].windows(5).any(|w| w == b"0\r\n\r\n") {
                             let mut more = [0_u8; 8192];
                             let r = stream.read(&mut more).await.unwrap_or(0);
-                            if r == 0 || more[..r].windows(5).any(|w| w == b"0\r\n\r\n") {
+                            if r == 0 {
                                 break;
                             }
+                            req.extend_from_slice(&more[..r]);
                         }
                         let _ = stream
                             .write_all(
@@ -541,12 +617,13 @@ mod tests {
                             )
                             .await;
                     } else if first.starts_with("PUT /api/v1/gm/fail ") {
-                        while !buf[..n].windows(5).any(|w| w == b"0\r\n\r\n") {
+                        while !req[header_end..].windows(5).any(|w| w == b"0\r\n\r\n") {
                             let mut more = [0_u8; 8192];
                             let r = stream.read(&mut more).await.unwrap_or(0);
-                            if r == 0 || more[..r].windows(5).any(|w| w == b"0\r\n\r\n") {
+                            if r == 0 {
                                 break;
                             }
+                            req.extend_from_slice(&more[..r]);
                         }
                         let _ = stream
                             .write_all(
@@ -673,5 +750,20 @@ mod tests {
                 "non-public HTTPS URL {blocked_url} must fail"
             );
         }
+
+        let timed_out = super::probe_rtt(
+            &InetspeedTarget {
+                url: format!("http://{addr}/api/v1/gm/slow"),
+                pin_ip: Some(IpAddr::V4(Ipv4Addr::LOCALHOST)),
+            },
+            1,
+            Duration::from_millis(40),
+            &cancel,
+        )
+        .await;
+        assert!(
+            matches!(timed_out, Err(bench_api::NetError::TimedOut)),
+            "single slow RTT probe must surface TimedOut: {timed_out:?}"
+        );
     }
 }

@@ -28,14 +28,13 @@ pub fn reading(output: &job::Output) -> Result<Reading, Fault> {
 
 /// The value of the line `events per second: 12842.07`.
 fn rate(text: &str) -> Option<Rate> {
-    let text = text
-        .lines()
-        .find_map(|line| line.trim().strip_prefix("events per second:"))?
-        .trim();
-    let value: f64 = text.parse().ok()?;
-    (value.is_finite() && value > 0.0).then(|| Rate {
-        text: text.to_owned(),
-        value,
+    text.lines().find_map(|line| {
+        let raw = line.trim().strip_prefix("events per second:")?.trim();
+        let value: f64 = raw.parse().ok()?;
+        (value.is_finite() && value > 0.0).then(|| Rate {
+            text: raw.to_owned(),
+            value,
+        })
     })
 }
 
@@ -47,7 +46,9 @@ fn version(text: &str) -> Option<String> {
         .strip_prefix("sysbench ")?
         .split_whitespace()
         .next()?;
-    let plain = version.starts_with(|c: char| c.is_ascii_digit())
-        && version.chars().all(|c| c.is_ascii_digit() || c == '.');
+    let plain = !version.is_empty()
+        && version
+            .split('.')
+            .all(|part| !part.is_empty() && part.chars().all(|c| c.is_ascii_digit()));
     plain.then(|| version.to_owned())
 }

@@ -24,11 +24,19 @@ use crate::app;
 use crate::app::Outcome;
 use crate::locale;
 use crate::registry::Entry;
+use crate::report;
 use crate::report::Format;
 use crate::report_path;
 
 /// Maximum lines retained in the in-memory live event log.
 const MAX_LOG_LINES: usize = 2000;
+
+/// Maximum Unicode scalar values accepted by single-line prompt buffers.
+const MAX_EDITOR_CHARS: usize = 4096;
+
+const fn is_bidi_control(ch: char) -> bool {
+    matches!(ch, '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
+}
 
 /// Active screen of the interactive session.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -120,7 +128,7 @@ impl Editor {
 
     /// Inserts printable character `ch` at the cursor and advances it.
     pub fn insert_char(&mut self, ch: char) {
-        if ch.is_control() {
+        if ch.is_control() || is_bidi_control(ch) || self.char_len() >= MAX_EDITOR_CHARS {
             return;
         }
         let pos = self.byte_index(self.cursor);
@@ -128,12 +136,30 @@ impl Editor {
         self.cursor += 1;
     }
 
-    /// Inserts non-control characters from `pasted` at the cursor.
+    /// Inserts sanitized non-control characters from `pasted` at the cursor.
     pub fn insert_str(&mut self, pasted: &str) {
-        for ch in pasted.chars() {
-            if !ch.is_control() {
-                self.insert_char(ch);
+        let budget = MAX_EDITOR_CHARS.saturating_sub(self.char_len());
+        if budget == 0 {
+            return;
+        }
+        let trimmed = pasted.trim_matches(['\r', '\n']);
+        let stripped = report::terminal::strip_terminal_controls(trimmed, false);
+        let mut clean = String::new();
+        let mut added = 0_usize;
+        for ch in stripped.chars() {
+            if ch.is_control() || is_bidi_control(ch) {
+                continue;
             }
+            clean.push(ch);
+            added += 1;
+            if added >= budget {
+                break;
+            }
+        }
+        if added > 0 {
+            let pos = self.byte_index(self.cursor);
+            self.buffer.insert_str(pos, &clean);
+            self.cursor += added;
         }
     }
 
@@ -256,8 +282,10 @@ pub struct ResultsState {
     pub wrap_text: bool,
     /// Whether public IP addresses are shown unmasked in the viewer.
     pub show_ip: bool,
-    /// Whether the left section sidebar is shown (on wide enough terminals).
+    /// Whether the left section sidebar is requested by the user (`b`).
     pub sidebar_open: bool,
+    /// Whether the terminal is currently wide enough to render the section sidebar.
+    pub sidebar_visible: bool,
     /// Which pane currently has focus (`Left` sidebar or `Right` report).
     pub focus: Pane,
     /// Cached rendered lines.
@@ -388,8 +416,9 @@ impl Session {
     }
 
     /// Sets a transient banner message.
-    pub fn set_note(&mut self, kind: NoteKind, message: String) {
-        self.note = Some((kind, message));
+    pub fn set_note(&mut self, kind: NoteKind, message: impl AsRef<str>) {
+        let clean = report::terminal::strip_terminal_controls(message.as_ref(), false);
+        self.note = Some((kind, clean));
     }
 
     /// Transitions into [`Screen::Running`] for the selected `(id, title)` items.
@@ -425,9 +454,12 @@ impl Session {
     }
 
     /// Sets the collected host/network header line during [`Screen::Running`].
-    pub fn set_host_summary(&mut self, summary: String) {
+    pub fn set_host_summary(&mut self, summary: impl AsRef<str>) {
         if let Some(run) = &mut self.running {
-            run.host_summary = Some(summary);
+            run.host_summary = Some(report::terminal::strip_terminal_controls(
+                summary.as_ref(),
+                false,
+            ));
         }
     }
 
@@ -441,11 +473,12 @@ impl Session {
     }
 
     /// Updates the current sub-step of `id`.
-    pub fn on_item_step(&mut self, id: &'static str, step: String) {
+    pub fn on_item_step(&mut self, id: &'static str, step: impl AsRef<str>) {
         if let Some(run) = &mut self.running
             && let Some(item) = run.items.iter_mut().find(|item| item.id == id)
         {
-            item.state = ItemRunState::Running { step: Some(step) };
+            let clean = report::terminal::strip_terminal_controls(step.as_ref(), false);
+            item.state = ItemRunState::Running { step: Some(clean) };
         }
     }
 
@@ -453,15 +486,16 @@ impl Session {
     pub fn on_item_finish(
         &mut self,
         id: &'static str,
-        status: String,
+        status: impl AsRef<str>,
         failed: bool,
         skipped: bool,
     ) {
         if let Some(run) = &mut self.running
             && let Some(item) = run.items.iter_mut().find(|item| item.id == id)
         {
+            let clean = report::terminal::strip_terminal_controls(status.as_ref(), false);
             item.state = ItemRunState::Done {
-                status,
+                status: clean,
                 failed,
                 skipped,
             };
@@ -469,12 +503,16 @@ impl Session {
     }
 
     /// Appends a formatted line to the live event log.
-    pub fn push_log(&mut self, line: String) {
+    pub fn push_log(&mut self, line: impl AsRef<str>) {
         if let Some(run) = &mut self.running {
+            let clean = report::terminal::strip_terminal_controls(line.as_ref(), false);
             if run.logs.len() >= MAX_LOG_LINES {
                 run.logs.remove(0);
+                if !run.follow_log {
+                    run.log_scroll = run.log_scroll.saturating_sub(1);
+                }
             }
-            run.logs.push(line);
+            run.logs.push(clean);
         }
     }
 
@@ -488,6 +526,7 @@ impl Session {
             wrap_text: true,
             show_ip,
             sidebar_open: true,
+            sidebar_visible: true,
             focus: Pane::Right,
             lines: Vec::new(),
             max_width: 0,
@@ -536,7 +575,8 @@ impl Session {
             }
             Err(err) => {
                 if matches!(self.taier_picker, Some(TaierPickerModal::Loading)) {
-                    self.taier_picker = Some(TaierPickerModal::Error(err));
+                    let clean = report::terminal::strip_terminal_controls(&err, false);
+                    self.taier_picker = Some(TaierPickerModal::Error(clean));
                 }
             }
         }
@@ -603,9 +643,13 @@ impl Session {
         let Some(modal) = self.taier_picker.take() else {
             return Command::None;
         };
+        let plain = !has_ctrl_or_alt(key);
         match modal {
             TaierPickerModal::Loading => {
-                if is_ctrl_c(key) || matches!(key.code, KeyCode::Esc | KeyCode::Char('q' | 'Q')) {
+                if is_ctrl_c(key)
+                    || key.code == KeyCode::Esc
+                    || (plain && matches!(key.code, KeyCode::Char('q' | 'Q')))
+                {
                     Command::None
                 } else {
                     self.taier_picker = Some(TaierPickerModal::Loading);
@@ -613,9 +657,14 @@ impl Session {
                 }
             }
             TaierPickerModal::Error(err) => {
-                if is_ctrl_c(key) || matches!(key.code, KeyCode::Esc | KeyCode::Char('q' | 'Q')) {
+                if is_ctrl_c(key)
+                    || key.code == KeyCode::Esc
+                    || (plain && matches!(key.code, KeyCode::Char('q' | 'Q')))
+                {
                     Command::None
-                } else if matches!(key.code, KeyCode::Enter | KeyCode::Char('r' | 'R')) {
+                } else if key.code == KeyCode::Enter
+                    || (plain && matches!(key.code, KeyCode::Char('r' | 'R')))
+                {
                     self.taier_picker = Some(TaierPickerModal::Loading);
                     Command::LoadTaierNodes
                 } else {
@@ -642,31 +691,32 @@ impl Session {
         let Some(mut editor) = self.editor.take() else {
             return Command::None;
         };
-        let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+        let ctrl = key.modifiers.contains(KeyModifiers::CONTROL)
+            && !key.modifiers.contains(KeyModifiers::ALT);
         match key.code {
             KeyCode::Esc => {
                 self.note = None;
             }
-            KeyCode::Char('c') if ctrl => {
+            KeyCode::Char('c' | 'C') if is_ctrl_c(key) => {
                 self.note = None;
             }
-            KeyCode::Char('u') if ctrl => {
+            KeyCode::Char('u' | 'U') if ctrl => {
                 editor.clear();
                 self.editor = Some(editor);
             }
-            KeyCode::Char('a') if ctrl => {
+            KeyCode::Char('a' | 'A') if ctrl => {
                 editor.move_home();
                 self.editor = Some(editor);
             }
-            KeyCode::Char('e') if ctrl => {
+            KeyCode::Char('e' | 'E') if ctrl => {
                 editor.move_end();
                 self.editor = Some(editor);
             }
-            KeyCode::Char('h') if ctrl => {
+            KeyCode::Char('h' | 'H') if ctrl => {
                 editor.backspace();
                 self.editor = Some(editor);
             }
-            KeyCode::Char('d') if ctrl => {
+            KeyCode::Char('d' | 'D') if ctrl => {
                 editor.delete();
                 self.editor = Some(editor);
             }
@@ -694,7 +744,7 @@ impl Session {
                 editor.move_end();
                 self.editor = Some(editor);
             }
-            KeyCode::Char(ch) if !ctrl && !key.modifiers.contains(KeyModifiers::ALT) => {
+            KeyCode::Char(ch) if !has_ctrl_or_alt(key) => {
                 editor.insert_char(ch);
                 self.editor = Some(editor);
             }
@@ -749,9 +799,10 @@ impl Session {
         if is_ctrl_c(key) {
             return Command::Quit(0);
         }
-        if matches!(key.code, KeyCode::F(5) | KeyCode::Char('r' | 'R'))
-            && !key.modifiers.contains(KeyModifiers::CONTROL)
-        {
+        if matches!(key.code, KeyCode::Char(_)) && has_ctrl_or_alt(key) {
+            return Command::None;
+        }
+        if matches!(key.code, KeyCode::F(5) | KeyCode::Char('r' | 'R')) {
             return Command::StartRun;
         }
         match self.focus {
@@ -761,6 +812,9 @@ impl Session {
     }
 
     fn handle_configure_list_key(&mut self, key: KeyEvent) -> Command {
+        if matches!(key.code, KeyCode::Char(_)) && has_ctrl_or_alt(key) {
+            return Command::None;
+        }
         let len = self.nav_len();
         match key.code {
             KeyCode::Char('q' | 'Q') | KeyCode::Esc => Command::Quit(0),
@@ -851,6 +905,9 @@ impl Session {
     }
 
     fn handle_configure_params_key(&mut self, key: KeyEvent) -> Command {
+        if matches!(key.code, KeyCode::Char(_)) && has_ctrl_or_alt(key) {
+            return Command::None;
+        }
         let count = self.current_param_len();
         if count == 0 {
             self.focus = Pane::Left;
@@ -992,12 +1049,18 @@ impl Session {
         let Some(run) = &mut self.running else {
             return Command::None;
         };
-        if is_ctrl_c(key) || matches!(key.code, KeyCode::Char('c' | 'C')) {
-            if run.stopping {
-                return Command::Quit(app::EXIT_INTERRUPTED);
+        if is_ctrl_c(key) {
+            if key.kind == KeyEventKind::Press {
+                if run.stopping {
+                    return Command::Quit(app::EXIT_INTERRUPTED);
+                }
+                run.stopping = true;
+                return Command::CancelRun;
             }
-            run.stopping = true;
-            return Command::CancelRun;
+            return Command::None;
+        }
+        if matches!(key.code, KeyCode::Char(_)) && has_ctrl_or_alt(key) {
+            return Command::None;
         }
         match key.code {
             KeyCode::Up | KeyCode::Char('k') => {
@@ -1047,7 +1110,13 @@ impl Session {
         let Some(results) = &mut self.results else {
             return Command::None;
         };
-        if is_ctrl_c(key) || matches!(key.code, KeyCode::Char('q' | 'Q') | KeyCode::Esc) {
+        if is_ctrl_c(key) || key.code == KeyCode::Esc {
+            return Command::Quit(results.outcome.exit_code);
+        }
+        if matches!(key.code, KeyCode::Char(_)) && has_ctrl_or_alt(key) {
+            return Command::None;
+        }
+        if matches!(key.code, KeyCode::Char('q' | 'Q')) {
             return Command::Quit(results.outcome.exit_code);
         }
         match key.code {
@@ -1074,7 +1143,7 @@ impl Session {
                 Command::None
             }
             KeyCode::Tab | KeyCode::BackTab => {
-                if results.sidebar_open {
+                if results.sidebar_open && results.sidebar_visible {
                     results.focus = match results.focus {
                         Pane::Left => Pane::Right,
                         Pane::Right => Pane::Left,
@@ -1084,6 +1153,7 @@ impl Session {
             }
             KeyCode::Char('f' | 'F') => {
                 results.format = config::cycle_format(results.format, 1);
+                results.scroll_x = 0;
                 let width = results.rendered_wrap_width;
                 results.rerender(width);
                 Command::None
@@ -1126,7 +1196,7 @@ impl Session {
                 Command::None
             }
             KeyCode::Up | KeyCode::Char('k') => {
-                if results.sidebar_open && results.focus == Pane::Left {
+                if results.sidebar_open && results.sidebar_visible && results.focus == Pane::Left {
                     results.jump_section(-1);
                 } else {
                     results.scroll_y = results.scroll_y.saturating_sub(1);
@@ -1135,7 +1205,7 @@ impl Session {
                 Command::None
             }
             KeyCode::Down | KeyCode::Char('j') => {
-                if results.sidebar_open && results.focus == Pane::Left {
+                if results.sidebar_open && results.sidebar_visible && results.focus == Pane::Left {
                     results.jump_section(1);
                 } else {
                     let max_y = results.lines.len().saturating_sub(1);
@@ -1145,7 +1215,7 @@ impl Session {
                 Command::None
             }
             KeyCode::Enter => {
-                if results.sidebar_open && results.focus == Pane::Left {
+                if results.sidebar_open && results.sidebar_visible && results.focus == Pane::Left {
                     if let Some(sec) = results.sections.get(results.active_section) {
                         results.scroll_y = sec.line;
                     }
@@ -1206,6 +1276,11 @@ fn is_ctrl_c(key: KeyEvent) -> bool {
     key.modifiers.contains(KeyModifiers::CONTROL) && matches!(key.code, KeyCode::Char('c' | 'C'))
 }
 
+fn has_ctrl_or_alt(key: KeyEvent) -> bool {
+    key.modifiers
+        .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+}
+
 impl ResultsState {
     fn rerender(&mut self, wrap_width: Option<u16>) {
         let width = (self.format == Format::Text && self.wrap_text)
@@ -1225,6 +1300,8 @@ impl ResultsState {
         self.scroll_y = self.scroll_y.min(max_y);
         if self.wrap_text && self.format == Format::Text {
             self.scroll_x = 0;
+        } else {
+            self.scroll_x = self.scroll_x.min(self.max_width.saturating_sub(20));
         }
         self.sync_scroll_spy();
     }

@@ -323,10 +323,6 @@ impl HostProfile {
                 Err(RecvTimeoutError::Disconnected) => break,
             }
         }
-        // A part may have come in just as the budget ran out.
-        while let Ok(part) = receiver.try_recv() {
-            profile.fill(part);
-        }
         // When the budget ran out, a section still missing timed out if its thread is still
         // running, and failed if its thread ended, or never started, without sending it.
         if timed_out {
@@ -335,6 +331,11 @@ impl HostProfile {
                     profile.time_out(*section);
                 }
             }
+        }
+        // Drain after inspecting `is_finished()` so a thread finishing in between overwrites
+        // `Read::TimedOut` with `Read::Done` rather than remaining `Read::Failed`.
+        while let Ok(part) = receiver.try_recv() {
+            profile.fill(part);
         }
         profile
     }
@@ -415,16 +416,20 @@ fn memory_facts(root: &Root, kind: PlatformKind) -> Option<MemoryFacts> {
         None => (memory.total, memory.used()),
     };
     let (swap_total, swap_used) = match cgroup.and_then(|limits| limits.swap) {
-        Some(swap) => (
-            swap,
-            cgroup.and_then(|limits| limits.swap_used).unwrap_or(0),
-        ),
+        Some(swap) => {
+            let capped = swap.min(memory.swap_total);
+            let used = cgroup
+                .and_then(|limits| limits.swap_used)
+                .unwrap_or(0)
+                .min(capped);
+            (capped, used)
+        }
         None => (memory.swap_total, memory.swap_used()),
     };
     Some(MemoryFacts {
         total,
         used,
-        estimated: memory.estimated,
+        estimated: cgroup.and_then(|limits| limits.memory_used).is_none() && memory.estimated,
         swap_total,
         swap_used,
     })

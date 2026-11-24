@@ -1939,6 +1939,56 @@ async fn default_report_archive_formats_utc_timestamps_and_writes_unwrapped_copy
     let saved_text = std::fs::read_to_string(&archive_path).unwrap();
     assert_eq!(saved_text, stdout_text);
     assert!(saved_text.starts_with("# lowendaff-bench"));
+
+    let mount_point = "/srv/a long mount point name that wraps on a narrow terminal";
+    let wide_host = HostProfile {
+        storage: Read::Done(StorageFacts {
+            filesystems: vec![Filesystem {
+                mount_point: mount_point.to_owned(),
+                fs_type: "ext4".to_owned(),
+                devices: Vec::new(),
+                zfs_pool: None,
+                disks: Vec::new(),
+                space: None,
+            }],
+            ..StorageFacts::default()
+        }),
+        ..HostProfile::default()
+    };
+    let text_archive = report_path::path_in(tmp.path(), 1_795_204_801, Format::Text);
+    let mut wrapped_stdout = Vec::new();
+    let text_code = app::execute_with_copy(
+        Vec::new(),
+        wide_host,
+        work.path(),
+        &CancellationToken::new(),
+        |family, url, range| downloads.open(family, url, range),
+        1,
+        ReportOptions {
+            out: &mut wrapped_stdout,
+            format: Format::Text,
+            width: Some(40),
+            show_ip: false,
+        },
+        Some(&text_archive),
+    )
+    .await
+    .unwrap();
+    assert_eq!(text_code, 0);
+    let wrapped_out_str = String::from_utf8(wrapped_stdout).unwrap();
+    let unwrapped_saved_str = std::fs::read_to_string(&text_archive).unwrap();
+    assert!(
+        !wrapped_out_str
+            .lines()
+            .any(|line| line.contains(mount_point)),
+        "terminal stdout at width=40 must wrap long mount point: {wrapped_out_str}"
+    );
+    assert!(
+        unwrapped_saved_str
+            .lines()
+            .any(|line| line.contains(mount_point)),
+        "archived text copy must remain unwrapped: {unwrapped_saved_str}"
+    );
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;

@@ -33,15 +33,35 @@ fn bgp_state_picks_most_specific_prefix_and_collapses_prepends() {
     // AS_SET `[64500]` at the end of `[2914, [64500]]` flattens cleanly.
     assert!(parsed.paths.iter().any(|p| p.asns == [2914, 64500]));
     assert_eq!(parsed.paths.iter().filter(|p| p.is_best).count(), 1);
+
+    let zero_in_set = parse::parse_bgp_state(
+        concat!(
+            r#"{"status":"ok","data":{"bgp_state":[{"#,
+            r#""target_prefix":"203.0.113.0/24","path":[2914,[0,64500]]}]}}"#
+        )
+        .as_bytes(),
+    )
+    .expect("AS_SET with leading 0 parses");
+    assert_eq!(zero_in_set.origin_asn, Some(64500));
+    assert_eq!(zero_in_set.paths[0].asns, [2914, 64500]);
 }
 
 #[test]
 fn unannounced_prefix_returns_clean_empty_state() {
-    let body = br#"{"status":"ok","data":{"resource":"198.51.100.9","bgp_state":[]}}"#;
+    let body = br#"{"status":"ok","data":{"resource":"198.51.100.9/32","bgp_state":[]}}"#;
     let parsed = parse::parse_bgp_state(body).expect("empty bgp_state parses");
     assert!(!parsed.announced);
+    assert_eq!(parsed.prefix, None);
+    assert_eq!(parsed.prefix_base, None);
+    assert_eq!(parsed.prefix_len, None);
     assert_eq!(parsed.total_peers, 0);
     assert!(parsed.paths.is_empty());
+
+    assert_eq!(
+        parse::parse_cidr(" 198.51.100.77/24 "),
+        Some(("198.51.100.0".parse().expect("v4"), 24)),
+        "host bits beyond prefix length must be masked"
+    );
 }
 
 #[test]
@@ -66,12 +86,31 @@ fn rpki_and_holder_parsers_cover_expected_variants() {
     );
     assert_eq!(asns::clean_holder("HETZNER-AS, DE"), "HETZNER-AS");
     assert_eq!(
+        asns::clean_holder("SAKURA-BB - SAKURA Internet Co., Ltd., JP"),
+        "SAKURA Internet"
+    );
+    assert_eq!(
         asns::trunc_to_tier1(&[65001, 3356, 174, 64500]),
         vec![174, 64500]
     );
     assert_eq!(
         asns::trunc_to_tier1(&[65001, 3356, 1299, 6939]),
         vec![1299, 6939]
+    );
+    assert_eq!(
+        asns::trunc_to_tier1(&[3356, 1299, 6939, 6939, 6939]),
+        vec![1299, 6939, 6939, 6939],
+        "prepended Tier-1 origin keeps upstream Tier-1 hop"
+    );
+    assert_eq!(
+        asns::trunc_to_tier1(&[65001, 3356, 174, 174, 64500]),
+        vec![174, 174, 64500],
+        "prepended cutoff Tier-1 retains its full prepend run"
+    );
+    assert_eq!(
+        asns::trunc_to_tier1(&[65001, 65001, 9002, 64500]),
+        vec![9002, 64500],
+        "non-Tier-1 path drops entire prepended collector run"
     );
 }
 

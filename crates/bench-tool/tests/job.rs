@@ -369,6 +369,16 @@ fn a_fault_quotes_the_last_line_with_text() {
         "a signal, and nothing printed"
     );
     assert_eq!(output(Some(0), "a\nb\n").last_line(), Some("b"));
+    assert_eq!(
+        output(Some(1), "loading\rstep 2\rFATAL: crash\r").last_line(),
+        Some("FATAL: crash")
+    );
+    let huge = "x".repeat(2048);
+    assert_eq!(
+        output(Some(1), &huge).last_line().map(str::len),
+        Some(512),
+        "single-line quoting is bounded at a character boundary"
+    );
 }
 
 #[tokio::test]

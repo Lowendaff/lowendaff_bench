@@ -54,6 +54,7 @@ impl Host {
         Some(Self {
             available: memory::usable(root, kind)?,
             threads: cpu::usable_threads(root, kind)
+                .filter(|&n| n > 0)
                 .or_else(|| {
                     std::thread::available_parallelism()
                         .ok()
@@ -142,8 +143,8 @@ impl Plan {
         let threads = host.threads.max(1);
         let known = last_level(&host.caches, None);
         let cache = known.unwrap_or(UNKNOWN_CACHE);
-        let single = fit(at_least(cache.saturating_mul(4)), 1, budget);
-        let (chases, missing) = chases(&host.caches, single);
+        let single = fit(at_least(cache.saturating_mul(4)).max(PAGE), 1, budget);
+        let (chases, missing) = chases(&host.caches, single, budget);
         Self {
             threads,
             cache,
@@ -202,7 +203,7 @@ fn at_least(bytes: u64) -> u64 {
 fn fit(start: u64, count: u64, budget: u64) -> u64 {
     let mut size = start;
     while size > PAGE && size.saturating_mul(count) > budget {
-        size /= 2;
+        size = (size / 2).max(PAGE);
     }
     size
 }
@@ -234,19 +235,21 @@ fn last_level(caches: &[Cache], cpus: Option<&[usize]>) -> Option<u64> {
     (total > 0).then_some(total)
 }
 
-/// The latency rows: half of one instance of L1d, L2 and L3, then memory with `memory`
-/// bytes; and the cache levels without a size.
-fn chases(caches: &[Cache], memory: u64) -> (Vec<Chase>, Vec<Level>) {
+/// The latency rows: half of one instance of L1d, L2 and L3 (bounded to `budget`), then memory
+/// with `memory` bytes; and the cache levels without a usable size.
+fn chases(caches: &[Cache], memory: u64, budget: u64) -> (Vec<Chase>, Vec<Level>) {
     let mut chases = Vec::new();
     let mut missing = Vec::new();
     for (level, number) in [(Level::L1, 1), (Level::L2, 2), (Level::L3, 3)] {
         let found = caches
             .iter()
-            .find(|cache| cache.level == number && cache.kind != CacheKind::Instruction);
+            .filter(|cache| cache.level == number && cache.kind != CacheKind::Instruction)
+            .map(|cache| cache.size / 2)
+            .find(|&buffer| buffer >= 256);
         match found {
-            Some(cache) => chases.push(Chase {
+            Some(buffer) => chases.push(Chase {
                 level,
-                buffer: cache.size / 2,
+                buffer: fit(buffer, 1, budget),
             }),
             None => missing.push(level),
         }
@@ -291,7 +294,7 @@ fn matrix(host: &Host, cache: u64, budget: u64) -> Option<Matrix> {
                     let room = column.free.map_or(budget, |free| budget.min(free / 2));
                     Cell {
                         per_thread: per_thread(near, row.cpus.len(), room),
-                        latency: fit(at_least(near.saturating_mul(4)), 1, room),
+                        latency: fit(at_least(near.saturating_mul(4)).max(PAGE), 1, room),
                     }
                 })
                 .collect()

@@ -88,9 +88,14 @@ pub fn parse(response: &HttpResponse) -> Result<ProviderData, ProviderFailure> {
         .and_then(parse::parse_asn);
     let org = entry
         .get("provider")
-        .or_else(|| entry.get("organisation"))
         .and_then(Value::as_str)
-        .and_then(parse::clean_text);
+        .and_then(parse::clean_text)
+        .or_else(|| {
+            entry
+                .get("organisation")
+                .and_then(Value::as_str)
+                .and_then(parse::clean_text)
+        });
     let geo_country = entry
         .get("isocode")
         .and_then(Value::as_str)
@@ -118,15 +123,19 @@ pub fn parse(response: &HttpResponse) -> Result<ProviderData, ProviderFailure> {
         parse::usage_from_str(kind)
     };
 
+    let vpn_yes = lower_kind.contains("vpn")
+        || entry.get("vpn").is_some_and(|val| {
+            val.as_bool() == Some(true)
+                || val
+                    .as_str()
+                    .is_some_and(|s| s.eq_ignore_ascii_case("yes") || s == "1")
+        });
     let mut flags = vec![
-        (
-            RiskFactor::Vpn,
-            lower_kind.contains("vpn") || entry.get("vpn").is_some(),
-        ),
+        (RiskFactor::Vpn, vpn_yes),
         (RiskFactor::Tor, lower_kind == "tor"),
         (
             RiskFactor::Proxy,
-            proxy_yes && !lower_kind.contains("vpn") && lower_kind != "tor",
+            proxy_yes && !vpn_yes && lower_kind != "tor",
         ),
     ];
     if usage == Some(UsageType::Hosting) {

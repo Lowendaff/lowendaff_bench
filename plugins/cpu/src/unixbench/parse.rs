@@ -38,7 +38,7 @@ pub fn copy_reading(
         if let Some(idx) = trimmed.find("COUNT|") {
             let rest = &trimmed[idx + "COUNT|".len()..];
             let mut parts = rest.split('|');
-            if let (Some(c_str), Some(tb_str)) = (parts.next(), parts.next())
+            last_count = if let (Some(c_str), Some(tb_str)) = (parts.next(), parts.next())
                 && let (Ok(count), Ok(tb)) =
                     (c_str.trim().parse::<f64>(), tb_str.trim().parse::<f64>())
                 && count.is_finite()
@@ -46,22 +46,29 @@ pub fn copy_reading(
                 && tb.is_finite()
                 && tb >= 0.0
             {
-                last_count = Some((count, tb));
-            }
-        } else if let Some(rest) = trimmed.strip_prefix("TIME|")
-            && let Ok(secs) = rest.trim().parse::<f64>()
-            && secs.is_finite()
-            && secs > 0.0
-        {
-            last_time = Some(secs);
+                Some((count, tb))
+            } else {
+                None
+            };
+        } else if let Some(rest) = trimmed.strip_prefix("TIME|") {
+            last_time = rest
+                .trim()
+                .parse::<f64>()
+                .ok()
+                .filter(|secs| secs.is_finite() && *secs > 0.0);
         }
     }
     let (count, timebase) = last_count.ok_or(Fault::NoCount { item })?;
+    let safe_elapsed = if elapsed_secs.is_finite() && elapsed_secs > 0.0 {
+        elapsed_secs.max(0.001)
+    } else {
+        0.001
+    };
     Ok(CopyReading {
         count,
         timebase,
         reported_secs: last_time,
-        elapsed_secs: elapsed_secs.max(0.001),
+        elapsed_secs: safe_elapsed,
     })
 }
 
@@ -74,7 +81,19 @@ pub fn combine_copies(
     baseline: f64,
     readings: &[CopyReading],
 ) -> Option<IndexItem> {
-    if readings.is_empty() || baseline <= 0.0 {
+    if readings.is_empty() || !baseline.is_finite() || baseline <= 0.0 {
+        return None;
+    }
+    if readings.iter().any(|r| {
+        !r.count.is_finite()
+            || r.count <= 0.0
+            || !r.timebase.is_finite()
+            || r.timebase < 0.0
+            || r.reported_secs
+                .is_some_and(|secs| !secs.is_finite() || secs <= 0.0)
+            || !r.elapsed_secs.is_finite()
+            || r.elapsed_secs <= 0.0
+    }) {
         return None;
     }
     let sum_count: f64 = readings.iter().map(|r| r.count).sum();
@@ -83,6 +102,9 @@ pub fn combine_copies(
         .map(|r| r.reported_secs.unwrap_or(r.elapsed_secs).max(0.001))
         .sum::<f64>()
         / (readings.len() as f64);
+    if !avg_time.is_finite() || avg_time <= 0.0 {
+        return None;
+    }
     let timebase = readings[0].timebase;
     let rate = if timebase > 0.0 {
         sum_count / (avg_time / timebase)
@@ -93,6 +115,9 @@ pub fn combine_copies(
         return None;
     }
     let index = (rate / baseline) * 10.0;
+    if !index.is_finite() || index <= 0.0 {
+        return None;
+    }
     Some(IndexItem {
         id,
         rate,
@@ -110,11 +135,19 @@ pub fn geometric_index(items: &[IndexItem]) -> Option<f64> {
     }
     let mut log_sum = 0.0_f64;
     for item in items {
+        if !item.rate.is_finite()
+            || item.rate <= 0.0
+            || !item.baseline.is_finite()
+            || item.baseline <= 0.0
+        {
+            return None;
+        }
         let ratio = item.rate / item.baseline;
         if !ratio.is_finite() || ratio <= 0.0 {
             return None;
         }
         log_sum += ratio.ln();
     }
-    Some((log_sum / (items.len() as f64)).exp() * 10.0)
+    let index = (log_sum / (items.len() as f64)).exp() * 10.0;
+    (index.is_finite() && index > 0.0).then_some(index)
 }

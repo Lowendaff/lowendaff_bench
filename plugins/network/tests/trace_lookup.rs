@@ -79,6 +79,7 @@ fn an_answer_without_a_server_or_with_one_outside_the_code_names_none() {
         b"no mapping",
         b"192.0.2.1 =>",
         b"192.0.2.1 => \n",
+        b"192.0.2.1 => \nrouter",
         b"\xff=>a",
     ] {
         assert_eq!(
@@ -87,7 +88,15 @@ fn an_answer_without_a_server_or_with_one_outside_the_code_names_none() {
             "{answer:?}"
         );
     }
-    for id in ["Dub16s03", "dub16s03.", "dub_16", "dub16s03:"] {
+    for id in [
+        "Dub16s03",
+        "dub16s03.",
+        "dub_16",
+        "dub16s03:",
+        "-",
+        "-dub16",
+        "dub16-",
+    ] {
         assert_eq!(host_of(id), Err(LookupError::Id), "{id}");
     }
     assert!(host_of(&"a".repeat(40)).is_ok());
@@ -134,6 +143,22 @@ fn a_target_at_an_address_is_traced_at_it() {
         "https://",
         "https://-a.example/",
         "https://[2001:db8::1/",
+        "https://2001:db8::1/speedtest",
+        "https://[a.example]/",
+        "https://[192.0.2.1]/",
+        "https://[2001:db8::1]junk",
+        "https://user:pass@a.example/speedtest",
+        "https://a.example:notaport/",
+        "https://a.example:0/",
+        "https://a.example:0443/",
+        "https://a.example:70000/",
+        "https://2130706433/",
+        "https://0x7f000001/",
+        "https://0177.0.0.1/",
+        "https://127.1/",
+        "https://999.999.999.999/",
+        "https://a.example/a b",
+        "https://a.example\\evil/",
         "https://a b/",
         "ftp://a.example/",
     ] {

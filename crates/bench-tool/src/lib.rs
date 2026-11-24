@@ -441,3 +441,22 @@ pub const YCRUNCHER: ToolSpec = ToolSpec {
         size: 35_954_568,
     }],
 };
+
+/// Every pinned external tool specification in this crate.
+pub const ALL_TOOLS: [ToolSpec; 15] = [
+    SEVENZIP,
+    FIO,
+    GEEKBENCH,
+    HPL,
+    IPERF3,
+    MULTICHASE,
+    NEXTTRACE,
+    PASSMARK,
+    PASSMARK_LIBS,
+    PRIME95,
+    SMARTCTL,
+    STREAM,
+    SYSBENCH,
+    UNIXBENCH,
+    YCRUNCHER,
+];

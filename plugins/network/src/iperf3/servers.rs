@@ -232,8 +232,19 @@ fn remote_safe_host(host: &str) -> bool {
     if let Ok(ip) = host.parse::<IpAddr>() {
         return bench_api::is_routable_endpoint_ip(ip);
     }
+    if !self::host(host) {
+        return false;
+    }
     let lower = host.to_ascii_lowercase();
-    lower != "localhost" && !lower.ends_with(".localhost")
+    let Some((_, tld)) = lower.rsplit_once('.') else {
+        return false;
+    };
+    let valid_tld =
+        tld.bytes().all(|b| b.is_ascii_alphabetic()) || (tld.starts_with("xn--") && tld.len() > 4);
+    valid_tld
+        && !matches!(tld, "localhost" | "local" | "internal")
+        && lower != "home.arpa"
+        && !lower.ends_with(".home.arpa")
 }
 
 /// `5201` or `5201-5210`: from 1024 to 65535, the first not after the last, at most

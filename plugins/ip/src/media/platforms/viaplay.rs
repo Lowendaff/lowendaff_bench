@@ -43,7 +43,9 @@ pub fn parse(response: &HttpResponse) -> Verdict {
     if matches!(response.status, 403 | 451) {
         return Verdict::no();
     }
-    if let Some(loc) = response.header("location") {
+    if (300..=399).contains(&response.status)
+        && let Some(loc) = response.header("location")
+    {
         let lower = loc.to_ascii_lowercase();
         if lower.contains("region-blocked") || lower.contains("unavailable") {
             return Verdict::no();
@@ -52,9 +54,15 @@ pub fn parse(response: &HttpResponse) -> Verdict {
             return Verdict::yes_in(code);
         }
     }
+    let lower_body = response.text().to_ascii_lowercase();
+    if lower_body.contains("region-blocked") || lower_body.contains("not available in your") {
+        return Verdict::no();
+    }
     if response.status == 200 {
-        let code = parse::url_country(&response.final_url);
-        return Verdict::Yes { region: code };
+        return match parse::url_country(&response.final_url) {
+            Some(code) => Verdict::yes_in(code),
+            None => parse::no_region(),
+        };
     }
     Verdict::Unexpected(format!("HTTP {}", response.status))
 }

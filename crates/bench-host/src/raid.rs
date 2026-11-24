@@ -74,21 +74,22 @@ pub fn read(root: &Root, disks: &[String]) -> Vec<Card> {
         let ids = Ids {
             vendor,
             device,
-            subsystem: id("subsystem_vendor").zip(id("subsystem_device")),
+            subsystem: id("subsystem_vendor")
+                .filter(|&sub_vendor| sub_vendor != 0 && sub_vendor != 0xffff)
+                .zip(id("subsystem_device")),
         };
         let driver = root.link(&format!("{path}/driver")).and_then(|target| {
             Path::new(&target)
                 .file_name()
                 .map(|name| name.to_string_lossy().into_owned())
         });
+        let block_entries = root.list("/sys/block");
         let disks = disks
             .iter()
             .filter_map(|disk| {
-                let target = root.link(&format!("/sys/block/{disk}"))?;
+                let target = disk_pci_target(root, disk, &address, &block_entries)?;
                 let segments: Vec<&str> = target.split('/').collect();
-                segments
-                    .contains(&address.as_str())
-                    .then(|| (disk.clone(), attachment(driver.as_deref(), &segments)))
+                Some((disk.clone(), attachment(driver.as_deref(), &segments)))
             })
             .collect();
         cards.push(Card {
@@ -100,6 +101,43 @@ pub fn read(root: &Root, disks: &[String]) -> Vec<Card> {
         });
     }
     cards
+}
+
+/// Resolves the sysfs `/sys/block` symlink target that places `disk` under PCI `address`,
+/// checking hidden `nvme<S>c<C>n<N>` controller path entries when NVMe multipath points
+/// `/sys/block/nvme<S>n<N>` at a virtual `nvme-subsystem` path.
+fn disk_pci_target(
+    root: &Root,
+    disk: &str,
+    address: &str,
+    block_entries: &[String],
+) -> Option<String> {
+    if let Some(target) = root.link(&format!("/sys/block/{disk}"))
+        && target.split('/').any(|seg| seg == address)
+    {
+        return Some(target);
+    }
+    if !disk.starts_with("nvme") || disk.contains('c') {
+        return None;
+    }
+    block_entries.iter().find_map(|entry| {
+        if !entry.contains('c') || multipath_namespace(entry).as_deref() != Some(disk) {
+            return None;
+        }
+        let target = root.link(&format!("/sys/block/{entry}"))?;
+        target
+            .split('/')
+            .any(|seg| seg == address)
+            .then_some(target)
+    })
+}
+
+fn multipath_namespace(entry: &str) -> Option<String> {
+    let digits = |text: &str| !text.is_empty() && text.bytes().all(|b| b.is_ascii_digit());
+    let (head, namespace) = entry.strip_prefix("nvme")?.split_once('n')?;
+    let (subsystem, path) = head.split_once('c')?;
+    (digits(subsystem) && digits(path) && digits(namespace))
+        .then(|| format!("nvme{subsystem}n{namespace}"))
 }
 
 /// How a disk attaches, from its card's driver and the SCSI channel in its sysfs path, which

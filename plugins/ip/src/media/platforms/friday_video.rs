@@ -49,13 +49,11 @@ pub fn parse(response: &HttpResponse) -> Verdict {
     if matches!(response.status, 403 | 451) {
         return Verdict::no();
     }
-    let body = response.text();
-    if body.contains("\"code\":1003")
-        || body.contains("\u{6d77}\u{5916}")
-        || body.contains("\u{5730}\u{533a}")
-    {
-        return Verdict::no();
-    }
+    let has_geo_marker = |text: &str| {
+        text.contains("\u{6d77}\u{5916}")
+            || text.contains("\u{5730}\u{533a}")
+            || text.contains("\u{5730}\u{5340}")
+    };
     if let Some(val) = parse::json(response) {
         let code = val.get("code").and_then(|value| {
             value
@@ -65,13 +63,27 @@ pub fn parse(response: &HttpResponse) -> Verdict {
         let message = val
             .get("message")
             .and_then(serde_json::Value::as_str)
-            .unwrap_or_default();
-        return match code {
-            Some(0) => Verdict::yes_in("TW"),
-            Some(1003) => Verdict::no(),
-            Some(code) => Verdict::Unexpected(format!("streaming code {code}: {message}")),
-            None => parse::no_region(),
-        };
+            .unwrap_or_default()
+            .trim();
+        match code {
+            Some(0) if (200..300).contains(&response.status) => return Verdict::yes_in("TW"),
+            Some(1003) => return Verdict::no(),
+            _ if has_geo_marker(message) => return Verdict::no(),
+            Some(code) if message.is_empty() => {
+                return Verdict::Unexpected(format!("streaming code {code}"));
+            }
+            Some(code) => {
+                return Verdict::Unexpected(format!("streaming code {code}: {message}"));
+            }
+            None => {}
+        }
     }
-    parse::no_region()
+    let body = response.text();
+    if body.contains("\"code\":1003") || has_geo_marker(&body) {
+        return Verdict::no();
+    }
+    if (200..300).contains(&response.status) {
+        return parse::no_region();
+    }
+    Verdict::Unexpected(format!("HTTP {}", response.status))
 }

@@ -54,7 +54,7 @@ use crate::results::Measured;
 /// Renders `page` as pretty-printed JSON with a trailing newline.
 #[must_use]
 pub fn render(page: &Page) -> String {
-    let own = terminal::own_addresses(page.host);
+    let own = terminal::collect_own_addresses(page.host, page.runs);
     let totals = terminal::totals(page);
     let document = Document {
         version: page.version,
@@ -203,9 +203,31 @@ fn to_value<T: Serialize>(value: &T) -> Value {
 }
 
 fn mask_quality_family(root: &mut Value, key: &str, address: IpAddr) {
-    if let Some(family) = root.get_mut(key).and_then(Value::as_object_mut) {
-        family.insert("address".to_owned(), Value::String(network::mask(address)));
-        family.insert("hostname".to_owned(), Value::Null);
+    let Some(family) = root.get_mut(key).and_then(Value::as_object_mut) else {
+        return;
+    };
+    family.insert("address".to_owned(), Value::String(network::mask(address)));
+    family.insert("hostname".to_owned(), Value::Null);
+    if let Some(notes) = family.get_mut("notes").and_then(Value::as_array_mut) {
+        for entry in notes {
+            if let Some(pair) = entry.as_array_mut()
+                && let Some(reason) = pair.get_mut(1)
+                && let Some(text) = reason.as_str()
+            {
+                *reason = Value::String(plugin_ip::quality::parse::scrub_ip(text, address));
+            }
+        }
+    }
+    if let Some(scores) = family.get_mut("scores").and_then(Value::as_array_mut) {
+        for entry in scores {
+            if let Some(pair) = entry.as_array_mut()
+                && let Some(verdict) = pair.get_mut(1).and_then(Value::as_object_mut)
+                && let Some(detail) = verdict.get_mut("detail")
+                && let Some(text) = detail.as_str()
+            {
+                *detail = Value::String(plugin_ip::quality::parse::scrub_ip(text, address));
+            }
+        }
     }
 }
 
@@ -691,8 +713,21 @@ const fn ecc_code(ecc: Ecc) -> &'static str {
 }
 
 fn build_slot(slot: &Slot) -> SlotJson {
+    if slot.capacity == Capacity::Empty {
+        return SlotJson {
+            name: slot.name.clone(),
+            status: "empty",
+            size_bytes: None,
+            generation: None,
+            form: None,
+            speed_mts: None,
+            configured_speed_mts: None,
+            manufacturer: None,
+            part_number: None,
+        };
+    }
     let (status, size_bytes) = match slot.capacity {
-        Capacity::Empty => ("empty", None),
+        Capacity::Empty => unreachable!(),
         Capacity::Disabled => ("disabled", None),
         Capacity::Unknown => ("unknown", None),
         Capacity::Kilobytes(kib) => ("installed", Some(kib.saturating_mul(1024))),
@@ -723,13 +758,16 @@ fn build_cpu(facts: &CpuFacts, kind: PlatformKind) -> CpuJson {
         Virtualization::Absent => "absent",
         Virtualization::NotApplicable => "not_applicable",
     });
+    let topology = (kind == PlatformKind::Dedicated)
+        .then_some(cpu.topology)
+        .flatten();
     CpuJson {
         model,
         logical: cpu.logical,
         usable: facts.usable,
         quota: facts.quota,
-        sockets: cpu.topology.map(|t| t.sockets),
-        cores: cpu.topology.map(|t| t.cores),
+        sockets: topology.map(|t| t.sockets),
+        cores: topology.map(|t| t.cores),
         mhz: cpu.mhz,
         caches: cpu
             .caches

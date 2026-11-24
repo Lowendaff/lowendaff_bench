@@ -62,7 +62,7 @@ pub const ALL_CPU_TOOLS: [ToolSpec; 9] = [
 #[derive(Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 struct RawCpuBench {
-    suites: Vec<String>,
+    suites: Option<Vec<String>>,
 }
 
 /// Unified CPU benchmark plugin (`cpu.bench`).
@@ -86,11 +86,11 @@ impl TryFrom<RawCpuBench> for CpuBench {
     type Error = String;
 
     fn try_from(raw: RawCpuBench) -> Result<Self, Self::Error> {
-        if raw.suites.is_empty() {
+        let Some(suites) = raw.suites else {
             return Ok(Self::default());
-        }
+        };
         let mut enabled = [false; 8];
-        for token in &raw.suites {
+        for token in &suites {
             let trimmed = token.trim();
             if trimmed == "all" {
                 enabled = [true; 8];
@@ -100,20 +100,7 @@ impl TryFrom<RawCpuBench> for CpuBench {
                 return Err(format!("unknown CPU benchmark suite `{trimmed}`"));
             }
         }
-        let custom_codes = if enabled == DEFAULT_SUITES {
-            Vec::new()
-        } else {
-            SUITE_CODES
-                .iter()
-                .zip(enabled.iter())
-                .filter(|(_, on)| **on)
-                .map(|(code, _)| (*code).to_owned())
-                .collect()
-        };
-        Ok(Self {
-            enabled,
-            custom_codes,
-        })
+        Ok(Self::new(enabled))
     }
 }
 
@@ -282,7 +269,6 @@ impl Plugin for CpuBench {
         }
         let threads = crate::usable_threads(ctx.host());
         let avail_mem = crate::available_memory_bytes(ctx.host());
-        let low_memory = avail_mem.is_some_and(|b| b < (1024 << 20));
         let mut output = Output {
             suites: self.custom_codes.clone(),
             ..Output::default()
@@ -293,7 +279,17 @@ impl Plugin for CpuBench {
             if ctx.cancel_token().is_cancelled() {
                 return Err(Stop::Failed(Failure::Cancelled));
             }
-            output.sysbench = Some(run_sysbench(ctx, threads, &output).await);
+            let outcome = run_sysbench(ctx, threads, &output).await;
+            if matches!(
+                outcome,
+                SuiteOutcome::Failed {
+                    failure: sysbench::Failure::Cancelled,
+                    ..
+                }
+            ) {
+                return Err(Stop::Failed(Failure::Cancelled));
+            }
+            output.sysbench = Some(outcome);
             ctx.publish(&output);
         }
 
@@ -302,7 +298,17 @@ impl Plugin for CpuBench {
             if ctx.cancel_token().is_cancelled() {
                 return Err(Stop::Failed(Failure::Cancelled));
             }
-            output.seven_zip = Some(run_seven_zip(ctx, threads, low_memory, &output).await);
+            let outcome = run_seven_zip(ctx, threads, avail_mem, &output).await;
+            if matches!(
+                outcome,
+                SuiteOutcome::Failed {
+                    failure: seven_zip::Failure::Cancelled,
+                    ..
+                }
+            ) {
+                return Err(Stop::Failed(Failure::Cancelled));
+            }
+            output.seven_zip = Some(outcome);
             ctx.publish(&output);
         }
 
@@ -311,7 +317,17 @@ impl Plugin for CpuBench {
             if ctx.cancel_token().is_cancelled() {
                 return Err(Stop::Failed(Failure::Cancelled));
             }
-            output.unixbench = Some(run_unixbench(ctx, threads, &output).await);
+            let outcome = run_unixbench(ctx, threads, &output).await;
+            if matches!(
+                outcome,
+                SuiteOutcome::Failed {
+                    failure: unixbench::Failure::Cancelled,
+                    ..
+                }
+            ) {
+                return Err(Stop::Failed(Failure::Cancelled));
+            }
+            output.unixbench = Some(outcome);
             ctx.publish(&output);
         }
 
@@ -320,7 +336,17 @@ impl Plugin for CpuBench {
             if ctx.cancel_token().is_cancelled() {
                 return Err(Stop::Failed(Failure::Cancelled));
             }
-            output.hpl = Some(run_hpl(ctx, threads, avail_mem).await);
+            let outcome = run_hpl(ctx, threads, avail_mem).await;
+            if matches!(
+                outcome,
+                SuiteOutcome::Failed {
+                    failure: hpl::Failure::Cancelled,
+                    ..
+                }
+            ) {
+                return Err(Stop::Failed(Failure::Cancelled));
+            }
+            output.hpl = Some(outcome);
             ctx.publish(&output);
         }
 
@@ -329,7 +355,17 @@ impl Plugin for CpuBench {
             if ctx.cancel_token().is_cancelled() {
                 return Err(Stop::Failed(Failure::Cancelled));
             }
-            output.passmark = Some(run_passmark(ctx).await);
+            let outcome = run_passmark(ctx).await;
+            if matches!(
+                outcome,
+                SuiteOutcome::Failed {
+                    failure: passmark::Failure::Cancelled,
+                    ..
+                }
+            ) {
+                return Err(Stop::Failed(Failure::Cancelled));
+            }
+            output.passmark = Some(outcome);
             ctx.publish(&output);
         }
 
@@ -338,7 +374,17 @@ impl Plugin for CpuBench {
             if ctx.cancel_token().is_cancelled() {
                 return Err(Stop::Failed(Failure::Cancelled));
             }
-            output.ycruncher = Some(run_ycruncher(ctx, threads, avail_mem).await);
+            let outcome = run_ycruncher(ctx, threads, avail_mem).await;
+            if matches!(
+                outcome,
+                SuiteOutcome::Failed {
+                    failure: ycruncher::Failure::Cancelled,
+                    ..
+                }
+            ) {
+                return Err(Stop::Failed(Failure::Cancelled));
+            }
+            output.ycruncher = Some(outcome);
             ctx.publish(&output);
         }
 
@@ -347,7 +393,17 @@ impl Plugin for CpuBench {
             if ctx.cancel_token().is_cancelled() {
                 return Err(Stop::Failed(Failure::Cancelled));
             }
-            output.prime95 = Some(run_prime95(ctx, threads).await);
+            let outcome = run_prime95(ctx, threads).await;
+            if matches!(
+                outcome,
+                SuiteOutcome::Failed {
+                    failure: prime95::Failure::Cancelled,
+                    ..
+                }
+            ) {
+                return Err(Stop::Failed(Failure::Cancelled));
+            }
+            output.prime95 = Some(outcome);
             ctx.publish(&output);
         }
 
@@ -356,7 +412,19 @@ impl Plugin for CpuBench {
             if ctx.cancel_token().is_cancelled() {
                 return Err(Stop::Failed(Failure::Cancelled));
             }
-            output.geekbench = Some(run_geekbench(ctx, &output).await);
+            let outcome = run_geekbench(ctx, &output).await;
+            if let SuiteOutcome::Failed {
+                partial,
+                failure: geekbench::Failure::Cancelled,
+            } = &outcome
+            {
+                if partial.as_ref().is_some_and(|p| p.swap_left.is_some()) {
+                    output.geekbench = Some(outcome);
+                    ctx.publish(&output);
+                }
+                return Err(Stop::Failed(Failure::Cancelled));
+            }
+            output.geekbench = Some(outcome);
             ctx.publish(&output);
         }
 
@@ -421,7 +489,7 @@ async fn run_sysbench(
 async fn run_seven_zip(
     ctx: &Context<Output>,
     threads: usize,
-    low_memory: bool,
+    available_bytes: Option<u64>,
     base: &Output,
 ) -> SuiteOutcome<seven_zip::Output, seven_zip::Failure> {
     let program = match require_tool(ctx, &SEVENZIP) {
@@ -432,7 +500,7 @@ async fn run_seven_zip(
         ctx,
         &program,
         threads,
-        low_memory,
+        available_bytes,
         |partial| {
             let mut snap = base.clone();
             snap.seven_zip = Some(SuiteOutcome::Done {
@@ -614,6 +682,9 @@ async fn run_geekbench(
         Err(skip) => return SuiteOutcome::Skipped { reason: skip },
     };
     let (output, result) = geekbench::run_in_suite(ctx, &program, |partial| {
+        if partial.scores.is_none() {
+            return;
+        }
         let mut snap = base.clone();
         snap.geekbench = Some(SuiteOutcome::Done {
             output: partial.clone(),

@@ -20,10 +20,22 @@ use crate::results::Measured;
 /// Each plugin's title and how it ended, the items made for other platforms, and the count of
 /// each status with the run's total time.
 pub(super) fn section(out: &mut Out, page: &Page) {
+    use unicode_width::UnicodeWidthStr;
+
     let words = locale::words();
     out.section(&words.summary_title());
+    let width = page
+        .runs
+        .iter()
+        .map(|run| {
+            let clean = super::strip_terminal_controls(run.title.unwrap_or(run.id), false);
+            clean.width()
+        })
+        .max()
+        .unwrap_or(0)
+        .max(words.label_width());
     for run in page.runs {
-        out.field("  ", run.title.unwrap_or(run.id), &run_status(run));
+        out.field_width("  ", width, run.title.unwrap_or(run.id), &run_status(run));
     }
     if !page.not_applicable.is_empty() {
         let names: Vec<String> = page
@@ -55,7 +67,7 @@ pub(in crate::report) fn totals(page: &Page) -> Totals {
 
 /// The plugin's own reason, when it stopped short.
 pub(in crate::report) fn stop_reason(run: &Run<Measured>) -> Option<String> {
-    match &run.result {
+    let raw = match &run.result {
         Some(Measured::CpuBench(report)) => report
             .stop
             .as_ref()
@@ -117,7 +129,8 @@ pub(in crate::report) fn stop_reason(run: &Run<Measured>) -> Option<String> {
             .as_ref()
             .map(|stop| ip::media_failure(failure(stop))),
         None => None,
-    }
+    };
+    raw.map(|text| super::strip_terminal_controls(&text, false))
 }
 
 /// The plugin's own reason in a stop, whether it skipped or failed.
@@ -130,7 +143,8 @@ fn failure<F>(stop: &Stop<F>) -> &F {
 /// How a plugin ended, with its own reason when it stopped short.
 #[must_use]
 pub fn run_status(run: &Run<Measured>) -> String {
-    status_text(run, stop_reason(run).as_deref())
+    let text = status_text(run, stop_reason(run).as_deref());
+    super::strip_terminal_controls(&text, false)
 }
 
 /// How a plugin ended; `reason` is the plugin's own when it stopped short.
@@ -152,11 +166,13 @@ fn status_text<R>(run: &Run<R>, reason: Option<&str>) -> String {
 /// A requirement that the host does not meet.
 #[must_use]
 pub fn unmet_text(unmet: &Unmet) -> String {
-    locale::words().unmet(unmet)
+    let text = locale::words().unmet(unmet);
+    super::strip_terminal_controls(&text, false)
 }
 
 /// A fault around a plugin.
 #[must_use]
 pub fn fault_text(fault: &Fault) -> String {
-    locale::words().fault(fault)
+    let text = locale::words().fault(fault);
+    super::strip_terminal_controls(&text, false)
 }

@@ -48,12 +48,18 @@ pub fn parse(response: &HttpResponse) -> Verdict {
     }
     if let Some(val) = parse::json(response) {
         let code = val.get("code").and_then(serde_json::Value::as_str);
+        let has_url = val
+            .get("url")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|url| !url.trim().is_empty());
+        let ok_status = (200..300).contains(&response.status);
         return match code {
-            Some("06001-107" | "06001-000" | "00000") => Verdict::yes_in("TW"),
             Some("06001-106") => Verdict::no(),
-            Some(_) if val.get("url").is_some() => Verdict::yes_in("TW"),
-            Some(_) => Verdict::no(),
-            None => Verdict::Unexpected("missing Hami Video code".to_owned()),
+            Some("06001-107" | "06001-000" | "00000") if ok_status => Verdict::yes_in("TW"),
+            Some(_) if ok_status && has_url => Verdict::yes_in("TW"),
+            Some(_) if ok_status => Verdict::no(),
+            None if ok_status => Verdict::Unexpected("missing Hami Video code".to_owned()),
+            _ => Verdict::Unexpected(format!("HTTP {}", response.status)),
         };
     }
     Verdict::Unexpected(format!("HTTP {}", response.status))

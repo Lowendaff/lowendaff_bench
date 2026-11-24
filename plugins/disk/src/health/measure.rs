@@ -112,9 +112,9 @@ pub fn disks(readings: &[Reading], root: &Root) -> Vec<Disk> {
     let mut kept: Vec<(Location, &Reading)> = Vec::new();
     for reading in readings {
         let location = Location::of(&reading.device, root);
-        let same = |(_, other): &(Location, &Reading)| {
-            other.serial.is_some() && other.serial == reading.serial
-        };
+        let serial = clean_serial(reading);
+        let same =
+            |(_, other): &(Location, &Reading)| serial.is_some() && clean_serial(other) == serial;
         match kept.iter().position(same) {
             Some(index) => {
                 let named = matches!(location, Location::Named(_));
@@ -134,4 +134,12 @@ pub fn disks(readings: &[Reading], root: &Root) -> Vec<Disk> {
             values: reading.values.clone(),
         })
         .collect()
+}
+
+fn clean_serial(reading: &Reading) -> Option<&str> {
+    reading
+        .serial
+        .as_deref()
+        .map(str::trim)
+        .filter(|serial| !serial.is_empty())
 }

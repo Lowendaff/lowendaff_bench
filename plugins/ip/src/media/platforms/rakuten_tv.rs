@@ -47,15 +47,42 @@ pub fn parse(response: &HttpResponse) -> Verdict {
         return Verdict::no();
     }
     if let Some(val) = parse::json(response) {
-        if val.get("errors").is_some() {
-            return Verdict::no();
+        let has_errors = match val.get("errors") {
+            None | Some(serde_json::Value::Null | serde_json::Value::Bool(false)) => false,
+            Some(serde_json::Value::Array(items)) => !items.is_empty(),
+            Some(serde_json::Value::Object(map)) => !map.is_empty(),
+            Some(serde_json::Value::String(text)) => !text.trim().is_empty(),
+            Some(_) => true,
+        };
+        if has_errors {
+            let lower = response.text().to_ascii_lowercase();
+            let geo_err = response.status == 200
+                || lower.contains("forbidden")
+                || lower.contains("market")
+                || lower.contains("country")
+                || lower.contains("geo")
+                || lower.contains("not_available")
+                || lower.contains("unavailable");
+            return if geo_err {
+                Verdict::no()
+            } else {
+                Verdict::Unexpected(format!("HTTP {}", response.status))
+            };
         }
         let market = val
             .pointer("/data/market_code")
-            .or_else(|| val.get("market_code"))
             .and_then(serde_json::Value::as_str)
-            .and_then(parse::country_code);
-        if market.is_some() || (response.status == 200 && val.get("data").is_some()) {
+            .and_then(parse::country_code)
+            .or_else(|| {
+                val.get("market_code")
+                    .and_then(serde_json::Value::as_str)
+                    .and_then(parse::country_code)
+            });
+        let has_data = val
+            .get("data")
+            .and_then(serde_json::Value::as_object)
+            .is_some_and(|map| !map.is_empty());
+        if (200..300).contains(&response.status) && (market.is_some() || has_data) {
             return Verdict::Yes { region: market };
         }
     }

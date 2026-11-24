@@ -535,6 +535,9 @@ impl HostWords for English {
     }
 
     fn no_public_address(&self, reasons: &[String]) -> String {
+        if reasons.is_empty() {
+            return "available; public address unavailable".to_owned();
+        }
         format!(
             "available; public address unavailable: {}",
             reasons.join(", ")

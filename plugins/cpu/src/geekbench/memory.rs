@@ -39,10 +39,7 @@ impl Host {
         Self {
             threads,
             available: memory::read(root).map(|memory| available(&memory, limits.as_ref())),
-            free_space: work_dir
-                .to_str()
-                .and_then(storage::statvfs)
-                .map(|space| space.available),
+            free_space: storage::statvfs_path(work_dir).map(|space| space.available),
             swap_unused: swap_unused(root),
         }
     }
@@ -76,13 +73,25 @@ pub fn need(threads: usize) -> u64 {
         .saturating_mul(GIB)
 }
 
-/// Available memory and free swap; in a cgroup with a memory limit, at most the limit minus
-/// the usage.
+/// Available memory and free swap, capping RAM and swap independently against cgroup limits when
+/// present.
 #[must_use]
 pub fn available(memory: &Memory, limits: Option<&CgroupLimits>) -> u64 {
-    let host = memory.available.saturating_add(memory.swap_free);
-    let left = limits.and_then(|limits| Some(limits.memory?.saturating_sub(limits.memory_used?)));
-    left.map_or(host, |left| host.min(left))
+    let ram = match limits.and_then(|lim| lim.memory) {
+        Some(max) => {
+            let used = limits.and_then(|lim| lim.memory_used).unwrap_or(0);
+            memory.available.min(max.saturating_sub(used))
+        }
+        None => memory.available,
+    };
+    let swap = match limits.and_then(|lim| lim.swap) {
+        Some(max) => {
+            let used = limits.and_then(|lim| lim.swap_used).unwrap_or(0);
+            memory.swap_free.min(max.saturating_sub(used))
+        }
+        None => memory.swap_free,
+    };
+    ram.saturating_add(swap)
 }
 
 /// The temporary swap Geekbench gets.

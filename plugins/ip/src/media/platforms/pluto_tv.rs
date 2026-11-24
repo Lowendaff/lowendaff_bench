@@ -51,15 +51,42 @@ pub fn parse(response: &HttpResponse) -> Verdict {
         return Verdict::no();
     }
     if let Some(val) = parse::json(response) {
-        if val.get("error").is_some() {
-            return Verdict::no();
+        let has_error = match val.get("error") {
+            None | Some(serde_json::Value::Null | serde_json::Value::Bool(false)) => false,
+            Some(serde_json::Value::String(text)) => !text.trim().is_empty(),
+            Some(serde_json::Value::Array(items)) => !items.is_empty(),
+            Some(serde_json::Value::Object(map)) => !map.is_empty(),
+            Some(_) => true,
+        };
+        if has_error {
+            let lower = response.text().to_ascii_lowercase();
+            let geo_err = response.status == 200
+                || lower.contains("forbidden")
+                || lower.contains("geo")
+                || lower.contains("country")
+                || lower.contains("region")
+                || lower.contains("unavailable")
+                || lower.contains("not available");
+            return if geo_err {
+                Verdict::no()
+            } else {
+                Verdict::Unexpected(format!("HTTP {}", response.status))
+            };
         }
         let country = val
             .pointer("/session/countryCode")
-            .or_else(|| val.get("countryCode"))
             .and_then(serde_json::Value::as_str)
-            .and_then(parse::country_code);
-        if country.is_some() || val.get("sessionToken").is_some() {
+            .and_then(parse::country_code)
+            .or_else(|| {
+                val.get("countryCode")
+                    .and_then(serde_json::Value::as_str)
+                    .and_then(parse::country_code)
+            });
+        let has_token = val
+            .get("sessionToken")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|tok| !tok.trim().is_empty());
+        if (200..300).contains(&response.status) && (country.is_some() || has_token) {
             return Verdict::Yes { region: country };
         }
     }

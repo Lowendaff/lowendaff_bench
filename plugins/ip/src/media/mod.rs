@@ -63,7 +63,13 @@ impl Plugin for Media {
         }
         let settings = Settings {
             groups: self.groups.clone(),
-            services: self.services.clone(),
+            services: self
+                .services
+                .iter()
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty())
+                .map(str::to_owned)
+                .collect(),
             custom_base: base_url.is_some(),
         };
         measure::measure(ctx, chosen, settings, base_url.as_deref()).await

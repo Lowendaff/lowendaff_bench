@@ -170,11 +170,16 @@ impl HttpClient for StubHttp {
     }
 }
 
-struct PendingHttp;
+struct PendingHttp {
+    started: Arc<tokio::sync::Notify>,
+}
 
 impl HttpClient for PendingHttp {
     fn send<'a>(&'a self, _request: &'a HttpRequest) -> HttpFuture<'a> {
-        Box::pin(async { std::future::pending().await })
+        Box::pin(async move {
+            self.started.notify_one();
+            std::future::pending().await
+        })
     }
 }
 
@@ -206,9 +211,17 @@ async fn context_probe_uses_the_configured_http_client_and_stops_on_cancellation
     assert_eq!(response.header_values("Set-Cookie"), vec!["a=1", "b=2"]);
     assert_eq!(response.text(), "{\"ok\":true}");
 
+    let started = Arc::new(tokio::sync::Notify::new());
     let (ctx, _channels, cancel) = context();
-    let ctx = ctx.with_http(Arc::new(PendingHttp));
-    cancel.cancel();
+    let ctx = ctx.with_http(Arc::new(PendingHttp {
+        started: Arc::clone(&started),
+    }));
+    let cancel_in_flight = cancel.clone();
+    let (in_flight, ()) = tokio::join!(ctx.probe(&get), async move {
+        started.notified().await;
+        cancel_in_flight.cancel();
+    });
+    assert_eq!(in_flight, Err(HttpError::Cancelled));
     assert_eq!(ctx.probe(&get).await, Err(HttpError::Cancelled));
 }
 

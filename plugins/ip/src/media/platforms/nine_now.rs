@@ -46,9 +46,44 @@ pub fn parse(response: &HttpResponse) -> Verdict {
     if matches!(response.status, 403 | 451) {
         return Verdict::no();
     }
-    let body = response.text();
-    if body.contains("\"geoblocked\":true") || body.contains("GeoBlocked") {
-        return Verdict::no();
+    if let Some(val) = parse::json(response) {
+        let geoblocked = val
+            .get("geoblocked")
+            .and_then(serde_json::Value::as_bool)
+            .or_else(|| val.get("geoBlocked").and_then(serde_json::Value::as_bool))
+            .or_else(|| {
+                val.pointer("/data/geoblocked")
+                    .and_then(serde_json::Value::as_bool)
+            });
+        match geoblocked {
+            Some(true) => return Verdict::no(),
+            Some(false) if (200..300).contains(&response.status) => return Verdict::yes_in("AU"),
+            _ => {}
+        }
+        let error_geo = ["error", "code", "message"].into_iter().any(|key| {
+            val.get(key)
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|msg| {
+                    let lower = msg.to_ascii_lowercase();
+                    lower.contains("geoblock")
+                        || lower.contains("geo_block")
+                        || lower.contains("outside australia")
+                })
+        });
+        if error_geo {
+            return Verdict::no();
+        }
+    } else {
+        let lower = response.text().to_ascii_lowercase();
+        if lower.contains("geoblocked")
+            || lower.contains("geo_blocked")
+            || lower.contains("outside australia")
+        {
+            return Verdict::no();
+        }
     }
-    parse::no_region()
+    if (200..300).contains(&response.status) {
+        return parse::no_region();
+    }
+    Verdict::Unexpected(format!("HTTP {}", response.status))
 }

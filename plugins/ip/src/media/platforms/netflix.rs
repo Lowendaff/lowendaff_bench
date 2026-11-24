@@ -70,11 +70,11 @@ pub fn parse(licensed: &HttpResponse, original: &HttpResponse) -> Verdict {
     let orig_state = page_state(original);
     let region = extract_region(licensed).or_else(|| extract_region(original));
     match (lic_state, orig_state) {
-        (TitleState::Available, _) => Verdict::Yes { region },
-        (TitleState::Blocked, TitleState::Available) => Verdict::OriginalsOnly { region },
         (TitleState::Proxy, _) | (_, TitleState::Proxy) => Verdict::No {
             restriction: Some(Restriction::ProxyDetected),
         },
+        (TitleState::Available, _) => Verdict::Yes { region },
+        (TitleState::Blocked, TitleState::Available) => Verdict::OriginalsOnly { region },
         (TitleState::Blocked, TitleState::Blocked) => Verdict::no(),
         (TitleState::Unknown(status), _) | (_, TitleState::Unknown(status)) => {
             Verdict::Unexpected(format!("HTTP {status}"))
@@ -95,7 +95,7 @@ fn page_state(response: &HttpResponse) -> TitleState {
     if body.contains("NSES-UH4") || body.contains("unblocker or proxy") {
         return TitleState::Proxy;
     }
-    if response.status == 403 || response.status == 404 {
+    if matches!(response.status, 403 | 404 | 451) {
         return TitleState::Blocked;
     }
     if body.contains("Not Available")
@@ -116,7 +116,18 @@ fn extract_region(response: &HttpResponse) -> Option<String> {
         return Some(code);
     }
     let body = response.text();
-    parse::extract_between(&body, "\"requestCountry\":{\"id\":\"", "\"")
-        .or_else(|| parse::extract_between(&body, "\"country\":\"", "\""))
-        .and_then(parse::country_code)
+    for (start, end) in [
+        ("\"requestCountry\":{\"id\":\"", "\""),
+        ("\\\"requestCountry\\\":{\\\"id\\\":\\\"", "\\\""),
+        ("\\x22requestCountry\\x22:{\\x22id\\x22:\\x22", "\\x22"),
+        ("\"country\":\"", "\""),
+        ("\\\"country\\\":\\\"", "\\\""),
+        ("\\x22country\\x22:\\x22", "\\x22"),
+    ] {
+        if let Some(code) = parse::extract_between(&body, start, end).and_then(parse::country_code)
+        {
+            return Some(code);
+        }
+    }
+    None
 }

@@ -222,6 +222,12 @@ pub fn root_filesystem(root: &Root, space: impl Fn(&str) -> Option<Space>) -> Op
 /// Size and usage of the filesystem at `path`, computed as `df` does.
 #[must_use]
 pub fn statvfs(path: &str) -> Option<Space> {
+    statvfs_path(Path::new(path))
+}
+
+/// Size and usage of the filesystem at `path`, accepting arbitrary Unix `Path` bytes.
+#[must_use]
+pub fn statvfs_path(path: &Path) -> Option<Space> {
     let stat = rustix::fs::statvfs(path).ok()?;
     let block = stat.f_frsize;
     Some(Space {
@@ -238,10 +244,41 @@ pub fn statvfs(path: &str) -> Option<Space> {
 #[must_use]
 pub fn device_of(path: &Path) -> Option<(u32, u32)> {
     let stat = rustix::fs::stat(path).ok()?;
+    #[cfg(target_os = "linux")]
+    if let Some(dev) = linux_mount_device_of(path) {
+        return Some(dev);
+    }
     Some((
         rustix::fs::major(stat.st_dev),
         rustix::fs::minor(stat.st_dev),
     ))
+}
+
+#[cfg(target_os = "linux")]
+fn linux_mount_device_of(path: &Path) -> Option<(u32, u32)> {
+    use std::os::fd::AsRawFd;
+
+    let file = std::fs::File::open(path).ok()?;
+    let root = Root::system();
+    let fdinfo = root.read(&format!("/proc/self/fdinfo/{}", file.as_raw_fd()))?;
+    let mountinfo = root.read("/proc/self/mountinfo")?;
+    mountinfo_device_for_fdinfo(&fdinfo, &mountinfo)
+}
+
+#[cfg(any(target_os = "linux", test))]
+fn mountinfo_device_for_fdinfo(fdinfo: &str, mountinfo: &str) -> Option<(u32, u32)> {
+    let mnt_id = fdinfo
+        .lines()
+        .find_map(|line| line.strip_prefix("mnt_id:").map(str::trim))
+        .filter(|id| !id.is_empty())?;
+    mountinfo.lines().find_map(|line| {
+        let (before, _) = line.split_once(" - ")?;
+        let mut fields = before.split(' ');
+        (fields.next()? == mnt_id)
+            .then(|| fields.nth(1))
+            .flatten()
+            .and_then(device_number)
+    })
 }
 
 /// What holds a filesystem's data, as far as a disk test is concerned.
@@ -300,6 +337,11 @@ impl BlockDevice {
             && !NOT_DISKS.iter().any(|prefix| self.name.starts_with(prefix))
             // Per-path devices of multipath NVMe, such as nvme0c0n1.
             && !(self.name.starts_with("nvme") && self.name.contains('c'))
+            // eMMC hardware sub-devices such as mmcblk0boot0, mmcblk0boot1, and mmcblk0rpmb.
+            && self
+                .name
+                .strip_prefix("mmcblk")
+                .is_none_or(|rest| !rest.is_empty() && rest.bytes().all(|b| b.is_ascii_digit()))
     }
 
     fn interface(&self) -> &'static str {
@@ -336,10 +378,8 @@ impl BlockDevice {
     fn model(&self) -> Option<String> {
         self.udev
             .get("ID_MODEL_ENC")
-            .map(|encoded| decode_udev(encoded))
-            .or_else(|| self.model.clone())
-            .map(|model| model.trim().to_owned())
-            .filter(|model| !model.is_empty())
+            .and_then(|encoded| clean_model(&decode_udev(encoded)))
+            .or_else(|| self.model.as_deref().and_then(clean_model))
     }
 
     fn zfs_pool(&self) -> Option<&str> {
@@ -431,12 +471,18 @@ fn decode_udev(text: &str) -> String {
             rest = tail;
         }
     }
-    String::from_utf8_lossy(&bytes)
+    String::from_utf8_lossy(&bytes).into_owned()
+}
+
+fn clean_model(text: &str) -> Option<String> {
+    let cleaned: String = text
         .chars()
         .filter(|&ch| {
             !ch.is_control() && !matches!(ch, '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
         })
-        .collect()
+        .collect();
+    let trimmed = cleaned.trim();
+    (!trimmed.is_empty()).then(|| trimmed.to_owned())
 }
 
 /// The disks below a block device: partitions belong to their disk, and LVM or RAID
@@ -572,9 +618,26 @@ fn unescape(field: &str) -> String {
 #[cfg(test)]
 mod tests {
     #[test]
-    fn decode_udev_strips_control_and_bidi_characters_while_keeping_spaces() {
+    fn decode_udev_and_clean_model_strip_control_and_bidi_characters() {
         let raw = r"Samsung\x20SSD\x1b[2J\x07\x0d\x0a\u{202e}990";
         let decoded = super::decode_udev(&raw.replace(r"\u{202e}", "\u{202e}"));
-        assert_eq!(decoded, "Samsung SSD[2J990");
+        assert_eq!(
+            super::clean_model(&decoded).as_deref(),
+            Some("Samsung SSD[2J990")
+        );
+        assert_eq!(super::clean_model("\x1b\u{202e}   "), None);
+    }
+
+    #[test]
+    fn mountinfo_device_for_fdinfo_resolves_mount_id_to_superblock_dev() {
+        let fdinfo = "pos:\t0\nflags:\t02100000\nmnt_id:\t22\nino:\t256\n";
+        let mountinfo = concat!(
+            "20 1 259:1 / / rw - ext4 /dev/nvme0n1p1 rw\n",
+            "22 20 0:40 /@srv /srv rw - btrfs /dev/sdc rw\n",
+        );
+        assert_eq!(
+            super::mountinfo_device_for_fdinfo(fdinfo, mountinfo),
+            Some((0, 40))
+        );
     }
 }

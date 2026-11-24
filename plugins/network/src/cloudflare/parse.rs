@@ -1,7 +1,6 @@
 //! Metadata parsers, steady-state throughput windowing, percentile/jitter statistics, ITU-T G.107
 //! E-model MOS, and Waveform bufferbloat / CV stability grading for `network.cloudflare`.
 
-use std::cmp::Ordering;
 use std::net::IpAddr;
 
 use bench_api::CloudflareStun;
@@ -96,11 +95,14 @@ pub fn parse_meta_json(body: &[u8]) -> ParsedMeta {
     let colo = non_empty_str(obj.get("colo"));
     let city = non_empty_str(obj.get("city"));
     let country = non_empty_str(obj.get("country"));
-    let asn = obj.get("asn").and_then(|v| {
-        v.as_u64()
-            .and_then(|n| u32::try_from(n).ok())
-            .or_else(|| v.as_str().and_then(|s| s.trim().parse::<u32>().ok()))
-    });
+    let asn = obj
+        .get("asn")
+        .and_then(|v| {
+            v.as_u64()
+                .and_then(|n| u32::try_from(n).ok())
+                .or_else(|| v.as_str().and_then(|s| s.trim().parse::<u32>().ok()))
+        })
+        .filter(|&n| n > 0);
     let as_org = non_empty_str(obj.get("asOrganization"));
     ParsedMeta {
         client_ip,
@@ -165,7 +167,8 @@ pub fn parse_response_headers(resp: &HttpResponse) -> ParsedMeta {
         .map(str::to_owned);
     let asn = resp
         .header("cf-meta-asn")
-        .and_then(|s| s.trim().parse::<u32>().ok());
+        .and_then(|s| s.trim().parse::<u32>().ok())
+        .filter(|&n| n > 0);
     ParsedMeta {
         client_ip,
         colo,
@@ -261,7 +264,7 @@ pub fn compute_latency_stats(sent: u64, rtts_micros: &[u64]) -> LatencyStats {
 
     let samples_ms: Vec<f64> = rtts_micros.iter().map(|&u| (u as f64) / 1000.0).collect();
     let mut sorted = samples_ms.clone();
-    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
+    sorted.sort_by(f64::total_cmp);
 
     let sum_ms: f64 = samples_ms.iter().sum();
     let mean = sum_ms / (samples_ms.len() as f64);
@@ -311,7 +314,7 @@ pub fn compute_throughput_stats(
         )
     } else {
         let mut sorted = steady_mbps.clone();
-        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
+        sorted.sort_by(f64::total_cmp);
         let sum_mbps: f64 = steady_mbps.iter().sum();
         let mean_val = sum_mbps / (steady_mbps.len() as f64);
         (
@@ -352,7 +355,7 @@ fn tick_rates_mbps(ticks: &[ThroughputTick]) -> Vec<f64> {
         let secs = (dt_ms as f64) / 1000.0;
         let mbps = ((dbytes as f64) * 8.0) / (secs * 1_000_000.0);
         out.push(mbps);
-        prev_ms = tick.elapsed_ms;
+        prev_ms = prev_ms.max(tick.elapsed_ms);
         prev_bytes = prev_bytes.max(tick.bytes);
     }
     out
@@ -369,15 +372,20 @@ fn steady_state_window(
     let ramp_ms =
         f64_to_u64_sat(((total_ms as f64) * STEADY_RAMP_FRACTION).round()).max(STEADY_MIN_RAMP_MS);
     let start_idx = ticks.iter().position(|tick| tick.elapsed_ms >= ramp_ms)?;
-    let start_tick = ticks[start_idx];
-    let end_tick = *ticks.last()?;
-    let window_ms = end_tick.elapsed_ms.saturating_sub(start_tick.elapsed_ms);
+    let high_water = |slice: &[ThroughputTick]| -> (u64, u64) {
+        slice.iter().fold((0_u64, 0_u64), |(ms, bytes), tick| {
+            (ms.max(tick.elapsed_ms), bytes.max(tick.bytes))
+        })
+    };
+    let (start_ms, start_bytes) = high_water(&ticks[..=start_idx]);
+    let (end_ms, end_bytes) = high_water(ticks);
+    let window_ms = end_ms.saturating_sub(start_ms);
     if window_ms < MIN_SAMPLE_WINDOW_MS {
         return None;
     }
     let slice_start = (start_idx + 1).min(mbps_samples.len());
     Some((
-        end_tick.bytes.saturating_sub(start_tick.bytes),
+        end_bytes.saturating_sub(start_bytes),
         window_ms,
         mbps_samples[slice_start..].to_vec(),
     ))
@@ -387,27 +395,40 @@ fn steady_state_window(
 #[must_use]
 pub fn compute_udp_stats(raw: &CloudflareStun) -> UdpLossStats {
     let lat = compute_latency_stats(raw.sent, &raw.rtts_micros);
-    let out_of_order_pct = if raw.received == 0 {
+    let received = raw.received.max(lat.received);
+    let sent = raw.sent.max(received);
+    let loss_pct = if sent == 0 {
         0.0
     } else {
-        (raw.out_of_order as f64) * 100.0 / (raw.received as f64)
+        ((sent - received) as f64) * 100.0 / (sent as f64)
+    };
+    let out_of_order = raw.out_of_order.min(received);
+    let out_of_order_pct = if received == 0 {
+        0.0
+    } else {
+        (out_of_order as f64) * 100.0 / (received as f64)
     };
     let mos = match (lat.median_ms, lat.jitter_ms) {
-        (Some(med), Some(jit)) => calculate_mos(med, jit, lat.loss_pct),
-        (Some(med), None) => calculate_mos(med, 0.0, lat.loss_pct),
+        (Some(med), Some(jit)) => calculate_mos(med, jit, loss_pct),
+        (Some(med), None) => calculate_mos(med, 0.0, loss_pct),
         _ => None,
+    };
+    let quality = if sent == 0 {
+        UdpQuality::Unknown
+    } else {
+        loss_quality(loss_pct)
     };
     UdpLossStats {
         target: raw.target.clone(),
-        sent: lat.sent,
-        received: lat.received,
-        loss_pct: lat.loss_pct,
-        out_of_order: raw.out_of_order,
+        sent,
+        received,
+        loss_pct,
+        out_of_order,
         out_of_order_pct,
         median_ms: lat.median_ms,
         jitter_ms: lat.jitter_ms,
         mos,
-        quality: loss_quality(lat.loss_pct),
+        quality,
     }
 }
 
@@ -420,11 +441,15 @@ pub fn compute_quality(
     dl_steady_mbps: &[f64],
     ul_steady_mbps: &[f64],
 ) -> Option<QualityStats> {
-    let bloat_ms = idle_median_ms.and_then(|idle| {
-        let deltas: Vec<f64> = [dl_loaded_median_ms, ul_loaded_median_ms]
+    let valid_ms = |opt: Option<f64>| opt.filter(|val| val.is_finite() && *val >= 0.0);
+    let bloat_ms = valid_ms(idle_median_ms).and_then(|idle| {
+        let deltas: Vec<f64> = [valid_ms(dl_loaded_median_ms), valid_ms(ul_loaded_median_ms)]
             .into_iter()
             .flatten()
-            .map(|loaded| (loaded - idle).max(0.0))
+            .filter_map(|loaded| {
+                let diff = (loaded - idle).max(0.0);
+                diff.is_finite().then_some(diff)
+            })
             .collect();
         (!deltas.is_empty()).then(|| deltas.into_iter().fold(0.0_f64, f64::max))
     });
@@ -465,6 +490,9 @@ pub fn compute_quality(
 }
 
 fn grade_for<T: Copy>(value: f64, thresholds: &[(f64, T)], fallback: T) -> T {
+    if !value.is_finite() {
+        return fallback;
+    }
     let clamped = value.max(0.0);
     for &(limit, grade) in thresholds {
         if clamped <= limit {
@@ -475,28 +503,35 @@ fn grade_for<T: Copy>(value: f64, thresholds: &[(f64, T)], fallback: T) -> T {
 }
 
 fn cv_percent(samples: &[f64]) -> Option<f64> {
-    if samples.len() < MIN_STABILITY_SAMPLES {
+    if samples.len() < MIN_STABILITY_SAMPLES
+        || samples.iter().any(|val| !val.is_finite() || *val < 0.0)
+    {
         return None;
     }
     let sum: f64 = samples.iter().sum();
     let mean = sum / (samples.len() as f64);
-    if mean.abs() < f64::EPSILON {
+    if !mean.is_finite() || mean <= f64::EPSILON {
         return None;
     }
     let sd = sample_stddev(samples)?;
-    Some(sd / mean * 100.0)
+    let cv = sd / mean * 100.0;
+    cv.is_finite().then_some(cv)
 }
 
 fn sample_stddev(samples: &[f64]) -> Option<f64> {
-    if samples.len() < 2 {
+    if samples.len() < 2 || samples.iter().any(|val| !val.is_finite()) {
         return None;
     }
     let n = samples.len() as f64;
     let sum: f64 = samples.iter().sum();
     let mean = sum / n;
+    if !mean.is_finite() {
+        return None;
+    }
     let sq_diff_sum: f64 = samples.iter().map(|&x| (x - mean).powi(2)).sum();
     let var = sq_diff_sum / (n - 1.0);
-    Some(var.sqrt())
+    let sd = var.sqrt();
+    sd.is_finite().then_some(sd)
 }
 
 fn percentile_sorted(sorted: &[f64], p: f64) -> f64 {
@@ -517,7 +552,7 @@ fn percentile_sorted(sorted: &[f64], p: f64) -> f64 {
 }
 
 fn calculate_mos(rtt_ms: f64, jitter_ms: f64, loss_pct: f64) -> Option<f64> {
-    if rtt_ms.is_nan() || jitter_ms.is_nan() || loss_pct.is_nan() {
+    if !rtt_ms.is_finite() || !jitter_ms.is_finite() || !loss_pct.is_finite() {
         return None;
     }
     if rtt_ms < 0.0 || jitter_ms < 0.0 || loss_pct < 0.0 {
@@ -532,7 +567,7 @@ fn calculate_mos(rtt_ms: f64, jitter_ms: f64, loss_pct: f64) -> Option<f64> {
 }
 
 fn loss_quality(loss_pct: f64) -> UdpQuality {
-    if loss_pct.is_nan() {
+    if !loss_pct.is_finite() || loss_pct < 0.0 {
         UdpQuality::Unknown
     } else if loss_pct == 0.0 {
         UdpQuality::Excellent
@@ -607,6 +642,24 @@ mod tests {
             super::map_colo_to_server(Some(locs), "SJC"),
             "SJC - San Jose, United States"
         );
+
+        let mut zero_asn = super::parse_meta_json(br#"{"asn":0,"colo":"SJC"}"#);
+        assert_eq!(zero_asn.asn, None, "reserved AS0 must be filtered");
+        let zero_hdr = super::parse_response_headers(&HttpResponse {
+            status: 200,
+            final_url: "https://speed.example/__down".to_owned(),
+            headers: vec![("cf-meta-asn".to_owned(), "0".to_owned())],
+            body: Vec::new(),
+        });
+        assert_eq!(zero_hdr.asn, None);
+        let valid_hdr = super::parse_response_headers(&HttpResponse {
+            status: 200,
+            final_url: "https://speed.example/__down".to_owned(),
+            headers: vec![("cf-meta-asn".to_owned(), "13335".to_owned())],
+            body: Vec::new(),
+        });
+        zero_asn.merge_from(&valid_hdr);
+        assert_eq!(zero_asn.asn, Some(13335));
     }
 
     #[test]

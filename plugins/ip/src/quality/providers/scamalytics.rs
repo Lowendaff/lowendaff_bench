@@ -124,15 +124,25 @@ fn extract_risk(body: &str) -> Option<RiskLevel> {
 }
 
 fn extract_row_flag(body: &str, label: &str) -> Option<bool> {
-    let pos = body.find(label)?;
-    let tail = &body[pos + label.len()..];
-    let row_end = tail.find("</tr>").unwrap_or_else(|| tail.len().min(240));
-    let lower = tail[..row_end].to_ascii_lowercase();
-    if lower.contains(">yes<") || lower.contains("\"risk yes\"") {
-        Some(true)
-    } else if lower.contains(">no<") || lower.contains("\"risk no\"") {
-        Some(false)
-    } else {
-        None
+    for (pos, _) in body.match_indices(label) {
+        let after = &body[pos + label.len()..];
+        if !body[..pos].trim_end().ends_with('>') || !after.trim_start().starts_with('<') {
+            continue;
+        }
+        let bounded = &after[..after.floor_char_boundary(512)];
+        let lower = bounded.to_ascii_lowercase();
+        let row_end = [lower.find("</tr>"), lower.find("<tr>"), lower.find("<tr ")]
+            .into_iter()
+            .flatten()
+            .min()
+            .unwrap_or_else(|| lower.floor_char_boundary(240));
+        let row = &lower[..row_end];
+        if row.contains(">yes<") || row.contains("\"risk yes\"") {
+            return Some(true);
+        }
+        if row.contains(">no<") || row.contains("\"risk no\"") {
+            return Some(false);
+        }
     }
+    None
 }

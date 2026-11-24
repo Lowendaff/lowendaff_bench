@@ -56,7 +56,11 @@ pub fn parse(response: &HttpResponse) -> Verdict {
             .and_then(serde_json::Value::as_str)
             .unwrap_or_default()
             .to_ascii_lowercase();
-        if message.contains("not available") || message.contains("outside canada") {
+        if message.contains("not available")
+            || message.contains("outside canada")
+            || message.contains("pas disponible")
+            || message.contains("dans votre pays")
+        {
             return Verdict::no();
         }
     }

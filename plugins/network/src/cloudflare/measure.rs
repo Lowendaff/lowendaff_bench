@@ -50,13 +50,20 @@ pub async fn measure(
         return Err(Stop::Skipped(Failure::NoFamily));
     }
 
+    let base_url = base_url.trim_end_matches('/');
+    let settings = Settings {
+        seconds: settings.seconds.max(1),
+        concurrency: settings.concurrency.max(1),
+        udp_packets: settings.udp_packets.max(1),
+        idle_ms: settings.idle_ms.max(200),
+        ..settings
+    };
     let mut output = Output {
         settings,
         ipv4: None,
         ipv6: None,
         notes: Vec::new(),
     };
-    ctx.publish(&output);
 
     let mut families = Vec::with_capacity(2);
     if v4_ok {
@@ -87,9 +94,13 @@ pub async fn measure(
             }
             Err(FamilyStop::Cancelled) => return Err(Stop::Failed(Failure::Cancelled)),
             Err(FamilyStop::Failed(issue)) => {
-                last_issue = Some(issue.clone());
+                if last_issue.is_none() || matches!(last_issue, Some(FamilyIssue::NoAddress)) {
+                    last_issue = Some(issue.clone());
+                }
                 output.notes.push((ipv6, issue));
-                ctx.publish(&output);
+                if output.ipv4.is_some() || output.ipv6.is_some() {
+                    ctx.publish(&output);
+                }
             }
         }
     }
@@ -142,6 +153,9 @@ async fn run_family(
         DEFAULT_UPLOAD_BYTES_PER_REQ
     };
 
+    if ctx.cancel_token().is_cancelled() {
+        return Err(FamilyStop::Cancelled);
+    }
     ctx.progress(Step::Cloudflare {
         stage: "download",
         ipv6,
@@ -168,6 +182,9 @@ async fn run_family(
     let loaded_download_latency =
         parse::compute_latency_stats(dl_raw.loaded_sent, &dl_raw.loaded_rtts_micros);
 
+    if ctx.cancel_token().is_cancelled() {
+        return Err(FamilyStop::Cancelled);
+    }
     ctx.progress(Step::Cloudflare {
         stage: "upload",
         ipv6,
@@ -186,6 +203,9 @@ async fn run_family(
         parse::compute_latency_stats(ul_raw.loaded_sent, &ul_raw.loaded_rtts_micros);
 
     let (udp, udp_note) = if settings.udp {
+        if ctx.cancel_token().is_cancelled() {
+            return Err(FamilyStop::Cancelled);
+        }
         ctx.progress(Step::Cloudflare { stage: "udp", ipv6 });
         let stun_spec = CloudflareStunSpec {
             family,
@@ -251,6 +271,12 @@ async fn fetch_meta_and_locations(
         .with_timeout(META_TIMEOUT);
     match ctx.probe(&meta_req).await {
         Err(HttpError::Cancelled) => return Err(FamilyStop::Cancelled),
+        Err(HttpError::NoAddress) => return Err(FamilyStop::Failed(FamilyIssue::NoAddress)),
+        Err(HttpError::NotHttps(why)) => {
+            return Err(FamilyStop::Failed(FamilyIssue::Transport(format!(
+                "non-HTTPS Cloudflare endpoint: {why}"
+            ))));
+        }
         Ok(resp) if resp.status == 200 => {
             meta = parse::parse_meta_json(&resp.body);
             meta.merge_from(&parse::parse_response_headers(&resp));
@@ -258,12 +284,13 @@ async fn fetch_meta_and_locations(
         _ => {}
     }
 
-    if meta.colo.is_none() {
+    if meta.colo.is_none() || meta.client_ip.is_none() {
         let trace_req = HttpRequest::get(family, format!("{base_url}/cdn-cgi/trace"))
             .with_header("Referer", REFERER)
             .with_timeout(META_TIMEOUT);
         match ctx.probe(&trace_req).await {
             Err(HttpError::Cancelled) => return Err(FamilyStop::Cancelled),
+            Err(HttpError::NoAddress) => return Err(FamilyStop::Failed(FamilyIssue::NoAddress)),
             Ok(resp) if resp.status == 200 => {
                 meta.merge_from(&parse::parse_trace_text(&resp.text()));
                 meta.merge_from(&parse::parse_response_headers(&resp));
@@ -278,6 +305,7 @@ async fn fetch_meta_and_locations(
         .with_max_bytes(LOCATIONS_MAX_BYTES);
     let locations = match ctx.probe(&loc_req).await {
         Err(HttpError::Cancelled) => return Err(FamilyStop::Cancelled),
+        Err(HttpError::NoAddress) => return Err(FamilyStop::Failed(FamilyIssue::NoAddress)),
         Ok(resp) if resp.status == 200 => Some(resp.body),
         _ => None,
     };
@@ -299,12 +327,30 @@ async fn measure_idle_latency(
         Duration::from_millis(PROBE_INTERVAL_MS)
     };
     let url = format!("{base_url}/__down?bytes=0&measId={meas_id}");
+    let cancel = ctx.cancel_token();
+    if cancel.is_cancelled() {
+        return Err(FamilyStop::Cancelled);
+    }
+
+    let mut header_meta = ParsedMeta::default();
+    let mut captured_meta = false;
+    // Warm DNS pin and pooled TCP+TLS keep-alive connection outside the timed RTT samples so
+    // unloaded latency reflects pure HTTP round-trip time on the same basis as loaded probes.
+    let warm_req = HttpRequest::get(family, url.clone())
+        .with_header("Referer", REFERER)
+        .with_timeout(PROBE_TIMEOUT);
+    match ctx.probe(&warm_req).await {
+        Err(HttpError::Cancelled) => return Err(FamilyStop::Cancelled),
+        Ok(resp) if (200..300).contains(&resp.status) => {
+            header_meta = parse::parse_response_headers(&resp);
+            captured_meta = true;
+        }
+        Ok(_) | Err(_) => {}
+    }
+
     let started = Instant::now();
     let mut sent = 0_u64;
     let mut rtts = Vec::new();
-    let mut header_meta = ParsedMeta::default();
-    let mut captured_meta = false;
-    let cancel = ctx.cancel_token();
 
     while started.elapsed() < total_window || sent == 0 {
         if cancel.is_cancelled() {

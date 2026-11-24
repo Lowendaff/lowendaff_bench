@@ -50,9 +50,10 @@ pub async fn measure(
         }
         seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
         let imei = parse::imei_from_seed(seed);
-        let tested = run_slot(ctx, &slot, &settings, &imei, &now_secs).await?;
-        output.results.push(tested);
-        ctx.publish(&output);
+        if let Some(tested) = run_slot(ctx, &slot, &settings, &imei, &now_secs).await? {
+            output.results.push(tested);
+            ctx.publish(&output);
+        }
     }
 
     let any_measured = output
@@ -71,7 +72,7 @@ async fn run_slot(
     settings: &Settings,
     imei: &str,
     now_secs: &impl Fn() -> u64,
-) -> Result<TestedNode, Stop<Failure>> {
+) -> Result<Option<TestedNode>, Stop<Failure>> {
     let place = if slot.city.eq_ignore_ascii_case(&slot.province) {
         slot.city.clone()
     } else {
@@ -80,9 +81,10 @@ async fn run_slot(
     let op_code = slot.operator.code();
 
     let candidates = &slot.candidates[..slot.candidates.len().min(MAX_CANDIDATES_PER_SLOT)];
-    let mut last_ip = candidates[0].0;
-    let mut last_port = candidates[0].1;
-    let mut last_outcome = NodeOutcome::Unreachable;
+    let Some(&(mut last_ip, mut last_port)) = candidates.first() else {
+        return Ok(None);
+    };
+    let mut answered: Option<(Ipv4Addr, u16, NodeOutcome)> = None;
     let mut tried: u8 = 0;
 
     for &(ip, port) in candidates {
@@ -108,15 +110,15 @@ async fn run_slot(
             Err(NetError::Cancelled) => return Err(Stop::Failed(Failure::Cancelled)),
             Ok(TaierAdmission::Admitted(uuid)) => uuid,
             Ok(TaierAdmission::Busy) => {
-                last_outcome = NodeOutcome::Busy;
+                answered = Some((ip, port, NodeOutcome::Busy));
                 continue;
             }
             Ok(TaierAdmission::AuthRejected | TaierAdmission::InvalidParams) => {
-                last_outcome = NodeOutcome::AuthRejected;
+                answered = Some((ip, port, NodeOutcome::AuthRejected));
                 continue;
             }
             Ok(TaierAdmission::Unexpected(text)) => {
-                last_outcome = NodeOutcome::Failed(format!("dovalid: {text}"));
+                answered = Some((ip, port, NodeOutcome::Failed(format!("dovalid: {text}"))));
                 continue;
             }
             Err(
@@ -125,7 +127,6 @@ async fn run_slot(
                 | NetError::NoResolver
                 | NetError::Transport(_),
             ) => {
-                last_outcome = NodeOutcome::Unreachable;
                 continue;
             }
         };
@@ -135,7 +136,7 @@ async fn run_slot(
 
         match measured {
             Ok(done) => {
-                return Ok(TestedNode {
+                return Ok(Some(TestedNode {
                     id: slot.id.clone(),
                     province: slot.province.clone(),
                     city: slot.city.clone(),
@@ -144,25 +145,26 @@ async fn run_slot(
                     port,
                     tried_nodes: tried,
                     outcome: NodeOutcome::Measured(done),
-                });
+                }));
             }
             Err(SlotStop::Cancelled) => return Err(Stop::Failed(Failure::Cancelled)),
-            Err(SlotStop::TimedOut) => last_outcome = NodeOutcome::TimedOut,
-            Err(SlotStop::Unreachable) => last_outcome = NodeOutcome::Unreachable,
-            Err(SlotStop::Failed(why)) => last_outcome = NodeOutcome::Failed(why),
+            Err(SlotStop::TimedOut) => answered = Some((ip, port, NodeOutcome::TimedOut)),
+            Err(SlotStop::Unreachable) => {}
+            Err(SlotStop::Failed(why)) => answered = Some((ip, port, NodeOutcome::Failed(why))),
         }
     }
 
-    Ok(TestedNode {
+    let (ip, port, outcome) = answered.unwrap_or((last_ip, last_port, NodeOutcome::Unreachable));
+    Ok(Some(TestedNode {
         id: slot.id.clone(),
         province: slot.province.clone(),
         city: slot.city.clone(),
         operator: slot.operator,
-        ip: last_ip,
-        port: last_port,
+        ip,
+        port,
         tried_nodes: tried,
-        outcome: last_outcome,
-    })
+        outcome,
+    }))
 }
 
 enum SlotStop {

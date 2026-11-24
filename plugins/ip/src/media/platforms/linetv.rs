@@ -47,18 +47,36 @@ pub fn parse(response: &HttpResponse) -> Verdict {
         return Verdict::no();
     }
     if let Some(val) = parse::json(response) {
-        if val.get("eps_info").is_some() || val.get("allowCountries").is_some() {
-            let allow = val
-                .get("allowCountries")
-                .and_then(serde_json::Value::as_array);
-            if let Some(list) = allow
-                && list.is_empty()
-            {
+        if val
+            .get("inSupportedLocation")
+            .and_then(serde_json::Value::as_bool)
+            == Some(false)
+        {
+            return Verdict::no();
+        }
+        if let Some(list) = val
+            .get("allowCountries")
+            .and_then(serde_json::Value::as_array)
+            && list.is_empty()
+        {
+            return Verdict::no();
+        }
+        if let Some(cc) = val.get("countryCode").filter(|v| !v.is_null()) {
+            let is_tw = cc.as_i64() == Some(228)
+                || cc
+                    .as_str()
+                    .is_some_and(|s| s == "228" || s.eq_ignore_ascii_case("TW"));
+            if !is_tw {
                 return Verdict::no();
             }
+            if response.status == 200 {
+                return Verdict::yes_in("TW");
+            }
+        }
+        if response.status == 200 && val.get("eps_info").is_some_and(|v| !v.is_null()) {
             return Verdict::yes_in("TW");
         }
-        return Verdict::no();
+        return Verdict::Unexpected("unrecognized LINE TV payload".to_owned());
     }
     Verdict::Unexpected(format!("HTTP {}", response.status))
 }

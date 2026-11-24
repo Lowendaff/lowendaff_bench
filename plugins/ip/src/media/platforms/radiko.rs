@@ -43,12 +43,21 @@ pub fn parse(response: &HttpResponse) -> Verdict {
     if matches!(response.status, 403 | 451) {
         return Verdict::no();
     }
+    if response.status != 200 {
+        return Verdict::Unexpected(format!("HTTP {}", response.status));
+    }
     let body = response.text();
-    if body.contains("OUT") {
-        return Verdict::no();
+    for token in body.split(|ch: char| !ch.is_ascii_alphanumeric()) {
+        if token == "OUT" {
+            return Verdict::no();
+        }
+        let is_jp = token == "JP"
+            || token.strip_prefix("JP").is_some_and(|num| {
+                (1..=2).contains(&num.len()) && num.bytes().all(|b| b.is_ascii_digit())
+            });
+        if is_jp {
+            return Verdict::yes_in("JP");
+        }
     }
-    if response.status == 200 && body.contains("JP") {
-        return Verdict::yes_in("JP");
-    }
-    Verdict::Unexpected(format!("HTTP {}", response.status))
+    Verdict::Unexpected("unrecognized radiko area response".to_owned())
 }

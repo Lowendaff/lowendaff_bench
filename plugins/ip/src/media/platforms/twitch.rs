@@ -50,19 +50,31 @@ pub fn parse(response: &HttpResponse) -> Verdict {
         return Verdict::no();
     }
     if let Some(val) = parse::json(response) {
-        let country = val
-            .pointer("/data/requestInfo/countryCode")
-            .and_then(serde_json::Value::as_str)
-            .and_then(parse::country_code);
-        if let Some(code) = country.as_deref() {
-            return if matches!(code, "CN" | "KP" | "RU" | "SK") {
-                Verdict::no()
-            } else {
-                Verdict::yes_in(code)
-            };
+        let has_errors = val.get("errors").is_some_and(|err| {
+            !err.is_null() && err.as_array().is_none_or(|items| !items.is_empty())
+        });
+        if (200..300).contains(&response.status) && !has_errors {
+            let country = val
+                .pointer("/data/requestInfo/countryCode")
+                .and_then(serde_json::Value::as_str)
+                .and_then(parse::country_code);
+            if let Some(code) = country.as_deref() {
+                return if matches!(code, "CN" | "KP" | "RU") {
+                    Verdict::no()
+                } else {
+                    Verdict::yes_in(code)
+                };
+            }
+            if val
+                .get("data")
+                .and_then(serde_json::Value::as_object)
+                .is_some_and(|map| !map.is_empty())
+            {
+                return parse::no_region();
+            }
         }
-        if response.status == 200 && val.get("data").is_some() {
-            return Verdict::yes();
+        if has_errors {
+            return Verdict::Unexpected("Twitch GraphQL error".to_owned());
         }
     }
     Verdict::Unexpected(format!("HTTP {}", response.status))

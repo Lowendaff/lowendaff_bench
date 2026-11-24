@@ -79,7 +79,7 @@ pub enum Virtualization {
 #[must_use]
 pub fn threads(logical: usize, kind: PlatformKind, cpuset: Option<usize>) -> usize {
     match kind {
-        PlatformKind::Container => cpuset.unwrap_or(logical),
+        PlatformKind::Container => cpuset.map_or(logical, |cpus| cpus.min(logical)),
         PlatformKind::Dedicated | PlatformKind::Vm => logical,
     }
 }
@@ -129,16 +129,11 @@ pub fn read(root: &Root) -> Cpu {
                 (processors > 0).then_some(processors)
             }),
         topology: topology(root),
-        mhz: root
-            .read_line("/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq")
-            .and_then(|khz| khz.parse::<f64>().ok())
-            .map(|khz| khz / 1000.0)
-            .filter(|mhz| mhz.is_finite() && *mhz > 0.0)
-            .or_else(|| {
-                field(first, "cpu MHz")
-                    .and_then(|mhz| mhz.parse::<f64>().ok())
-                    .filter(|mhz| mhz.is_finite() && *mhz > 0.0)
-            }),
+        mhz: max_cpufreq_mhz(root).or_else(|| {
+            field(first, "cpu MHz")
+                .and_then(|mhz| mhz.parse::<f64>().ok())
+                .filter(|mhz| mhz.is_finite() && *mhz > 0.0)
+        }),
         caches: caches(root, first),
         aes: (!words.is_empty()).then(|| has("aes")),
         virtualization: if flags.is_none() {
@@ -180,6 +175,30 @@ fn field<'a>(block: &'a [(String, String)], key: &str) -> Option<&'a str> {
         .filter(|value| !value.is_empty())
 }
 
+fn max_cpufreq_mhz(root: &Root) -> Option<f64> {
+    let mut best: Option<f64> = None;
+    for cpu in root.list("/sys/devices/system/cpu") {
+        if !cpu
+            .strip_prefix("cpu")
+            .is_some_and(|number| !number.is_empty() && number.bytes().all(|b| b.is_ascii_digit()))
+        {
+            continue;
+        }
+        let Some(mhz) = root
+            .read_line(&format!(
+                "/sys/devices/system/cpu/{cpu}/cpufreq/cpuinfo_max_freq"
+            ))
+            .and_then(|khz| khz.parse::<f64>().ok())
+            .map(|khz| khz / 1000.0)
+            .filter(|mhz| mhz.is_finite() && *mhz > 0.0)
+        else {
+            continue;
+        };
+        best = Some(best.map_or(mhz, |prev| prev.max(mhz)));
+    }
+    best
+}
+
 fn topology(root: &Root) -> Option<Topology> {
     let mut sockets = BTreeSet::new();
     let mut cores = BTreeSet::new();
@@ -192,12 +211,18 @@ fn topology(root: &Root) -> Option<Topology> {
         }
         let read =
             |name: &str| root.read_line(&format!("/sys/devices/system/cpu/{cpu}/topology/{name}"));
-        // Offline CPUs have no topology files.
-        let (Some(socket), Some(core)) = (read("physical_package_id"), read("core_id")) else {
+        // Offline CPUs have no topology files, and `-1` marks unknown topology IDs.
+        let (Some(socket), Some(core)) = (
+            read("physical_package_id").and_then(|id| id.parse::<u32>().ok()),
+            read("core_id").and_then(|id| id.parse::<u32>().ok()),
+        ) else {
             continue;
         };
-        let die = read("die_id").unwrap_or_default();
-        cores.insert((socket.clone(), die, core));
+        let die = read("die_id").filter(|id| id != "-1").unwrap_or_default();
+        let cluster = read("cluster_id")
+            .filter(|id| id != "-1")
+            .unwrap_or_default();
+        cores.insert((socket, die, cluster, core));
         sockets.insert(socket);
     }
     (!sockets.is_empty()).then_some(Topology {
@@ -217,8 +242,12 @@ fn caches(root: &Root, first: &[(String, String)]) -> Vec<(String, u64)> {
     let mut caches = Vec::new();
     for (_, index) in indexes {
         let read = |name: &str| root.read_line(&format!("{dir}/{index}/{name}"));
-        let (Some(level), Some(size)) = (read("level"), read("size").and_then(|size| bytes(&size)))
-        else {
+        let (Some(level), Some(size)) = (
+            read("level")
+                .and_then(|lvl| lvl.parse::<u32>().ok())
+                .filter(|&lvl| lvl > 0),
+            read("size").and_then(|size| bytes(&size)),
+        ) else {
             continue;
         };
         let kind = match read("type").as_deref() {
@@ -236,7 +265,7 @@ fn caches(root: &Root, first: &[(String, String)]) -> Vec<(String, u64)> {
     caches
 }
 
-/// Sizes such as `32K`, `22528 KB` or `1M`.
+/// Non-zero sizes such as `32K`, `22528 KB` or `1M`.
 pub(crate) fn bytes(text: &str) -> Option<u64> {
     let text = text.trim();
     let digits = text.trim_end_matches(|c: char| !c.is_ascii_digit());
@@ -249,7 +278,7 @@ pub(crate) fn bytes(text: &str) -> Option<u64> {
         "G" | "GB" | "GIB" => 1 << 30,
         _ => return None,
     };
-    number.checked_mul(factor)
+    number.checked_mul(factor).filter(|&size| size > 0)
 }
 
 /// The vendor and core name for ARM CPUs, from util-linux's table of implementer and

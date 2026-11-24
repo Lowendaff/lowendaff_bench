@@ -43,14 +43,27 @@ pub fn parse(response: &HttpResponse) -> Verdict {
     if matches!(response.status, 403 | 451) {
         return Verdict::no();
     }
+    let url_lower = response.final_url.to_ascii_lowercase();
+    let body_lower = response.text().to_ascii_lowercase();
+    if url_lower.contains("geo-availability")
+        || body_lower.contains("geo-availability")
+        || body_lower.contains("not available in your region")
+    {
+        return Verdict::no();
+    }
     if let Some(loc) = response.header("location") {
         let lower = loc.to_ascii_lowercase();
         if lower.contains("geo-availability") || lower.contains("unavailable") {
             return Verdict::no();
         }
-        if let Some(code) = parse::url_country(loc) {
+        if matches!(response.status, 301 | 302 | 303 | 307 | 308)
+            && let Some(code) = parse::url_country(loc)
+        {
             return Verdict::yes_in(code);
         }
+    }
+    if !(200..400).contains(&response.status) {
+        return Verdict::Unexpected(format!("HTTP {}", response.status));
     }
     let region = response
         .header("x-wbd-country")

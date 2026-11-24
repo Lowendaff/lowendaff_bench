@@ -210,6 +210,10 @@ impl CpuWords for English {
         format!("UnixBench {item} printed no COUNT reading")
     }
 
+    fn unixbench_timed_out(&self, item: &str, seconds: u64) -> String {
+        format!("UnixBench {item} still running after {seconds} s, stopped")
+    }
+
     fn hpl_parameters(&self, version: Option<&str>, n: u32, nb: u32, threads: usize) -> String {
         let ver = version.map_or_else(String::new, |v| format!(" {v}"));
         let th = super::count(threads, "thread", "threads");

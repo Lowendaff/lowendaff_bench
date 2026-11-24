@@ -43,16 +43,25 @@ pub fn parse(response: &HttpResponse) -> Verdict {
     if matches!(response.status, 403 | 451) {
         return Verdict::no();
     }
-    if let Some(val) = parse::json(response) {
+    if (200..300).contains(&response.status)
+        && let Some(val) = parse::json(response)
+    {
         let is_fr = val
             .get("is_france")
-            .or_else(|| val.pointer("/geo/is_france"))
-            .and_then(serde_json::Value::as_bool);
+            .and_then(serde_json::Value::as_bool)
+            .or_else(|| {
+                val.pointer("/geo/is_france")
+                    .and_then(serde_json::Value::as_bool)
+            });
         let country = val
             .get("country")
-            .or_else(|| val.pointer("/geo/country"))
             .and_then(serde_json::Value::as_str)
-            .and_then(parse::country_code);
+            .and_then(parse::country_code)
+            .or_else(|| {
+                val.pointer("/geo/country")
+                    .and_then(serde_json::Value::as_str)
+                    .and_then(parse::country_code)
+            });
         return match (is_fr, country.as_deref()) {
             (Some(true), _) | (None, Some("FR")) => Verdict::yes_in("FR"),
             (Some(false), _) | (None, Some(_)) => Verdict::no(),

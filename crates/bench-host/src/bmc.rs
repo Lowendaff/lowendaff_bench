@@ -93,8 +93,15 @@ fn driver(root: &Root) -> Option<Bmc> {
         .find(|name| name.starts_with("ipmi_bmc."))?;
     let field = |name: &str| root.read_line(&format!("{base}/{device}/{name}"));
     Some(Bmc::Driver {
-        vendor: field("manufacturer_id")
-            .and_then(|id| u32::from_str_radix(id.trim_start_matches("0x"), 16).ok()),
+        vendor: field("manufacturer_id").and_then(|id| {
+            let hex = id
+                .strip_prefix("0x")
+                .or_else(|| id.strip_prefix("0X"))
+                .unwrap_or(&id);
+            u32::from_str_radix(hex, 16)
+                .ok()
+                .filter(|number| (1..0x0f_ffff).contains(number))
+        }),
         firmware: field("firmware_revision"),
         ipmi: field("ipmi_version"),
     })

@@ -1,7 +1,8 @@
 //! Every pinned tool downloads and verifies. Smoke cannot see a
 //! wrong pin of a tool whose item does not apply on the CI runners, such as smartctl on
 //! virtual machines. Skipped by default because it downloads; CI runs it on both
-//! architectures, on Linux, where NextTrace's download is checked before its file capability.
+//! architectures, checking every pinned archive and SHA-256 digest independently of
+//! host raw-socket file capabilities.
 
 use bench::app;
 use bench::fetcher::Fetcher;
@@ -28,6 +29,10 @@ async fn every_pinned_tool_downloads_and_verifies() {
             }
             tool.asset_for(arch).is_some()
         })
+        .map(|tool| ToolSpec {
+            raw_sockets: false,
+            ..tool
+        })
         .collect();
     assert!(!tools.is_empty(), "the registry pins tools");
     let fetcher = Fetcher::try_new().expect("the HTTPS client builds");
@@ -42,24 +47,9 @@ async fn every_pinned_tool_downloads_and_verifies() {
         |url, range| fetcher.open(url, range),
     )
     .await;
-    // A tool that sends raw packets downloads and is checked as the others are, and then gets its
-    // file capability, which only root may give: run as another user, as in CI, that last step
-    // alone fails, after the download was checked.
-    let root = rustix::process::geteuid().is_root();
-    let refused = |name: &str, reason: &str| {
-        !root
-            && tools
-                .iter()
-                .any(|tool| tool.name == name && tool.raw_sockets)
-            && reason.starts_with("cannot give it raw sockets (the file capability CAP_NET_RAW): ")
-    };
-    let (capabilities, failed): (Vec<_>, Vec<_>) = provisioned
-        .failed
-        .iter()
-        .partition(|(name, reason)| refused(name, reason));
-    assert!(failed.is_empty(), "{failed:?}");
+    assert!(provisioned.failed.is_empty(), "{:?}", provisioned.failed);
     assert_eq!(
-        provisioned.ready.len() + capabilities.len(),
+        provisioned.ready.len(),
         tools.len(),
         "{:?}",
         provisioned.ready

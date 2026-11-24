@@ -72,6 +72,10 @@ const MAX_ARCHIVE_ENTRIES: usize = 4_096;
 /// The wait before the first retry; it doubles before each further one.
 const FIRST_WAIT: Duration = Duration::from_secs(1);
 
+/// Maximum wall time for a single [`fetch_file`] attempt so drip-feeding endpoints cannot stall
+/// provisioning indefinitely before plugin timeouts arm.
+const FILE_TRANSFER_TIMEOUT: Duration = Duration::from_secs(60);
+
 /// Why a download failed, in the user's words, and whether another try may go better.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DownloadError {
@@ -242,23 +246,24 @@ where
             (FileSource::Url(_), Some(family)) if !families.contains(&family) => {
                 Err(locale::words().family_unreachable(family))
             }
-            (FileSource::Url(url), _) if !url.starts_with("https://") => {
-                Err(locale::words().not_https(url))
-            }
-            (FileSource::Url(url), _) => {
-                tracing::debug!("{}", locale::words().download(url));
-                let path = dir.join(file.name);
-                let over =
-                    |target: &str, range| fetch(file.family, Cow::Owned(target.to_owned()), range);
-                let fetched = tokio::select! {
-                    fetched = fetch_file(&over, file.name, url, &path, dir) => fetched,
-                    () = cancel.cancelled() => Err(locale::words().download_interrupted()),
-                };
-                if fetched.is_err() {
-                    let _ = fs::remove_file(&path).await;
+            (FileSource::Url(url), _) => match validate_file_url(url) {
+                Err(reason) => Err(reason),
+                Ok((fetch_url, display_url)) => {
+                    tracing::debug!("{}", locale::words().download(&display_url));
+                    let path = dir.join(file.name);
+                    let over = |target: &str, range| {
+                        fetch(file.family, Cow::Owned(target.to_owned()), range)
+                    };
+                    let fetched = tokio::select! {
+                        fetched = fetch_file(&over, file.name, &fetch_url, &path, dir) => fetched,
+                        () = cancel.cancelled() => Err(locale::words().download_interrupted()),
+                    };
+                    if fetched.is_err() {
+                        let _ = fs::remove_file(&path).await;
+                    }
+                    fetched.map(|()| path)
                 }
-                fetched.map(|()| path)
-            }
+            },
         };
         match had {
             Ok(path) => {
@@ -270,6 +275,70 @@ where
         }
     }
     result
+}
+
+fn validate_file_url(raw: &str) -> Result<(String, String), String> {
+    let trimmed = raw.trim();
+    let Ok(parsed) = reqwest::Url::parse(trimmed) else {
+        let base = trimmed.split(['?', '#']).next().unwrap_or_default();
+        let no_auth = match base.split_once("://") {
+            Some((scheme, rest)) => {
+                let host_part = rest.rsplit_once('@').map_or(rest, |(_, after)| after);
+                format!("{scheme}://{host_part}")
+            }
+            None => base
+                .rsplit_once('@')
+                .map_or(base, |(_, after)| after)
+                .to_owned(),
+        };
+        let clean = crate::report::terminal::strip_terminal_controls(&no_auth, false);
+        let shown = if clean.trim().is_empty() {
+            "<invalid URL>"
+        } else {
+            clean.trim()
+        };
+        return Err(locale::words().not_https(shown));
+    };
+
+    let host_str = parsed.host_str().unwrap_or_default();
+    let port_part = parsed.port().map_or_else(String::new, |p| format!(":{p}"));
+    let display = crate::report::terminal::strip_terminal_controls(
+        &format!(
+            "{}://{host_str}{port_part}{}",
+            parsed.scheme(),
+            parsed.path()
+        ),
+        false,
+    );
+    if parsed.scheme() != "https" {
+        return Err(locale::words().not_https(&display));
+    }
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        return Err("URL must not contain credentials".to_owned());
+    }
+    if host_str.is_empty() {
+        return Err(locale::words().not_https(&display));
+    }
+    let unbracketed = host_str
+        .strip_prefix('[')
+        .and_then(|s| s.strip_suffix(']'))
+        .unwrap_or(host_str);
+    if let Ok(ip) = unbracketed.parse::<std::net::IpAddr>() {
+        if !bench_api::is_routable_endpoint_ip(ip) {
+            return Err("non-public endpoint IP address refused".to_owned());
+        }
+    } else {
+        let bare = host_str.trim_end_matches('.');
+        if bare.is_empty()
+            || bare.eq_ignore_ascii_case("localhost")
+            || bare
+                .rsplit_once('.')
+                .is_some_and(|(_, tld)| tld.eq_ignore_ascii_case("localhost"))
+        {
+            return Err("non-public endpoint host refused".to_owned());
+        }
+    }
+    Ok((parsed.into(), display))
 }
 
 /// Downloads the file `name` from `url` into `path`, in the directory `dir`, which it makes first,
@@ -291,9 +360,17 @@ where
         .map_err(|err| locale::words().write_failed(&err))?;
     let mut attempts = Attempts::default();
     loop {
-        let written = match fetch(url, None).await {
-            Ok(Part::Whole(body) | Part::Range(body)) => write_limited(body, path).await,
-            Err(error) => Err(error),
+        let attempt = async {
+            match fetch(url, None).await {
+                Ok(Part::Whole(body) | Part::Range(body)) => write_limited(body, path).await,
+                Err(error) => Err(error),
+            }
+        };
+        let written = match tokio::time::timeout(FILE_TRANSFER_TIMEOUT, attempt).await {
+            Ok(res) => res,
+            Err(_) => Err(DownloadError::Transient(
+                locale::words().broke_off(&io::Error::from(io::ErrorKind::TimedOut)),
+            )),
         };
         let Err(error) = written else {
             return Ok(());
@@ -499,7 +576,7 @@ async fn finish(
         Ok(()) => match tool.form {
             ToolForm::Executable => make_executable(partial, &installed)
                 .await
-                .map(|()| installed),
+                .map(|()| installed.clone()),
             ToolForm::TarGz { executable } => {
                 unpack(partial, dir, tool.name, executable, ArchiveKind::TarGz).await
             }
@@ -519,7 +596,20 @@ async fn finish(
     // Left only after a failure, or as the archive that is unpacked now.
     let _ = fs::remove_file(partial).await;
     match outcome {
-        Ok(path) if tool.raw_sockets => grant_raw_sockets(&path).map(|()| path),
+        Ok(path) if tool.raw_sockets => match grant_raw_sockets(&path) {
+            Ok(()) => Ok(path),
+            Err(err) => {
+                match tool.form {
+                    ToolForm::Executable => {
+                        let _ = fs::remove_file(&installed).await;
+                    }
+                    _ => {
+                        let _ = fs::remove_dir_all(&installed).await;
+                    }
+                }
+                Err(err)
+            }
+        },
         outcome => outcome,
     }
 }
@@ -697,6 +787,10 @@ where
         };
         if written - before >= MIN_RANGE {
             attempts = Attempts::default();
+        }
+        let length = range.end - range.start;
+        if written > 0 && written >= length {
+            written = length - 1;
         }
         let resume = range.start + written;
         attempts
@@ -1211,7 +1305,11 @@ fn unpack_zip_bounded(
             return Err(unsupported());
         }
 
-        if local_offset + 30 > bytes.len() || read_u32_le(&bytes, local_offset)? != 0x0403_4b50 {
+        if local_offset
+            .checked_add(30)
+            .is_none_or(|end| end > bytes.len())
+            || read_u32_le(&bytes, local_offset)? != 0x0403_4b50
+        {
             return Err(damaged_msg("invalid local file header"));
         }
         let l_name_len = usize::from(read_u16_le(&bytes, local_offset + 26)?);

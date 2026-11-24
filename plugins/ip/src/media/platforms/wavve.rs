@@ -50,20 +50,69 @@ pub fn parse(response: &HttpResponse) -> Verdict {
         return early;
     }
     let body = response.text();
-    if matches!(response.status, 403 | 451)
-        || body.contains("\"resultcode\":\"551\"")
-        || body.contains("\u{d574}\u{c678}")
-        || body.contains("overseas")
-    {
-        return Verdict::no();
+    if let Some(val) = parse::json(response) {
+        let warn = val
+            .get("warning_kr")
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .unwrap_or_default();
+        let proxy_json = !warn.is_empty()
+            || contains_wavve_marker(&val, "\u{bd88}\u{bc95}\u{c801}\u{c73c}\u{b85c}");
+        if proxy_json || body.contains("\u{bd88}\u{bc95}\u{c801}\u{c73c}\u{b85c}") {
+            return Verdict::No {
+                restriction: Some(Restriction::ProxyDetected),
+            };
+        }
+        let code = val.get("resultcode").and_then(|v| {
+            v.as_i64()
+                .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+        });
+        let geo_json = code == Some(551)
+            || contains_wavve_marker(&val, "\u{d574}\u{c678}")
+            || contains_wavve_ascii(&val, "overseas");
+        if geo_json || matches!(response.status, 403 | 451) {
+            return Verdict::no();
+        }
+        if (200..300).contains(&response.status) && code == Some(200) {
+            return Verdict::yes_in("KR");
+        }
+        if (200..300).contains(&response.status) {
+            return parse::no_region();
+        }
+        return Verdict::Unexpected(format!("HTTP {}", response.status));
     }
-    if body.contains("warning_kr") || body.contains("\u{bd88}\u{bc95}\u{c801}\u{c73c}\u{b85c}") {
+    if body.contains("\u{bd88}\u{bc95}\u{c801}\u{c73c}\u{b85c}") {
         return Verdict::No {
             restriction: Some(Restriction::ProxyDetected),
         };
     }
-    if body.contains("\"resultcode\":\"200\"") || body.contains("\"resultcode\":200") {
-        return Verdict::yes_in("KR");
+    if matches!(response.status, 403 | 451)
+        || body.contains("\"resultcode\":\"551\"")
+        || body.contains("\u{d574}\u{c678}")
+        || body.to_ascii_lowercase().contains("overseas")
+    {
+        return Verdict::no();
     }
-    parse::no_region()
+    if (200..300).contains(&response.status) {
+        return parse::no_region();
+    }
+    Verdict::Unexpected(format!("HTTP {}", response.status))
+}
+
+fn contains_wavve_marker(value: &serde_json::Value, needle: &str) -> bool {
+    match value {
+        serde_json::Value::String(text) => text.contains(needle),
+        serde_json::Value::Array(items) => items.iter().any(|v| contains_wavve_marker(v, needle)),
+        serde_json::Value::Object(map) => map.values().any(|v| contains_wavve_marker(v, needle)),
+        _ => false,
+    }
+}
+
+fn contains_wavve_ascii(value: &serde_json::Value, needle: &str) -> bool {
+    match value {
+        serde_json::Value::String(text) => text.to_ascii_lowercase().contains(needle),
+        serde_json::Value::Array(items) => items.iter().any(|v| contains_wavve_ascii(v, needle)),
+        serde_json::Value::Object(map) => map.values().any(|v| contains_wavve_ascii(v, needle)),
+        _ => false,
+    }
 }

@@ -20,18 +20,27 @@ pub fn is_tier1(asn: u32) -> bool {
 /// only the collector-peer hop when there is more than one ASN.
 #[must_use]
 pub fn trunc_to_tier1(asns: &[u32]) -> Vec<u32> {
-    if asns.len() > 1
-        && let Some(idx) = asns[..asns.len() - 1]
-            .iter()
-            .rposition(|asn| is_tier1(*asn))
+    let Some(&origin) = asns.last() else {
+        return Vec::new();
+    };
+    let non_origin_end = asns
+        .iter()
+        .rposition(|&asn| asn != origin)
+        .map_or(0, |idx| idx + 1);
+    if let Some(mut idx) = asns[..non_origin_end]
+        .iter()
+        .rposition(|asn| is_tier1(*asn))
     {
+        while idx > 0 && asns[idx - 1] == asns[idx] {
+            idx -= 1;
+        }
         return asns[idx..].to_vec();
     }
-    if is_tier1(*asns.last().unwrap_or(&0)) {
+    if is_tier1(origin) {
         return asns.to_vec();
     }
-    if asns.len() > 1 {
-        asns[1..].to_vec()
+    if let Some(first_after_collector) = asns.iter().position(|&asn| asn != asns[0]) {
+        asns[first_after_collector..].to_vec()
     } else {
         asns.to_vec()
     }
@@ -206,6 +215,8 @@ fn strip_country_suffix(s: &str) -> &str {
 fn strip_corporate_suffix(s: &str) -> String {
     let mut cur = s.trim();
     for suffix in [
+        " Co., Ltd.",
+        " Co., Ltd",
         ", Inc.",
         " Inc.",
         ", Inc",
@@ -218,8 +229,6 @@ fn strip_corporate_suffix(s: &str) -> String {
         " Ltd.",
         ", Ltd",
         " Ltd",
-        " Co., Ltd.",
-        " Co., Ltd",
         " Corporation",
         " Corp.",
         " GmbH",
@@ -239,8 +248,22 @@ fn strip_corporate_suffix(s: &str) -> String {
 }
 
 fn collapse_spaces(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for word in s.split_whitespace() {
+    let cleaned: String = s
+        .chars()
+        .filter(|&c| {
+            !c.is_control()
+                && !matches!(
+                    c,
+                    '\u{061c}'
+                        | '\u{200e}'
+                        | '\u{200f}'
+                        | '\u{202a}'..='\u{202e}'
+                        | '\u{2066}'..='\u{2069}'
+                )
+        })
+        .collect();
+    let mut out = String::with_capacity(cleaned.len());
+    for word in cleaned.split_whitespace() {
         if !out.is_empty() {
             out.push(' ');
         }

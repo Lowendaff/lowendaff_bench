@@ -176,8 +176,6 @@ pub trait TuiWords {
     fn tui_no_items_selected(&self) -> String;
     /// Validation error when `cpu.bench` is enabled with all sub-suites unchecked.
     fn tui_no_cpu_suites_selected(&self) -> String;
-    /// Validation error when `network.taier` is enabled with all carriers unchecked.
-    fn tui_no_taier_operators_selected(&self) -> String;
     /// Validation error for an integer field outside `min..=max`.
     fn tui_invalid_number(&self, field: &str, min: u32, max: u32) -> String;
     /// Validation error when `work_dir` is empty.
@@ -198,9 +196,11 @@ pub trait TuiWords {
     fn tui_taier_no_matches(&self) -> &'static str;
     /// `network.taier` picker live target selector preview line.
     fn tui_taier_targets_preview(&self, targets: Option<&str>) -> String;
-    /// `network.taier` picker region kind suffix (`(municipality)`, `(3 cities)`, etc.).
+    /// `network.taier` picker region kind suffix with leading two-space separator
+    /// (`"  (municipality)"`, `"  (3 cities)"`, etc.).
     fn tui_taier_region_meta(&self, municipality: bool, overseas: bool, cities: usize) -> String;
-    /// `network.taier` picker operator fallback node count suffix (`(1 node)`, etc.).
+    /// `network.taier` picker unparenthesized operator fallback node count text (`"1 node"`,
+    /// `"2 fallback nodes"`, etc.; caller wraps in parentheses).
     fn tui_taier_node_count(&self, count: usize) -> String;
     /// Keybar help on the configuration screen (left list focused).
     fn tui_keys_config_list(&self) -> &'static str;
@@ -216,6 +216,8 @@ pub trait TuiWords {
     fn tui_state_queued(&self) -> &'static str;
     /// Status badge for a currently running item.
     fn tui_state_running(&self) -> &'static str;
+    /// Status badge for a selected item that does not apply on the current host.
+    fn tui_state_not_applicable(&self) -> &'static str;
     /// Banner shown after the first Ctrl-C while stopping the active test.
     fn tui_stopping_banner(&self) -> &'static str;
     /// Keybar help while running.

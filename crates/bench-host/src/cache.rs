@@ -56,7 +56,9 @@ pub fn read(root: &Root) -> Vec<Cache> {
                 _ => continue,
             };
             let (Some(level), Some(size), Some(cpus)) = (
-                read("level").and_then(|level| level.parse().ok()),
+                read("level")
+                    .and_then(|level| level.parse().ok())
+                    .filter(|&level| level > 0),
                 read("size").and_then(|size| cpu::bytes(&size)),
                 read("shared_cpu_list").and_then(|list| crate::cpu_list(&list)),
             ) else {

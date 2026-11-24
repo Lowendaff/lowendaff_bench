@@ -1,7 +1,10 @@
 //! `lowendaff-bench`: argument parsing, root check, runtime, Ctrl-C and exit code.
 
 use std::io;
+use std::path::PathBuf;
 use std::process::ExitCode;
+use std::sync::Arc;
+use std::sync::Mutex;
 use std::thread;
 
 use bench::app;
@@ -13,12 +16,54 @@ use bench::network;
 use bench::progress;
 use bench::registry;
 use bench::report::Format;
+use bench::report::terminal::strip_terminal_controls;
 use bench::report_path;
 use bench::tui;
 use bench_api::CancellationToken;
 use bench_host::profile::HostProfile;
 use tokio::runtime;
 use tokio::signal;
+
+enum OutputSink {
+    Stdout(io::Stdout),
+    File {
+        file: std::fs::File,
+        error: Arc<Mutex<Option<io::Error>>>,
+    },
+}
+
+impl io::Write for OutputSink {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        match self {
+            Self::Stdout(out) => out.write(buf),
+            Self::File { file, error } => file.write(buf).inspect_err(|err| {
+                if let Ok(mut slot) = error.lock()
+                    && slot.is_none()
+                {
+                    *slot = Some(io::Error::new(err.kind(), err.to_string()));
+                }
+            }),
+        }
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        match self {
+            Self::Stdout(out) => out.flush(),
+            Self::File { file, error } => file.flush().inspect_err(|err| {
+                if let Ok(mut slot) = error.lock()
+                    && slot.is_none()
+                {
+                    *slot = Some(io::Error::new(err.kind(), err.to_string()));
+                }
+            }),
+        }
+    }
+}
+
+fn print_stderr(message: &str) {
+    let clean = strip_terminal_controls(message, false);
+    eprintln!("{clean}");
+}
 
 fn main() -> ExitCode {
     let default_tui = app::should_enter_tui(std::env::args_os().len());
@@ -32,7 +77,7 @@ fn main() -> ExitCode {
         return run_taier_list(&cli, filter);
     }
     if !rustix::process::geteuid().is_root() {
-        eprintln!("{}", locale::words().not_root());
+        print_stderr(&locale::words().not_root());
         return ExitCode::from(app::EXIT_USAGE);
     }
     if default_tui {
@@ -43,20 +88,31 @@ fn main() -> ExitCode {
         Ok(ready) => ready,
         Err(errors) => {
             for error in errors {
-                eprintln!("{error}");
+                print_stderr(&error);
             }
             return ExitCode::from(app::EXIT_USAGE);
         }
     };
-    let output: Box<dyn io::Write + Send> = match &cli.output {
+    let file_write_err: Option<(PathBuf, Arc<Mutex<Option<io::Error>>>)>;
+    let output: OutputSink = match &cli.output {
         Some(path) => match app::create_output(path) {
-            Ok(file) => Box::new(file),
+            Ok(file) => {
+                let err_slot = Arc::new(Mutex::new(None));
+                file_write_err = Some((path.clone(), Arc::clone(&err_slot)));
+                OutputSink::File {
+                    file,
+                    error: err_slot,
+                }
+            }
             Err(error) => {
-                eprintln!("{error}");
+                print_stderr(&error);
                 return ExitCode::from(app::EXIT_USAGE);
             }
         },
-        None => Box::new(io::stdout()),
+        None => {
+            file_write_err = None;
+            OutputSink::Stdout(io::stdout())
+        }
     };
     let report_width = if cli.output.is_none() && cli.format == Format::Text {
         width()
@@ -72,7 +128,7 @@ fn main() -> ExitCode {
     {
         Ok(runtime) => runtime,
         Err(err) => {
-            eprintln!("{}", locale::words().runtime_failed(&err));
+            print_stderr(&locale::words().runtime_failed(&err));
             return ExitCode::from(app::EXIT_USAGE);
         }
     };
@@ -119,21 +175,32 @@ fn main() -> ExitCode {
         )
         .await
     });
+    runtime.shutdown_background();
     match result {
-        Ok(code) => ExitCode::from(code),
+        Ok(code) => {
+            if let Some((path, err_slot)) = file_write_err
+                && let Ok(mut guard) = err_slot.lock()
+                && let Some(err) = guard.take()
+            {
+                print_stderr(&locale::words().output_unwritable(&path, &err));
+                return ExitCode::from(app::EXIT_USAGE);
+            }
+            ExitCode::from(code)
+        }
         Err(error) => {
-            eprintln!("{error}");
+            print_stderr(&error);
             ExitCode::from(app::EXIT_USAGE)
         }
     }
 }
 
 fn run_taier_list(cli: &Cli, filter: &str) -> ExitCode {
+    progress::init(cli.verbose);
     let proxy = match app::download_proxy(cli) {
         Ok(proxy) => proxy,
         Err(errors) => {
             for error in errors {
-                eprintln!("{error}");
+                print_stderr(&error);
             }
             return ExitCode::from(app::EXIT_USAGE);
         }
@@ -141,21 +208,23 @@ fn run_taier_list(cli: &Cli, filter: &str) -> ExitCode {
     let runtime = match runtime::Builder::new_current_thread().enable_all().build() {
         Ok(runtime) => runtime,
         Err(err) => {
-            eprintln!("{}", locale::words().runtime_failed(&err));
+            print_stderr(&locale::words().runtime_failed(&err));
             return ExitCode::from(app::EXIT_USAGE);
         }
     };
-    let locations = match runtime.block_on(app::fetch_taier_locations(&proxy)) {
+    let locations = runtime.block_on(app::fetch_taier_locations(&proxy));
+    runtime.shutdown_background();
+    let locations = match locations {
         Ok(locations) => locations,
         Err(err) => {
-            eprintln!("{err}");
+            print_stderr(&err);
             return ExitCode::from(app::EXIT_USAGE);
         }
     };
     match app::format_taier_list(&locations, filter, &mut io::stdout()) {
         Ok(()) => ExitCode::SUCCESS,
         Err(err) => {
-            eprintln!("{err}");
+            print_stderr(&err);
             ExitCode::from(app::EXIT_USAGE)
         }
     }
@@ -173,8 +242,67 @@ fn width() -> Option<u16> {
         .filter(|columns| *columns > 0)
 }
 
-/// First Ctrl-C stops the current test and skips the rest; a second one exits at once
-/// (the run directory is then left behind).
+#[cfg(unix)]
+async fn recv_any_signal(
+    int: &mut Option<signal::unix::Signal>,
+    term: &mut Option<signal::unix::Signal>,
+    hup: &mut Option<signal::unix::Signal>,
+) -> Option<()> {
+    let f_int = async {
+        match int.as_mut() {
+            Some(s) => s.recv().await,
+            None => std::future::pending().await,
+        }
+    };
+    let f_term = async {
+        match term.as_mut() {
+            Some(s) => s.recv().await,
+            None => std::future::pending().await,
+        }
+    };
+    let f_hup = async {
+        match hup.as_mut() {
+            Some(s) => s.recv().await,
+            None => std::future::pending().await,
+        }
+    };
+    tokio::select! {
+        r = f_int => r,
+        r = f_term => r,
+        r = f_hup => r,
+    }
+}
+
+/// First termination signal (`SIGINT`, `SIGTERM`, `SIGHUP`) stops the current test and skips the
+/// rest; a second one exits at once (the run directory is then left behind).
+#[cfg(unix)]
+async fn watch_interrupt(cancel: CancellationToken) {
+    use tokio::signal::unix::SignalKind;
+
+    let mut sigint = signal::unix::signal(SignalKind::interrupt()).ok();
+    let mut sigterm = signal::unix::signal(SignalKind::terminate()).ok();
+    let mut sighup = signal::unix::signal(SignalKind::hangup()).ok();
+    if sigint.is_none() && sigterm.is_none() && sighup.is_none() {
+        return;
+    }
+
+    if recv_any_signal(&mut sigint, &mut sigterm, &mut sighup)
+        .await
+        .is_none()
+    {
+        return;
+    }
+    cancel.cancel();
+    tracing::info!("{}", locale::words().interrupt());
+    if recv_any_signal(&mut sigint, &mut sigterm, &mut sighup)
+        .await
+        .is_some()
+    {
+        std::process::exit(i32::from(app::EXIT_INTERRUPTED));
+    }
+}
+
+#[cfg(not(unix))]
 async fn watch_interrupt(cancel: CancellationToken) {
     if signal::ctrl_c().await.is_err() {
         return;

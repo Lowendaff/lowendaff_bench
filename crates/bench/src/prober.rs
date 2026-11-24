@@ -10,6 +10,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Duration;
+use std::time::Instant;
 
 use bench_api::HttpClient;
 use bench_api::HttpError;
@@ -47,11 +48,15 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(8);
 /// Maximum cached hostname pin entries per family resolver before eviction.
 const MAX_PINNED_HOSTS: usize = 256;
 
+/// How long a validated hostname pin stays fresh before [`ensure_target`] re-queries DNS.
+const PIN_TTL: Duration = Duration::from_secs(30);
+
 /// Family-scoped DNS resolver that serves pre-validated addresses pinned by [`ensure_target`],
-/// eliminating double-lookup DNS rebinding windows and rejecting non-public addresses on fallback.
+/// eliminating double-lookup DNS rebinding windows and repeated `getaddrinfo` latency during burst
+/// probes while rejecting non-public addresses on fallback.
 struct SafeFamilyResolver {
     ipv6: bool,
-    pinned: Mutex<HashMap<String, Vec<IpAddr>>>,
+    pinned: Mutex<HashMap<String, (Instant, Vec<IpAddr>)>>,
 }
 
 impl SafeFamilyResolver {
@@ -67,15 +72,25 @@ impl SafeFamilyResolver {
             if guard.len() >= MAX_PINNED_HOSTS {
                 guard.clear();
             }
-            guard.insert(host.to_ascii_lowercase(), ips);
+            guard.insert(host.to_ascii_lowercase(), (Instant::now(), ips));
         }
     }
 
-    fn load(&self, host: &str) -> Option<Vec<IpAddr>> {
+    fn has_fresh(&self, host: &str) -> bool {
         self.pinned
             .lock()
             .ok()
-            .and_then(|guard| guard.get(&host.to_ascii_lowercase()).cloned())
+            .and_then(|guard| guard.get(&host.to_ascii_lowercase()).map(|(at, _)| *at))
+            .is_some_and(|at| at.elapsed() < PIN_TTL)
+    }
+
+    fn load(&self, host: &str) -> Option<Vec<IpAddr>> {
+        self.pinned.lock().ok().and_then(|guard| {
+            guard
+                .get(&host.to_ascii_lowercase())
+                .filter(|(at, _)| at.elapsed() < PIN_TTL)
+                .map(|(_, ips)| ips.clone())
+        })
     }
 }
 
@@ -194,6 +209,11 @@ async fn execute(
 ) -> Result<HttpResponse, HttpError> {
     let mut url = parse_allowed(&request.url, false)?;
     let initial_loopback = url.scheme() == "http" && is_loopback(&url);
+    let initial_origin = (
+        url.scheme().to_owned(),
+        url.host_str().unwrap_or_default().to_ascii_lowercase(),
+        url.port_or_known_default(),
+    );
     let mut method = request.method;
     let mut body = request.body.clone();
     let mut hops: u8 = 0;
@@ -213,16 +233,35 @@ async fn execute(
         if !has_accept_language {
             builder = builder.header(header::ACCEPT_LANGUAGE, ACCEPT_LANGUAGE);
         }
+        let same_origin = url.scheme() == initial_origin.0
+            && url
+                .host_str()
+                .is_some_and(|h| h.eq_ignore_ascii_case(&initial_origin.1))
+            && url.port_or_known_default() == initial_origin.2;
         for (name, value) in &request.headers {
+            let lower = name.to_ascii_lowercase();
+            if !same_origin
+                && matches!(
+                    lower.as_str(),
+                    "authorization" | "cookie" | "proxy-authorization" | "host"
+                )
+            {
+                continue;
+            }
+            if body.is_none()
+                && matches!(
+                    lower.as_str(),
+                    "content-type" | "content-length" | "content-encoding" | "transfer-encoding"
+                )
+            {
+                continue;
+            }
             builder = builder.header(name.as_str(), value.as_str());
         }
         if let Some(payload) = &body {
             builder = builder.body(payload.clone());
         }
-        let mut response = builder
-            .send()
-            .await
-            .map_err(|err| HttpError::Transport(fetcher::causes(&err)))?;
+        let mut response = builder.send().await.map_err(map_reqwest_err)?;
         let status = response.status().as_u16();
         if let RedirectPolicy::Follow { max } = request.redirect
             && is_redirect(status)
@@ -267,7 +306,7 @@ async fn execute(
                     bytes.extend_from_slice(&chunk[..take]);
                 }
                 Ok(None) => break,
-                Err(err) => return Err(HttpError::Transport(fetcher::causes(&err))),
+                Err(err) => return Err(map_reqwest_err(err)),
             }
         }
         return Ok(HttpResponse {
@@ -277,6 +316,14 @@ async fn execute(
             body: bytes,
         });
     }
+}
+
+fn map_reqwest_err(err: reqwest::Error) -> HttpError {
+    if err.is_timeout() {
+        return HttpError::TimedOut;
+    }
+    let stripped = err.without_url();
+    HttpError::Transport(fetcher::causes(&stripped))
 }
 
 fn is_redirect(status: u16) -> bool {
@@ -299,7 +346,7 @@ fn parse_allowed(raw: &str, from_https: bool) -> Result<Url, HttpError> {
         _ if from_https => Err(HttpError::InvalidRedirect(
             "redirect to non-HTTPS URL".to_owned(),
         )),
-        _ => Err(HttpError::NotHttps(raw.to_owned())),
+        _ => Err(HttpError::NotHttps(host_label(raw))),
     }
 }
 
@@ -345,6 +392,9 @@ async fn ensure_target(
         } else {
             Err(non_public_err("non-public target address refused"))
         };
+    }
+    if resolver.has_fresh(host) {
+        return Ok(());
     }
     let port = url
         .port_or_known_default()

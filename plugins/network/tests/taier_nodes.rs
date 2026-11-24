@@ -14,22 +14,136 @@ fn fixtures_agree_with_the_taier_list_script() {
     let mut entries: Vec<_> = std::fs::read_dir(&dir)
         .expect("fixtures directory")
         .map(|entry| entry.expect("entry").path())
+        .filter(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| !name.starts_with('.'))
+        })
         .collect();
     entries.sort();
-    assert!(entries.len() >= 20, "found {} fixtures", entries.len());
+    assert_eq!(entries.len(), 21, "found {} fixtures", entries.len());
 
     for path in entries {
         let name = path.file_name().unwrap().to_str().unwrap();
+        assert!(
+            Path::new(name)
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("json")),
+            "unexpected non-JSON fixture: {name}"
+        );
         let bytes = std::fs::read(&path).expect("read fixture");
         let parsed = nodes::parse(&bytes);
-        if name.starts_with("good-") {
-            assert!(parsed.is_ok(), "{name} should pass: {parsed:?}");
-        } else if name == "bad-version-2.json" {
-            assert_eq!(parsed, Err(ListError::Newer(2)));
-        } else {
-            assert!(parsed.is_err(), "{name} should fail: {parsed:?}");
+        match name {
+            n if n.starts_with("good-") => {
+                assert!(parsed.is_ok(), "{name} should pass: {parsed:?}");
+            }
+            "bad-version-0.json" => assert_eq!(parsed, Err(ListError::Version(0))),
+            "bad-version-2.json" => assert_eq!(parsed, Err(ListError::Newer(2))),
+            "bad-empty-locations.json" => assert_eq!(parsed, Err(ListError::Empty)),
+            "bad-duplicate-id.json" => {
+                assert_eq!(parsed, Err(ListError::Duplicate("beijing".to_owned())));
+            }
+            "bad-id-all.json" | "bad-id-uppercase.json" => {
+                assert_eq!(
+                    parsed,
+                    Err(ListError::Location(1, nodes::Rule::Id)),
+                    "{name}"
+                );
+            }
+            "bad-empty-province.json" => {
+                assert_eq!(parsed, Err(ListError::Location(1, nodes::Rule::Province)));
+            }
+            "bad-control-city.json" | "bad-non-ascii-city.json" => {
+                assert_eq!(
+                    parsed,
+                    Err(ListError::Location(1, nodes::Rule::City)),
+                    "{name}"
+                );
+            }
+            "bad-empty-nodes.json" => {
+                assert_eq!(parsed, Err(ListError::Location(1, nodes::Rule::Nodes)));
+            }
+            "bad-operator.json" => {
+                assert_eq!(parsed, Err(ListError::Location(1, nodes::Rule::Operator)));
+            }
+            "bad-ip-domain.json" | "bad-ip-ipv6.json" => {
+                assert_eq!(
+                    parsed,
+                    Err(ListError::Location(1, nodes::Rule::Ip)),
+                    "{name}"
+                );
+            }
+            "bad-port-high.json" | "bad-port-low.json" => {
+                assert_eq!(
+                    parsed,
+                    Err(ListError::Location(1, nodes::Rule::Port)),
+                    "{name}"
+                );
+            }
+            "bad-duplicate-endpoint.json" => {
+                assert_eq!(
+                    parsed,
+                    Err(ListError::Location(1, nodes::Rule::DuplicateEndpoint))
+                );
+            }
+            "bad-not-json.json" | "bad-not-object.json" => {
+                assert!(
+                    matches!(parsed, Err(ListError::Format(_))),
+                    "{name}: {parsed:?}"
+                );
+            }
+            other => panic!("unhandled taier fixture: {other}"),
         }
     }
+
+    // Size, location-count, node-count, and 1-based entry position bounds.
+    let mut oversized = br#"{"version":1,"locations":[]}"#.to_vec();
+    oversized.resize(nodes::LIMIT + 1, b' ');
+    assert_eq!(nodes::parse(&oversized), Err(ListError::TooLarge));
+
+    let many_locs: Vec<String> = (0..=nodes::MOST_LOCATIONS)
+        .map(|idx| {
+            format!(
+                "{{\"id\":\"loc-{idx}\",\"province\":\"P\",\"city\":\"C\",\
+                 \"nodes\":[{{\"operator\":\"telecom\",\"ip\":\"198.51.100.1\",\"port\":65499}}]}}"
+            )
+        })
+        .collect();
+    let too_many_json = format!("{{\"version\":1,\"locations\":[{}]}}", many_locs.join(","));
+    assert_eq!(
+        nodes::parse(too_many_json.as_bytes()),
+        Err(ListError::TooMany(nodes::MOST_LOCATIONS + 1))
+    );
+
+    let many_nodes: Vec<String> = (0..=nodes::MOST_NODES)
+        .map(|idx| {
+            let port = 10_000 + idx;
+            format!("{{\"operator\":\"telecom\",\"ip\":\"198.51.100.1\",\"port\":{port}}}")
+        })
+        .collect();
+    let too_many_nodes = format!(
+        "{{\"version\":1,\"locations\":[{{\"id\":\"loc\",\"province\":\"P\",\"city\":\"C\",\
+         \"nodes\":[{}]}}]}}",
+        many_nodes.join(",")
+    );
+    assert_eq!(
+        nodes::parse(too_many_nodes.as_bytes()),
+        Err(ListError::Location(1, nodes::Rule::Nodes))
+    );
+
+    let second_bad = concat!(
+        r#"{"version":1,"locations":["#,
+        r#"{"id":"ok","province":"Beijing","city":"Beijing","#,
+        r#""nodes":[{"operator":"telecom","ip":"198.51.100.1","port":65499}]},"#,
+        r#"{"id":"bad","province":"Shanghai","city":"Shanghai","#,
+        r#""nodes":[{"operator":"telecom","ip":"198.51.100.2","port":80}]}"#,
+        r#"]}"#,
+    )
+    .as_bytes();
+    assert_eq!(
+        nodes::parse(second_bad),
+        Err(ListError::Location(2, nodes::Rule::Port))
+    );
 }
 
 #[test]
@@ -296,4 +410,43 @@ fn remote_taier_list_rejects_internal_and_loopback_ips_while_local_override_allo
         nodes::parse_for_source(&loopback, true).is_ok(),
         "local file override may use 127.0.0.1 for smoke tests"
     );
+}
+
+#[test]
+fn match_locations_rejects_extra_slashes_and_empty_slug_false_matches() {
+    let raw = br#"{
+        "version": 1,
+        "locations": [
+            {
+                "id": "guangdong-shenzhen",
+                "province": "Guangdong",
+                "city": "Shenzhen",
+                "nodes": [
+                    {"operator": "telecom", "ip": "198.51.100.13", "port": 65499}
+                ]
+            },
+            {
+                "id": "dash-city",
+                "province": "---",
+                "city": "-",
+                "nodes": [
+                    {"operator": "unicom", "ip": "198.51.100.14", "port": 65499}
+                ]
+            }
+        ]
+    }"#;
+    let locations = nodes::parse(raw).expect("valid fixture");
+    for bad in [
+        "guangdong/",
+        "/shenzhen",
+        "guangdong/shen/zhen",
+        "guangdong/shenzhen/",
+        "???",
+        "*",
+    ] {
+        assert!(
+            nodes::match_locations(&locations, bad).is_empty(),
+            "`{bad}` must not match any location"
+        );
+    }
 }

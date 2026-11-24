@@ -81,9 +81,16 @@ pub fn parse(response: &HttpResponse) -> Result<ProviderData, ProviderFailure> {
         .and_then(|n| u32::try_from(n).ok())
         .filter(|&n| n > 0);
     let org = asn_obj
-        .and_then(|obj| obj.get("org").or_else(|| obj.get("descr")))
-        .and_then(Value::as_str)
-        .and_then(parse::clean_text)
+        .and_then(|obj| {
+            obj.get("org")
+                .and_then(Value::as_str)
+                .and_then(parse::clean_text)
+                .or_else(|| {
+                    obj.get("descr")
+                        .and_then(Value::as_str)
+                        .and_then(parse::clean_text)
+                })
+        })
         .or_else(|| {
             company_obj
                 .and_then(|obj| obj.get("name"))
@@ -119,9 +126,14 @@ pub fn parse(response: &HttpResponse) -> Result<ProviderData, ProviderFailure> {
 
     let score = company_obj
         .and_then(|obj| obj.get("abuser_score"))
-        .or_else(|| asn_obj.and_then(|obj| obj.get("abuser_score")))
         .and_then(Value::as_str)
-        .and_then(parse_abuser_score);
+        .and_then(parse_abuser_score)
+        .or_else(|| {
+            asn_obj
+                .and_then(|obj| obj.get("abuser_score"))
+                .and_then(Value::as_str)
+                .and_then(parse_abuser_score)
+        });
 
     let mut flags = Vec::new();
     for (field, factor) in [
@@ -159,6 +171,9 @@ fn parse_abuser_score(raw: &str) -> Option<ScoreVerdict> {
     let trimmed = raw.trim();
     let ratio_part = trimmed.split_whitespace().next()?;
     let numeric: f64 = ratio_part.parse().ok()?;
+    if !numeric.is_finite() || numeric < 0.0 || ratio_part.starts_with('-') {
+        return None;
+    }
     let lower = trimmed.to_ascii_lowercase();
     let level = if lower.contains("very high") {
         RiskLevel::VeryHigh

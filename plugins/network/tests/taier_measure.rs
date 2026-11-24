@@ -75,7 +75,13 @@ impl NetClient for MockTaier {
                         Ok(TaierAdmission::AuthRejected)
                     }
                 }
-                _ => Err(NetError::TimedOut),
+                _ => {
+                    if ip.octets()[3] == 4 {
+                        Ok(TaierAdmission::Admitted("lease-fail-4".to_owned()))
+                    } else {
+                        Err(NetError::TimedOut)
+                    }
+                }
             }
         })
     }
@@ -96,10 +102,14 @@ impl NetClient for MockTaier {
 
     fn taier_download<'a>(
         &'a self,
-        _spec: &'a TaierStreamSpec,
+        spec: &'a TaierStreamSpec,
         _cancel: &'a CancellationToken,
     ) -> NetFuture<'a, TaierTransfer> {
-        Box::pin(async {
+        let fail = spec.ip.octets()[3] == 4;
+        Box::pin(async move {
+            if fail {
+                return Err(NetError::TimedOut);
+            }
             Ok(TaierTransfer {
                 bytes: 500_000_000,
                 elapsed_micros: 4_000_000,
@@ -183,6 +193,18 @@ async fn busy_node_falls_back_to_next_candidate_and_empty_token_retries_and_rele
     // Slot 1 (Unicom): .3 returned Busy -> recorded as Busy without failing the plugin!
     assert_eq!(output.results[1].outcome, NodeOutcome::Busy);
 
+    // Handshake order: .1 non-empty -> .2 non-empty -> .2 empty -> .3 non-empty.
+    let acquires = mock.acquires.lock().unwrap().clone();
+    assert_eq!(acquires.len(), 4);
+    assert_eq!(acquires[0].0, Ipv4Addr::new(198, 51, 100, 1));
+    assert!(!acquires[0].1.contains("&token=&"));
+    assert_eq!(acquires[1].0, Ipv4Addr::new(198, 51, 100, 2));
+    assert!(!acquires[1].1.contains("&token=&"));
+    assert_eq!(acquires[2].0, Ipv4Addr::new(198, 51, 100, 2));
+    assert!(acquires[2].1.contains("&token=&"));
+    assert_eq!(acquires[3].0, Ipv4Addr::new(198, 51, 100, 3));
+    assert!(!acquires[3].1.contains("&token=&"));
+
     // Lease was cleanly released on .2.
     assert_eq!(
         *mock.releases.lock().unwrap(),
@@ -191,7 +213,67 @@ async fn busy_node_falls_back_to_next_candidate_and_empty_token_retries_and_rele
             "lease-fallback-2".to_owned()
         )]
     );
-    assert!(channels.published.borrow().is_some());
+    assert_eq!(channels.published.borrow().as_ref(), Some(&output));
+}
+
+#[tokio::test]
+async fn lease_is_released_when_transfer_fails_and_partial_results_remain_published() {
+    let raw = br#"{
+        "version": 1,
+        "locations": [
+            {
+                "id": "beijing",
+                "province": "Beijing",
+                "city": "Beijing",
+                "default": true,
+                "nodes": [
+                    {"operator": "telecom", "ip": "198.51.100.2", "port": 65499},
+                    {"operator": "unicom", "ip": "198.51.100.4", "port": 65499}
+                ]
+            }
+        ]
+    }"#;
+    let locations = nodes::parse(raw).unwrap();
+    let chosen = nodes::choose(&locations, &[], &[]);
+    let mock = Arc::new(MockTaier::default());
+    let (ctx, channels) = Context::<Output>::new(
+        Arc::new(HostProfile::default()),
+        Arc::new(BTreeMap::new()),
+        Arc::new(BTreeMap::new()),
+        Instant::now() + Duration::from_secs(60),
+        ".".into(),
+        CancellationToken::new(),
+    );
+    let ctx = ctx.with_net(Arc::clone(&mock) as Arc<dyn NetClient>);
+    let settings = Settings {
+        seconds: 4,
+        streams: 8,
+        selections: Vec::new(),
+        cities: Vec::new(),
+        operators: chosen.operators.clone(),
+        custom_list: false,
+    };
+
+    let output = measure::measure(&ctx, chosen, settings, 42, || 1_700_000_000)
+        .await
+        .expect("slot 0 succeeded before slot 1 transfer failed");
+    assert_eq!(output.results.len(), 2);
+    assert!(matches!(
+        output.results[0].outcome,
+        NodeOutcome::Measured(_)
+    ));
+    assert_eq!(output.results[1].outcome, NodeOutcome::TimedOut);
+    assert_eq!(
+        *mock.releases.lock().unwrap(),
+        vec![
+            (
+                Ipv4Addr::new(198, 51, 100, 2),
+                "lease-fallback-2".to_owned()
+            ),
+            (Ipv4Addr::new(198, 51, 100, 4), "lease-fail-4".to_owned()),
+        ]
+    );
+    assert_eq!(channels.published.borrow().as_ref(), Some(&output));
 }
 
 #[tokio::test]
@@ -245,4 +327,92 @@ async fn load_servers_prefers_live_file_and_falls_back_to_embedded_only_for_defa
         custom_err,
         bench_api::Stop::Failed(Failure::Unreadable("connection timed out".to_owned()))
     );
+
+    // 4. Corrupt/HTML live payloads fall back to embedded for the default list, never custom.
+    let dir = tempfile::tempdir().unwrap();
+    let html_path = dir.path().join("blocked.html");
+    std::fs::write(&html_path, b"<html>blocked</html>").unwrap();
+    let mut corrupt_files = BTreeMap::new();
+    corrupt_files.insert(SERVERS.to_owned(), Ok(html_path));
+    let (ctx_corrupt, _) = Context::<Output>::new(
+        Arc::new(HostProfile::default()),
+        Arc::new(BTreeMap::new()),
+        Arc::new(corrupt_files),
+        Instant::now() + Duration::from_secs(10),
+        ".".into(),
+        CancellationToken::new(),
+    );
+    let fallback_locs = taier::load_locations(&ctx_corrupt, false, false, Some(embedded))
+        .await
+        .expect("corrupt live list falls back to embedded snapshot");
+    assert_eq!(fallback_locs.len(), 1);
+    assert_eq!(fallback_locs[0].id, "embedded");
+
+    assert!(
+        taier::load_locations(&ctx_corrupt, true, false, Some(embedded))
+            .await
+            .is_err(),
+        "custom list parse failure must not fall back to embedded"
+    );
+}
+
+#[tokio::test]
+async fn empty_candidates_do_not_panic_and_answered_outcome_survives_unreachable_fallback() {
+    let mock = Arc::new(MockTaier::default());
+    let (ctx, _) = Context::<Output>::new(
+        Arc::new(HostProfile::default()),
+        Arc::new(BTreeMap::new()),
+        Arc::new(BTreeMap::new()),
+        Instant::now() + Duration::from_secs(60),
+        ".".into(),
+        CancellationToken::new(),
+    );
+    let ctx = ctx.with_net(Arc::clone(&mock) as Arc<dyn NetClient>);
+    let chosen = nodes::Chosen {
+        slots: vec![
+            nodes::TargetSlot {
+                id: "empty".to_owned(),
+                province: "Beijing".to_owned(),
+                city: "Beijing".to_owned(),
+                operator: Operator::Telecom,
+                candidates: Vec::new(),
+            },
+            nodes::TargetSlot {
+                id: "busy-then-dead".to_owned(),
+                province: "Beijing".to_owned(),
+                city: "Beijing".to_owned(),
+                operator: Operator::Unicom,
+                candidates: vec![
+                    (Ipv4Addr::new(198, 51, 100, 1), 65499),
+                    (Ipv4Addr::new(198, 51, 100, 99), 65499),
+                ],
+            },
+            nodes::TargetSlot {
+                id: "ok".to_owned(),
+                province: "Beijing".to_owned(),
+                city: "Beijing".to_owned(),
+                operator: Operator::Mobile,
+                candidates: vec![(Ipv4Addr::new(198, 51, 100, 2), 65499)],
+            },
+        ],
+        operators: vec![Operator::Telecom, Operator::Unicom, Operator::Mobile],
+        unknown: Vec::new(),
+    };
+    let settings = Settings {
+        seconds: 4,
+        streams: 8,
+        selections: Vec::new(),
+        cities: Vec::new(),
+        operators: chosen.operators.clone(),
+        custom_list: false,
+    };
+
+    let output = measure::measure(&ctx, chosen, settings, 7, || 1_700_000_000)
+        .await
+        .expect("mobile slot succeeded");
+    assert_eq!(output.results.len(), 2);
+    assert_eq!(output.results[0].id, "busy-then-dead");
+    assert_eq!(output.results[0].ip, Ipv4Addr::new(198, 51, 100, 1));
+    assert_eq!(output.results[0].tried_nodes, 2);
+    assert_eq!(output.results[0].outcome, NodeOutcome::Busy);
 }

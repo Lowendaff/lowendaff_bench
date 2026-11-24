@@ -425,3 +425,87 @@ async fn a_cache_servers_answer_that_names_none_or_is_missing_says_why() {
         Some("ipv4-c001-fra002-ix.1.oca.nflxvideo.net")
     );
 }
+
+#[tokio::test]
+async fn remote_netflix_lookup_rejects_loopback_localhost_and_private_ips_unless_local_override() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    for bad_host in ["127.0.0.1", "10.0.0.1", "169.254.169.254", "localhost"] {
+        let fast_path = dir.path().join(format!("fast-{bad_host}.json"));
+        let url = format!("https://{bad_host}/speedtest?v=1");
+        std::fs::write(
+            &fast_path,
+            serde_json::to_vec(&json!({
+                "targets": [{
+                    "name": url,
+                    "url": url,
+                    "location": {"city": "Test", "country": "US"}
+                }]
+            }))
+            .expect("json"),
+        )
+        .expect("write");
+
+        for cfg in [
+            json!({"groups": ["services"]}),
+            json!({
+                "groups": ["services"],
+                "netflix_api": "https://api.fast.com/netflix/speedtest/v2"
+            }),
+        ] {
+            let files = BTreeMap::from([
+                (
+                    "targets".to_owned(),
+                    Ok(fixture("target-lists/good-no-targets.json")),
+                ),
+                (
+                    "youtube-ipv4".to_owned(),
+                    Ok(fixture("lookups/report-mapping-isp.txt")),
+                ),
+                ("netflix-ipv4".to_owned(), Ok(fast_path.clone())),
+            ]);
+            let (_, published) = run_with(cfg, ipv4_host(), files).await;
+            let published = published.expect("published");
+            assert_eq!(published.ipv4[1].target, Target::Netflix(None));
+            assert_eq!(published.ipv4[1].host, None);
+            assert_eq!(
+                published.ipv4[1].route,
+                Route::Unavailable(Unavailable::Answer(LookupError::Url)),
+                "remote netflix_api must reject {bad_host}"
+            );
+        }
+    }
+
+    let lo_fast = dir.path().join("fast-127.0.0.1.json");
+    let files = BTreeMap::from([
+        (
+            "targets".to_owned(),
+            Ok(fixture("target-lists/good-no-targets.json")),
+        ),
+        (
+            "youtube-ipv4".to_owned(),
+            Ok(fixture("lookups/report-mapping-isp.txt")),
+        ),
+        (
+            "youtube-ipv6".to_owned(),
+            Ok(fixture("lookups/report-mapping-u.txt")),
+        ),
+        ("netflix-ipv4".to_owned(), Ok(lo_fast.clone())),
+        ("netflix-ipv6".to_owned(), Ok(lo_fast.clone())),
+    ]);
+    let (_, published) = run_with(
+        json!({
+            "groups": ["services"],
+            "netflix_api": lo_fast.to_str().unwrap()
+        }),
+        dual_host(),
+        files,
+    )
+    .await;
+    let published = published.expect("published");
+    assert_eq!(published.ipv4[1].host.as_deref(), Some("127.0.0.1"));
+    assert_eq!(
+        published.ipv6[1].route,
+        Route::Unavailable(Unavailable::Answer(LookupError::Url)),
+        "IPv4 literal in netflix-ipv6 lookup must be rejected at planning time"
+    );
+}

@@ -45,14 +45,17 @@ pub fn torture_config(threads: usize) -> String {
 /// `duration`.
 #[must_use]
 pub fn attempt(program: &Path, work_dir: &Path, duration: Duration) -> Job {
-    let bin_dir = program.parent().unwrap_or_else(|| Path::new("."));
+    let bin_dir = program
+        .parent()
+        .filter(|dir| !dir.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
     let ld_path = OsString::from(bin_dir.as_os_str());
     let mut work_arg = OsString::from("-W");
     work_arg.push(work_dir.as_os_str());
     let mut job = Job::new(
         program,
         [OsString::from("-t"), OsString::from("-d"), work_arg],
-        RUN_LIMIT.max(duration + Duration::from_secs(30)),
+        RUN_LIMIT.max(duration.saturating_add(Duration::from_secs(30))),
     );
     job.envs = vec![("LD_LIBRARY_PATH".into(), ld_path)];
     job.dir = Some(work_dir.to_path_buf());
@@ -76,6 +79,10 @@ where
     F: Fn(Job) -> Fut,
     Fut: Future<Output = Result<job::Output, RunError>>,
 {
+    if ctx.cancel_token().is_cancelled() {
+        return Err(Failure::Cancelled);
+    }
+    let threads = threads.max(1);
     ctx.progress(Step::CpuSuite {
         suite: "prime95",
         stage: None,
@@ -87,6 +94,7 @@ where
     let cfg = torture_config(threads);
     for name in ["local.txt", "prime.txt"] {
         if let Err(err) = tokio::fs::write(work_dir.join(name), &cfg).await {
+            let _ = tokio::fs::remove_dir_all(work_dir).await;
             return Err(Failure::Run(Fault::Setup(err.to_string())));
         }
     }

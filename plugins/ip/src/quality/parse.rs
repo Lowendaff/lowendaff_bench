@@ -105,12 +105,95 @@ pub fn map_error(error: &HttpError) -> ProviderFailure {
         HttpError::TimedOut => ProviderFailure::TimedOut,
         HttpError::TooManyRedirects => ProviderFailure::Unexpected("too many redirects".to_owned()),
         HttpError::InvalidRedirect(why) => {
-            ProviderFailure::Unexpected(format!("invalid redirect: {why}"))
+            ProviderFailure::Unexpected(format!("invalid redirect: {}", strip_urls(why)))
         }
         HttpError::NotHttps(_) => ProviderFailure::Unexpected("non-HTTPS endpoint".to_owned()),
-        HttpError::Transport(why) => ProviderFailure::Unexpected(why.clone()),
+        HttpError::Transport(why) => ProviderFailure::Unexpected(strip_urls(why)),
         HttpError::Cancelled => ProviderFailure::Unexpected("interrupted".to_owned()),
     }
+}
+
+/// Scrubs occurrences of `ip` (canonical, uncompressed IPv6, and percent-encoded colons) from an
+/// error string, replacing them with its masked prefix so public IPs never leak into notes.
+#[must_use]
+pub fn scrub_ip(text: &str, ip: IpAddr) -> String {
+    let masked = mask_ip(ip);
+    let canonical = ip.to_string();
+    let mut out = replace_ascii_case_insensitive(text, &canonical, &masked);
+    if let IpAddr::V6(v6) = ip {
+        let segs = v6.segments();
+        let full = format!(
+            "{:x}:{:x}:{:x}:{:x}:{:x}:{:x}:{:x}:{:x}",
+            segs[0], segs[1], segs[2], segs[3], segs[4], segs[5], segs[6], segs[7]
+        );
+        let padded = format!(
+            "{:04x}:{:04x}:{:04x}:{:04x}:{:04x}:{:04x}:{:04x}:{:04x}",
+            segs[0], segs[1], segs[2], segs[3], segs[4], segs[5], segs[6], segs[7]
+        );
+        let encoded = canonical.replace(':', "%3A");
+        out = replace_ascii_case_insensitive(&out, &full, &masked);
+        out = replace_ascii_case_insensitive(&out, &padded, &masked);
+        out = replace_ascii_case_insensitive(&out, &encoded, &masked);
+    }
+    out
+}
+
+fn mask_ip(address: IpAddr) -> String {
+    match address {
+        IpAddr::V4(v4) => {
+            let [a, b, ..] = v4.octets();
+            format!("{a}.{b}.*.*")
+        }
+        IpAddr::V6(v6) => {
+            let [first, second, ..] = v6.segments();
+            format!("{first:x}:{second:x}:*")
+        }
+    }
+}
+
+fn strip_urls(raw: &str) -> String {
+    let base = match raw.find(" for url (") {
+        Some(idx) => raw[..idx].trim(),
+        None => raw.trim(),
+    };
+    let mut words = Vec::new();
+    for token in base.split_whitespace() {
+        let cleaned = token.trim_matches(|ch: char| matches!(ch, '(' | ')' | '\'' | '"' | ','));
+        let lower = cleaned.to_ascii_lowercase();
+        if lower.starts_with("http://") || lower.starts_with("https://") {
+            words.push("<url>");
+        } else {
+            words.push(token);
+        }
+    }
+    words.join(" ")
+}
+
+fn replace_ascii_case_insensitive(haystack: &str, needle: &str, replacement: &str) -> String {
+    if needle.is_empty() || haystack.len() < needle.len() {
+        return haystack.to_owned();
+    }
+    let hay_bytes = haystack.as_bytes();
+    let needle_bytes = needle.as_bytes();
+    let nlen = needle_bytes.len();
+    let mut out = String::with_capacity(haystack.len());
+    let mut cursor = 0_usize;
+    let mut idx = 0_usize;
+    while idx + nlen <= hay_bytes.len() {
+        if hay_bytes[idx..idx + nlen].eq_ignore_ascii_case(needle_bytes)
+            && haystack.is_char_boundary(idx)
+            && haystack.is_char_boundary(idx + nlen)
+        {
+            out.push_str(&haystack[cursor..idx]);
+            out.push_str(replacement);
+            idx += nlen;
+            cursor = idx;
+        } else {
+            idx += 1;
+        }
+    }
+    out.push_str(&haystack[cursor..]);
+    out
 }
 
 /// Universal rate-limit (`429`), anti-bot/WAF challenge, and `5xx` check run before provider

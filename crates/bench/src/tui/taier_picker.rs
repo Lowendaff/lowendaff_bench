@@ -13,9 +13,17 @@ use plugin_network::taier::nodes;
 use plugin_network::taier::nodes::Location;
 
 use crate::locale;
+use crate::report;
 
 /// Canonical display order for mainland direct-controlled municipalities.
 const MUNICIPALITY_ORDER: [&str; 4] = ["beijing", "shanghai", "tianjin", "chongqing"];
+
+/// Maximum Unicode scalar values accepted in the interactive filter bar.
+const MAX_FILTER_CHARS: usize = 256;
+
+const fn is_bidi_control(ch: char) -> bool {
+    matches!(ch, '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
+}
 
 /// Administrative kind of a top-level entry in the Taier node catalog.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -115,15 +123,18 @@ pub fn build_regions(locations: &[Location]) -> Vec<RegionEntry> {
                     .cmp(&b.name.to_ascii_lowercase())
             })
         });
-        let is_municipality = cities.len() == 1 && cities[0].name.eq_ignore_ascii_case(&prov_name);
         let all_other = cities.iter().all(|city| {
             !city.operators.is_empty()
                 && city.operators.iter().all(|(op, _)| *op == Operator::Other)
         });
-        let kind = if is_municipality {
-            RegionKind::Municipality
-        } else if all_other {
+        let is_municipality = !all_other
+            && MUNICIPALITY_ORDER.contains(&prov_slug.as_str())
+            && cities.len() == 1
+            && cities[0].name.eq_ignore_ascii_case(&prov_name);
+        let kind = if all_other {
             RegionKind::Overseas
+        } else if is_municipality {
+            RegionKind::Municipality
         } else {
             RegionKind::Province
         };
@@ -363,7 +374,7 @@ impl TaierPicker {
     /// Whether the current selection equals the built-in default 9 slots.
     #[must_use]
     pub fn is_default_selection(&self) -> bool {
-        self.selected == self.default_slots
+        !self.default_slots.is_empty() && self.selected == self.default_slots
     }
 
     /// Breadcrumb trail for the current drill-down depth (flattening municipalities to 2 levels).
@@ -452,9 +463,16 @@ impl TaierPicker {
         if !self.filtering {
             return;
         }
-        for ch in text.chars() {
-            if !ch.is_control() {
+        let trimmed = text.trim_matches(['\r', '\n']);
+        let clean = report::terminal::strip_terminal_controls(trimmed, false);
+        let mut budget = MAX_FILTER_CHARS.saturating_sub(self.filter.chars().count());
+        for ch in clean.chars() {
+            if budget == 0 {
+                break;
+            }
+            if !ch.is_control() && !is_bidi_control(ch) {
                 self.filter.push(ch);
+                budget -= 1;
             }
         }
         self.clamp_cursors();
@@ -472,6 +490,11 @@ impl TaierPicker {
         if self.filtering {
             return self.handle_filter_key(key);
         }
+        if matches!(key.code, KeyCode::Char(_))
+            && (ctrl || key.modifiers.contains(KeyModifiers::ALT))
+        {
+            return PickerAction::Continue;
+        }
 
         self.error_note = None;
         let step = page_rows.max(1);
@@ -479,6 +502,9 @@ impl TaierPicker {
             KeyCode::Char('q' | 'Q') => PickerAction::Cancel,
             KeyCode::Char('s' | 'S') => self.try_apply(),
             KeyCode::Char('/') => {
+                if matches!(self.level, PickerLevel::Operators { .. }) {
+                    let _ = self.step_up();
+                }
                 self.filtering = true;
                 PickerAction::Continue
             }
@@ -552,16 +578,20 @@ impl TaierPicker {
     }
 
     fn handle_filter_key(&mut self, key: KeyEvent) -> PickerAction {
-        let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+        let ctrl = key.modifiers.contains(KeyModifiers::CONTROL)
+            && !key.modifiers.contains(KeyModifiers::ALT);
         match key.code {
             KeyCode::Esc | KeyCode::Enter | KeyCode::Down | KeyCode::Up => {
                 self.filtering = false;
+                if self.filter.trim().is_empty() {
+                    self.filter.clear();
+                }
             }
-            KeyCode::Char('u') if ctrl => {
+            KeyCode::Char('u' | 'U') if ctrl => {
                 self.filter.clear();
                 self.clamp_cursors();
             }
-            KeyCode::Char('h') if ctrl => {
+            KeyCode::Char('h' | 'H') if ctrl => {
                 self.filter.pop();
                 self.clamp_cursors();
             }
@@ -570,7 +600,12 @@ impl TaierPicker {
                 self.clamp_cursors();
             }
             KeyCode::Char(ch)
-                if !ctrl && !key.modifiers.contains(KeyModifiers::ALT) && !ch.is_control() =>
+                if !key
+                    .modifiers
+                    .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+                    && !ch.is_control()
+                    && !is_bidi_control(ch)
+                    && self.filter.chars().count() < MAX_FILTER_CHARS =>
             {
                 self.filter.push(ch);
                 self.clamp_cursors();
@@ -645,7 +680,11 @@ impl TaierPicker {
                 region_idx,
                 city_idx,
             } => {
-                if self.regions[region_idx].kind == RegionKind::Municipality {
+                if self
+                    .regions
+                    .get(region_idx)
+                    .is_some_and(|reg| reg.kind == RegionKind::Municipality)
+                {
                     self.level = PickerLevel::Regions;
                     let vis = self.visible_regions();
                     if let Some(pos) = vis.iter().position(|&idx| idx == region_idx) {
@@ -795,9 +834,9 @@ impl TaierPicker {
             *self.cursor_mut() = 0;
             return;
         }
-        let cur = i32::try_from(*self.cursor_mut()).unwrap_or(0);
-        let max_idx = i32::try_from(len - 1).unwrap_or(0);
-        let next = (cur + delta).clamp(0, max_idx);
+        let cur = i32::try_from(*self.cursor_mut()).unwrap_or(i32::MAX);
+        let max_idx = i32::try_from(len - 1).unwrap_or(i32::MAX);
+        let next = cur.saturating_add(delta).clamp(0, max_idx);
         *self.cursor_mut() = usize::try_from(next).unwrap_or(0);
     }
 
@@ -811,6 +850,22 @@ impl TaierPicker {
     }
 
     fn clamp_cursors(&mut self) {
+        if let PickerLevel::Operators {
+            region_idx,
+            city_idx,
+        } = self.level
+            && !self.visible_cities(region_idx).contains(&city_idx)
+        {
+            if self
+                .regions
+                .get(region_idx)
+                .is_some_and(|reg| reg.kind == RegionKind::Municipality)
+            {
+                self.level = PickerLevel::Regions;
+            } else {
+                self.level = PickerLevel::Cities { region_idx };
+            }
+        }
         if let PickerLevel::Cities { region_idx } = self.level
             && self.visible_cities(region_idx).is_empty()
         {
@@ -818,9 +873,23 @@ impl TaierPicker {
         }
         let reg_len = self.visible_regions().len();
         self.region_cursor = self.region_cursor.min(reg_len.saturating_sub(1));
-        if let PickerLevel::Cities { region_idx } = self.level {
-            let city_len = self.visible_cities(region_idx).len();
-            self.city_cursor = self.city_cursor.min(city_len.saturating_sub(1));
+        match self.level {
+            PickerLevel::Regions => {}
+            PickerLevel::Cities { region_idx } => {
+                let city_len = self.visible_cities(region_idx).len();
+                self.city_cursor = self.city_cursor.min(city_len.saturating_sub(1));
+            }
+            PickerLevel::Operators {
+                region_idx,
+                city_idx,
+            } => {
+                let op_len = self
+                    .regions
+                    .get(region_idx)
+                    .and_then(|reg| reg.cities.get(city_idx))
+                    .map_or(0, |city| city.operators.len());
+                self.operator_cursor = self.operator_cursor.min(op_len.saturating_sub(1));
+            }
         }
     }
 
