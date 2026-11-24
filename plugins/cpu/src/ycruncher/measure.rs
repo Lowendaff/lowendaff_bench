@@ -23,7 +23,7 @@ pub const RUN_LIMIT: Duration = Duration::from_secs(15 * 60);
 /// `("25m", 25_000_000)` (~140 MiB working memory) so low-end 512 MiB / 1-vCPU hosts succeed.
 #[must_use]
 pub fn choose_size(threads: usize, available_bytes: Option<u64>) -> (&'static str, u64) {
-    let enough_ram = available_bytes.is_none_or(|avail| avail >= (1536 << 20));
+    let enough_ram = available_bytes.is_some_and(|avail| avail >= (1536 << 20));
     if threads >= 2 && enough_ram {
         ("100m", 100_000_000)
     } else {
@@ -55,6 +55,10 @@ where
     F: Fn(Job) -> Fut,
     Fut: Future<Output = Result<job::Output, RunError>>,
 {
+    if ctx.cancel_token().is_cancelled() {
+        return Err(Failure::Cancelled);
+    }
+    let threads = threads.max(1);
     let (preset, digits) = choose_size(threads, available_bytes);
     ctx.progress(Step::CpuSuite {
         suite: "ycruncher",

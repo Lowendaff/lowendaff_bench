@@ -3,6 +3,8 @@
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::net::IpAddr;
+use std::net::Ipv4Addr;
+use std::net::Ipv6Addr;
 
 use serde::Deserialize;
 use serde_json::Value;
@@ -88,14 +90,30 @@ struct PathBucket {
     raw_variants: BTreeMap<Vec<u32>, u32>,
 }
 
-/// Parses a CIDR string such as `"203.0.113.0/24"` or `"2001:db8::/48"`.
+/// Parses a CIDR string such as `"203.0.113.0/24"` or `"2001:db8::/48"`, masking host bits so the
+/// returned [`IpAddr`] is the canonical network base address.
 #[must_use]
 pub fn parse_cidr(text: &str) -> Option<(IpAddr, u8)> {
     let (addr_str, len_str) = text.trim().split_once('/')?;
-    let addr: IpAddr = addr_str.parse().ok()?;
-    let len: u8 = len_str.parse().ok()?;
-    let max_len = if addr.is_ipv6() { 128 } else { 32 };
-    (len <= max_len).then_some((addr, len))
+    let addr: IpAddr = addr_str.trim().parse().ok()?;
+    let len: u8 = len_str.trim().parse().ok()?;
+    match addr {
+        IpAddr::V4(v4) if len <= 32 => {
+            let mask = if len == 0 { 0 } else { u32::MAX << (32 - len) };
+            let base = Ipv4Addr::from(u32::from(v4) & mask);
+            Some((IpAddr::V4(base), len))
+        }
+        IpAddr::V6(v6) if len <= 128 => {
+            let mask = if len == 0 {
+                0
+            } else {
+                u128::MAX << (128 - len)
+            };
+            let base = Ipv6Addr::from(u128::from(v6) & mask);
+            Some((IpAddr::V6(base), len))
+        }
+        _ => None,
+    }
 }
 
 /// Collapses consecutive duplicate ASNs (AS-PATH prepending) while preserving hop order.
@@ -123,50 +141,50 @@ pub fn parse_bgp_state(body: &[u8]) -> Result<ParsedBgpState, QueryError> {
         return Err(QueryError::MissingData);
     };
 
-    // Group routes by target_prefix so that, when both a covering supernet and a more specific
-    // subnet appear, we evaluate the most specific prefix (longest mask, then most routes).
-    let mut by_prefix: BTreeMap<String, Vec<Vec<u32>>> = BTreeMap::new();
-    let fallback_prefix = data
-        .resource
-        .as_deref()
-        .filter(|res| parse_cidr(res).is_some())
-        .map(str::to_owned);
+    // Group routes by canonical (base_ip, prefix_len) so equivalent spellings merge cleanly and,
+    // when both a covering supernet and a more specific subnet appear, we evaluate the most
+    // specific prefix (longest mask, then most routes).
+    let mut by_prefix: BTreeMap<(IpAddr, u8), Vec<Vec<u32>>> = BTreeMap::new();
+    let mut untagged_routes: Vec<Vec<u32>> = Vec::new();
 
     for route in data.bgp_state {
         let raw_asns = extract_asns(&route.path);
         if raw_asns.is_empty() {
             continue;
         }
-        let Some(px) = route.target_prefix.or_else(|| fallback_prefix.clone()) else {
-            continue;
-        };
-        if parse_cidr(&px).is_none() {
-            continue;
+        match route.target_prefix.as_deref() {
+            Some(px) => {
+                let Some(cidr) = parse_cidr(px) else {
+                    continue;
+                };
+                by_prefix.entry(cidr).or_default().push(raw_asns);
+            }
+            None => untagged_routes.push(raw_asns),
         }
-        by_prefix.entry(px).or_default().push(raw_asns);
     }
 
-    let Some((chosen_prefix, raw_routes)) =
+    if by_prefix.is_empty()
+        && !untagged_routes.is_empty()
+        && let Some(fallback_cidr) = data.resource.as_deref().and_then(parse_cidr)
+    {
+        by_prefix.insert(fallback_cidr, untagged_routes);
+    }
+
+    let Some(((base_ip, len), raw_routes)) =
         by_prefix
             .into_iter()
-            .max_by(|(px_a, routes_a), (px_b, routes_b)| {
-                let len_a = parse_cidr(px_a).map_or(0, |(_, l)| l);
-                let len_b = parse_cidr(px_b).map_or(0, |(_, l)| l);
+            .max_by(|((ip_a, len_a), routes_a), ((ip_b, len_b), routes_b)| {
                 len_a
-                    .cmp(&len_b)
+                    .cmp(len_b)
                     .then_with(|| routes_a.len().cmp(&routes_b.len()))
-                    .then_with(|| px_b.cmp(px_a))
+                    .then_with(|| ip_b.cmp(ip_a))
             })
     else {
         return Ok(ParsedBgpState {
             announced: false,
-            prefix: fallback_prefix.clone(),
-            prefix_base: fallback_prefix
-                .as_deref()
-                .and_then(|p| parse_cidr(p).map(|c| c.0)),
-            prefix_len: fallback_prefix
-                .as_deref()
-                .and_then(|p| parse_cidr(p).map(|c| c.1)),
+            prefix: None,
+            prefix_base: None,
+            prefix_len: None,
             origin_asn: None,
             origins: Vec::new(),
             total_peers: 0,
@@ -176,9 +194,9 @@ pub fn parse_bgp_state(body: &[u8]) -> Result<ParsedBgpState, QueryError> {
         });
     };
 
-    let (prefix_base, prefix_len) = parse_cidr(&chosen_prefix)
-        .map(|(ip, len)| (Some(ip), Some(len)))
-        .unwrap_or((None, None));
+    let chosen_prefix = format!("{base_ip}/{len}");
+    let prefix_base = Some(base_ip);
+    let prefix_len = Some(len);
     let total_peers = u32::try_from(raw_routes.len()).unwrap_or(u32::MAX);
 
     // Aggregate by clean_path: count total peers and keep the most frequent raw variant (so

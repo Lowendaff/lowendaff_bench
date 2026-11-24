@@ -48,11 +48,20 @@ fn bgp_state_picks_most_specific_prefix_and_collapses_prepends() {
 
 #[test]
 fn unannounced_prefix_returns_clean_empty_state() {
-    let body = br#"{"status":"ok","data":{"resource":"198.51.100.9","bgp_state":[]}}"#;
+    let body = br#"{"status":"ok","data":{"resource":"198.51.100.9/32","bgp_state":[]}}"#;
     let parsed = parse::parse_bgp_state(body).expect("empty bgp_state parses");
     assert!(!parsed.announced);
+    assert_eq!(parsed.prefix, None);
+    assert_eq!(parsed.prefix_base, None);
+    assert_eq!(parsed.prefix_len, None);
     assert_eq!(parsed.total_peers, 0);
     assert!(parsed.paths.is_empty());
+
+    assert_eq!(
+        parse::parse_cidr(" 198.51.100.77/24 "),
+        Some(("198.51.100.0".parse().expect("v4"), 24)),
+        "host bits beyond prefix length must be masked"
+    );
 }
 
 #[test]

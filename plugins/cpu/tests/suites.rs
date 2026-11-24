@@ -631,7 +631,44 @@ async fn ycruncher_choose_size_attempt_and_measure_clean_up_work_dir() {
     );
     assert_eq!(
         ycruncher::measure::choose_size(2, None),
-        ("100m", 100_000_000)
+        ("25m", 25_000_000),
+        "unknown RAM falls back conservatively to 25m"
+    );
+
+    let ansi_out = exited(
+        0,
+        concat!(
+            "\x1b[0;1;33my-cruncher v0.8.7\x1b[0m\n",
+            "Program: \x1b[0;1;36my-cruncher v0.8.7 Build 9547\x1b[0m\n",
+            "Tuning Profile: \x1b[0;1;32m14-ZN4\u{202e} ~ Ushio\x1b[0m\n",
+            "Decimal Digits: 25,000,000\n",
+            "Total Computation Time: 1.250 seconds\n",
+            "Start-to-End Wall Time: 1.500 seconds\n",
+            "CPU Utilization: 724.29%\n",
+            "Multi-core Efficiency: -0.0%\n",
+            "\x1b[0;1;32mSpot Check: Good\x1b[0m\n"
+        )
+        .to_owned(),
+    );
+    let parsed_ansi = ycruncher::parse::reading(&ansi_out, 25_000_000).expect("ANSI y-cruncher");
+    assert_eq!(parsed_ansi.version.as_deref(), Some("0.8.7.9547"));
+    assert_eq!(parsed_ansi.tuning.as_deref(), Some("14-ZN4 ~ Ushio"));
+    assert_eq!(parsed_ansi.cpu_utilization_pct, Some(724.29));
+    assert_eq!(parsed_ansi.multicore_efficiency_pct, Some(0.0));
+    assert!(
+        ycruncher::parse::reading(
+            &exited(
+                0,
+                concat!(
+                    "Total Computation Time: 1.0 seconds\n",
+                    "Spot Check: Failed\nSpot Check: Good\n"
+                )
+                .to_owned(),
+            ),
+            25_000_000
+        )
+        .is_err(),
+        "failed Spot Check must latch across subsequent lines"
     );
 
     let program = Path::new("/tools/y-cruncher");

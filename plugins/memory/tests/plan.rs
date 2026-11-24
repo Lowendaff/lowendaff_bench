@@ -203,7 +203,10 @@ fn unknown_caches_count_as_32_mib() {
 
     // Caches the kernel gives no size are as good as none.
     host.caches = vec![unified(3, 0, &[0, 1])];
-    assert!(Plan::new(&host).cache_unknown);
+    let zero_plan = Plan::new(&host);
+    assert!(zero_plan.cache_unknown);
+    assert_eq!(zero_plan.chases, [chase(Level::Memory, 128 * MIB)]);
+    assert_eq!(zero_plan.missing, [Level::L1, Level::L2, Level::L3]);
 }
 
 #[test]
@@ -283,6 +286,11 @@ fn buffers_shrink_to_half_the_available_memory() {
     // No buffer goes below a page.
     let plan = Plan::new(&host(44 * MIB, 0, 4));
     assert_eq!((plan.single, plan.per_thread), (4 * KIB, 4 * KIB));
+    assert_eq!(
+        plan.chases,
+        [chase(Level::L3, 4 * KIB), chase(Level::Memory, 4 * KIB)],
+        "non-power-of-two L3 chase halves to budget without dropping below a page"
+    );
 }
 
 #[test]
