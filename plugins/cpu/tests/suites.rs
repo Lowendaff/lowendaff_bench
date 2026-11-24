@@ -81,6 +81,39 @@ fn unixbench_parses_last_count_and_computes_exact_geometric_system_index() {
     let r_fs = unixbench::parse::copy_reading("fstime", &fs, 5.0).unwrap();
     assert_eq!(r_fs.count, 1_667_507.0);
     assert_eq!(r_fs.timebase, 0.0);
+    assert_eq!(
+        unixbench::parse::copy_reading(
+            "fstime",
+            &exited(0, "COUNT|500000|0|KBps\nCOUNT|0|0|KBps\n".to_owned()),
+            5.0,
+        ),
+        Err(unixbench::Fault::NoCount { item: "fstime" }),
+        "a zero final Copy phase must overwrite earlier Read/Write counts"
+    );
+    let r_time_reset = unixbench::parse::copy_reading(
+        "dhry2reg",
+        &exited(0, "TIME|10.0\nCOUNT|1000|1|lps\nTIME|0.0\n".to_owned()),
+        f64::INFINITY,
+    )
+    .unwrap();
+    assert_eq!(r_time_reset.reported_secs, None);
+    assert!(r_time_reset.elapsed_secs.is_finite());
+    assert!(unixbench::parse::combine_copies("shell8", "lpm", f64::NAN, &[r_fs]).is_none());
+    assert!(
+        unixbench::parse::combine_copies(
+            "shell8",
+            "lpm",
+            6.0,
+            &[unixbench::parse::CopyReading {
+                count: 1.5e308,
+                timebase: 0.0,
+                reported_secs: None,
+                elapsed_secs: 1.0,
+            }],
+        )
+        .is_none(),
+        "overflowing index must return None"
+    );
 
     // looper prints COUNT|<iter>|60|lpm without TIME|; rate = sum(iter) / (elapsed / 60).
     let sh = exited(0, "COUNT|84.8|60|lpm\n".to_owned());
@@ -300,7 +333,7 @@ fn suite_ctx(work: &Path) -> Context<plugin_cpu::bench::Output> {
 #[tokio::test]
 async fn seven_zip_attempt_and_measure_cover_retries_partial_publish_and_cancel() {
     let program = Path::new("/tools/7zz");
-    let low_mem_job = seven_zip::measure::attempt(program, 1, true);
+    let low_mem_job = seven_zip::measure::attempt(program, 1, Some(18));
     assert_eq!(low_mem_job.program, program);
     assert_eq!(
         low_mem_job.args,
@@ -314,7 +347,7 @@ async fn seven_zip_attempt_and_measure_cover_retries_partial_publish_and_cancel(
     assert!(low_mem_job.group);
     assert!(low_mem_job.first_to_go);
 
-    let full_job = seven_zip::measure::attempt(program, 4, false);
+    let full_job = seven_zip::measure::attempt(program, 4, None);
     assert_eq!(
         full_job.args,
         [OsString::from("b"), OsString::from("-mmt4")]
@@ -335,7 +368,7 @@ async fn seven_zip_attempt_and_measure_cover_retries_partial_publish_and_cancel(
         &ctx,
         program,
         4,
-        true,
+        Some(512 << 20),
         |partial| partials.push(partial.clone()),
         |job| {
             jobs.lock().unwrap().push(job);
@@ -349,9 +382,9 @@ async fn seven_zip_attempt_and_measure_cover_retries_partial_publish_and_cancel(
     assert_eq!(
         jobs.into_inner().unwrap(),
         [
-            seven_zip::measure::attempt(program, 1, true),
-            seven_zip::measure::attempt(program, 1, true),
-            seven_zip::measure::attempt(program, 4, true),
+            seven_zip::measure::attempt(program, 1, Some(18)),
+            seven_zip::measure::attempt(program, 1, Some(18)),
+            seven_zip::measure::attempt(program, 4, Some(18)),
         ]
     );
     assert_eq!(out.single.retries, [seven_zip::Fault::Tool(timed_out)]);
@@ -367,7 +400,7 @@ async fn seven_zip_attempt_and_measure_cover_retries_partial_publish_and_cancel(
         &ctx,
         program,
         4,
-        false,
+        None,
         |_| {},
         |_| {
             let next = cancel_script.lock().unwrap().pop_front().unwrap();
@@ -674,5 +707,170 @@ async fn prime95_attempt_and_measure_write_torture_configs_and_clean_up_work_dir
     .await
     .expect("Prime95 torture run succeeds");
     assert!(out.passed);
+    assert!(!work_dir.exists(), "work_dir removed after completion");
+}
+
+#[tokio::test]
+async fn seven_zip_measure_caps_dictionary_records_retries_and_preserves_partial() {
+    assert_eq!(seven_zip::measure::choose_dict_exp(4, None), None);
+    assert_eq!(
+        seven_zip::measure::choose_dict_exp(4, Some(512 << 20)),
+        Some(18)
+    );
+    assert_eq!(
+        seven_zip::measure::choose_dict_exp(16, Some(2_u64 << 30)),
+        Some(23),
+        "2 GiB container on 16 threads caps dictionary well below -md25"
+    );
+    assert_eq!(
+        seven_zip::measure::choose_dict_exp(4, Some(16_u64 << 30)),
+        None,
+        "roomy host leaves -md25 default uncapped"
+    );
+    assert_eq!(
+        seven_zip::measure::args(0, Some(23)),
+        [
+            OsString::from("b"),
+            OsString::from("-mmt1"),
+            OsString::from("-md23"),
+        ]
+    );
+
+    let program = Path::new("/tools/7zz");
+    let dir = tempfile::tempdir().unwrap();
+    let expected_1 = seven_zip::measure::attempt(program, 1, Some(23));
+    assert!(expected_1.group && expected_1.first_to_go);
+    let expected_16 = seven_zip::measure::attempt(program, 16, Some(23));
+
+    let ctx = suite_ctx(dir.path());
+    let valid = fixture("7zip/aarch64-2-threads.txt");
+    let no_ver = valid.replacen("7-Zip 26.06", "7-Zip", 1);
+    let queue = Mutex::new(VecDeque::from([
+        (expected_1.clone(), Ok(exited(0, no_ver))),
+        (
+            expected_16.clone(),
+            Ok(exited(0, "7-Zip 26.06\n".to_owned())),
+        ),
+        (expected_16.clone(), Ok(exited(0, valid.clone()))),
+    ]));
+    let partials = AtomicUsize::new(0);
+    let out = seven_zip::measure::measure(
+        &ctx,
+        program,
+        16,
+        Some(2_u64 << 30),
+        |partial| {
+            assert_eq!(partial.single.threads, 1);
+            assert!(partial.multi.is_none());
+            partials.fetch_add(1, Ordering::SeqCst);
+        },
+        |job| {
+            let (exp, next) = queue.lock().unwrap().pop_front().unwrap();
+            assert_eq!(job, exp);
+            async move { next }
+        },
+    )
+    .await
+    .expect("7-Zip single + retried multi succeeds");
+    assert_eq!(partials.load(Ordering::SeqCst), 1);
+    assert_eq!(out.version.as_deref(), Some("26.06"));
+    let multi = out.multi.expect("multi result");
+    assert_eq!(multi.threads, 16);
+    assert_eq!(multi.retries, [seven_zip::Fault::NoScores]);
+
+    // Single-thread host skips multi-thread run.
+    let single_only = seven_zip::measure::measure(
+        &ctx,
+        program,
+        1,
+        Some(512 << 20),
+        |_| panic!("threads <= 1 must not emit partial"),
+        |job| {
+            assert_eq!(job, seven_zip::measure::attempt(program, 1, Some(18)));
+            let text = valid.clone();
+            async move { Ok(exited(0, text)) }
+        },
+    )
+    .await
+    .expect("single-only succeeds");
+    assert!(single_only.multi.is_none());
+
+    // Multi-thread failure preserves single-thread partial output.
+    let fail_queue = Mutex::new(VecDeque::from([
+        Ok(exited(0, valid)),
+        Err(RunError::Cancelled),
+    ]));
+    let (partial, failure) = seven_zip::measure::measure(
+        &ctx,
+        program,
+        4,
+        None,
+        |_| {},
+        |_| {
+            let next = fail_queue.lock().unwrap().pop_front().unwrap();
+            async move { next }
+        },
+    )
+    .await
+    .expect_err("cancelled multi returns partial");
+    assert_eq!(failure, seven_zip::Failure::Cancelled);
+    assert_eq!(partial.expect("partial").single.threads, 1);
+}
+
+#[tokio::test]
+async fn unixbench_copy_job_and_measure_normalize_paths_and_clean_up_work_dir() {
+    let fstime_spec = &unixbench::measure::INDEX_SPECS[3];
+    let rel_job =
+        unixbench::measure::copy_job(fstime_spec, Path::new(""), Path::new("copies-1/c0"));
+    assert_eq!(rel_job.program, Path::new("./fstime"));
+    assert_eq!(
+        rel_job.envs,
+        [(OsString::from("UB_BINDIR"), OsString::from("."))]
+    );
+    assert_eq!(rel_job.dir.as_deref(), Some(Path::new("copies-1/c0")));
+    assert_eq!(
+        rel_job.args[3..=4],
+        [OsString::from("-d"), OsString::from(".")],
+        "relative copy_dir must not pass relative path to -d after chdir"
+    );
+
+    let dir = tempfile::tempdir().unwrap();
+    let work_dir = dir.path().join("unixbench");
+    let dhry = dir.path().join("tools/dhry2reg");
+    let ctx = suite_ctx(dir.path());
+    let partials = AtomicUsize::new(0);
+    let out = unixbench::measure::measure(
+        &ctx,
+        &dhry,
+        &work_dir,
+        2,
+        |partial| {
+            assert_eq!(partial.single.copies, 1);
+            partials.fetch_add(1, Ordering::SeqCst);
+        },
+        |job| {
+            assert!(job.program.is_absolute());
+            assert!(job.dir.as_deref().is_some_and(Path::is_absolute));
+            let text = if job
+                .program
+                .file_name()
+                .is_some_and(|n| n == "whetstone-double")
+            {
+                "COUNT|550.0|1|MWIPS\nTIME|10.0\n".to_owned()
+            } else if job.program.file_name().is_some_and(|n| n == "looper") {
+                "COUNT|600.0|60|lpm\n".to_owned()
+            } else if job.program.file_name().is_some_and(|n| n == "fstime") {
+                "COUNT|10000.0|0|KBps\n".to_owned()
+            } else {
+                "COUNT|100000.0|1|lps\nTIME|10.0\n".to_owned()
+            };
+            async move { Ok(exited(0, text)) }
+        },
+    )
+    .await
+    .expect("unixbench 1-copy + 2-copy succeeds");
+    assert_eq!(partials.load(Ordering::SeqCst), 1);
+    assert_eq!(out.single.items.len(), 12);
+    assert_eq!(out.multi.expect("multi").copies, 2);
     assert!(!work_dir.exists(), "work_dir removed after completion");
 }

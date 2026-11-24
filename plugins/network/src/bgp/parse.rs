@@ -301,18 +301,19 @@ fn retain_diverse_paths(paths: Vec<BgpPath>, limit: usize) -> Vec<BgpPath> {
 /// Extracts non-zero 32-bit ASN numbers from a RIPEstat JSON `path` array, flattening any legacy
 /// `AS_SET` array element to its first valid ASN.
 fn extract_asns(values: &[Value]) -> Vec<u32> {
+    let parse_asn = |val: &Value| {
+        val.as_u64()
+            .and_then(|n| u32::try_from(n).ok())
+            .filter(|&asn| asn > 0)
+    };
     let mut out = Vec::with_capacity(values.len());
     for item in values {
         let maybe_asn = match item {
-            Value::Number(num) => num.as_u64().and_then(|n| u32::try_from(n).ok()),
-            Value::Array(set) => set
-                .iter()
-                .find_map(|el| el.as_u64().and_then(|n| u32::try_from(n).ok())),
+            Value::Number(_) => parse_asn(item),
+            Value::Array(set) => set.iter().find_map(parse_asn),
             _ => None,
         };
-        if let Some(asn) = maybe_asn
-            && asn > 0
-        {
+        if let Some(asn) = maybe_asn {
             out.push(asn);
         }
     }

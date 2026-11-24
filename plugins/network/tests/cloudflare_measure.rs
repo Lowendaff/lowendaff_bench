@@ -288,6 +288,38 @@ async fn cloudflare_plugin_validates_endpoints_skips_offline_and_preserves_parti
     assert!(cloudflare::validate_base_url("https://speed.cloudflare.com").is_ok());
     assert!(cloudflare::validate_base_url("http://127.0.0.1:8080").is_ok());
     assert!(cloudflare::validate_base_url("http://speed.example").is_err());
+    assert_eq!(
+        cloudflare::validate_stun_host("stun.cloudflare.com").as_deref(),
+        Ok("stun.cloudflare.com")
+    );
+    assert_eq!(
+        cloudflare::validate_stun_host("127.0.0.1").as_deref(),
+        Ok("127.0.0.1")
+    );
+    assert_eq!(
+        cloudflare::validate_stun_host("::1").as_deref(),
+        Ok("[::1]")
+    );
+    for bad in [
+        "",
+        "localhost",
+        "stun.localhost",
+        "stun.local",
+        "singlelabel",
+        "10.0.0.1",
+        "169.254.169.254",
+        "fe80::1",
+        "[127.0.0.1]",
+        "[[127.0.0.1]]",
+        "stun.cloudflare.com:3478",
+        "stun host.example",
+        "0x7f000001",
+    ] {
+        assert!(
+            cloudflare::validate_stun_host(bad).is_err(),
+            "expected invalid stun_host: {bad}"
+        );
+    }
 
     let make_ctx = |host: Arc<HostProfile>, cancel: CancellationToken| {
         Context::<Output>::new(

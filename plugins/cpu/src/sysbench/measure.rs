@@ -109,6 +109,9 @@ where
     Fut: Future<Output = Result<job::Output, RunError>>,
     P: FnMut(&Output),
 {
+    if ctx.cancel_token().is_cancelled() {
+        return Err(Stop::Failed(Failure::Cancelled));
+    }
     ctx.progress(step(suite_steps, 1));
     let (reading, retries) = match tried(ctx, &run, program, 1).await {
         Tried::Done(reading, retries) => (reading, retries),
@@ -128,9 +131,15 @@ where
         return Ok(output);
     }
     on_partial(&output);
+    if ctx.cancel_token().is_cancelled() {
+        return Err(Stop::Failed(Failure::Cancelled));
+    }
     ctx.progress(step(suite_steps, threads));
     match tried(ctx, &run, program, threads).await {
         Tried::Done(reading, retries) => {
+            if output.version.is_none() {
+                output.version = reading.version;
+            }
             output.multi = Some(Run {
                 threads,
                 rate: reading.rate,
@@ -138,7 +147,7 @@ where
             });
             Ok(output)
         }
-        Tried::Failed(faults) => Err(Stop::Failed((output, Failure::Multi(faults)).1)),
+        Tried::Failed(faults) => Err(Stop::Failed(Failure::Multi(faults))),
         Tried::Cancelled => Err(Stop::Failed(Failure::Cancelled)),
     }
 }
@@ -178,6 +187,10 @@ where
     F: Fn(Job) -> Fut,
     Fut: Future<Output = Result<job::Output, RunError>>,
 {
+    let cancel = ctx.cancel_token();
+    if cancel.is_cancelled() {
+        return Tried::Cancelled;
+    }
     let once = || async {
         match run(attempt(program, threads)).await {
             Ok(output) => parse::reading(&output).map_err(Attempt::Failed),
@@ -186,7 +199,6 @@ where
         }
     };
     let failed = |attempt: &Attempt| matches!(attempt, Attempt::Failed(_));
-    let cancel = ctx.cancel_token();
     let retried = Retried::run(ATTEMPTS, Duration::ZERO, &cancel, failed, once).await;
     // Only failures are tried again, so the earlier attempts all failed.
     let mut faults: Vec<Fault> = retried
@@ -199,6 +211,7 @@ where
         .collect();
     match retried.last {
         Ok(reading) => Tried::Done(reading, faults),
+        Err(_) if cancel.is_cancelled() => Tried::Cancelled,
         Err(Attempt::Failed(fault)) => {
             faults.push(fault);
             Tried::Failed(faults)

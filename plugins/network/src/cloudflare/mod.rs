@@ -7,6 +7,9 @@ pub mod parse;
 pub mod result;
 
 use std::collections::hash_map::RandomState;
+use std::net::IpAddr;
+use std::net::Ipv4Addr;
+use std::net::Ipv6Addr;
 use std::num::NonZeroU8;
 use std::num::NonZeroU16;
 use std::time::Duration;
@@ -101,14 +104,7 @@ impl Plugin for Cloudflare {
             None => None,
         };
         let stun_host = match self.stun_host.as_deref() {
-            Some(raw) => {
-                let trimmed = raw.trim();
-                if trimmed.is_empty() || trimmed.contains('/') || trimmed.contains(char::is_control)
-                {
-                    return Err(Stop::Failed(Failure::InvalidEndpoint(raw.to_owned())));
-                }
-                Some(trimmed.to_owned())
-            }
+            Some(raw) => Some(validate_stun_host(raw).map_err(Stop::Failed)?),
             None => None,
         };
         if self.stun_port == 0 {
@@ -144,6 +140,79 @@ impl Plugin for Cloudflare {
 pub fn validate_base_url(raw: &str) -> Result<String, Failure> {
     bench_api::validate_endpoint_url(raw, true)
         .ok_or_else(|| Failure::InvalidEndpoint(raw.to_owned()))
+}
+
+/// Validates `stun_host`: accepts a public/loopback IPv4 or IPv6 literal (normalizing IPv6 to
+/// `[addr]`) or a multi-label public RFC 1123 hostname without port or URI delimiters.
+#[must_use = "returns the validated STUN host or the failure reason"]
+pub fn validate_stun_host(raw: &str) -> Result<String, Failure> {
+    let invalid = || Failure::InvalidEndpoint(raw.to_owned());
+    let trimmed = raw.trim();
+    if trimmed.is_empty()
+        || !trimmed.is_ascii()
+        || trimmed
+            .bytes()
+            .any(|b| b <= b' ' || b == 0x7f || matches!(b, b'/' | b'?' | b'#' | b'\\' | b'@'))
+    {
+        return Err(invalid());
+    }
+    if trimmed.starts_with('[') || trimmed.ends_with(']') {
+        let inner = trimmed
+            .strip_prefix('[')
+            .and_then(|s| s.strip_suffix(']'))
+            .ok_or_else(invalid)?;
+        let v6 = inner.parse::<Ipv6Addr>().map_err(|_| invalid())?;
+        if !v6.is_loopback() && !bench_api::is_routable_endpoint_ip(IpAddr::V6(v6)) {
+            return Err(invalid());
+        }
+        return Ok(format!("[{v6}]"));
+    }
+    if let Ok(v6) = trimmed.parse::<Ipv6Addr>() {
+        if !v6.is_loopback() && !bench_api::is_routable_endpoint_ip(IpAddr::V6(v6)) {
+            return Err(invalid());
+        }
+        return Ok(format!("[{v6}]"));
+    }
+    if trimmed.contains(':') {
+        return Err(invalid());
+    }
+    if let Ok(v4) = trimmed.parse::<Ipv4Addr>() {
+        if !v4.is_loopback() && !bench_api::is_routable_endpoint_ip(IpAddr::V4(v4)) {
+            return Err(invalid());
+        }
+        return Ok(v4.to_string());
+    }
+    let host = trimmed.trim_end_matches('.').to_ascii_lowercase();
+    if host.is_empty()
+        || host.len() > 253
+        || !host.contains('.')
+        || host == "localhost"
+        || host.ends_with(".localhost")
+        || host.ends_with(".local")
+        || host.ends_with(".internal")
+        || host == "home.arpa"
+        || host.ends_with(".home.arpa")
+    {
+        return Err(invalid());
+    }
+    let mut last_has_alpha = false;
+    for label in host.split('.') {
+        if label.is_empty()
+            || label.len() > 63
+            || label.starts_with('-')
+            || label.ends_with('-')
+            || !label
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'-')
+        {
+            return Err(invalid());
+        }
+        last_has_alpha = label.bytes().any(|b| b.is_ascii_alphabetic());
+    }
+    if !last_has_alpha {
+        return Err(invalid());
+    }
+    Ok(host)
 }
 
 fn random_meas_id() -> String {

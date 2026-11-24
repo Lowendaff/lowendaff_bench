@@ -93,6 +93,8 @@ fn a_version_is_read_only_from_sysbenchs_first_line() {
         Ok(None)
     );
     assert_eq!(reading(&format!("sysbench v1.0.20{rate}")), Ok(None));
+    assert_eq!(reading(&format!("sysbench 1.{rate}")), Ok(None));
+    assert_eq!(reading(&format!("sysbench 1..20{rate}")), Ok(None));
     assert_eq!(reading(&format!("sysbench{rate}")), Ok(None));
     assert_eq!(reading(rate), Ok(None), "no header line");
 }

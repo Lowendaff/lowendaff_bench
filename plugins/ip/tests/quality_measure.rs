@@ -240,6 +240,13 @@ async fn quality_evaluates_native_vs_broadcast_dnsbl_and_mail_across_both_famili
     assert_eq!(v4.mail[3].status, MailStatus::Rejected(554));
 
     let v6 = out.ipv6.expect("ipv6 report");
+    assert_eq!(v6.geo_total, 5, "ProxyCheck succeeded over IPv4 fallback");
+    let v6_dc = v6
+        .factors
+        .iter()
+        .find(|f| f.factor == RiskFactor::Datacenter)
+        .expect("v6 dc factor");
+    assert_eq!(v6_dc.flagged_by, ["ProxyCheck", "ipapi.is", "Shodan"]);
     assert_eq!(
         v6.origin,
         Origin::Broadcast {

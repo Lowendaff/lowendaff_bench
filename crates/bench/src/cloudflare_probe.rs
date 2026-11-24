@@ -471,7 +471,12 @@ pub async fn udp_loss(
         }));
     };
 
-    let target = format!("stun:{}:{}", spec.host, spec.port);
+    let clean_host = spec.host.trim_matches(['[', ']']);
+    let target = if clean_host.contains(':') {
+        format!("stun:[{clean_host}]:{}", spec.port)
+    } else {
+        format!("stun:{clean_host}:{}", spec.port)
+    };
     let attempts = u64::from(spec.packets.max(1));
     let mut seed = RandomState::new().hash_one(&target);
 

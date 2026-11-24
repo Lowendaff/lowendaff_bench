@@ -269,7 +269,6 @@ impl Plugin for CpuBench {
         }
         let threads = crate::usable_threads(ctx.host());
         let avail_mem = crate::available_memory_bytes(ctx.host());
-        let low_memory = avail_mem.is_some_and(|b| b < (1024 << 20));
         let mut output = Output {
             suites: self.custom_codes.clone(),
             ..Output::default()
@@ -299,7 +298,7 @@ impl Plugin for CpuBench {
             if ctx.cancel_token().is_cancelled() {
                 return Err(Stop::Failed(Failure::Cancelled));
             }
-            let outcome = run_seven_zip(ctx, threads, low_memory, &output).await;
+            let outcome = run_seven_zip(ctx, threads, avail_mem, &output).await;
             if matches!(
                 outcome,
                 SuiteOutcome::Failed {
@@ -490,7 +489,7 @@ async fn run_sysbench(
 async fn run_seven_zip(
     ctx: &Context<Output>,
     threads: usize,
-    low_memory: bool,
+    available_bytes: Option<u64>,
     base: &Output,
 ) -> SuiteOutcome<seven_zip::Output, seven_zip::Failure> {
     let program = match require_tool(ctx, &SEVENZIP) {
@@ -501,7 +500,7 @@ async fn run_seven_zip(
         ctx,
         &program,
         threads,
-        low_memory,
+        available_bytes,
         |partial| {
             let mut snap = base.clone();
             snap.seven_zip = Some(SuiteOutcome::Done {

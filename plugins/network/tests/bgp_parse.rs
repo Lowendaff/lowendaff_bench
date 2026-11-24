@@ -33,6 +33,17 @@ fn bgp_state_picks_most_specific_prefix_and_collapses_prepends() {
     // AS_SET `[64500]` at the end of `[2914, [64500]]` flattens cleanly.
     assert!(parsed.paths.iter().any(|p| p.asns == [2914, 64500]));
     assert_eq!(parsed.paths.iter().filter(|p| p.is_best).count(), 1);
+
+    let zero_in_set = parse::parse_bgp_state(
+        concat!(
+            r#"{"status":"ok","data":{"bgp_state":[{"#,
+            r#""target_prefix":"203.0.113.0/24","path":[2914,[0,64500]]}]}}"#
+        )
+        .as_bytes(),
+    )
+    .expect("AS_SET with leading 0 parses");
+    assert_eq!(zero_in_set.origin_asn, Some(64500));
+    assert_eq!(zero_in_set.paths[0].asns, [2914, 64500]);
 }
 
 #[test]

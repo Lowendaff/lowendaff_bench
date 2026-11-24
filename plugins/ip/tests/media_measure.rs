@@ -141,10 +141,12 @@ async fn unlock_probes_both_families_rewrites_base_url_and_reports_progress() {
             "bbc-iplayer".to_owned(),
             "unknown-id".to_owned(),
         ],
-        base_url: Some("http://127.0.0.1:18080".to_owned()),
+        base_url: Some("http://127.0.0.1:18080/".to_owned()),
     };
 
     let output = plugin.run(&ctx).await.expect("measurement succeeds");
+    assert!(output.settings.custom_base);
+    assert_eq!(channels.published.borrow().as_ref(), Some(&output));
     assert_eq!(output.unknown, ["unknown-id"]);
     assert!(output.ipv4_reachable && output.ipv6_reachable);
     assert_eq!(output.results.len(), 3);
@@ -156,11 +158,18 @@ async fn unlock_probes_both_families_rewrites_base_url_and_reports_progress() {
             region: Some("SG".to_owned())
         })
     );
+    assert_eq!(
+        output.results[0].ipv6,
+        Some(Verdict::OriginalsOnly {
+            region: Some("SG".to_owned())
+        })
+    );
     // Abema: JP over IPv4, NoAddress over IPv6.
     assert_eq!(output.results[1].ipv4, Some(Verdict::yes_in("JP")));
     assert_eq!(output.results[1].ipv6, Some(Verdict::NoAddress));
     // BBC iPlayer: BlockedWaf from cf-mitigated challenge.
     assert_eq!(output.results[2].ipv4, Some(Verdict::BlockedWaf));
+    assert_eq!(output.results[2].ipv6, Some(Verdict::BlockedWaf));
 
     let mut steps = Vec::new();
     while let Ok(Progress::Step(step)) = channels.progress.try_recv() {
@@ -195,19 +204,21 @@ async fn unlock_probes_both_families_rewrites_base_url_and_reports_progress() {
             },
         ]
     );
+    let seen = http.seen.lock().expect("lock").clone();
+    assert_eq!(seen.len(), 8);
     assert!(
-        http.seen
-            .lock()
-            .expect("lock")
-            .iter()
-            .all(|(_, url)| url.starts_with("http://127.0.0.1:18080/")),
-        "every probe honored base_url"
+        seen.iter().all(|(_, url)| {
+            url.strip_prefix("http://127.0.0.1:18080/")
+                .is_some_and(|rest| !rest.starts_with('/') && !rest.contains("//"))
+        }),
+        "every probe honored normalized base_url without double slashes: {seen:?}"
     );
 }
 
 #[tokio::test]
 async fn unlock_skips_without_network_or_matching_services_and_rejects_bad_base_url() {
-    let http: Arc<dyn HttpClient> = Arc::new(RecordedHttp::new());
+    let raw_http = Arc::new(RecordedHttp::new());
+    let http: Arc<dyn HttpClient> = Arc::clone(&raw_http) as Arc<dyn HttpClient>;
 
     let (offline_ctx, _, _) = make_context(false, false, Arc::clone(&http));
     assert_eq!(
@@ -249,6 +260,39 @@ async fn unlock_skips_without_network_or_matching_services_and_rejects_bad_base_
         blank_only.run(&ctx).await,
         Err(Stop::Skipped(Failure::NoService(Vec::new())))
     );
+    assert!(raw_http.seen.lock().expect("lock").is_empty());
+
+    let (v4_ctx, mut v4_channels, _) = make_context(true, false, Arc::clone(&http));
+    let v4_only = Media {
+        groups: Vec::new(),
+        services: vec!["abema".to_owned()],
+        base_url: Some("http://127.0.0.1:18080".to_owned()),
+    };
+    let v4_out = v4_only.run(&v4_ctx).await.expect("v4-only run succeeds");
+    assert!(v4_out.ipv4_reachable && !v4_out.ipv6_reachable);
+    assert_eq!(v4_out.results.len(), 1);
+    assert_eq!(v4_out.results[0].ipv4, Some(Verdict::yes_in("JP")));
+    assert_eq!(v4_out.results[0].ipv6, None);
+    let mut v4_steps = Vec::new();
+    while let Ok(Progress::Step(step)) = v4_channels.progress.try_recv() {
+        v4_steps.push(step);
+    }
+    assert_eq!(
+        v4_steps,
+        [Step::Media {
+            group: "asia",
+            ipv6: false
+        }]
+    );
+
+    let (pre_cancel_ctx, pre_cancel_channels, pre_cancel) =
+        make_context(true, true, Arc::clone(&http));
+    pre_cancel.cancel();
+    assert_eq!(
+        v4_only.run(&pre_cancel_ctx).await,
+        Err(Stop::Failed(Failure::Cancelled))
+    );
+    assert!(pre_cancel_channels.published.borrow().is_none());
 }
 
 #[tokio::test]

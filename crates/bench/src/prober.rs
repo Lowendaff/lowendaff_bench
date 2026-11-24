@@ -10,6 +10,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Duration;
+use std::time::Instant;
 
 use bench_api::HttpClient;
 use bench_api::HttpError;
@@ -47,11 +48,15 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(8);
 /// Maximum cached hostname pin entries per family resolver before eviction.
 const MAX_PINNED_HOSTS: usize = 256;
 
+/// How long a validated hostname pin stays fresh before [`ensure_target`] re-queries DNS.
+const PIN_TTL: Duration = Duration::from_secs(30);
+
 /// Family-scoped DNS resolver that serves pre-validated addresses pinned by [`ensure_target`],
-/// eliminating double-lookup DNS rebinding windows and rejecting non-public addresses on fallback.
+/// eliminating double-lookup DNS rebinding windows and repeated `getaddrinfo` latency during burst
+/// probes while rejecting non-public addresses on fallback.
 struct SafeFamilyResolver {
     ipv6: bool,
-    pinned: Mutex<HashMap<String, Vec<IpAddr>>>,
+    pinned: Mutex<HashMap<String, (Instant, Vec<IpAddr>)>>,
 }
 
 impl SafeFamilyResolver {
@@ -67,15 +72,25 @@ impl SafeFamilyResolver {
             if guard.len() >= MAX_PINNED_HOSTS {
                 guard.clear();
             }
-            guard.insert(host.to_ascii_lowercase(), ips);
+            guard.insert(host.to_ascii_lowercase(), (Instant::now(), ips));
         }
     }
 
-    fn load(&self, host: &str) -> Option<Vec<IpAddr>> {
+    fn has_fresh(&self, host: &str) -> bool {
         self.pinned
             .lock()
             .ok()
-            .and_then(|guard| guard.get(&host.to_ascii_lowercase()).cloned())
+            .and_then(|guard| guard.get(&host.to_ascii_lowercase()).map(|(at, _)| *at))
+            .is_some_and(|at| at.elapsed() < PIN_TTL)
+    }
+
+    fn load(&self, host: &str) -> Option<Vec<IpAddr>> {
+        self.pinned.lock().ok().and_then(|guard| {
+            guard
+                .get(&host.to_ascii_lowercase())
+                .filter(|(at, _)| at.elapsed() < PIN_TTL)
+                .map(|(_, ips)| ips.clone())
+        })
     }
 }
 
@@ -377,6 +392,9 @@ async fn ensure_target(
         } else {
             Err(non_public_err("non-public target address refused"))
         };
+    }
+    if resolver.has_fresh(host) {
+        return Ok(());
     }
     let port = url
         .port_or_known_default()

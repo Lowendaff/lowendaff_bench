@@ -95,11 +95,14 @@ pub fn parse_meta_json(body: &[u8]) -> ParsedMeta {
     let colo = non_empty_str(obj.get("colo"));
     let city = non_empty_str(obj.get("city"));
     let country = non_empty_str(obj.get("country"));
-    let asn = obj.get("asn").and_then(|v| {
-        v.as_u64()
-            .and_then(|n| u32::try_from(n).ok())
-            .or_else(|| v.as_str().and_then(|s| s.trim().parse::<u32>().ok()))
-    });
+    let asn = obj
+        .get("asn")
+        .and_then(|v| {
+            v.as_u64()
+                .and_then(|n| u32::try_from(n).ok())
+                .or_else(|| v.as_str().and_then(|s| s.trim().parse::<u32>().ok()))
+        })
+        .filter(|&n| n > 0);
     let as_org = non_empty_str(obj.get("asOrganization"));
     ParsedMeta {
         client_ip,
@@ -164,7 +167,8 @@ pub fn parse_response_headers(resp: &HttpResponse) -> ParsedMeta {
         .map(str::to_owned);
     let asn = resp
         .header("cf-meta-asn")
-        .and_then(|s| s.trim().parse::<u32>().ok());
+        .and_then(|s| s.trim().parse::<u32>().ok())
+        .filter(|&n| n > 0);
     ParsedMeta {
         client_ip,
         colo,
@@ -638,6 +642,24 @@ mod tests {
             super::map_colo_to_server(Some(locs), "SJC"),
             "SJC - San Jose, United States"
         );
+
+        let mut zero_asn = super::parse_meta_json(br#"{"asn":0,"colo":"SJC"}"#);
+        assert_eq!(zero_asn.asn, None, "reserved AS0 must be filtered");
+        let zero_hdr = super::parse_response_headers(&HttpResponse {
+            status: 200,
+            final_url: "https://speed.example/__down".to_owned(),
+            headers: vec![("cf-meta-asn".to_owned(), "0".to_owned())],
+            body: Vec::new(),
+        });
+        assert_eq!(zero_hdr.asn, None);
+        let valid_hdr = super::parse_response_headers(&HttpResponse {
+            status: 200,
+            final_url: "https://speed.example/__down".to_owned(),
+            headers: vec![("cf-meta-asn".to_owned(), "13335".to_owned())],
+            body: Vec::new(),
+        });
+        zero_asn.merge_from(&valid_hdr);
+        assert_eq!(zero_asn.asn, Some(13335));
     }
 
     #[test]

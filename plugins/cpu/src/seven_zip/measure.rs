@@ -26,25 +26,50 @@ pub const ATTEMPTS: usize = 2;
 /// Time limit per `7zz b` invocation.
 pub const ATTEMPT_LIMIT: Duration = Duration::from_secs(180);
 
-/// Dictionary size exponent (`-md18` = 256 KiB; `7zz b` default on systems with < 1 GiB is smaller,
-/// while `-md22` = 4 MiB is standard when memory permits; leaving `7zz b` to pick its standard
-/// dictionary or capping on tiny RAM keeps runs fast and OOM-safe).
+/// Selects an explicit `7zz b -md<exp>` dictionary cap (`18..=24`) when available host/cgroup
+/// memory cannot comfortably fit upstream `7zz b`'s `-md25` (32 MiB) multi-instance footprint.
+///
+/// Upstream `7zz b` without `-md` sizes its dictionary against `sysinfo().totalram`, ignoring
+/// container cgroup memory limits and occupied RAM while spawning `(threads / 2).max(1)` LZMA
+/// encoder/decoder instances (~460 MiB each at `-md25`). Returning `Some(18)` below 1 GiB
+/// preserves `< 1 GiB => -md18` while returning `Some(exp)` (`18..=24`) caps both single-thread
+/// and multi-thread runs to the same dictionary size on memory-constrained hosts/containers.
 #[must_use]
-pub fn args(threads: usize, low_memory: bool) -> Vec<OsString> {
+pub fn choose_dict_exp(threads: usize, available_bytes: Option<u64>) -> Option<u8> {
+    let avail = available_bytes?;
+    if avail < (1024 << 20) {
+        return Some(18);
+    }
+    let budget = (avail / 4) * 3;
+    let instances = (threads.max(1) / 2).max(1) as u64;
+    let exp = (18_u8..=25)
+        .rev()
+        .find(|&e| {
+            let per_instance = ((1_u64 << e) * 14) + (12 << 20);
+            instances.saturating_mul(per_instance) <= budget
+        })
+        .unwrap_or(18);
+    (exp < 25).then_some(exp)
+}
+
+/// Builds `7zz b` arguments for `threads` (clamped to `>= 1`) and optional `-md<exp>` cap.
+#[must_use]
+pub fn args(threads: usize, dict_exp: Option<u8>) -> Vec<OsString> {
+    let threads = threads.max(1);
     let mut out = vec![
         OsString::from("b"),
         OsString::from(format!("-mmt{threads}")),
     ];
-    if low_memory {
-        out.push(OsString::from("-md18"));
+    if let Some(exp) = dict_exp {
+        out.push(OsString::from(format!("-md{}", exp.clamp(18, 25))));
     }
     out
 }
 
 /// Builds one `7zz b` job.
 #[must_use]
-pub fn attempt(program: &Path, threads: usize, low_memory: bool) -> Job {
-    let mut job = Job::new(program, args(threads, low_memory), ATTEMPT_LIMIT);
+pub fn attempt(program: &Path, threads: usize, dict_exp: Option<u8>) -> Job {
+    let mut job = Job::new(program, args(threads, dict_exp), ATTEMPT_LIMIT);
     job.group = true;
     job.first_to_go = true;
     job
@@ -56,7 +81,7 @@ pub async fn measure<O, F, Fut, P>(
     ctx: &Context<O>,
     program: &Path,
     threads: usize,
-    low_memory: bool,
+    available_bytes: Option<u64>,
     mut on_partial: P,
     run: F,
 ) -> Result<Output, (Option<Box<Output>>, Failure)>
@@ -66,12 +91,16 @@ where
     Fut: Future<Output = Result<job::Output, RunError>>,
     P: FnMut(&Output),
 {
+    if ctx.cancel_token().is_cancelled() {
+        return Err((None, Failure::Cancelled));
+    }
+    let dict_exp = choose_dict_exp(threads, available_bytes);
     ctx.progress(Step::CpuSuite {
         suite: "7zip",
         stage: None,
         threads: Some(1),
     });
-    let (single_reading, single_retries) = match tried(ctx, &run, program, 1, low_memory).await {
+    let (single_reading, single_retries) = match tried(ctx, &run, program, 1, dict_exp).await {
         Tried::Done(reading, retries) => (reading, retries),
         Tried::Failed(faults) => return Err((None, Failure::Single(faults))),
         Tried::Cancelled => return Err((None, Failure::Cancelled)),
@@ -85,12 +114,15 @@ where
         return Ok(output);
     }
     on_partial(&output);
+    if ctx.cancel_token().is_cancelled() {
+        return Err((Some(Box::new(output)), Failure::Cancelled));
+    }
     ctx.progress(Step::CpuSuite {
         suite: "7zip",
         stage: None,
         threads: Some(threads),
     });
-    match tried(ctx, &run, program, threads, low_memory).await {
+    match tried(ctx, &run, program, threads, dict_exp).await {
         Tried::Done(reading, retries) => {
             if output.version.is_none() {
                 output.version = reading.version.clone();
@@ -133,22 +165,25 @@ async fn tried<O, F, Fut>(
     run: &F,
     program: &Path,
     threads: usize,
-    low_memory: bool,
+    dict_exp: Option<u8>,
 ) -> Tried
 where
     O: Measurement,
     F: Fn(Job) -> Fut,
     Fut: Future<Output = Result<job::Output, RunError>>,
 {
+    let cancel = ctx.cancel_token();
+    if cancel.is_cancelled() {
+        return Tried::Cancelled;
+    }
     let once = || async {
-        match run(attempt(program, threads, low_memory)).await {
+        match run(attempt(program, threads, dict_exp)).await {
             Ok(output) => parse::reading(&output).map_err(Attempt::Failed),
             Err(RunError::Fault(fault)) => Err(Attempt::Failed(Fault::Tool(fault))),
             Err(RunError::Cancelled) => Err(Attempt::Cancelled),
         }
     };
     let failed = |attempt: &Attempt| matches!(attempt, Attempt::Failed(_));
-    let cancel = ctx.cancel_token();
     let retried = Retried::run(ATTEMPTS, Duration::ZERO, &cancel, failed, once).await;
     let mut faults: Vec<Fault> = retried
         .failures
@@ -160,6 +195,7 @@ where
         .collect();
     match retried.last {
         Ok(reading) => Tried::Done(reading, faults),
+        Err(_) if cancel.is_cancelled() => Tried::Cancelled,
         Err(Attempt::Failed(fault)) => {
             faults.push(fault);
             Tried::Failed(faults)

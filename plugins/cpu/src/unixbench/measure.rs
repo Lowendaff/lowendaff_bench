@@ -162,6 +162,21 @@ pub const INDEX_SPECS: [Spec; 12] = [
 /// Builds the [`Job`] for one copy of `spec`, given `bin_dir` (`tools/unixbench`) and `copy_dir`.
 #[must_use]
 pub fn copy_job(spec: &Spec, bin_dir: &Path, copy_dir: &Path) -> Job {
+    let bin_dir = if bin_dir.as_os_str().is_empty() {
+        Path::new(".")
+    } else {
+        bin_dir
+    };
+    let copy_dir = if copy_dir.as_os_str().is_empty() {
+        Path::new(".")
+    } else {
+        copy_dir
+    };
+    let fs_dir = if copy_dir.is_absolute() {
+        copy_dir
+    } else {
+        Path::new(".")
+    };
     let (program, args): (_, Vec<OsString>) = match spec.kind {
         SpecKind::Timed { seconds } => (
             bin_dir.join(spec.id),
@@ -179,7 +194,7 @@ pub fn copy_job(spec: &Spec, bin_dir: &Path, copy_dir: &Path) -> Job {
                 OsString::from("-t"),
                 OsString::from(seconds.to_string()),
                 OsString::from("-d"),
-                copy_dir.as_os_str().to_owned(),
+                fs_dir.as_os_str().to_owned(),
                 OsString::from("-b"),
                 OsString::from(bufsize.to_string()),
                 OsString::from("-m"),
@@ -221,15 +236,25 @@ where
     Fut: Future<Output = Result<job::Output, RunError>>,
     P: FnMut(&Output),
 {
-    let bin_dir = dhry2reg_path.parent().unwrap_or_else(|| Path::new("."));
-    let single = match run_pass(ctx, bin_dir, work_dir, 1, &run).await {
+    if ctx.cancel_token().is_cancelled() {
+        return Err((None, Failure::Cancelled));
+    }
+    let raw_bin = match dhry2reg_path.parent() {
+        Some(dir) if !dir.as_os_str().is_empty() => dir,
+        _ => Path::new("."),
+    };
+    let bin_dir = std::path::absolute(raw_bin)
+        .map_err(|err| (None, Failure::Single(Fault::Setup(err.to_string()))))?;
+    let work_dir = std::path::absolute(work_dir)
+        .map_err(|err| (None, Failure::Single(Fault::Setup(err.to_string()))))?;
+    let single = match run_pass(ctx, &bin_dir, &work_dir, 1, &run).await {
         Ok(pass) => pass,
         Err(RunPassErr::Fault(fault)) => {
-            let _ = tokio::fs::remove_dir_all(work_dir).await;
+            let _ = tokio::fs::remove_dir_all(&work_dir).await;
             return Err((None, Failure::Single(fault)));
         }
         Err(RunPassErr::Cancelled) => {
-            let _ = tokio::fs::remove_dir_all(work_dir).await;
+            let _ = tokio::fs::remove_dir_all(&work_dir).await;
             return Err((None, Failure::Cancelled));
         }
     };
@@ -239,11 +264,15 @@ where
         multi: None,
     };
     if threads <= 1 {
-        let _ = tokio::fs::remove_dir_all(work_dir).await;
+        let _ = tokio::fs::remove_dir_all(&work_dir).await;
         return Ok(output);
     }
     on_partial(&output);
-    let result = match run_pass(ctx, bin_dir, work_dir, threads, &run).await {
+    if ctx.cancel_token().is_cancelled() {
+        let _ = tokio::fs::remove_dir_all(&work_dir).await;
+        return Err((Some(Box::new(output)), Failure::Cancelled));
+    }
+    let result = match run_pass(ctx, &bin_dir, &work_dir, threads, &run).await {
         Ok(pass) => {
             output.multi = Some(pass);
             Ok(output)
@@ -251,7 +280,7 @@ where
         Err(RunPassErr::Fault(fault)) => Err((Some(Box::new(output)), Failure::Multi(fault))),
         Err(RunPassErr::Cancelled) => Err((Some(Box::new(output)), Failure::Cancelled)),
     };
-    let _ = tokio::fs::remove_dir_all(work_dir).await;
+    let _ = tokio::fs::remove_dir_all(&work_dir).await;
     result
 }
 
@@ -272,18 +301,55 @@ where
     F: Fn(Job) -> Fut,
     Fut: Future<Output = Result<job::Output, RunError>>,
 {
+    if ctx.cancel_token().is_cancelled() {
+        return Err(RunPassErr::Cancelled);
+    }
     let pass_dir = work_dir.join(format!("copies-{copies}"));
+    let _ = tokio::fs::remove_dir_all(&pass_dir).await;
+    let outcome = run_pass_inner(ctx, bin_dir, &pass_dir, copies, run).await;
+    let _ = tokio::fs::remove_dir_all(&pass_dir).await;
+    outcome
+}
+
+async fn run_pass_inner<O, F, Fut>(
+    ctx: &Context<O>,
+    bin_dir: &Path,
+    pass_dir: &Path,
+    copies: usize,
+    run: &F,
+) -> Result<IndexRun, RunPassErr>
+where
+    O: Measurement,
+    F: Fn(Job) -> Fut,
+    Fut: Future<Output = Result<job::Output, RunError>>,
+{
     let sort_src = bin_dir.join("sort.src");
+    let has_sort_src = tokio::fs::metadata(&sort_src)
+        .await
+        .is_ok_and(|meta| meta.is_file());
     let mut copy_dirs = Vec::with_capacity(copies);
     for idx in 0..copies {
+        if ctx.cancel_token().is_cancelled() {
+            return Err(RunPassErr::Cancelled);
+        }
         let dir = pass_dir.join(format!("c{idx}"));
-        tokio::fs::create_dir_all(&dir)
-            .await
-            .map_err(|err| RunPassErr::Fault(Fault::Setup(err.to_string())))?;
-        if tokio::fs::metadata(&sort_src).await.is_ok() {
+        tokio::fs::create_dir_all(&dir).await.map_err(|err| {
+            if ctx.cancel_token().is_cancelled() {
+                RunPassErr::Cancelled
+            } else {
+                RunPassErr::Fault(Fault::Setup(err.to_string()))
+            }
+        })?;
+        if has_sort_src {
             tokio::fs::copy(&sort_src, dir.join("sort.src"))
                 .await
-                .map_err(|err| RunPassErr::Fault(Fault::Setup(err.to_string())))?;
+                .map_err(|err| {
+                    if ctx.cancel_token().is_cancelled() {
+                        RunPassErr::Cancelled
+                    } else {
+                        RunPassErr::Fault(Fault::Setup(err.to_string()))
+                    }
+                })?;
         }
         copy_dirs.push(dir);
     }
@@ -291,7 +357,6 @@ where
     let mut items: Vec<IndexItem> = Vec::with_capacity(INDEX_SPECS.len());
     for spec in &INDEX_SPECS {
         if ctx.cancel_token().is_cancelled() {
-            let _ = tokio::fs::remove_dir_all(&pass_dir).await;
             return Err(RunPassErr::Cancelled);
         }
         ctx.progress(Step::CpuSuite {
@@ -308,32 +373,38 @@ where
             }
         });
         let outcomes = futures_util::future::join_all(futs).await;
+        if outcomes
+            .iter()
+            .any(|(res, _)| matches!(res, Err(RunError::Cancelled)))
+        {
+            return Err(RunPassErr::Cancelled);
+        }
         let mut readings = Vec::with_capacity(copies);
         for (res, elapsed) in outcomes {
             match res {
-                Ok(out) => {
-                    let reading =
-                        parse::copy_reading(spec.id, &out, elapsed).map_err(RunPassErr::Fault)?;
-                    readings.push(reading);
+                Ok(out) => match parse::copy_reading(spec.id, &out, elapsed) {
+                    Ok(reading) => readings.push(reading),
+                    Err(_) if ctx.cancel_token().is_cancelled() => {
+                        return Err(RunPassErr::Cancelled);
+                    }
+                    Err(fault) => return Err(RunPassErr::Fault(fault)),
+                },
+                Err(RunError::Fault(_)) if ctx.cancel_token().is_cancelled() => {
+                    return Err(RunPassErr::Cancelled);
                 }
                 Err(RunError::Fault(fault)) => {
-                    let _ = tokio::fs::remove_dir_all(&pass_dir).await;
                     return Err(RunPassErr::Fault(Fault::Tool {
                         item: spec.id,
                         fault,
                     }));
                 }
-                Err(RunError::Cancelled) => {
-                    let _ = tokio::fs::remove_dir_all(&pass_dir).await;
-                    return Err(RunPassErr::Cancelled);
-                }
+                Err(RunError::Cancelled) => return Err(RunPassErr::Cancelled),
             }
         }
         let item = parse::combine_copies(spec.id, spec.unit, spec.baseline, &readings)
             .ok_or(RunPassErr::Fault(Fault::NoCount { item: spec.id }))?;
         items.push(item);
     }
-    let _ = tokio::fs::remove_dir_all(&pass_dir).await;
     let index = parse::geometric_index(&items)
         .ok_or(RunPassErr::Fault(Fault::NoCount { item: "index" }))?;
     Ok(IndexRun {
