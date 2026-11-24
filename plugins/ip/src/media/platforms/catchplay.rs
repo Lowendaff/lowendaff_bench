@@ -49,13 +49,14 @@ pub fn parse(response: &HttpResponse) -> Verdict {
     if matches!(response.status, 403 | 451) {
         return Verdict::no();
     }
-    if let Some(val) = parse::json(response) {
-        let code = val
-            .get("isoCode")
-            .or_else(|| val.get("code"))
-            .or_else(|| val.get("country"))
-            .and_then(serde_json::Value::as_str)
-            .and_then(parse::country_code);
+    if (200..300).contains(&response.status)
+        && let Some(val) = parse::json(response)
+    {
+        let code = ["isoCode", "country", "code"].into_iter().find_map(|key| {
+            val.get(key)
+                .and_then(serde_json::Value::as_str)
+                .and_then(parse::country_code)
+        });
         return match code.as_deref() {
             Some("TW" | "ID" | "SG") => Verdict::Yes { region: code },
             Some(_) => Verdict::no(),

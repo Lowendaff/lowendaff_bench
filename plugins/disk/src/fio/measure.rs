@@ -181,12 +181,12 @@ where
     F: Fn(Job) -> Fut,
     Fut: Future<Output = Result<job::Output, RunError>>,
 {
-    let Some(available) = host.available else {
-        return Err(Stop::Failed(Failure::NoSpaceInfo));
-    };
     if host.kind == Some(FilesystemKind::Memory) {
         return Err(Stop::Skipped(Failure::InMemory));
     }
+    let Some(available) = host.available else {
+        return Err(Stop::Failed(Failure::NoSpaceInfo));
+    };
     // Exactly enough passes, as in YABS.
     if available < size.bytes {
         return Err(Stop::Skipped(Failure::Space {

@@ -268,16 +268,18 @@ async fn the_test_directory_decides_before_anything_runs() {
     let measured = measure(&host(None), "x86_64", Vec::new()).await;
     assert_eq!(measured.result, Err(Stop::Failed(Failure::NoSpaceInfo)));
 
-    let in_memory = Host {
-        kind: Some(FilesystemKind::Memory),
-        ..host(Some(100 * GIB))
-    };
-    let measured = measure(&in_memory, "x86_64", Vec::new()).await;
-    assert_eq!(
-        measured.result,
-        Err(Stop::Skipped(Failure::InMemory)),
-        "whatever its free space"
-    );
+    for available in [None, Some(0), Some(100 * GIB)] {
+        let in_memory = Host {
+            kind: Some(FilesystemKind::Memory),
+            ..host(available)
+        };
+        let measured = measure(&in_memory, "x86_64", Vec::new()).await;
+        assert_eq!(
+            measured.result,
+            Err(Stop::Skipped(Failure::InMemory)),
+            "whatever its free space ({available:?})"
+        );
+    }
 
     for (arch, needed) in [("x86_64", 2 * GIB), ("aarch64", 512 * MIB)] {
         for kind in [None, Some(FilesystemKind::Other), Some(FilesystemKind::Zfs)] {

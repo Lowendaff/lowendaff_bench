@@ -142,9 +142,10 @@ fn release_events_and_stray_pastes_are_ignored_while_editor_supports_cursor_and_
     assert_eq!(session.handle_key(release(KeyCode::Down)), Command::None);
     assert_eq!(session.nav_index, 0);
 
-    // Bracketed paste outside an open editor must not trigger single-key shortcuts like 'a' or 'q'.
-    session.handle_paste("aqdr");
+    // Bracketed paste outside an open editor must not trigger shortcuts like 'j', 'a', or 'q'.
+    session.handle_paste("jaq");
     assert_eq!(session.config.enabled_count(), 15);
+    assert_eq!(session.nav_index, 0);
 
     // Open Global -> work_dir editor and exercise cursor movement, Delete, Backspace, and Paste.
     let _ = session.handle_key(press(KeyCode::End));
@@ -153,14 +154,17 @@ fn release_events_and_stray_pastes_are_ignored_while_editor_supports_cursor_and_
     let _ = session.handle_key(press(KeyCode::Down)); // Work directory
     let _ = session.handle_key(press(KeyCode::Enter));
     assert!(session.editor.is_some());
+    assert_eq!(session.handle_key(release(KeyCode::Esc)), Command::None);
+    assert!(session.editor.is_some());
 
     let _ = session.handle_key(ctrl('u'));
-    session.handle_paste("/mnt/bench");
-    let _ = session.handle_key(press(KeyCode::Left));
-    let _ = session.handle_key(press(KeyCode::Left));
-    let _ = session.handle_key(press(KeyCode::Left));
-    let _ = session.handle_key(press(KeyCode::Left));
-    let _ = session.handle_key(press(KeyCode::Left)); // cursor before "bench"
+    session.handle_paste("/mnt/\u{00e9}xbench");
+    for _ in 0..6 {
+        let _ = session.handle_key(press(KeyCode::Left));
+    }
+    let _ = session.handle_key(press(KeyCode::Backspace)); // remove '\u{00e9}'
+    let _ = session.handle_key(press(KeyCode::Right)); // step past 'x'
+    let _ = session.handle_key(press(KeyCode::Backspace)); // remove 'x' -> cursor before "bench"
     type_str(&mut session, "nvme_");
     let _ = session.handle_key(press(KeyCode::Home));
     let _ = session.handle_key(press(KeyCode::Delete)); // remove leading '/'
@@ -206,10 +210,14 @@ fn defaults_match_standard_cli_and_every_customized_plugin_builds_cleanly() {
         cfg.apply_item_edit(iperf_idx, 3, "0").is_err(),
         "0 seconds must be rejected"
     );
+    assert!(cfg.apply_item_edit(iperf_idx, 3, "61").is_err());
+    assert!(cfg.apply_item_edit(iperf_idx, 4, "0").is_err());
     assert!(
         cfg.apply_item_edit(iperf_idx, 4, "200").is_err(),
         ">128 streams must be rejected"
     );
+    assert!(cfg.apply_item_edit(iperf_idx, 5, "0").is_err());
+    assert!(cfg.apply_item_edit(iperf_idx, 5, "1000001").is_err());
 
     let trace_idx = cfg
         .items
@@ -265,6 +273,8 @@ fn defaults_match_standard_cli_and_every_customized_plugin_builds_cleanly() {
         "unknown operator in selector must be rejected"
     );
     assert!(cfg.apply_item_edit(taier_idx, 3, "0").is_err());
+    assert!(cfg.apply_item_edit(taier_idx, 3, "61").is_err());
+    assert!(cfg.apply_item_edit(taier_idx, 4, "0").is_err());
     assert!(cfg.apply_item_edit(taier_idx, 4, "99").is_err());
 
     let cf_idx = cfg
@@ -276,6 +286,8 @@ fn defaults_match_standard_cli_and_every_customized_plugin_builds_cleanly() {
     cfg.apply_item_edit(cf_idx, 2, "4").unwrap();
     assert_eq!(cfg.activate_item_field(cf_idx, 3), None); // udp -> false
     assert!(cfg.apply_item_edit(cf_idx, 1, "0").is_err());
+    assert!(cfg.apply_item_edit(cf_idx, 1, "61").is_err());
+    assert!(cfg.apply_item_edit(cf_idx, 2, "0").is_err());
     assert!(cfg.apply_item_edit(cf_idx, 2, "99").is_err());
 
     let inet_idx = cfg
@@ -288,8 +300,26 @@ fn defaults_match_standard_cli_and_every_customized_plugin_builds_cleanly() {
     cfg.apply_item_edit(inet_idx, 3, "500M").unwrap();
     cfg.apply_item_edit(inet_idx, 4, "10").unwrap();
     cfg.apply_item_edit(inet_idx, 5, "198.51.100.25").unwrap();
+    assert!(cfg.apply_item_edit(inet_idx, 1, "0").is_err());
+    assert!(cfg.apply_item_edit(inet_idx, 1, "65").is_err());
+    assert!(cfg.apply_item_edit(inet_idx, 2, "0").is_err());
+    assert!(cfg.apply_item_edit(inet_idx, 2, "121").is_err());
+    assert!(cfg.apply_item_edit(inet_idx, 3, "0M").is_err());
     assert!(cfg.apply_item_edit(inet_idx, 3, "10XB").is_err());
-    assert!(cfg.apply_item_edit(inet_idx, 5, "not-an-ip").is_err());
+    assert!(cfg.apply_item_edit(inet_idx, 4, "0").is_err());
+    assert!(cfg.apply_item_edit(inet_idx, 4, "101").is_err());
+    for bad_ep in [
+        "not-an-ip",
+        "127.0.0.1",
+        "10.0.0.1",
+        "169.254.169.254",
+        "::1",
+    ] {
+        assert!(
+            cfg.apply_item_edit(inet_idx, 5, bad_ep).is_err(),
+            "{bad_ep} must be rejected"
+        );
+    }
 
     assert_eq!(cfg.customized_count(), 9);
     let settings = cfg.plugin_settings();
@@ -365,7 +395,16 @@ fn defaults_match_standard_cli_and_every_customized_plugin_builds_cleanly() {
         .build_plan(&all)
         .expect("customized settings must build");
     assert_eq!(planned.len(), 15);
+    cfg.items[taier_idx].enabled = false;
     cfg.items[taier_idx].reset();
+    assert!(cfg.items[taier_idx].enabled);
+    assert!(!cfg.items[taier_idx].is_customized());
+    assert_eq!(cfg.customized_count(), 8);
+    assert!(!cfg.plugin_settings().contains_key("network.taier"));
+
+    cfg.global.work_dir = "   ".to_owned();
+    assert!(cfg.build_plan(&all).is_err());
+    cfg.global.work_dir = ".".to_owned();
 
     // Unchecking every sub-suite in cpu.bench while cpu.bench is enabled is rejected.
     if let ItemParams::CpuBench { suites } = &mut cfg.items[cpu_idx].params {
@@ -768,6 +807,11 @@ fn disabling_items_clears_sub_selections_and_editing_sub_options_re_enables_bidi
         cfg.plugin_settings()["network.iperf3"],
         serde_json::json!({ "servers": ["tokyo-1"] })
     );
+    cfg.apply_item_edit(iperf_idx, 1, "US").unwrap();
+    assert_eq!(
+        cfg.plugin_settings()["network.iperf3"],
+        serde_json::json!({ "countries": ["US"] })
+    );
     cfg.toggle_group("network");
     assert!(!cfg.items[iperf_idx].enabled);
     assert!(!cfg.plugin_settings().contains_key("network.iperf3"));
@@ -776,6 +820,39 @@ fn disabling_items_clears_sub_selections_and_editing_sub_options_re_enables_bidi
     assert_eq!(
         cfg.plugin_settings()["network.iperf3"],
         serde_json::json!({ "seconds": 15 })
+    );
+
+    let media_idx = cfg
+        .items
+        .iter()
+        .position(|item| item.id == "ip.media")
+        .unwrap();
+    for field in 1..=5 {
+        cfg.activate_item_field(media_idx, field);
+    }
+    assert_eq!(
+        cfg.plugin_settings()["ip.media"],
+        serde_json::json!({ "groups": ["all"] })
+    );
+    cfg.apply_item_edit(media_idx, 7, " netflix , youtube ")
+        .unwrap();
+    assert_eq!(
+        cfg.plugin_settings()["ip.media"],
+        serde_json::json!({ "services": ["netflix", "youtube"] })
+    );
+    cfg.activate_item_field(media_idx, 0); // master disable -> clears services
+    assert!(!cfg.items[media_idx].enabled);
+    assert!(!cfg.plugin_settings().contains_key("ip.media"));
+    cfg.apply_item_edit(media_idx, 7, "disney").unwrap();
+    assert!(cfg.items[media_idx].enabled);
+    assert_eq!(
+        cfg.plugin_settings()["ip.media"],
+        serde_json::json!({ "services": ["disney"] })
+    );
+    cfg.activate_item_field(media_idx, 6); // check `all` -> clears services
+    assert_eq!(
+        cfg.plugin_settings()["ip.media"],
+        serde_json::json!({ "groups": ["all"] })
     );
 
     // 6. network.taier: editing target selectors or stepping duration while disabled re-enables

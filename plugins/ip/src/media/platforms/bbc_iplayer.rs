@@ -47,20 +47,32 @@ pub fn parse(response: &HttpResponse) -> Verdict {
     if let Some(early) = parse::gate(response) {
         return early;
     }
-    let body = response.text();
-    if body.contains("geolocation") {
+    if let Some(val) = parse::json(response) {
+        if let Some(result) = val.get("result").and_then(serde_json::Value::as_str) {
+            if result.eq_ignore_ascii_case("geolocation") {
+                return Verdict::no();
+            }
+            if result.eq_ignore_ascii_case("vpn") {
+                return Verdict::No {
+                    restriction: Some(Restriction::ProxyDetected),
+                };
+            }
+        }
+        if response.status == 200 && val.get("media").is_some() {
+            return Verdict::yes_in("GB");
+        }
+    }
+    let lower = response.text().to_ascii_lowercase();
+    if lower.contains("geolocation") {
         return Verdict::no();
     }
-    if body.contains("vpn") {
+    if lower.contains("vpn") {
         return Verdict::No {
             restriction: Some(Restriction::ProxyDetected),
         };
     }
     if matches!(response.status, 403 | 451) {
         return Verdict::no();
-    }
-    if response.status == 200 && body.contains("\"media\"") {
-        return Verdict::yes_in("GB");
     }
     Verdict::Unexpected(format!("HTTP {}", response.status))
 }

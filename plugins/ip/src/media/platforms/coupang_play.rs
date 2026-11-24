@@ -44,10 +44,13 @@ pub fn parse(response: &HttpResponse) -> Verdict {
         return Verdict::no();
     }
     if let Some(loc) = response.header("location") {
-        if loc.contains("not-available") || loc.contains("unavailable") {
+        let lower = loc.to_ascii_lowercase();
+        if lower.contains("not-available") || lower.contains("unavailable") {
             return Verdict::no();
         }
-        return Verdict::yes_in("KR");
+        if matches!(response.status, 301 | 302 | 303 | 307 | 308) {
+            return Verdict::yes_in("KR");
+        }
     }
     if response.status == 200 {
         return Verdict::yes_in("KR");

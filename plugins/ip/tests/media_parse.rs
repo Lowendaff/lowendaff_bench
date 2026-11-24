@@ -301,9 +301,19 @@ fn global_platform_modules_distinguish_full_originals_regions_and_restrictions()
         200,
         "https://www.crunchyroll.com/auth/v1/token",
         &[],
-        r#"{"access_token":"tok","country":"CA"}"#,
+        r#"{"error":null,"access_token":"tok","country":"CA"}"#,
     );
     assert_eq!(crunchyroll::parse(&cr), Verdict::yes_in("CA"));
+    let cr_oauth_err = response(
+        401,
+        "https://www.crunchyroll.com/auth/v1/token",
+        &[],
+        r#"{"error":"invalid_client"}"#,
+    );
+    assert_eq!(
+        crunchyroll::parse(&cr_oauth_err),
+        Verdict::Unexpected("OAuth error: invalid_client".to_owned())
+    );
 
     let tw = response(
         200,
@@ -342,6 +352,14 @@ fn asia_platform_modules_cover_hk_mo_tw_japan_korea_and_singapore_services() {
         }
     );
     assert_eq!(bilibili::parse(&bili_no, &bili_no), Verdict::no());
+    let bili_412 = response(412, "https://api.bilibili.com/x", &[], r#"{"code":-412}"#);
+    let bili_err = response(200, "https://api.bilibili.com/x", &[], r#"{"code":-404}"#);
+    assert_eq!(bilibili::parse(&bili_no, &bili_412), Verdict::BlockedWaf);
+    assert_eq!(bilibili::parse(&bili_412, &bili_ok), Verdict::BlockedWaf);
+    assert_eq!(
+        bilibili::parse(&bili_no, &bili_err),
+        Verdict::Unexpected("HTTP 200/200".to_owned())
+    );
 
     let baha_dev = response(
         200,
@@ -427,6 +445,19 @@ fn asia_platform_modules_cover_hk_mo_tw_japan_korea_and_singapore_services() {
     assert_eq!(
         catchplay::parse(&response(200, "https://x", &[], r#"{"isoCode":"ID"}"#)),
         Verdict::yes_in("ID")
+    );
+    assert_eq!(
+        catchplay::parse(&response(
+            200,
+            "https://x",
+            &[],
+            r#"{"isoCode":null,"country":"TW"}"#
+        )),
+        Verdict::yes_in("TW")
+    );
+    assert_eq!(
+        catchplay::parse(&response(401, "https://x", &[], r#"{"code":"UA"}"#)),
+        Verdict::Unexpected("HTTP 401".to_owned())
     );
     assert_eq!(
         hamivideo::parse(&response(200, "https://x", &[], r#"{"code":"06001-107"}"#)),
@@ -592,6 +623,19 @@ fn asia_platform_modules_cover_hk_mo_tw_japan_korea_and_singapore_services() {
         Verdict::yes_in("KR")
     );
     assert_eq!(
+        coupang_play::parse(&response(
+            302,
+            "https://x",
+            &[("location", "/Not-Available")],
+            ""
+        )),
+        Verdict::no()
+    );
+    assert_eq!(
+        coupang_play::parse(&response(404, "https://x", &[("location", "/home")], "")),
+        Verdict::Unexpected("HTTP 404".to_owned())
+    );
+    assert_eq!(
         mewatch::parse(&response(200, "https://x", &[], "[]")),
         Verdict::yes_in("SG")
     );
@@ -601,7 +645,12 @@ fn asia_platform_modules_cover_hk_mo_tw_japan_korea_and_singapore_services() {
 fn europe_americas_and_oceania_platform_modules_cover_every_regional_service() {
     // Europe (14)
     assert_eq!(
-        bbc_iplayer::parse(&response(200, "https://x", &[], r#"{"media":[]}"#)),
+        bbc_iplayer::parse(&response(
+            200,
+            "https://x",
+            &[],
+            r#"{"media":[{"href":"https://cdn.example/vpn123"}]}"#
+        )),
         Verdict::yes_in("GB")
     );
     assert_eq!(
@@ -612,6 +661,12 @@ fn europe_americas_and_oceania_platform_modules_cover_every_regional_service() {
             r#"{"result":"geolocation"}"#
         )),
         Verdict::no()
+    );
+    assert_eq!(
+        bbc_iplayer::parse(&response(200, "https://x", &[], r#"{"result":"VPN"}"#)),
+        Verdict::No {
+            restriction: Some(Restriction::ProxyDetected)
+        }
     );
     assert_eq!(
         channel_4::parse(&response(200, "https://x", &[], "ok")),
@@ -671,7 +726,12 @@ fn europe_americas_and_oceania_platform_modules_cover_every_regional_service() {
         Verdict::no()
     );
     assert_eq!(
-        molotov::parse(&response(200, "https://x", &[], r#"{"is_france":true}"#)),
+        molotov::parse(&response(
+            200,
+            "https://x",
+            &[],
+            r#"{"is_france":null,"geo":{"is_france":true}}"#
+        )),
         Verdict::yes_in("FR")
     );
     assert_eq!(
@@ -685,6 +745,19 @@ fn europe_americas_and_oceania_platform_modules_cover_every_regional_service() {
     assert_eq!(
         movistar_plus::parse(&response(200, "https://x", &[], "ok")),
         parse::no_region()
+    );
+    assert_eq!(
+        movistar_plus::parse(&response(200, "https://x", &[], "FUERA DE ESPA\u{00d1}A")),
+        Verdict::no()
+    );
+    assert_eq!(
+        movistar_plus::parse(&response(
+            200,
+            "https://x",
+            &[],
+            "No disponible en tu pa&iacute;s"
+        )),
+        Verdict::no()
     );
     assert_eq!(
         nlziet::parse(&response(200, "https://x", &[], "ok")),
@@ -835,6 +908,15 @@ fn europe_americas_and_oceania_platform_modules_cover_every_regional_service() {
     assert_eq!(
         cbc_gem::parse(&response(200, "https://x", &[], r#"{"errorCode":0}"#)),
         parse::no_region()
+    );
+    assert_eq!(
+        cbc_gem::parse(&response(
+            200,
+            "https://x",
+            &[],
+            r#"{"message":"Ce contenu n'est pas disponible dans votre pays"}"#
+        )),
+        Verdict::no()
     );
     assert_eq!(
         cbc_gem::parse(&response(

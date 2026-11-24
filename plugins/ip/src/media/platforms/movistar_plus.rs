@@ -40,11 +40,22 @@ pub fn parse(response: &HttpResponse) -> Verdict {
     if let Some(early) = parse::gate(response) {
         return early;
     }
-    let body = response.text().to_ascii_lowercase();
-    if matches!(response.status, 403 | 451)
-        || body.contains("fuera de espana")
-        || body.contains("no disponible en tu pais")
-    {
+    let body = response.text().to_lowercase();
+    let geo_blocked = [
+        "fuera de espana",
+        "fuera de espa\u{00f1}a",
+        "fuera de espa&ntilde;a",
+        "fuera de espa&#241;a",
+        "fuera de espa&#xf1;a",
+        "no disponible en tu pais",
+        "no disponible en tu pa\u{00ed}s",
+        "no disponible en tu pa&iacute;s",
+        "no disponible en tu pa&#237;s",
+        "no disponible en tu pa&#xed;s",
+    ]
+    .iter()
+    .any(|marker| body.contains(marker));
+    if matches!(response.status, 403 | 451) || geo_blocked {
         return Verdict::no();
     }
     parse::no_region()
