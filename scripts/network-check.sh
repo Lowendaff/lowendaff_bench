@@ -46,10 +46,10 @@ report=$($as_root "$bin" -v --only network.iperf3 --internal-overrides "$overrid
 }
 cat "$log" >&2
 printf '%s\n' "$report"
-status=$(printf '%s\n' "$report" | sed -n 's/^  Network speed  *//p')
+status=$(sed -n 's/^\[[0-9][0-9]:[0-9][0-9]:[0-9][0-9]\] network\.iperf3 //p' "$log" | tail -n 1)
 {
     printf '### Network speed against %s\n\n```\n' "$(printf '%s' "$servers" | tr '\n' ' ')"
-    printf '%s\n' "$report" | sed -n '/^\[Network\]/,/^\[Summary\]/p' | sed '$d'
+    printf '%s\n' "$report" | awk '/^\[Network\]$/{p=1; print; next} p && /^\[/{exit} p'
     printf '```\n'
 } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
 [ -z "$(ls -A "$work")" ] || fail "run directory left behind in $work"
