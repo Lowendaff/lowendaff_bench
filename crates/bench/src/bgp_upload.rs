@@ -316,12 +316,7 @@ pub fn parse_response(status: u16, body: &[u8], origin: &str) -> Result<String, 
     let parsed: Option<UploadEnvelope> = serde_json::from_slice(body).ok();
     if !(200..300).contains(&status) {
         if let Some(env) = parsed
-            && let Some(msg) = env
-                .error
-                .as_deref()
-                .or(env.message.as_deref())
-                .map(sanitize_reason)
-                .filter(|s| !s.is_empty())
+            && let Some(msg) = extract_reason(&env)
         {
             return Err(words.bgp_upload_http_error(status, &msg));
         }
@@ -332,13 +327,7 @@ pub fn parse_response(status: u16, body: &[u8], origin: &str) -> Result<String, 
         return Err(words.bgp_upload_invalid_json());
     };
     if env.success == Some(false) {
-        let why = env
-            .error
-            .as_deref()
-            .or(env.message.as_deref())
-            .map(sanitize_reason)
-            .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| words.bgp_upload_rejected());
+        let why = extract_reason(&env).unwrap_or_else(|| words.bgp_upload_rejected());
         return Err(why);
     }
 
@@ -358,8 +347,25 @@ pub fn parse_response(status: u16, body: &[u8], origin: &str) -> Result<String, 
     {
         return Ok(format!("{base}/i/{key}"));
     }
+    if env.success.is_none()
+        && let Some(msg) = env
+            .error
+            .as_deref()
+            .map(sanitize_reason)
+            .filter(|s| !s.is_empty())
+    {
+        return Err(msg);
+    }
 
     Err(words.bgp_upload_missing_key())
+}
+
+fn extract_reason(env: &UploadEnvelope) -> Option<String> {
+    [env.error.as_deref(), env.message.as_deref()]
+        .into_iter()
+        .flatten()
+        .map(sanitize_reason)
+        .find(|s| !s.is_empty())
 }
 
 fn is_safe_key(key: &str) -> bool {
@@ -371,12 +377,9 @@ fn is_safe_key(key: &str) -> bool {
 }
 
 fn sanitize_reason(raw: &str) -> String {
-    let preview: String = raw
-        .chars()
-        .filter(|ch| !ch.is_control())
-        .take(120)
-        .collect();
-    preview.trim().to_owned()
+    let stripped = crate::report::terminal::strip_terminal_controls(raw, false);
+    let preview: String = stripped.trim().chars().take(120).collect();
+    preview.trim_end().to_owned()
 }
 
 #[cfg(test)]

@@ -177,14 +177,13 @@ impl Job {
             command.process_group(0);
         }
         let cpus = self.cpus.clone();
+        let group = self.group;
         let (spawned, adjustment) = if self.first_to_go {
-            let (spawned, adjustment) = spawn_first_to_go(command, cpus).await;
+            let (spawned, adjustment) = spawn_first_to_go(command, opened, cpus, group).await;
             (spawned, Some(adjustment))
         } else {
-            (spawn_plain(command, cpus).await, None)
+            (spawn_plain(command, opened, cpus, group).await, None)
         };
-        // Once the tool has started, or failed to, its file need not stay open.
-        drop(opened);
         let ended = match spawned {
             Ok(child) => self.wait(child, &cancel).await,
             Err(err) => Err(RunError::Fault(Fault::Spawn(err.to_string()))),
@@ -592,41 +591,48 @@ impl Drop for OomScoreGuard {
 
 /// Starts `command` while holding a shared read guard on [`OOM_SCORE_LOCK`] so concurrent jobs
 /// without [`Job::first_to_go`] never inherit a temporary `1000` `oom_score_adj`.
-async fn spawn_plain(command: Command, cpus: Option<Vec<usize>>) -> io::Result<Child> {
+async fn spawn_plain(
+    command: Command,
+    opened: Option<File>,
+    cpus: Option<Vec<usize>>,
+    group: bool,
+) -> io::Result<Child> {
     let _shared = OOM_SCORE_LOCK.read().await;
-    spawn(command, cpus).await
+    spawn(command, opened, cpus, group).await
 }
 
 /// Starts `command` with `oom_score_adj` 1000, which the tool and the workers it starts inherit,
 /// then restores the program's own value (even if cancelled mid-await).
 async fn spawn_first_to_go(
     command: Command,
+    opened: Option<File>,
     cpus: Option<Vec<usize>>,
+    group: bool,
 ) -> (io::Result<Child>, Adjustment) {
     let mut stranded = OOM_SCORE_LOCK.write().await;
     if let Some(reason) = stranded.as_ref() {
         let adjustment = Adjustment::NotRestored(reason.clone());
-        return (spawn(command, cpus).await, adjustment);
+        return (spawn(command, opened, cpus, group).await, adjustment);
     }
     let previous = match std::fs::read_to_string(OOM_SCORE_ADJ) {
         Ok(previous) => previous,
         Err(err) => {
             return (
-                spawn(command, cpus).await,
+                spawn(command, opened, cpus, group).await,
                 Adjustment::NotSet(err.to_string()),
             );
         }
     };
     if let Err(err) = std::fs::write(OOM_SCORE_ADJ, "1000") {
         return (
-            spawn(command, cpus).await,
+            spawn(command, opened, cpus, group).await,
             Adjustment::NotSet(err.to_string()),
         );
     }
     let mut guard = OomScoreGuard {
         previous: Some(previous),
     };
-    let child = spawn(command, cpus).await;
+    let child = spawn(command, opened, cpus, group).await;
     let adjustment = guard.restore();
     if let Adjustment::NotRestored(reason) = &adjustment {
         *stranded = Some(reason.clone());
@@ -636,24 +642,45 @@ async fn spawn_first_to_go(
 
 /// Starts `command`, on `cpus` when given.
 #[cfg(target_os = "linux")]
-async fn spawn(mut command: Command, cpus: Option<Vec<usize>>) -> io::Result<Child> {
+async fn spawn(
+    mut command: Command,
+    opened: Option<File>,
+    cpus: Option<Vec<usize>>,
+    group: bool,
+) -> io::Result<Child> {
     match cpus {
-        Some(cpus) => spawn_on(command, cpus).await,
-        None => command.spawn(),
+        Some(cpus) => spawn_on(command, opened, cpus, group).await,
+        None => {
+            let res = command.spawn();
+            drop(opened);
+            res
+        }
     }
 }
 
 /// The tools run on Linux only; elsewhere, as in the tests on other systems, the scheduler
 /// places them.
 #[cfg(not(target_os = "linux"))]
-async fn spawn(mut command: Command, _cpus: Option<Vec<usize>>) -> io::Result<Child> {
-    std::future::ready(command.spawn()).await
+async fn spawn(
+    mut command: Command,
+    opened: Option<File>,
+    _cpus: Option<Vec<usize>>,
+    _group: bool,
+) -> io::Result<Child> {
+    let res = command.spawn();
+    drop(opened);
+    std::future::ready(res).await
 }
 
 /// Starts `command` from a new thread that first moves itself to `cpus`, so that the child
 /// inherits them while the runtime's own threads keep theirs.
 #[cfg(target_os = "linux")]
-async fn spawn_on(mut command: Command, cpus: Vec<usize>) -> io::Result<Child> {
+async fn spawn_on(
+    mut command: Command,
+    opened: Option<File>,
+    cpus: Vec<usize>,
+    group: bool,
+) -> io::Result<Child> {
     use std::thread::Builder;
     use tokio::runtime::Handle;
     use tokio::sync::oneshot;
@@ -663,10 +690,23 @@ async fn spawn_on(mut command: Command, cpus: Vec<usize>) -> io::Result<Child> {
     Builder::new()
         .name("tool-placement".to_owned())
         .spawn(move || {
+            if sender.is_closed() {
+                drop(opened);
+                return;
+            }
             let _runtime = runtime.enter();
             let spawned = place(&cpus).and_then(|()| command.spawn());
-            // Without a receiver the child is dropped here, and killed.
-            let _ = sender.send(spawned);
+            drop(opened);
+            // If the caller dropped `receiver`, kill the whole process group before dropping Child.
+            if let Err(Ok(child)) = sender.send(spawned)
+                && group
+                && let Some(pid) = child
+                    .id()
+                    .and_then(|id| i32::try_from(id).ok())
+                    .and_then(Pid::from_raw)
+            {
+                let _ = rustix::process::kill_process_group(pid, Signal::KILL);
+            }
         })?;
     receiver
         .await

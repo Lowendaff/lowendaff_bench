@@ -66,7 +66,7 @@ pub async fn download(
     if cancel.is_cancelled() {
         return Err(NetError::Cancelled);
     }
-    let (client, base) = build_client(spec.family, &spec.base_url).await?;
+    let (client, base) = build_client(spec.family, &spec.base_url, spec.duration, cancel).await?;
     let down_url = endpoint_url(&base, "__down");
 
     let stop = Arc::new(AtomicBool::new(false));
@@ -100,7 +100,11 @@ pub async fn download(
                         Ok(r) => r,
                         Err(_) => {
                             failed_w.fetch_add(1, Ordering::Relaxed);
-                            tokio::time::sleep(WORKER_BACKOFF).await;
+                            tokio::select! {
+                                biased;
+                                () = cancel_w.cancelled() => break,
+                                () = tokio::time::sleep(WORKER_BACKOFF) => {}
+                            }
                             continue;
                         }
                     }
@@ -109,13 +113,20 @@ pub async fn download(
                 if !resp.status().is_success() {
                     failed_w.fetch_add(1, Ordering::Relaxed);
                     if resp.status() == StatusCode::TOO_MANY_REQUESTS {
-                        bytes_per_req = (bytes_per_req / 2).max(MIN_DOWNLOAD_BYTES_PER_REQ);
+                        let floor = MIN_DOWNLOAD_BYTES_PER_REQ.min(bytes_per_req).max(1);
+                        bytes_per_req = (bytes_per_req / 2).max(floor);
                     }
-                    tokio::time::sleep(WORKER_BACKOFF).await;
+                    tokio::select! {
+                        biased;
+                        () = cancel_w.cancelled() => break,
+                        () = tokio::time::sleep(WORKER_BACKOFF) => {}
+                    }
                     continue;
                 }
 
                 let mut resp = resp;
+                let mut read_any = false;
+                let mut body_err = false;
                 while !stop_w.load(Ordering::Relaxed) && !cancel_w.is_cancelled() {
                     let chunk_fut = resp.chunk();
                     let next = tokio::select! {
@@ -125,13 +136,27 @@ pub async fn download(
                     };
                     match next {
                         Ok(Some(chunk)) => {
-                            total_w.fetch_add(chunk.len() as u64, Ordering::Relaxed);
+                            if !chunk.is_empty() {
+                                read_any = true;
+                                total_w.fetch_add(chunk.len() as u64, Ordering::Relaxed);
+                            }
                         }
                         Ok(None) => break,
                         Err(_) => {
                             failed_w.fetch_add(1, Ordering::Relaxed);
+                            body_err = true;
                             break;
                         }
+                    }
+                }
+                if (body_err || !read_any)
+                    && !stop_w.load(Ordering::Relaxed)
+                    && !cancel_w.is_cancelled()
+                {
+                    tokio::select! {
+                        biased;
+                        () = cancel_w.cancelled() => break,
+                        () = tokio::time::sleep(WORKER_BACKOFF) => {}
                     }
                 }
             }
@@ -172,11 +197,19 @@ pub async fn download(
         while lat_tasks.join_next().await.is_some() {}
     }
     let (active_ms, ticks) = ticks_res?;
-    let (loaded_sent, loaded_rtts_micros) =
-        match tokio::time::timeout(Duration::from_secs(5), lat_rx.recv()).await {
-            Ok(Some(pair)) => pair,
-            _ => (0, Vec::new()),
-        };
+    let lat_outcome = tokio::select! {
+        biased;
+        () = cancel.cancelled() => {
+            lat_tasks.abort_all();
+            while lat_tasks.join_next().await.is_some() {}
+            return Err(NetError::Cancelled);
+        }
+        res = tokio::time::timeout(Duration::from_secs(5), lat_rx.recv()) => res,
+    };
+    let (loaded_sent, loaded_rtts_micros) = match lat_outcome {
+        Ok(Some(pair)) => pair,
+        _ => (0, Vec::new()),
+    };
     lat_tasks.abort_all();
     while lat_tasks.join_next().await.is_some() {}
 
@@ -202,7 +235,7 @@ pub async fn upload(
     if cancel.is_cancelled() {
         return Err(NetError::Cancelled);
     }
-    let (client, base) = build_client(spec.family, &spec.base_url).await?;
+    let (client, base) = build_client(spec.family, &spec.base_url, spec.duration, cancel).await?;
     let mut up_url = endpoint_url(&base, "__up");
     up_url
         .query_pairs_mut()
@@ -288,7 +321,11 @@ pub async fn upload(
                     }
                 } else if !stop_w.load(Ordering::Relaxed) && !cancel_w.is_cancelled() {
                     failed_w.fetch_add(1, Ordering::Relaxed);
-                    tokio::time::sleep(WORKER_BACKOFF).await;
+                    tokio::select! {
+                        biased;
+                        () = cancel_w.cancelled() => break,
+                        () = tokio::time::sleep(WORKER_BACKOFF) => {}
+                    }
                 }
             }
         });
@@ -320,20 +357,30 @@ pub async fn upload(
 
     let ticks_res = sample_upload_tick_times(spec.duration, &current_tick, cancel).await;
     stop.store(true, Ordering::Relaxed);
-    let drain_workers = async { while worker_tasks.join_next().await.is_some() {} };
-    if tokio::time::timeout(Duration::from_secs(2), drain_workers)
-        .await
-        .is_err()
-    {
+    if ticks_res.is_err() {
         worker_tasks.abort_all();
         while worker_tasks.join_next().await.is_some() {}
-    }
-
-    if ticks_res.is_err() {
         lat_tasks.abort_all();
         while lat_tasks.join_next().await.is_some() {}
     }
     let (active_ms, tick_times) = ticks_res?;
+    let drain_workers = async { while worker_tasks.join_next().await.is_some() {} };
+    tokio::select! {
+        biased;
+        () = cancel.cancelled() => {
+            worker_tasks.abort_all();
+            while worker_tasks.join_next().await.is_some() {}
+            lat_tasks.abort_all();
+            while lat_tasks.join_next().await.is_some() {}
+            return Err(NetError::Cancelled);
+        }
+        res = tokio::time::timeout(Duration::from_secs(2), drain_workers) => {
+            if res.is_err() {
+                worker_tasks.abort_all();
+                while worker_tasks.join_next().await.is_some() {}
+            }
+        }
+    }
     let ticks = {
         let guard = confirmed_buckets.lock().ok();
         let mut cumulative = 0_u64;
@@ -351,11 +398,19 @@ pub async fn upload(
         }
         built
     };
-    let (loaded_sent, loaded_rtts_micros) =
-        match tokio::time::timeout(Duration::from_secs(5), lat_rx.recv()).await {
-            Ok(Some(pair)) => pair,
-            _ => (0, Vec::new()),
-        };
+    let lat_outcome = tokio::select! {
+        biased;
+        () = cancel.cancelled() => {
+            lat_tasks.abort_all();
+            while lat_tasks.join_next().await.is_some() {}
+            return Err(NetError::Cancelled);
+        }
+        res = tokio::time::timeout(Duration::from_secs(5), lat_rx.recv()) => res,
+    };
+    let (loaded_sent, loaded_rtts_micros) = match lat_outcome {
+        Ok(Some(pair)) => pair,
+        _ => (0, Vec::new()),
+    };
     lat_tasks.abort_all();
     while lat_tasks.join_next().await.is_some() {}
 
@@ -380,7 +435,7 @@ pub async fn udp_loss(
         return Err(NetError::Cancelled);
     }
     let ipv6 = spec.family == IpFamily::Ipv6;
-    let candidates = resolve_stun_addrs(&spec.host, spec.port, ipv6).await?;
+    let candidates = resolve_stun_addrs(&spec.host, spec.port, ipv6, cancel).await?;
     let bind_addr = if ipv6 {
         SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 0)
     } else {
@@ -390,6 +445,9 @@ pub async fn udp_loss(
     let mut connected: Option<UdpSocket> = None;
     let mut last_err = String::new();
     for addr in candidates {
+        if cancel.is_cancelled() {
+            return Err(NetError::Cancelled);
+        }
         let sock = match UdpSocket::bind(bind_addr).await {
             Ok(s) => s,
             Err(err) => {
@@ -608,7 +666,12 @@ async fn run_loaded_probes(
     (sent, rtts)
 }
 
-async fn build_client(family: IpFamily, raw_base: &str) -> Result<(Client, Url), NetError> {
+async fn build_client(
+    family: IpFamily,
+    raw_base: &str,
+    phase_duration: Duration,
+    cancel: &CancellationToken,
+) -> Result<(Client, Url), NetError> {
     let base = Url::parse(raw_base).map_err(|err| NetError::Transport(err.to_string()))?;
     let scheme = base.scheme();
     let loopback = base
@@ -645,7 +708,8 @@ async fn build_client(family: IpFamily, raw_base: &str) -> Result<(Client, Url),
         .user_agent(USER_AGENT)
         .default_headers(headers)
         .redirect(Policy::none())
-        .timeout(REQUEST_TIMEOUT)
+        .read_timeout(REQUEST_TIMEOUT)
+        .timeout(phase_duration.saturating_add(REQUEST_TIMEOUT))
         .connect_timeout(CONNECT_TIMEOUT)
         .tcp_keepalive(TCP_KEEPALIVE)
         .no_proxy()
@@ -663,11 +727,21 @@ async fn build_client(family: IpFamily, raw_base: &str) -> Result<(Client, Url),
             ));
         }
     } else {
-        let family_addrs: Vec<SocketAddr> = tokio::net::lookup_host((host.as_str(), port))
-            .await
-            .map_err(|err| NetError::Transport(err.to_string()))?
-            .filter(|addr| addr.is_ipv6() == ipv6)
-            .collect();
+        let lookup = tokio::time::timeout(
+            CONNECT_TIMEOUT,
+            tokio::net::lookup_host((host.as_str(), port)),
+        );
+        let resolved = tokio::select! {
+            biased;
+            () = cancel.cancelled() => return Err(NetError::Cancelled),
+            res = lookup => match res {
+                Ok(Ok(addrs)) => addrs,
+                Ok(Err(err)) => return Err(NetError::Transport(err.to_string())),
+                Err(_) => return Err(NetError::TimedOut),
+            },
+        };
+        let family_addrs: Vec<SocketAddr> =
+            resolved.filter(|addr| addr.is_ipv6() == ipv6).collect();
         if family_addrs.is_empty() {
             return Err(NetError::NoAddress);
         }
@@ -695,6 +769,7 @@ async fn resolve_stun_addrs(
     host: &str,
     port: u16,
     ipv6: bool,
+    cancel: &CancellationToken,
 ) -> Result<Vec<SocketAddr>, NetError> {
     let clean = host.trim_matches(['[', ']']);
     if let Ok(ip) = clean.parse::<IpAddr>() {
@@ -708,11 +783,17 @@ async fn resolve_stun_addrs(
         }
         return Ok(vec![SocketAddr::new(ip, port)]);
     }
-    let family_addrs: Vec<SocketAddr> = tokio::net::lookup_host((clean, port))
-        .await
-        .map_err(|err| NetError::Transport(err.to_string()))?
-        .filter(|addr| addr.is_ipv6() == ipv6)
-        .collect();
+    let lookup = tokio::time::timeout(CONNECT_TIMEOUT, tokio::net::lookup_host((clean, port)));
+    let resolved = tokio::select! {
+        biased;
+        () = cancel.cancelled() => return Err(NetError::Cancelled),
+        res = lookup => match res {
+            Ok(Ok(addrs)) => addrs,
+            Ok(Err(err)) => return Err(NetError::Transport(err.to_string())),
+            Err(_) => return Err(NetError::TimedOut),
+        },
+    };
+    let family_addrs: Vec<SocketAddr> = resolved.filter(|addr| addr.is_ipv6() == ipv6).collect();
     if family_addrs.is_empty() {
         return Err(NetError::NoAddress);
     }
@@ -795,12 +876,19 @@ mod tests {
             while let Ok((mut stream, _)) = listener.accept().await {
                 let up_counter = Arc::clone(&up_seq_srv);
                 tokio::spawn(async move {
-                    let mut buf = vec![0_u8; 8192];
-                    let n = stream.read(&mut buf).await.unwrap_or(0);
-                    if n == 0 {
-                        return;
-                    }
-                    let head = String::from_utf8_lossy(&buf[..n]);
+                    let mut req = Vec::with_capacity(8192);
+                    let header_end = loop {
+                        if let Some(pos) = req.windows(4).position(|w| w == b"\r\n\r\n") {
+                            break pos + 4;
+                        }
+                        let mut chunk = [0_u8; 4096];
+                        let n = stream.read(&mut chunk).await.unwrap_or(0);
+                        if n == 0 {
+                            return;
+                        }
+                        req.extend_from_slice(&chunk[..n]);
+                    };
+                    let head = String::from_utf8_lossy(&req[..header_end]).into_owned();
                     let first = head.lines().next().unwrap_or_default();
                     if first.starts_with("GET /cf-prefix/__down?") && first.contains("bytes=0") {
                         let _ = stream
@@ -829,12 +917,13 @@ mod tests {
                         let _ = stream.write_all(header.as_bytes()).await;
                         let _ = stream.write_all(&body).await;
                     } else if first.starts_with("POST /cf-prefix/__up?") {
-                        while !buf[..n].windows(5).any(|w| w == b"0\r\n\r\n") {
+                        while !req[header_end..].windows(5).any(|w| w == b"0\r\n\r\n") {
                             let mut more = [0_u8; 8192];
                             let r = stream.read(&mut more).await.unwrap_or(0);
-                            if r == 0 || more[..r].windows(5).any(|w| w == b"0\r\n\r\n") {
+                            if r == 0 {
                                 break;
                             }
+                            req.extend_from_slice(&more[..r]);
                         }
                         let seq = up_counter.fetch_add(1, Ordering::Relaxed);
                         if seq % 2 == 1 {

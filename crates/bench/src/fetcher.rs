@@ -53,9 +53,17 @@ pub enum ProxyRoute {
 }
 
 /// Validated SOCKS5 proxy URL (`socks5://` for client-side DNS, `socks5h://` for proxy-side DNS).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct Socks5Proxy {
     url: String,
+}
+
+impl std::fmt::Debug for Socks5Proxy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Socks5Proxy")
+            .field("url", &"<redacted>")
+            .finish()
+    }
 }
 
 impl Socks5Proxy {
@@ -119,20 +127,24 @@ impl GithubProxy {
     /// release, archive, or raw-file URL; returns `None` for non-GitHub URLs.
     #[must_use]
     pub fn rewrite(&self, target_url: &str) -> Option<String> {
-        if !is_github_download_url(target_url) {
-            return None;
-        }
-        Some(format!("{}/{target_url}", self.prefix))
+        let parsed = parse_github_download_url(target_url)?;
+        Some(format!("{}/{}", self.prefix, parsed.as_str()))
     }
 }
 
 /// Whether `url` points to a GitHub download host eligible for `--github-proxy` rewriting.
 #[must_use]
 pub fn is_github_download_url(url: &str) -> bool {
-    let Ok(parsed) = Url::parse(url) else {
-        return false;
-    };
-    parsed.scheme() == "https"
+    parse_github_download_url(url).is_some()
+}
+
+fn parse_github_download_url(url: &str) -> Option<Url> {
+    let parsed = Url::parse(url.trim()).ok()?;
+    let eligible = parsed.scheme() == "https"
+        && parsed.username().is_empty()
+        && parsed.password().is_none()
+        && parsed.port().is_none()
+        && parsed.fragment().is_none()
         && matches!(
             parsed.host_str(),
             Some(
@@ -142,7 +154,8 @@ pub fn is_github_download_url(url: &str) -> bool {
                     | "release-assets.githubusercontent.com"
                     | "codeload.github.com"
             )
-        )
+        );
+    eligible.then_some(parsed)
 }
 
 /// Optional download-only proxy settings (`--socks5-proxy` and `--github-proxy`).
@@ -169,6 +182,8 @@ impl DownloadProxy {
         Ok(Self { socks5, github })
     }
 }
+
+type BodyReader = Box<dyn AsyncRead + Send + Unpin>;
 
 /// HTTP client for tool and file downloads.
 pub struct Fetcher {
@@ -203,6 +218,8 @@ impl Fetcher {
         let client = builder
             .no_proxy()
             .local_address(local)
+            .dns_resolver(Arc::new(PublicDnsResolver::new(Some(family))))
+            .redirect(safe_redirect_policy(ProxyRoute::DirectProbe))
             .build()
             .map_err(|err| locale::words().http_client_failed(&err))?;
         Ok(Self {
@@ -212,7 +229,10 @@ impl Fetcher {
     }
 
     fn build(proxy: Option<Proxy>, route: ProxyRoute) -> Result<Self, String> {
-        let mut builder = timeouts(builder()?);
+        let mut builder = timeouts(builder()?).redirect(safe_redirect_policy(route));
+        if route == ProxyRoute::Direct {
+            builder = builder.dns_resolver(Arc::new(PublicDnsResolver::new(None)));
+        }
         if let Some(proxy) = proxy {
             builder = builder.proxy(proxy);
         }
@@ -236,6 +256,20 @@ impl Fetcher {
         use futures_util::TryStreamExt;
 
         let route = self.route;
+        if matches!(route, ProxyRoute::Direct | ProxyRoute::DirectProbe) {
+            let valid = Url::parse(url)
+                .ok()
+                .is_some_and(|parsed| is_permitted_direct_url(&parsed, true));
+            if !valid {
+                return Err(DownloadError::Final(
+                    locale::words().request_failed(&"non-HTTPS or non-public download URL", ""),
+                ));
+            }
+        }
+        if range.as_ref().is_some_and(Range::is_empty) {
+            let empty: BodyReader = Box::new(tokio::io::empty());
+            return Ok(Part::Range(empty));
+        }
         let mut request = self.client.get(url);
         if let Some(range) = &range {
             let bytes = format!("bytes={}-{}", range.start, range.end.saturating_sub(1));
@@ -271,7 +305,7 @@ impl Fetcher {
         let body = response
             .bytes_stream()
             .map_err(move |err| io::Error::other(format!("{}{read_hint}", causes(&err))));
-        let reader = StreamReader::new(Box::pin(body));
+        let reader: BodyReader = Box::new(StreamReader::new(Box::pin(body)));
         Ok(if partial {
             Part::Range(reader)
         } else {
@@ -286,6 +320,9 @@ fn holds(content_range: Option<&HeaderValue>, range: Option<&Range<u64>>) -> boo
     let (Some(value), Some(range)) = (content_range, range) else {
         return false;
     };
+    if range.start >= range.end {
+        return false;
+    }
     let Some(bytes) = value
         .to_str()
         .ok()
@@ -300,7 +337,61 @@ fn holds(content_range: Option<&HeaderValue>, range: Option<&Range<u64>>) -> boo
         return false;
     };
     first.parse() == Ok(range.start)
-        && last.parse::<u64>().ok().map(|last| last + 1) == Some(range.end)
+        && last
+            .parse::<u64>()
+            .ok()
+            .and_then(|last| last.checked_add(1))
+            == Some(range.end)
+}
+
+fn parse_url_ip(url: &Url) -> Option<IpAddr> {
+    url.host_str()?.trim_matches(['[', ']']).parse().ok()
+}
+
+fn is_permitted_direct_url(url: &Url, allow_loopback_http: bool) -> bool {
+    let Some(host) = url.host_str().filter(|h| !h.is_empty()) else {
+        return false;
+    };
+    let clean = host.trim_matches(['[', ']']);
+    let host_ip = clean.parse::<IpAddr>().ok();
+    match url.scheme() {
+        "https" => match host_ip {
+            Some(ip) => bench_api::is_routable_endpoint_ip(ip),
+            None => {
+                let lower = clean.to_ascii_lowercase();
+                lower != "localhost" && !lower.ends_with(".localhost")
+            }
+        },
+        "http" => allow_loopback_http && host_ip.is_some_and(|ip| ip.is_loopback()),
+        _ => false,
+    }
+}
+
+fn safe_redirect_policy(route: ProxyRoute) -> reqwest::redirect::Policy {
+    reqwest::redirect::Policy::custom(move |attempt| {
+        if attempt.previous().len() >= 10 {
+            return attempt.error("too many redirects");
+        }
+        let next = attempt.url();
+        if let Some(prev) = attempt.previous().last()
+            && prev.scheme() == "https"
+            && next.scheme() != "https"
+        {
+            return attempt.error("refusing HTTPS downgrade redirect");
+        }
+        if matches!(route, ProxyRoute::Direct | ProxyRoute::DirectProbe) {
+            let same_loopback_http = attempt.previous().first().is_some_and(|orig| {
+                orig.scheme() == "http"
+                    && next.scheme() == "http"
+                    && parse_url_ip(orig).is_some_and(|ip| ip.is_loopback())
+                    && parse_url_ip(next) == parse_url_ip(orig)
+            });
+            if !same_loopback_http && !is_permitted_direct_url(next, false) {
+                return attempt.error("refusing redirect to non-public target");
+            }
+        }
+        attempt.follow()
+    })
 }
 
 /// The downloads' clients:
@@ -607,7 +698,13 @@ mod tests {
     #[test]
     fn socks5_and_github_proxy_parsers_validate_schemes_and_rewrite_github_urls() {
         assert!(Socks5Proxy::try_new("socks5://127.0.0.1:1080").is_ok());
-        assert!(Socks5Proxy::try_new("SOCKS5H://user:s3cret@proxy.example.com:1080").is_ok());
+        let with_secret = Socks5Proxy::try_new("SOCKS5H://user:s3cret@proxy.example.com:1080")
+            .expect("valid authenticated socks5h");
+        let debug_repr = format!("{with_secret:?}");
+        assert!(
+            !debug_repr.contains("s3cret") && debug_repr.contains("<redacted>"),
+            "Debug impl must redact credentials: {debug_repr}"
+        );
         for bad in [
             "http://127.0.0.1:1080",
             "https://127.0.0.1:1080",
@@ -649,6 +746,23 @@ mod tests {
             gh_slash.rewrite("https://cdn.geekbench.com/Geekbench-7.1.0-Linux.tar.gz"),
             None,
             "non-GitHub URLs must never be rewritten to the GitHub mirror"
+        );
+        assert_eq!(
+            gh_slash.rewrite("https://user@github.com/stilleshan/dockerfiles"),
+            None,
+            "userinfo on GitHub URLs must be rejected"
+        );
+        assert_eq!(
+            gh_slash.rewrite("https://github.com:8443/stilleshan/dockerfiles"),
+            None,
+            "non-standard ports on GitHub URLs must be rejected"
+        );
+        let max_range = reqwest::header::HeaderValue::from_static(
+            "bytes 0-18446744073709551615/18446744073709551615",
+        );
+        assert!(
+            !super::holds(Some(&max_range), Some(&(0..1))),
+            "u64::MAX Content-Range end must not overflow"
         );
         for bad in [
             "socks5://127.0.0.1:1080",
@@ -727,6 +841,24 @@ mod tests {
         assert!(
             matches!(six.open(&url, None).await, Err(DownloadError::Transient(_))),
             "the IPv6 client does not reach an IPv4 address"
+        );
+
+        let Ok(Part::Range(mut empty_range)) = four.open(&url, Some(2..2)).await else {
+            panic!("empty byte range should short-circuit as empty Part::Range")
+        };
+        let mut empty_bytes = Vec::new();
+        empty_range
+            .read_to_end(&mut empty_bytes)
+            .await
+            .expect("empty");
+        assert!(empty_bytes.is_empty());
+
+        assert!(
+            matches!(
+                four.open("http://10.0.0.1/list", None).await,
+                Err(DownloadError::Final(_))
+            ),
+            "non-loopback plain HTTP must be rejected on DirectProbe"
         );
     }
 
