@@ -260,6 +260,18 @@ impl ReportWords for English {
         "Samples"
     }
 
+    fn vm_cpu_timeline_title(&self) -> &'static str {
+        "Timeline"
+    }
+
+    fn vm_cpu_chart_title(&self) -> &'static str {
+        "CPU Steal (%st) & SoftIRQ (%si)"
+    }
+
+    fn vm_cpu_y_axis_title(&self) -> &'static str {
+        "CPU (%)"
+    }
+
     fn vm_cpu_samples_headers(&self) -> [&'static str; 4] {
         ["Time", "Item", "%si", "%st"]
     }

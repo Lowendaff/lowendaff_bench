@@ -592,10 +592,25 @@ fn markdown_format_renders_gfm_headings_pipe_tables_and_escaped_masked_ips() {
     let vm_md = report::render_with_vm_cpu(&single_page, &vm_samples, Format::Markdown, None);
     assert!(vm_md.contains("\n## CPU steal & softirq\n"), "{vm_md}");
     assert!(vm_md.contains("\n### Summary\n"), "{vm_md}");
-    assert!(vm_md.contains("\n### Samples\n"), "{vm_md}");
     assert!(
-        vm_md.contains("| 00:10 | CPU benchmark | 0.80% | 3.25% |\n"),
+        vm_md.contains("\n### Timeline\n\n```mermaid\nxychart-beta\n"),
         "{vm_md}"
+    );
+    assert!(
+        vm_md.contains("    x-axis [\"00:05\", \"00:10\"]\n"),
+        "{vm_md}"
+    );
+    assert!(
+        vm_md.contains("    line \"Steal (%st)\" [0.10, 3.25]\n"),
+        "{vm_md}"
+    );
+    assert!(
+        vm_md.contains("    line \"SoftIRQ (%si)\" [0.35, 0.80]\n"),
+        "{vm_md}"
+    );
+    assert!(
+        !vm_md.contains("\n### Samples\n"),
+        "Markdown mode replaces the long sample table with Summary + Mermaid chart: {vm_md}"
     );
 
     let vm_json: serde_json::Value = serde_json::from_str(&report::render_with_vm_cpu(

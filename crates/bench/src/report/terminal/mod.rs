@@ -275,20 +275,33 @@ fn vm_cpu_section(out: &mut Out, samples: &[VmCpuSample]) {
     ];
     out.table_left("    ", &sum_headers, &sum_rows);
 
-    out.heading("  ", words.vm_cpu_samples_title());
-    let sample_headers = words.vm_cpu_samples_headers().map(str::to_owned);
-    let sample_rows: Vec<Vec<String>> = samples
-        .iter()
-        .map(|s| {
-            vec![
-                vm_cpu::format_elapsed(s.elapsed),
-                item_label(s.item).to_owned(),
-                format!("{:.2}%", s.si_pct),
-                format!("{:.2}%", s.st_pct),
-            ]
-        })
-        .collect();
-    out.table_left("    ", &sample_headers, &sample_rows);
+    if out.is_markdown() {
+        if let Some(chart) = vm_cpu::mermaid_xychart(
+            samples,
+            words.vm_cpu_chart_title(),
+            words.vm_cpu_y_axis_title(),
+            words.vm_cpu_metric_label(true),
+            words.vm_cpu_metric_label(false),
+        ) {
+            out.heading("  ", words.vm_cpu_timeline_title());
+            out.code_block("mermaid", &chart);
+        }
+    } else {
+        out.heading("  ", words.vm_cpu_samples_title());
+        let sample_headers = words.vm_cpu_samples_headers().map(str::to_owned);
+        let sample_rows: Vec<Vec<String>> = samples
+            .iter()
+            .map(|s| {
+                vec![
+                    vm_cpu::format_elapsed(s.elapsed),
+                    item_label(s.item).to_owned(),
+                    format!("{:.2}%", s.si_pct),
+                    format!("{:.2}%", s.st_pct),
+                ]
+            })
+            .collect();
+        out.table_left("    ", &sample_headers, &sample_rows);
+    }
 }
 
 /// The sections of these groups, in the report's order: the groups it knows, in an order of

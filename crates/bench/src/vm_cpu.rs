@@ -123,6 +123,131 @@ pub fn format_elapsed(elapsed: Duration) -> String {
     }
 }
 
+/// Maximum number of x-axis buckets emitted in a Mermaid `xychart-beta` timeline so timestamp
+/// labels stay legible on GitHub Markdown even during multi-hour benchmark runs.
+pub const MAX_CHART_POINTS: usize = 20;
+
+/// Renders `samples` as a GitHub-compatible Mermaid `xychart-beta` block with two named line
+/// series (`st_label` and `si_label`); returns `None` when `samples` is empty.
+#[must_use]
+pub fn mermaid_xychart(
+    samples: &[VmCpuSample],
+    title: &str,
+    y_axis_title: &str,
+    st_label: &str,
+    si_label: &str,
+) -> Option<String> {
+    if samples.is_empty() {
+        return None;
+    }
+    let points = chart_points(samples);
+    let peak = points
+        .iter()
+        .fold(0.0_f64, |acc, (_, si, st)| acc.max(*si).max(*st));
+    let upper = y_axis_upper(peak);
+
+    let x_labels: Vec<String> = points
+        .iter()
+        .map(|(label, _, _)| format!("\"{}\"", sanitize_mermaid_quoted(label)))
+        .collect();
+    let st_vals: Vec<String> = points
+        .iter()
+        .map(|(_, _, st)| format!("{:.2}", st.clamp(0.0, 100.0)))
+        .collect();
+    let si_vals: Vec<String> = points
+        .iter()
+        .map(|(_, si, _)| format!("{:.2}", si.clamp(0.0, 100.0)))
+        .collect();
+
+    Some(format!(
+        "xychart-beta\n\
+         \x20   title \"{}\"\n\
+         \x20   x-axis [{}]\n\
+         \x20   y-axis \"{}\" 0 --> {upper}\n\
+         \x20   line \"{}\" [{}]\n\
+         \x20   line \"{}\" [{}]",
+        sanitize_mermaid_quoted(title),
+        x_labels.join(", "),
+        sanitize_mermaid_quoted(y_axis_title),
+        sanitize_mermaid_quoted(st_label),
+        st_vals.join(", "),
+        sanitize_mermaid_quoted(si_label),
+        si_vals.join(", "),
+    ))
+}
+
+fn chart_points(samples: &[VmCpuSample]) -> Vec<(String, f64, f64)> {
+    let n = samples.len();
+    if n == 1 {
+        let s = &samples[0];
+        let si = clean_pct(s.si_pct);
+        let st = clean_pct(s.st_pct);
+        let end_label = format_elapsed(s.elapsed);
+        let end_distinct = if end_label == "00:00" {
+            "00:01".to_owned()
+        } else {
+            end_label
+        };
+        return vec![("00:00".to_owned(), si, st), (end_distinct, si, st)];
+    }
+    if n <= MAX_CHART_POINTS {
+        return samples
+            .iter()
+            .map(|s| {
+                (
+                    format_elapsed(s.elapsed),
+                    clean_pct(s.si_pct),
+                    clean_pct(s.st_pct),
+                )
+            })
+            .collect();
+    }
+    let mut buckets = Vec::with_capacity(MAX_CHART_POINTS);
+    for b in 0..MAX_CHART_POINTS {
+        let start = b * n / MAX_CHART_POINTS;
+        let end = ((b + 1) * n / MAX_CHART_POINTS).max(start + 1).min(n);
+        let slice = &samples[start..end];
+        let last = &slice[slice.len() - 1];
+        let peak_si = slice
+            .iter()
+            .fold(0.0_f64, |acc, s| acc.max(clean_pct(s.si_pct)));
+        let peak_st = slice
+            .iter()
+            .fold(0.0_f64, |acc, s| acc.max(clean_pct(s.st_pct)));
+        buckets.push((format_elapsed(last.elapsed), peak_si, peak_st));
+    }
+    buckets
+}
+
+fn clean_pct(val: f64) -> f64 {
+    if val.is_finite() {
+        val.clamp(0.0, 100.0)
+    } else {
+        0.0
+    }
+}
+
+fn y_axis_upper(peak: f64) -> u32 {
+    if peak <= 4.0 {
+        5
+    } else if peak <= 8.0 {
+        10
+    } else if peak <= 16.0 {
+        20
+    } else if peak <= 40.0 {
+        50
+    } else {
+        100
+    }
+}
+
+fn sanitize_mermaid_quoted(text: &str) -> String {
+    text.chars()
+        .filter(|c| !c.is_control())
+        .map(|c| if c == '"' { '\'' } else { c })
+        .collect()
+}
+
 struct ActiveSampler {
     active_item: Arc<Mutex<Option<&'static str>>>,
     stop: CancellationToken,
@@ -272,6 +397,7 @@ mod tests {
 
     use super::VmCpuSample;
     use super::format_elapsed;
+    use super::mermaid_xychart;
     use super::summarize;
 
     #[test]
@@ -305,5 +431,79 @@ mod tests {
         assert_eq!(summary.st.peak_item, Some("cpu.bench"));
         assert_eq!(format_elapsed(Duration::from_secs(65)), "01:05");
         assert_eq!(format_elapsed(Duration::from_secs(3661)), "1:01:01");
+    }
+
+    #[test]
+    fn mermaid_xychart_handles_single_sample_and_peak_preserving_downsampling() {
+        assert_eq!(
+            mermaid_xychart(&[], "Title", "CPU (%)", "Steal (%st)", "SoftIRQ (%si)"),
+            None
+        );
+
+        let single = [VmCpuSample {
+            elapsed: Duration::from_secs(3),
+            item: Some("memory.stream"),
+            si_pct: 0.25,
+            st_pct: 0.0,
+        }];
+        let one_chart = mermaid_xychart(
+            &single,
+            "CPU Steal (%st) & SoftIRQ (%si)",
+            "CPU (%)",
+            "Steal (%st)",
+            "SoftIRQ (%si)",
+        )
+        .expect("single-sample chart");
+        assert!(
+            one_chart.contains("x-axis [\"00:00\", \"00:03\"]"),
+            "{one_chart}"
+        );
+        assert!(
+            one_chart.contains("y-axis \"CPU (%)\" 0 --> 5"),
+            "{one_chart}"
+        );
+        assert!(
+            one_chart.contains("line \"Steal (%st)\" [0.00, 0.00]"),
+            "{one_chart}"
+        );
+        assert!(
+            one_chart.contains("line \"SoftIRQ (%si)\" [0.25, 0.25]"),
+            "{one_chart}"
+        );
+
+        let mut many = Vec::new();
+        for idx in 1..=60_u64 {
+            many.push(VmCpuSample {
+                elapsed: Duration::from_secs(idx * 5),
+                item: Some("cpu.bench"),
+                si_pct: 0.3,
+                st_pct: if idx == 31 { 12.4 } else { 0.1 },
+            });
+        }
+        let downsampled = mermaid_xychart(
+            &many,
+            "CPU Steal (%st) & SoftIRQ (%si)",
+            "CPU (%)",
+            "Steal (%st)",
+            "SoftIRQ (%si)",
+        )
+        .expect("downsampled chart");
+        assert!(
+            downsampled.contains("y-axis \"CPU (%)\" 0 --> 20"),
+            "12.4% peak scales y-axis to 20: {downsampled}"
+        );
+        assert!(
+            downsampled.contains("12.40"),
+            "peak-preserving bucket retains the 12.40% steal spike: {downsampled}"
+        );
+        let x_line = downsampled
+            .lines()
+            .find(|l| l.trim_start().starts_with("x-axis "))
+            .expect("x-axis line");
+        assert_eq!(
+            x_line.matches('"').count(),
+            super::MAX_CHART_POINTS * 2,
+            "downsamples 60 points to 20 x-axis labels: {x_line}"
+        );
     }
 }

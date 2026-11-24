@@ -104,8 +104,14 @@ pub trait ReportWords {
     fn vm_cpu_metric_label(&self, steal: bool) -> &'static str;
     /// Formats the peak item and timestamp cell in the VM CPU summary table.
     fn vm_cpu_peak_cell(&self, item: &str, time: &str) -> String;
-    /// Subheading for the full 5-second `%si` / `%st` sample table.
+    /// Subheading for the full 5-second `%si` / `%st` sample table in plain-text reports.
     fn vm_cpu_samples_title(&self) -> &'static str;
+    /// Subheading for the Mermaid `%si` / `%st` timeline chart in Markdown reports.
+    fn vm_cpu_timeline_title(&self) -> &'static str;
+    /// Diagram title inside the Mermaid `xychart-beta` `%si` / `%st` chart.
+    fn vm_cpu_chart_title(&self) -> &'static str;
+    /// Y-axis title inside the Mermaid `xychart-beta` `%si` / `%st` chart.
+    fn vm_cpu_y_axis_title(&self) -> &'static str;
     /// Headers for the 5-second `%si` / `%st` sample table.
     fn vm_cpu_samples_headers(&self) -> [&'static str; 4];
     /// Phase label shown for samples collected before the first plugin starts.

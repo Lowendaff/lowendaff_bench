@@ -66,6 +66,7 @@
 2. **全程每 5 秒 `/proc/stat` 差分计算**：
    - 自编排器启动测试生命周期起至全部测试结束，后台任务每 **5 秒** 读取一次 `/proc/stat` 首行聚合 `cpu` 计数器，并关联当前正在执行的检测项名称（工具准备阶段记为 `Setup`；若单次运行总时长不足 5 秒，在结束时自动补采一次全程区间样本）。
    - 由于 Linux 内核在 `user` 与 `nice` 字段中已包含 `guest` 与 `guest_nice` 时钟节拍，分母严格取前 8 项基础状态增量之和（`user + nice + system + idle + iowait + irq + softirq + steal`），并对每个计数器使用饱和减法（`saturating_sub`）规避无滴答内核（`NO_HZ`）偶发的单调微抖动，分别计算窗口内的 **`%si`（`softirq / total`）** 与 **`%st`（`steal / total`）**。
-3. **汇总与逐 5 秒时间线双表展示**：
-   - **`text` 与 `markdown` 模式**：在报告末尾输出 `[CPU steal & softirq]` / `## CPU steal & softirq` 章节，包含 **`Summary` 统计表**（`Average` 均值、`P95` 分位数、`Peak` 峰值以及峰值发生时的测试项与时间点 `Peak during`）与 **`Samples` 明细表**（`Time | Item | %si | %st`）；
-   - **`json` 模式**：在顶层 `vm_cpu_telemetry` 对象中输出采样周期、样本数、`si_pct` / `st_pct` 汇总指标及完整样本数组（非虚拟机环境该字段为 `null`）。
+3. **多格式展示（终端双表、Markdown 汇总表 + Mermaid 趋势图、JSON 结构化）**：
+   - **`text` 模式**：在报告末尾输出 `[CPU steal & softirq]` 章节，包含 **`Summary` 统计表**（`Average` 均值、`P95` 分位数、`Peak` 峰值以及峰值发生时的测试项与时间点 `Peak during`）与 **`Samples` 逐 5 秒明细表**（`Time | Item | %si | %st`）；
+   - **`markdown` 模式**：在报告末尾输出 `## CPU steal & softirq` 章节，保留 **`### Summary` 统计表**，并通过 **`### Timeline` 原生 ```` ```mermaid ````（`xychart-beta`）双命名折线图**（`line "Steal (%st)"` + `line "SoftIRQ (%si)"`，GitHub 自动渲染图例；样本超过 20 个窗口时自动按时间桶取峰值聚合以防横轴标签重叠）替代冗长的明细表；
+   - **`json` 模式**：在顶层 `vm_cpu_telemetry` 对象中输出采样周期、样本数、`si_pct` / `st_pct` 汇总指标及完整样本数组（非虚拟机环境不输出该字段）。
