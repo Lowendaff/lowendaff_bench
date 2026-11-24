@@ -1,38 +1,101 @@
-# lowendaff-bench
+# lowendaff-bench _(lowendaff_bench)_
+
+[![standard-readme compliant](https://img.shields.io/badge/standard--readme-OK-green.svg?style=flat-square)](https://github.com/RichardLitt/standard-readme)
+[![CI](https://img.shields.io/github/actions/workflow/status/Lowendaff/lowendaff_bench/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/Lowendaff/lowendaff_bench/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/Lowendaff/lowendaff_bench?style=flat-square)](https://github.com/Lowendaff/lowendaff_bench/releases)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-linux--x86__64%20%7C%20linux--aarch64-lightgrey.svg?style=flat-square)](https://github.com/Lowendaff/lowendaff_bench/releases)
+
+> 面向 Linux 服务器的一站式硬件基准跑分、全球及三网测速、路由追踪、BGP 拓扑与 IP 流媒体体检工具。
 
 [English](README.md) | **简体中文** | [日本語](README.ja.md)
 
-`lowendaff-bench` 是一款面向 Linux 服务器的一站式硬件跑分、网络测速与 IP 体检工具，支持独立物理机、常见云服务器/VPS（KVM、Xen 等）以及容器环境（Docker、LXC 等）。
+`lowendaff-bench` 将 CPU 多维度算力、缓存与内存层次带宽延迟、硬盘 SMART 健康与混合随机 I/O、全球与国内三网吞吐测速、去程路由追踪、BGP 自治域上游拓扑、IP 纯净度画像以及五大洲流媒体解锁整合进单个静态编译二进制，支持 `x86_64` 与 `aarch64` 架构下的独立物理服务器、虚拟机（KVM、Xen 等）与容器环境（Docker、LXC、OpenVZ），兼具全交互终端界面（TUI）与非交互命令行（CLI），可输出终端表格、GitHub 风格 Markdown 或结构化 JSON 报告。
 
-### 为什么用它？
+说明：GitHub 仓库与根目录名称为 `lowendaff_bench`，发布的 Linux 独立可执行文件名称为 `lowendaff-bench`（由工作区主控包 `bench` 构建）。
 
-- **单文件即下即用，无需安装依赖，也不用写配置文件**：下载一个静态编译好的可执行文件就能直接运行，支持 `x86_64` 和 `aarch64`（ARM64）架构；不带参数直接运行即进入交互式终端界面（TUI），携带任意命令行参数（如 `-a` / `--all`）则以非交互命令行模式运行。
-- **测试标准统一，不同机器分数可直接对比**：运行过程中需要用到的测试工具（如 `sysbench`、`7-Zip`、`UnixBench`、`HPL`、`PassMark`、`fio`、`iperf3`、`NextTrace`、`Geekbench 7` 等）都会按需自动下载固定版本并严格校验大小与 SHA-256，不会调用系统里自带的旧版本软件，避免因环境差异导致跑分偏差。
-- **自动适配机器配置，照顾小内存机型**：自动跳过当前环境不支持的项目或子套件（例如虚拟机自动跳过物理阵列卡硬盘体检，单路 CPU 自动跳过多路 NUMA 测试，ARM64 机器自动跳过仅限 `x86_64` 的 CPU 压测项）；内存与 HPL 规模自动按可用内存缩放，跑 Geekbench 7 时如果内存不足还会自动创建临时交换文件（Swap），防止小内存 VPS 卡死崩溃。
-- **默认归档保存并给隐私信息打码，方便直接发帖分享**：支持在终端查看对齐表格或导出 **Markdown** / **JSON**，且每次运行默认都会自动在 `/tmp/lowendaff-bench-<时间戳>.<ext>` 保存一份完整报告副本。默认自动隐去本机真实公网 IP、主机名与硬件序列号，发帖晒单无需手动打码。
+## 内容列表
 
-如果想深入了解每一项测试背后的计算方法和判定逻辑，可以查阅 [`docs/` 测试原理说明](docs/README.md)。
+- [安全](#安全)
+- [背景](#背景)
+- [安装](#安装)
+  - [依赖](#依赖)
+  - [从源码编译](#从源码编译)
+  - [更新](#更新)
+- [用法](#用法)
+  - [CLI](#cli)
+  - [命令行参数](#命令行参数)
+  - [可选值参考](#可选值参考)
+- [检测项目一览](#检测项目一览)
+- [主要维护人员](#主要维护人员)
+- [致谢](#致谢)
+- [参与贡献方式](#参与贡献方式)
+- [许可证](#许可证)
 
----
+## 安全
 
-## 三步快速开始
+- **固定版本工具与双重完整性校验**：运行中按需拉取的外部测试程序（`sysbench`、`7zz`、`UnixBench`、`HPL`、`PassMark`、`fio`、`iperf3`、`NextTrace`、`Geekbench 7`、`smartctl`、`STREAM`、`multichase`、`y-cruncher`、`mprime`）均锁定精确版本，执行前强制校验文件字节长度与 `SHA-256` 摘要，绝不调用宿主机上预装的同名旧程序。
+- **最小权限隔离与中断自清理**：无需特权的计算型子工具在独立进程组与临时目录内降权运行；收到 `Ctrl-C`、`SIGTERM` 或 `SIGHUP` 时自动终止子进程组、卸载并删除临时 Swap 文件、恢复终端原始模式并清理运行目录。
+- **纯下载代理严格隔离**：`--socks5-proxy` 与 `--github-proxy` 仅作用于工具与静态节点列表下载；程序主动忽略并剥离 `HTTP_PROXY`、`HTTPS_PROXY`、`ALL_PROXY` 等代理环境变量，确保公网 IP 识别、测速、路由、BGP 与流媒体探测始终反映本机真实直连网络。
+- **默认隐私脱敏保护**：除非显式指定 `--show-ip`，所有输出格式（纯文本、Markdown、JSON）以及上传的 BGP SVG 拓扑图均默认隐去本机公网 IPv4/IPv6 地址、反向解析主机名、网卡 MAC 与硬件序列号，便于直接发帖分享。
 
-前往 [GitHub Releases](https://github.com/Lowendaff/lowendaff_bench/releases) 下载对应架构的最新文件（常规服务器选 `lowendaff-bench-x86_64`，ARM 服务器选 `lowendaff-bench-aarch64`），赋予执行权限后用 `root` 运行即可：
+如发现安全隐患或隐私泄露问题，请通过 [@Lowendaff](https://github.com/Lowendaff) 或 [GitHub Issues](https://github.com/Lowendaff/lowendaff_bench/issues) 反馈（请勿在公开工单中贴出真实凭据或未脱敏私密地址）。
+
+## 背景
+
+在选购或验收 Linux 服务器时，传统跑分方式往往需要拼凑多份脚本、依赖各发行版编译参数不一的系统软件包，且容易在 512 MiB / 1 GiB 小内存机型上触发 OOM 死机，或在晒单时意外暴露本机真实 IP。`lowendaff-bench` 通过统一的 Rust 编排器解决上述痛点：
+
+- **单文件即下即用，零依赖、零配置文件**：下载单个静态可执行文件即可在主流 Linux 发行版运行；不带参数默认进入交互式 TUI，传入任意参数即进入非交互 CLI。
+- **跨发行版跑分口径严格一致**：所有外部基准工具均采用固定静态构建版本（定义于 `crates/bench-tool`），消除不同发行版软件源带来的跑分偏差。
+- **自适应硬件裁剪与小内存保护**：自动跳过当前环境不适用的检测项（如虚拟机跳过物理盘 SMART 体检、单节点机器跳过多路 NUMA 矩阵、ARM64 主机跳过仅限 `x86_64` 的烤机子项）；内存、7-Zip 字典与 HPL 矩阵规模按可用内存及容器 cgroup 配额自动缩放，Geekbench 7 在内存吃紧时自动挂载临时 Swap 文件防止崩溃。
+- **默认归档留存**：未指定 `-o` / `--output` 时，每次运行均自动在 `/tmp/lowendaff-bench-<时间戳>.<txt|md|json>` 额外保存一份不折行的完整报告副本。
+
+各检测项背后的测量公式、参数推导与判定准则详见 [`docs/README.md`](docs/README.md)；运行时动态测速与路由节点列表维护于 [`Lowendaff/bench_data`](https://github.com/Lowendaff/bench_data)。
+
+## 安装
+
+前往 [GitHub Releases](https://github.com/Lowendaff/lowendaff_bench/releases) 下载对应 CPU 架构的最新可执行文件（常规 Intel/AMD 服务器选择 `lowendaff-bench-x86_64`，ARM64 服务器选择 `lowendaff-bench-aarch64`），赋予执行权限即可：
 
 ```sh
 # 以 x86_64 服务器为例（ARM64 请将文件名换为 lowendaff-bench-aarch64）
 curl -fLO https://github.com/Lowendaff/lowendaff_bench/releases/latest/download/lowendaff-bench-x86_64
 chmod +x lowendaff-bench-x86_64
-sudo ./lowendaff-bench-x86_64        # 无参数默认进入交互式 TUI（加 --all 则直接命令行跑全套）
 ```
 
-> 每次测试完成后，除了在界面/终端展示外，还会默认自动保存一份完整报告至 `/tmp/lowendaff-bench-<时间戳>.<txt|md|json>`。按一次 `Ctrl-C` 可随时中止并保留已跑完的部分结果。
+### 依赖
 
----
+- **操作系统与架构**：Linux `x86_64` 或 `aarch64`（无需在宿主机预装任何跑分包；其中 `passmark` 子项需 `glibc >= 2.28`，`prime95` 子项需 `x86_64` 且 `glibc >= 2.18`，`geekbench` 子项需 `glibc >= 2.35` 且具备 IPv4 连接，不满足时自动平滑跳过）。
+- **运行权限**：完整硬件画像（`SMBIOS`、`SMART`、原始套接字 `ICMP` 路由追踪及临时 Swap 管理）需使用 `sudo` 或 `root` 运行；仅查询列表或版本（`--list`、`--taier-list`、`--help`、`--version`）无需 `root` 权限。
 
-## 常见使用场景示例
+### 从源码编译
 
-下面演示实际买机器、验机时最常用的几种跑法（假设已将二进制重命名为 `lowendaff-bench`）：
+安装 [`rust-toolchain.toml`](rust-toolchain.toml) 指定版本的 Rust 工具链与 `musl-tools`（提供 `musl-gcc`），即可自行编译静态可执行文件：
+
+```sh
+rustup target add x86_64-unknown-linux-musl
+cargo build --release --locked --target x86_64-unknown-linux-musl --bin lowendaff-bench
+```
+
+编译产物位于 `target/x86_64-unknown-linux-musl/release/lowendaff-bench`（ARM64 请将目标三元组换为 `aarch64-unknown-linux-musl`）。
+
+### 更新
+
+直接从 [GitHub Releases](https://github.com/Lowendaff/lowendaff_bench/releases) 下载最新二进制覆盖原文件即可，无需迁移任何配置或状态文件。
+
+## 用法
+
+不带任何参数运行即可进入交互式终端界面（TUI），携带 `--all`（或 `--only` / `--skip`）则以非交互命令行模式运行：
+
+```sh
+sudo ./lowendaff-bench-x86_64        # 无参数默认进入交互式 TUI
+sudo ./lowendaff-bench-x86_64 --all  # 非交互命令行直接运行全套检测
+```
+
+未显式传入 `-o` / `--output` 时，每次运行结束后除了在屏幕展示外，还会自动归档保存至 `/tmp/lowendaff-bench-<时间戳>.<txt|md|json>`。运行途中按一次 `Ctrl-C` 可随时安全中止并输出已完成项目的报告。
+
+### CLI
+
+以下示例假设已将二进制重命名为 `lowendaff-bench`：
 
 ```sh
 # 1. 查看支持的所有 15 个测试项目列表（无需 root 权限）
@@ -64,10 +127,11 @@ sudo ./lowendaff-bench -o report.json -f json
 # 8. 测试挂载在其他目录的数据盘读写速度（注意不要指定 /tmp，很多系统里 /tmp 是内存盘）
 sudo ./lowendaff-bench --only disk.fio --work-dir /mnt/data
 
-# 9. 按地区筛选：只测日本和美国的带宽节点、中国三网泰尔测速节点、三网去程路由或亚洲流媒体
+# 9. 按地区筛选：只测日本和美国的带宽节点、中国三网泰尔测速节点、Cloudflare/Apple CDN、三网去程路由或亚洲流媒体
 ./lowendaff-bench --taier-list guangdong
 sudo ./lowendaff-bench --only network.iperf3 --countries JP,US
 sudo ./lowendaff-bench --only network.taier --taier beijing:cu,guangdong/shenzhen:ct+cm,jiangsu:ct
+sudo ./lowendaff-bench --only network.cloudflare,network.inetspeed --inetspeed-threads 8
 sudo ./lowendaff-bench --only network.trace --trace-groups china
 sudo ./lowendaff-bench --only ip.media --media-groups global,asia
 
@@ -80,11 +144,7 @@ sudo ./lowendaff-bench --all --github-proxy https://ghfast.top/
 sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-connections 16 --show-ip
 ```
 
----
-
-## 命令行参数与可选值说明
-
-### 参数一览
+### 命令行参数
 
 | 参数 | 写法 | 默认行为 | 通俗说明 |
 |---|---|---|---|
@@ -118,7 +178,7 @@ sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-
 | `-h, --help` | 无需带值 | — | 查看命令行帮助提示 |
 | `-V, --version` | 无需带值 | — | 查看当前程序版本号 |
 
-### 各参数支持的可选值
+### 可选值参考
 
 | 参数 | 可填写的值 | 含义说明 |
 |---|---|---|
@@ -158,15 +218,13 @@ sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-
 | `--taier-operators` | `telecom`、`unicom`、`mobile`、`cernet`、`cbn`、`other` 或 `all` | 按运营商筛选泰尔测速节点（默认测试电信、联通、移动三网） |
 | `--socks5-proxy` | `socks5://[user:pass@]host[:port]` | 在本机解析下载域名后通过 SOCKS5 代理传输文件 |
 | | `socks5h://[user:pass@]host[:port]` | 将下载域名交由远端 SOCKS5 代理服务器解析并传输文件 |
-| `--github-proxy` | `https://<镜像域名>/` *（或 `http://<镜像域名>/`）* | 为 `github.com` 与 `raw.githubusercontent.com` 下载自动拼接前缀（如 `https://ghfast.top/https://github.com/...`，直连镜像站，不经过 SOCKS5） |
+| `--github-proxy` | `https://<镜像域名>/` *（或 `http://<镜像域名>/`）* | 为 `github.com` 与 `raw.githubusercontent.com` 下载自动拼接前缀（如 `https://ghfast.top/https://github.com/...`，直连镜像站，可与 `--socks5-proxy` 分流搭配） |
 
----
+## 检测项目一览
 
-## 每个检测项都在测什么？
+在正式跑分前，程序会先只读采集 **系统概览（`[System]`）**：识别独立物理机、虚拟机或容器环境，读取 CPU 型号与各级缓存、内存与 Swap、系统内核与 TCP 拥塞算法（如 BBR）、磁盘分区、网卡协商速率（含 PCIe 降速提示）及双栈连通性；在独立物理服务器上还会列出内存插槽、ECC 报错计数、IPMI/BMC 与硬件 RAID 卡信息（详见 [`docs/system.md`](docs/system.md)）。
 
-在正式跑分前，程序会先快速读取 **系统概览（`[System]`）**：帮你看清这台机器是独立服务器、KVM 虚拟机还是容器，CPU 具体型号与缓存大小、真实内存与 Swap 容量、系统内核与 TCP 拥塞算法（如 BBR）、硬盘分区、网卡速率（含 PCIe 插槽是否降速提示）以及 IPv4/IPv6 联网状态；如果是独立物理服务器，还会列出每根内存条插槽信息、ECC 内存报错统计、IPMI 带外管理与硬件 RAID 卡型号（详见 [`docs/system.md`](docs/system.md)）。
-
-随后按顺序运行以下 15 个测试项目：
+随后按固定注册顺序执行以下 15 个检测项目：
 
 | 分类 | 项目名称 (`ID`) | 适用环境 | 这项测试能帮你看出什么？ | 原理详解 |
 |---|---|---|---|---|
@@ -186,20 +244,9 @@ sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-
 | `ip` | `ip.media`<br>流媒体解锁检测 | 所有联网机器 | 实测全球五大区域共 68 个流媒体与在线平台（Netflix、Disney+、YouTube、B站港澳台、巴哈姆特、Abema 等）能否正常解锁及识别到的所在地区 | [`docs/ip.md`](docs/ip.md) |
 | `cpu` | `cpu.bench`<br>CPU 综合基准与压测 | 所有服务器 *（按子项适配）* | 统一调度 8 项可选 CPU 子套件（`--cpu-bench`）：默认运行 `sysbench`、`7zip`、`unixbench`、`hpl`、`passmark` 与 `geekbench`，并支持按需开启 `ycruncher` 圆周率竞速与 `prime95` 烤机稳定性压测 | [`docs/cpu.md`](docs/cpu.md) |
 
----
+## 主要维护人员
 
-## 从源码自行编译
-
-普通用户直接前往 [Releases](https://github.com/Lowendaff/lowendaff_bench/releases) 下载现成的二进制即可。如果你想自己动手编译静态版本，只需安装好 Rust 工具链和 `musl-tools`（提供 `musl-gcc`）：
-
-```sh
-rustup target add x86_64-unknown-linux-musl
-cargo build --release --locked --target x86_64-unknown-linux-musl --bin lowendaff-bench
-```
-
-编译完成后，可执行文件位于 `target/x86_64-unknown-linux-musl/release/lowendaff-bench`。参与项目开发与提交代码的说明请参阅 [`CONTRIBUTING.md`](CONTRIBUTING.md)。
-
----
+- [@Lowendaff](https://github.com/Lowendaff)
 
 ## 致谢
 
@@ -214,3 +261,13 @@ cargo build --release --locked --target x86_64-unknown-linux-musl --bin lowendaf
 - **[cloudflare-speed-cli (`kavehtehrani/cloudflare-speed-cli`)](https://github.com/kavehtehrani/cloudflare-speed-cli)**：`network.cloudflare` 稳态 HTTPS 上下行测速、负载延迟采样、Waveform Bufferbloat / 吞吐稳定性评级以及 STUN UDP 丢包与 MOS 计算的重要参考。
 - **[iNetSpeed-CLI (`nxtrace/iNetSpeed-CLI`)](https://github.com/nxtrace/iNetSpeed-CLI)**：`network.inetspeed` 双 DoH 节点优选绑定与 Apple CDN（`mensura.cdn-apple.com`）单线程/多线程测速协议的重要参考。
 - **上游测试程序与公开数据源**：[`sysbench`](https://github.com/akopytov/sysbench)（Alexey Kopytov）、[`7-Zip`](https://www.7-zip.org/)（Igor Pavlov）、[`Byte-UnixBench`](https://github.com/kdlucas/byte-unixbench)、[`HPL`](https://www.netlib.org/benchmark/hpl/) 与 [`OpenBLAS`](https://www.openblas.net/)、[`PassMark PerformanceTest`](https://www.passmark.com/products/pt_linux/)、[`y-cruncher`](http://www.numberworld.org/y-cruncher/)（Alexander J. Yee）、[`Prime95 / GIMPS`](https://www.mersenne.org/)、[`Geekbench`](https://www.geekbench.com/)（Primate Labs）、[`STREAM`](https://www.cs.virginia.edu/stream/)（John D. McCalpin）、[`multichase`](https://github.com/google/multichase)（Google）、[`smartmontools`](https://www.smartmontools.org/)（`smartctl`）、[`fio`](https://github.com/axboe/fio)（Jens Axboe）、[`iperf3`](https://github.com/esnet/iperf)（ESnet）、[`RIPEstat`](https://stat.ripe.net/)（RIPE NCC）、[`iperf3serverlist.net`](https://iperf3serverlist.net/) 以及 [`PeeringDB`](https://www.peeringdb.com/)。
+
+## 参与贡献方式
+
+欢迎在 [GitHub Issues](https://github.com/Lowendaff/lowendaff_bench/issues) 中提问、反馈缺陷或提出改进建议。本项目接受 Pull Request；在提交代码或文档前，请先阅读 [`CONTRIBUTING.md`](CONTRIBUTING.md) 了解模块划分、Rust 代码规范、`ast-grep` 检查、提交信息格式以及 CI 门禁要求。
+
+补充说明：修改本仓库 `README` 时，请遵循 [standard-readme](https://github.com/RichardLitt/standard-readme) 编写规范。
+
+## 许可证
+
+[MIT](LICENSE) © 2026 Lowendaff

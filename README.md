@@ -1,57 +1,150 @@
-# lowendaff-bench
+# lowendaff-bench _(lowendaff_bench)_
+
+[![standard-readme compliant](https://img.shields.io/badge/standard--readme-OK-green.svg?style=flat-square)](https://github.com/RichardLitt/standard-readme)
+[![CI](https://img.shields.io/github/actions/workflow/status/Lowendaff/lowendaff_bench/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/Lowendaff/lowendaff_bench/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/Lowendaff/lowendaff_bench?style=flat-square)](https://github.com/Lowendaff/lowendaff_bench/releases)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-linux--x86__64%20%7C%20linux--aarch64-lightgrey.svg?style=flat-square)](https://github.com/Lowendaff/lowendaff_bench/releases)
+
+> All-in-one Linux server hardware benchmark, network speed test, route tracer, and IP check tool.
 
 **English** | [&#x7B80;&#x4F53;&#x4E2D;&#x6587; (Simplified Chinese)](README.zh-CN.md) | [&#x65E5;&#x672C;&#x8A9E; (Japanese)](README.ja.md)
 
-`lowendaff-bench` is an all-in-one hardware benchmark, network speed test, and IP check tool for
-Linux servers. It works out of the box on dedicated bare-metal servers, virtual machines (KVM, Xen,
-cloud instances), and containers (Docker, LXC, OpenVZ).
+`lowendaff-bench` evaluates CPU compute, cache and memory hierarchy, disk SMART health and mixed
+random I/O, global and regional network throughput, hop-by-hop routes, BGP upstream topology, IP
+reputation, and streaming platform availability on `x86_64` and `aarch64` Linux hosts. It runs out
+of the box on dedicated bare-metal servers, virtual machines (KVM, Xen, cloud instances), and
+containers (Docker, LXC, OpenVZ), offering both an interactive terminal UI (TUI) and a scriptable
+CLI with aligned text, GitHub-Flavored Markdown, and JSON reports.
 
-### Key Highlights
+The GitHub repository and root folder are named `lowendaff_bench`, while the standalone Linux
+binary is named `lowendaff-bench` and built from the `bench` workspace orchestrator crate.
 
-- **Single file, zero setup, no config files.** Download one standalone binary and run it right
-  away on `x86_64` or `aarch64` (ARM64) Linux. Running with no options opens the interactive
-  terminal interface (TUI); passing any option (such as `-a` / `--all`) runs non-interactive CLI
-  mode.
-- **Fair, comparable numbers across every Linux distro.** Helper tools (`sysbench`, `7-Zip`,
-  `UnixBench`, `HPL`, `PassMark`, `fio`, `iperf3`, `NextTrace`, `Geekbench 7`, etc.) are
-  automatically downloaded at pinned versions and verified by size and SHA-256 before running,
-  rather than relying on outdated packages installed on the host.
-- **Adapts to your server and protects low-memory VPS instances.** Automatically skips tests or CPU
-  sub-suites that do not apply to your machine (for example, physical drive SMART checks on virtual
-  machines, multi-socket NUMA tests on single-CPU hosts, or `x86_64`-only CPU stress suites on
-  ARM64). Memory and HPL tests scale to available RAM, and Geekbench 7 automatically sets up
-  temporary swap space when RAM is tight so small VPS instances do not crash.
-- **Privacy-friendly reports ready to share.** View clean tables directly in your terminal, or save
-  the report as **Markdown** or **JSON** (every run also archives a timestamped copy under
-  `/tmp/lowendaff-bench-<timestamp>.<ext>` by default). Your server's public IP addresses, reverse
-  DNS hostnames, and hardware serial numbers are masked unless `--show-ip` is passed.
+## Table of Contents
 
-For deep-dive guides on how each test calculates and interprets its numbers, see
-[`docs/`](docs/README.md) (in Chinese).
+- [Security](#security)
+- [Background](#background)
+- [Install](#install)
+  - [Dependencies](#dependencies)
+  - [Building from Source](#building-from-source)
+  - [Updating](#updating)
+- [Usage](#usage)
+  - [CLI](#cli)
+  - [Options](#options)
+  - [Allowed Values](#allowed-values)
+- [Test Suite](#test-suite)
+- [Maintainers](#maintainers)
+- [Acknowledgements](#acknowledgements)
+- [Contributing](#contributing)
+- [License](#license)
 
----
+## Security
 
-## Quick Start in Three Steps
+- **Pinned, verified helper binaries**: External benchmark binaries (`sysbench`, `7zz`,
+  `UnixBench`, `HPL`, `PassMark`, `fio`, `iperf3`, `NextTrace`, `Geekbench 7`, `smartctl`,
+  `STREAM`, `multichase`, `y-cruncher`, `mprime`) are fetched over HTTPS at exact pinned versions
+  and verified against expected byte lengths and SHA-256 digests before execution. Pre-installed
+  host binaries of the same name are never invoked.
+- **Privilege separation & clean teardown**: Unprivileged external workloads drop privileges before
+  running in isolated per-plugin working directories and process groups. Pressing `Ctrl-C` or
+  receiving `SIGTERM`/`SIGHUP` stops child process groups, unmounts temporary swap files, restores
+  terminal raw mode, and deletes temporary directories cleanly.
+- **Strict download-proxy isolation**: `--socks5-proxy` and `--github-proxy` apply exclusively to
+  downloading helper binaries and static target lists. Ambient proxy environment variables
+  (`HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`) are ignored and stripped from child processes so IP
+  detection, speed tests, route traces, BGP lookups, and streaming probes always reflect direct
+  host connectivity.
+- **Default privacy masking**: Public IPv4/IPv6 addresses, reverse DNS hostnames, MAC addresses,
+  and hardware serial numbers/UUIDs are masked or omitted by default across text, Markdown, JSON,
+  and uploaded BGP SVG topology diagrams unless `--show-ip` is explicitly passed.
 
-Grab the latest binary for your CPU (`lowendaff-bench-x86_64` for standard Intel/AMD servers, or
-`lowendaff-bench-aarch64` for ARM64 servers) from
-[GitHub Releases](https://github.com/Lowendaff/lowendaff_bench/releases), make it executable, and
-run it with `sudo` (or as `root`):
+To report a security vulnerability, please contact [@Lowendaff](https://github.com/Lowendaff) or
+open a report on [GitHub Issues](https://github.com/Lowendaff/lowendaff_bench/issues) without
+exposing live host credentials or private endpoints.
+
+## Background
+
+Evaluating a new Linux server typically requires stitching together shell scripts, distro packages
+compiled with varying compiler flags, and ad-hoc web checks that break on low-memory VPS instances
+or leak public IP addresses when shared online. `lowendaff-bench` consolidates these checks into a
+single static Rust orchestrator with deterministic rules:
+
+- **Single file, zero setup, no config files**: One standalone static binary runs across Debian,
+  Ubuntu, RHEL/Alma/Rocky, Alpine, and Arch on `x86_64` and `aarch64`. Running with no arguments
+  launches the interactive TUI; passing any CLI flag runs non-interactively.
+- **Comparable results across distributions**: Every external benchmark binary is pinned to an
+  identical static or self-contained build (`crates/bench-tool`), eliminating version and compiler
+  drift across Linux distributions.
+- **Adaptive hardware & low-memory protection**: Automatically skips items inapplicable to the
+  current host (such as physical SMART checks inside VMs/containers, multi-socket NUMA matrices on
+  single-node hosts, or `x86_64`-only torture suites on ARM64). Memory working sets, 7-Zip
+  dictionaries, and HPL matrix orders scale to available host/cgroup RAM, and Geekbench 7 sets up a
+  temporary swap file automatically when RAM is tight.
+- **Share-ready reports & `/tmp` archiving**: Renders aligned terminal tables, GitHub-Flavored
+  Markdown, or structured JSON, and saves an unwrapped archive copy under
+  `/tmp/lowendaff-bench-<timestamp>.<txt|md|json>` whenever `-o` / `--output` is omitted.
+
+For module-by-module measurement formulas, parameter derivations, and verdict rules, see
+[`docs/README.md`](docs/README.md) (in Chinese). Runtime server and target catalogs are maintained
+in [`Lowendaff/bench_data`](https://github.com/Lowendaff/bench_data).
+
+## Install
+
+Download the latest prebuilt static binary for your architecture (`lowendaff-bench-x86_64` for
+Intel/AMD servers, or `lowendaff-bench-aarch64` for ARM64 servers) from
+[GitHub Releases](https://github.com/Lowendaff/lowendaff_bench/releases) and make it executable:
 
 ```sh
 # Example for x86_64 (replace with lowendaff-bench-aarch64 on ARM64 servers)
 curl -fLO https://github.com/Lowendaff/lowendaff_bench/releases/latest/download/lowendaff-bench-x86_64
 chmod +x lowendaff-bench-x86_64
-sudo ./lowendaff-bench-x86_64        # Opens interactive TUI (or add --all for non-interactive CLI)
 ```
 
-> Every finished run also archives an unwrapped copy of the report to
-> `/tmp/lowendaff-bench-<timestamp>.<txt|md|json>` automatically. Press `Ctrl-C` once at any time
-> to stop early and still get a report of everything completed so far.
+### Dependencies
 
----
+- **Operating system**: Linux on `x86_64` or `aarch64` (no host benchmark packages or runtime
+  libraries required; `passmark` requires `glibc >= 2.28`, `prime95` requires `x86_64` +
+  `glibc >= 2.18`, and `geekbench` requires `glibc >= 2.35` + IPv4, auto-skipping cleanly
+  otherwise).
+- **Privileges**: Run with `sudo` (or as `root`) for full hardware inspection (`SMBIOS`, `SMART`,
+  `ICMP` raw sockets, and temporary swap management). Informational flags (`--list`,
+  `--taier-list`, `--help`, `--version`) run without `root`.
 
-## Everyday Usage Examples
+### Building from Source
+
+Install the Rust toolchain pinned in [`rust-toolchain.toml`](rust-toolchain.toml) and `musl-tools`
+(`musl-gcc`), then build a static `musl` binary:
+
+```sh
+rustup target add x86_64-unknown-linux-musl
+cargo build --release --locked --target x86_64-unknown-linux-musl --bin lowendaff-bench
+```
+
+The compiled binary is written to `target/x86_64-unknown-linux-musl/release/lowendaff-bench` (use
+`aarch64-unknown-linux-musl` on ARM64).
+
+### Updating
+
+Download the newest binary from
+[GitHub Releases](https://github.com/Lowendaff/lowendaff_bench/releases) over the existing file;
+each release is a self-contained single binary with no persistent state or configuration files to
+migrate.
+
+## Usage
+
+Launch the interactive TUI by running with no arguments, or pass `--all` (or `--only` / `--skip`)
+for non-interactive execution:
+
+```sh
+sudo ./lowendaff-bench-x86_64        # Opens interactive TUI
+sudo ./lowendaff-bench-x86_64 --all  # Runs all applicable items non-interactively
+```
+
+Every finished run without `-o` / `--output` also archives an unwrapped report copy to
+`/tmp/lowendaff-bench-<timestamp>.<txt|md|json>`. Press `Ctrl-C` once at any time to stop early and
+emit a report containing all items completed so far.
+
+### CLI
 
 Assuming the binary is named `lowendaff-bench`:
 
@@ -102,11 +195,7 @@ sudo ./lowendaff-bench --all --github-proxy https://ghfast.top/
 sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-connections 16 --show-ip
 ```
 
----
-
-## Command-Line Options & Allowed Values
-
-### All Options
+### Options
 
 | Option | Syntax | Default | What it does |
 |---|---|---|---|
@@ -140,7 +229,7 @@ sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-
 | `-h, --help` | *(flag)* | — | Show help message and exit |
 | `-V, --version` | *(flag)* | — | Show version number and exit |
 
-### Allowed Values Reference
+### Allowed Values
 
 | Option | Allowed Values | Description |
 |---|---|---|
@@ -182,18 +271,16 @@ sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-
 | | `socks5h://[user:pass@]host[:port]` | Resolve download hostnames remotely on the SOCKS5 proxy server |
 | `--github-proxy` | `https://<mirror>/` *(or `http://<mirror>/`)* | Prefix mirror for GitHub tool and list downloads (for example `https://ghfast.top/` requests `https://ghfast.top/https://github.com/...` directly; can be combined with `--socks5-proxy`) |
 
----
+## Test Suite
 
-## What Each Test Item Does
-
-Before running benchmarks, `lowendaff-bench` gathers a quick **System Overview (`[System]`)**:
-whether the host is bare metal, a VM, or a container, CPU model and cache sizes, RAM and swap, OS,
-kernel, uptime, TCP congestion control (such as BBR), disks, network link speeds (flagging degraded
-PCIe slots), and IPv4/IPv6 connectivity. On dedicated servers, it also lists populated RAM slots,
-ECC memory error counts, IPMI/BMC controllers, and hardware RAID cards (see
+Before running benchmarks, `lowendaff-bench` collects a read-only **System Overview (`[System]`)**:
+whether the host is bare metal, a VM, or a container, CPU model and cache hierarchy, RAM and swap,
+OS, kernel, uptime, TCP congestion control (such as BBR), disks, network link speeds (flagging
+degraded PCIe slots), and IPv4/IPv6 connectivity. On dedicated servers, it also lists populated RAM
+slots, ECC memory error counts, IPMI/BMC controllers, and hardware RAID cards (see
 [`docs/system.md`](docs/system.md)).
 
-Then it runs up to 15 test items in order:
+Then it executes up to 15 test items in deterministic registry order:
 
 | Category | Item ID & Name | Where it runs | What it tells you | Deep dive |
 |---|---|---|---|---|
@@ -213,30 +300,14 @@ Then it runs up to 15 test items in order:
 | `ip` | `ip.media`<br>Streaming unlock | Servers with internet | Tests direct IPv4/IPv6 access across 68 streaming and online services in 5 world regions (Netflix, Disney+, YouTube, BBC iPlayer, Bahamut, Abema, etc.) and reports the unlocked region | [`docs/ip.md`](docs/ip.md) |
 | `cpu` | `cpu.bench`<br>CPU benchmarks | All servers *(per-suite checks)* | Runs selectable CPU sub-suites (`--cpu-bench`): default `sysbench`, `7zip`, `unixbench`, `hpl`, `passmark`, and `geekbench`, plus opt-in `x86_64` `ycruncher` and `prime95` torture checks | [`docs/cpu.md`](docs/cpu.md) |
 
----
+## Maintainers
 
-## Building from Source
+- [@Lowendaff](https://github.com/Lowendaff)
 
-Most users can download prebuilt binaries directly from
-[GitHub Releases](https://github.com/Lowendaff/lowendaff_bench/releases). To compile a standalone
-static binary yourself on Linux, install the Rust toolchain (pinned in
-[`rust-toolchain.toml`](rust-toolchain.toml)) and `musl-tools` (`musl-gcc`):
+## Acknowledgements
 
-```sh
-rustup target add x86_64-unknown-linux-musl
-cargo build --release --locked --target x86_64-unknown-linux-musl --bin lowendaff-bench
-```
-
-The resulting binary will be at `target/x86_64-unknown-linux-musl/release/lowendaff-bench`. For
-project structure, third-party tool builds, and contributor guidelines, see
-[`CONTRIBUTING.md`](CONTRIBUTING.md).
-
----
-
-## Acknowledgments
-
-`lowendaff-bench` builds upon the ideas, benchmarks, and open datasets of many great open-source
-projects:
+`lowendaff-bench` builds upon the ideas, benchmarks, and open datasets of these open-source
+projects and organizations:
 
 - **[YABS (Yet Another Bench Script)](https://github.com/masonr/yet-another-bench-script)** —
   Inspiration and compatible parameters for `disk.fio` mixed random I/O tests and `network.iperf3`
@@ -278,3 +349,17 @@ projects:
   [`RIPEstat`](https://stat.ripe.net/) (RIPE NCC),
   [`iperf3serverlist.net`](https://iperf3serverlist.net/), and
   [`PeeringDB`](https://www.peeringdb.com/).
+
+## Contributing
+
+Questions, bug reports, and feature requests are welcome on
+[GitHub Issues](https://github.com/Lowendaff/lowendaff_bench/issues). Pull requests are accepted;
+before submitting a change, please review [`CONTRIBUTING.md`](CONTRIBUTING.md) for workspace
+architecture, Rust style and `ast-grep` rules, commit message conventions, and required CI gates.
+
+Small note: If editing the README, please conform to the
+[standard-readme](https://github.com/RichardLitt/standard-readme) specification.
+
+## License
+
+[MIT](LICENSE) (c) 2026 Lowendaff
