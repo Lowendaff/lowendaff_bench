@@ -54,7 +54,7 @@ use crate::results::Measured;
 /// Renders `page` as pretty-printed JSON with a trailing newline.
 #[must_use]
 pub fn render(page: &Page) -> String {
-    let own = terminal::own_addresses(page.host);
+    let own = terminal::collect_own_addresses(page.host, page.runs);
     let totals = terminal::totals(page);
     let document = Document {
         version: page.version,
@@ -691,8 +691,21 @@ const fn ecc_code(ecc: Ecc) -> &'static str {
 }
 
 fn build_slot(slot: &Slot) -> SlotJson {
+    if slot.capacity == Capacity::Empty {
+        return SlotJson {
+            name: slot.name.clone(),
+            status: "empty",
+            size_bytes: None,
+            generation: None,
+            form: None,
+            speed_mts: None,
+            configured_speed_mts: None,
+            manufacturer: None,
+            part_number: None,
+        };
+    }
     let (status, size_bytes) = match slot.capacity {
-        Capacity::Empty => ("empty", None),
+        Capacity::Empty => unreachable!(),
         Capacity::Disabled => ("disabled", None),
         Capacity::Unknown => ("unknown", None),
         Capacity::Kilobytes(kib) => ("installed", Some(kib.saturating_mul(1024))),
@@ -723,13 +736,16 @@ fn build_cpu(facts: &CpuFacts, kind: PlatformKind) -> CpuJson {
         Virtualization::Absent => "absent",
         Virtualization::NotApplicable => "not_applicable",
     });
+    let topology = (kind == PlatformKind::Dedicated)
+        .then_some(cpu.topology)
+        .flatten();
     CpuJson {
         model,
         logical: cpu.logical,
         usable: facts.usable,
         quota: facts.quota,
-        sockets: cpu.topology.map(|t| t.sockets),
-        cores: cpu.topology.map(|t| t.cores),
+        sockets: topology.map(|t| t.sockets),
+        cores: topology.map(|t| t.cores),
         mhz: cpu.mhz,
         caches: cpu
             .caches

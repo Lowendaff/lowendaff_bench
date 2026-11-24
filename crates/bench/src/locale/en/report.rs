@@ -72,6 +72,9 @@ impl ReportWords for English {
     }
 
     fn unavailable_because(&self, why: &str) -> String {
+        if why.is_empty() {
+            return self.unavailable();
+        }
         format!("unavailable: {why}")
     }
 
@@ -88,10 +91,16 @@ impl ReportWords for English {
     }
 
     fn skipped(&self, reason: &str) -> String {
+        if reason.is_empty() {
+            return "skipped".to_owned();
+        }
         format!("skipped: {reason}")
     }
 
     fn failed(&self, reason: &str) -> String {
+        if reason.is_empty() {
+            return "failed".to_owned();
+        }
         format!("failed: {reason}")
     }
 
@@ -125,6 +134,12 @@ impl ReportWords for English {
 
     fn fault(&self, fault: &Fault) -> String {
         match fault {
+            Fault::Panic(message) if message.trim().is_empty() => {
+                format!(
+                    "the plugin crashed: {}",
+                    crate::locale::ProgramWords::panic_without_text(self)
+                )
+            }
             Fault::Panic(message) => format!("the plugin crashed: {message}"),
             Fault::WorkDir(error) => format!("cannot create the work directory: {error}"),
             Fault::Aborted(error) => format!("the task ended abnormally: {error}"),
@@ -153,18 +168,24 @@ impl ReportWords for English {
     }
 
     fn tool_fault(&self, tool: &str, fault: &job::Fault, unit: Unit) -> String {
-        let quoted = |last: Option<&str>| last.unwrap_or("no output").to_owned();
+        let quoted = |last: Option<&str>| {
+            last.map(|s| crate::report::terminal::strip_terminal_controls(s, false))
+                .map(|s| s.trim().to_owned())
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "no output".to_owned())
+        };
         match fault {
             job::Fault::Spawn(error) => format!("cannot run {tool}: {error}"),
             job::Fault::Read(error) => format!("cannot read the output of {tool}: {error}"),
             job::Fault::TimedOut(limit) => {
+                let secs = limit.as_secs();
                 let limit = match unit {
-                    Unit::Seconds => format!("{} s", limit.as_secs()),
-                    Unit::Minutes => super::count(
-                        usize::try_from(limit.as_secs() / 60).unwrap_or(usize::MAX),
+                    Unit::Minutes if secs >= 60 && secs.is_multiple_of(60) => super::count(
+                        usize::try_from(secs / 60).unwrap_or(usize::MAX),
                         "minute",
                         "minutes",
                     ),
+                    Unit::Seconds | Unit::Minutes => format!("{secs} s"),
                 };
                 format!("still running after {limit}, stopped")
             }

@@ -246,7 +246,7 @@ fn plugin(out: &mut Out, run: &Run<Measured>, indent: &str, page: &Page) {
         }
         Some(Measured::NetworkInetspeed(report)) => network::inetspeed(out, report, indent),
         Some(Measured::NetworkTrace(report)) => {
-            let own = own_addresses(page.host);
+            let own = collect_own_addresses(page.host, page.runs);
             network::trace(out, report, indent, &own, page.show_ip);
         }
         Some(Measured::NetworkBgp(report)) => network::bgp(out, report, indent, page.show_ip),
@@ -266,6 +266,54 @@ pub(super) fn own_addresses(host: &HostProfile) -> Vec<IpAddr> {
             _ => None,
         })
         .collect()
+}
+
+/// Collects all public/routable host addresses observed in `host` and across `runs` so multi-egress
+/// or echo-fallback addresses (e.g. `network.cloudflare` `client_ip`) are masked consistently in
+/// `network.trace` when `show_ip` is `false`.
+pub(super) fn collect_own_addresses(host: &HostProfile, runs: &[Run<Measured>]) -> Vec<IpAddr> {
+    let mut own = own_addresses(host);
+    let mut push = |ip: IpAddr| {
+        if bench_api::is_routable_endpoint_ip(ip) && !own.contains(&ip) {
+            own.push(ip);
+        }
+    };
+    for run in runs {
+        match &run.result {
+            Some(Measured::NetworkCloudflare(r)) => {
+                if let Some(out) = &r.output {
+                    if let Some(ip) = out.ipv4.as_ref().and_then(|f| f.client_ip) {
+                        push(ip);
+                    }
+                    if let Some(ip) = out.ipv6.as_ref().and_then(|f| f.client_ip) {
+                        push(ip);
+                    }
+                }
+            }
+            Some(Measured::NetworkBgp(r)) => {
+                if let Some(out) = &r.output {
+                    if let Some(rep) = &out.ipv4 {
+                        push(rep.address);
+                    }
+                    if let Some(rep) = &out.ipv6 {
+                        push(rep.address);
+                    }
+                }
+            }
+            Some(Measured::IpQuality(r)) => {
+                if let Some(out) = &r.output {
+                    if let Some(rep) = &out.ipv4 {
+                        push(rep.address);
+                    }
+                    if let Some(rep) = &out.ipv6 {
+                        push(rep.address);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    own
 }
 
 /// Previous block emitted in Markdown mode, for spacing list items and paragraphs cleanly.
@@ -391,7 +439,8 @@ impl Out {
                 if !self.text.is_empty() {
                     self.text.push('\n');
                 }
-                let _ = writeln!(self.text, "{}", escape_md_text(trimmed));
+                let escaped = escape_md_line(trimmed);
+                let _ = writeln!(self.text, "{escaped}");
                 *last = Block::Line;
             }
         }
@@ -399,11 +448,16 @@ impl Out {
 
     /// A label padded to the catalog's label width, and its value.
     fn field(&mut self, indent: &str, label: &str, value: &str) {
+        self.field_width(indent, locale::words().label_width(), label, value);
+    }
+
+    /// A label padded to `width` columns in terminal mode, and its value.
+    fn field_width(&mut self, indent: &str, width: usize, label: &str, value: &str) {
         match &mut self.mode {
             Mode::Terminal { .. } => {
                 let clean_label = strip_terminal_controls(label, false);
                 let clean_value = strip_terminal_controls(value, false);
-                let padded = pad(&clean_label, locale::words().label_width());
+                let padded = pad(&clean_label, width);
                 self.line(&format!("{indent}{padded}  {clean_value}"));
             }
             Mode::Markdown { last, .. } => {
@@ -538,32 +592,77 @@ fn write_md_row(buf: &mut String, cells: &[String]) {
     buf.push('\n');
 }
 
-/// Escapes `*` and `\` in Markdown text so masked addresses such as `203.0.*.*` are not parsed as
-/// emphasis, after stripping terminal escape and control sequences.
+/// Escapes inline Markdown / GFM metacharacters (`\`, `*`, `<`, `[`, `]`, `` ` ``, plus `_` and
+/// `~` outside bare `http(s)://` URLs and intraword identifiers) after stripping terminal escape
+/// and control sequences.
 fn escape_md_text(text: &str) -> String {
     let clean = strip_terminal_controls(text, false);
-    let mut out = String::with_capacity(clean.len());
-    for ch in clean.chars() {
-        match ch {
-            '\\' => out.push_str("\\\\"),
-            '*' => out.push_str("\\*"),
-            other => out.push(other),
-        }
-    }
-    out
+    escape_md_inline(&clean, false)
 }
 
-/// Escapes pipe-table cell characters (`\`, `|`, `*`, and newlines) after stripping terminal
-/// escape and control sequences.
+/// Escapes a standalone Markdown paragraph line, neutralizing leading CommonMark block markers
+/// (`#`, `>`, `-`, `+`, or ordered-list `1.`/`1)`) in addition to inline metacharacters.
+fn escape_md_line(trimmed: &str) -> String {
+    let escaped = escape_md_text(trimmed);
+    let needs_prefix = match escaped.as_bytes().first().copied() {
+        Some(b'#' | b'>' | b'-' | b'+') => true,
+        Some(b'0'..=b'9') => {
+            let digits = escaped.bytes().take_while(u8::is_ascii_digit).count();
+            matches!(escaped.as_bytes().get(digits), Some(b'.' | b')'))
+        }
+        _ => false,
+    };
+    if needs_prefix {
+        format!("\\{escaped}")
+    } else {
+        escaped
+    }
+}
+
+/// Escapes pipe-table cell characters (`\`, `|`, inline Markdown metacharacters, and newlines)
+/// after stripping terminal escape and control sequences.
 fn escape_md_cell(cell: &str) -> String {
     let clean = strip_terminal_controls(cell, true);
+    escape_md_inline(&clean, true)
+}
+
+fn escape_md_inline(clean: &str, in_cell: bool) -> String {
+    let chars: Vec<char> = clean.chars().collect();
+    let mut in_url = vec![false; chars.len()];
+    let mut idx = 0;
+    while idx < chars.len() {
+        let rest: String = chars[idx..].iter().take(8).collect();
+        if rest.starts_with("https://") || rest.starts_with("http://") {
+            while idx < chars.len() && !chars[idx].is_whitespace() {
+                in_url[idx] = true;
+                idx += 1;
+            }
+        } else {
+            idx += 1;
+        }
+    }
+
     let mut out = String::with_capacity(clean.len());
-    for ch in clean.chars() {
+    for (i, &ch) in chars.iter().enumerate() {
         match ch {
             '\\' => out.push_str("\\\\"),
-            '|' => out.push_str("\\|"),
+            '|' if in_cell => out.push_str("\\|"),
+            '\n' if in_cell => out.push_str("<br>"),
             '*' => out.push_str("\\*"),
-            '\n' => out.push_str("<br>"),
+            '<' => out.push_str("\\<"),
+            '[' => out.push_str("\\["),
+            ']' => out.push_str("\\]"),
+            '`' => out.push_str("\\`"),
+            '~' if !in_url[i] => out.push_str("\\~"),
+            '_' if !in_url[i] => {
+                let prev_alnum = i > 0 && chars[i - 1].is_alphanumeric();
+                let next_alnum = i + 1 < chars.len() && chars[i + 1].is_alphanumeric();
+                if prev_alnum && next_alnum {
+                    out.push('_');
+                } else {
+                    out.push_str("\\_");
+                }
+            }
             other => out.push(other),
         }
     }
@@ -637,5 +736,17 @@ mod tests {
             md.text
                 .contains("```mermaid\ngraph LR\n  A[\"ok\"] --> B\n```")
         );
+
+        md.field("  ", "DMI", "<OUT OF SPEC> ![img](https://evil.test)");
+        md.line("# Fake heading");
+        md.line("> Fake quote");
+        assert!(
+            md.text
+                .contains("- **DMI:** \\<OUT OF SPEC> !\\[img\\](https://evil.test)\n"),
+            "{}",
+            md.text
+        );
+        assert!(md.text.contains("\n\\# Fake heading\n"), "{}", md.text);
+        assert!(md.text.contains("\n\\> Fake quote\n"), "{}", md.text);
     }
 }

@@ -29,7 +29,6 @@ use tokio::net::TcpSocket;
 use tokio::net::TcpStream;
 use tokio::task::JoinSet;
 use tokio::time::Instant as TokioInstant;
-use tokio::time::MissedTickBehavior;
 
 const UA_DOWN: &str = concat!(
     "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 ",
@@ -66,6 +65,11 @@ fn upload_chunk() -> &'static [u8; UPLOAD_CHUNK_BYTES] {
 }
 
 async fn connect_direct(ip: Ipv4Addr, port: u16, buffers: bool) -> Result<TcpStream, NetError> {
+    if port == 0 || (!ip.is_loopback() && !bench_api::is_routable_endpoint_ip(IpAddr::V4(ip))) {
+        return Err(NetError::Transport(
+            "non-public Taier target address refused".to_owned(),
+        ));
+    }
     let sock = TcpSocket::new_v4().map_err(|err| NetError::Transport(err.to_string()))?;
     sock.bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0))
         .map_err(|err| NetError::Transport(err.to_string()))?;
@@ -133,17 +137,43 @@ fn parse_dovalid_http(raw: &[u8]) -> Result<TaierAdmission, NetError> {
             first.chars().take(60).collect::<String>()
         )));
     }
-    let is_chunked = head.lines().skip(1).any(|line| {
-        line.split_once(':').is_some_and(|(name, val)| {
-            name.trim().eq_ignore_ascii_case("transfer-encoding")
-                && val.to_ascii_lowercase().contains("chunked")
-        })
-    });
+    let mut is_chunked = false;
+    let mut content_len: Option<usize> = None;
+    let header_lines = head.lines().skip(1);
+    for line in header_lines {
+        let Some((name, val)) = line.split_once(':') else {
+            continue;
+        };
+        let name = name.trim();
+        if name.eq_ignore_ascii_case("transfer-encoding")
+            && val.to_ascii_lowercase().contains("chunked")
+        {
+            is_chunked = true;
+        } else if name.eq_ignore_ascii_case("content-length") {
+            let parsed = val
+                .trim()
+                .parse::<usize>()
+                .map_err(|_| NetError::Transport("invalid dovalid Content-Length".to_owned()))?;
+            if content_len.is_some_and(|prev| prev != parsed) {
+                return Err(NetError::Transport(
+                    "conflicting dovalid Content-Length".to_owned(),
+                ));
+            }
+            content_len = Some(parsed);
+        }
+    }
     let raw_body = &raw[body_offset..];
     let decoded;
     let body_bytes = if is_chunked {
         decoded = decode_chunked(raw_body)?;
         decoded.as_slice()
+    } else if let Some(len) = content_len {
+        if raw_body.len() < len {
+            return Err(NetError::Transport(
+                "truncated dovalid HTTP body".to_owned(),
+            ));
+        }
+        &raw_body[..len]
     } else {
         raw_body
     };
@@ -168,11 +198,14 @@ fn decode_chunked(mut rest: &[u8]) -> Result<Vec<u8>, NetError> {
         if size == 0 {
             return Ok(out);
         }
-        if rest.len() < size + 2 || &rest[size..size + 2] != b"\r\n" {
+        let Some(end) = size.checked_add(2).filter(|&end| end <= rest.len()) else {
+            return Err(NetError::Transport("truncated chunked body".to_owned()));
+        };
+        if &rest[size..end] != b"\r\n" {
             return Err(NetError::Transport("truncated chunked body".to_owned()));
         }
         out.extend_from_slice(&rest[..size]);
-        rest = &rest[size + 2..];
+        rest = &rest[end..];
     }
 }
 
@@ -254,7 +287,6 @@ pub async fn download(
     ));
     let total_bytes = Arc::new(AtomicU64::new(0));
     let active = Arc::new(AtomicU8::new(0));
-    let failed = Arc::new(AtomicU8::new(0));
     let first_err: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
     let stop = cancel.child_token();
 
@@ -266,22 +298,19 @@ pub async fn download(
         let req = Arc::clone(&req);
         let bytes = Arc::clone(&total_bytes);
         let active = Arc::clone(&active);
-        let failed = Arc::clone(&failed);
         let first_err = Arc::clone(&first_err);
         let stop = stop.clone();
         tasks.spawn(async move {
-            if let Err(err) = download_one(ip, port, &req, &stop, &bytes, &active).await {
-                failed.fetch_add(1, Ordering::Relaxed);
-                if let Ok(mut slot) = first_err.lock()
-                    && slot.is_none()
-                {
-                    *slot = Some(err);
-                }
+            if let Err(err) = download_one(ip, port, &req, &stop, &bytes, &active).await
+                && let Ok(mut slot) = first_err.lock()
+                && slot.is_none()
+            {
+                *slot = Some(err);
             }
         });
     }
 
-    wait_window(spec.duration, streams, &failed, &stop, cancel).await;
+    wait_window(spec.duration, &mut tasks, &stop, cancel).await;
     let elapsed = started.elapsed();
     stop.cancel();
     drain_or_abort(&mut tasks, Duration::from_millis(800)).await;
@@ -354,13 +383,13 @@ async fn download_one(
             let status = head_str.lines().next().unwrap_or("empty response");
             return Err(format!("download HTTP error: {status}"));
         }
-        if !marked_active {
-            active.fetch_add(1, Ordering::Relaxed);
-            marked_active = true;
-        }
         let mut req_bytes = 0_u64;
         let initial = head_buf.len().saturating_sub(body_offset);
         if initial > 0 {
+            if !marked_active {
+                active.fetch_add(1, Ordering::Relaxed);
+                marked_active = true;
+            }
             let init_u64 = initial as u64;
             req_bytes += init_u64;
             total_bytes.fetch_add(init_u64, Ordering::Relaxed);
@@ -378,18 +407,28 @@ async fn download_one(
                             break;
                         }
                         Ok(n) => {
+                            if !marked_active {
+                                active.fetch_add(1, Ordering::Relaxed);
+                                marked_active = true;
+                            }
                             let n_u64 = n as u64;
                             req_bytes += n_u64;
                             total_bytes.fetch_add(n_u64, Ordering::Relaxed);
                         }
-                        Err(_) if req_bytes > 0 => return Ok(()),
+                        Err(_) if req_bytes > 0 || marked_active => return Ok(()),
                         Err(err) => return Err(err.to_string()),
                     }
                 }
             }
         }
-        if !clean_eof || req_bytes == 0 {
+        if !clean_eof {
             break;
+        }
+        if req_bytes == 0 {
+            if marked_active {
+                break;
+            }
+            return Err("download returned empty HTTP 200 body".to_owned());
         }
     }
     Ok(())
@@ -437,7 +476,6 @@ async fn upload_with_post_len(
     ));
     let total_bytes = Arc::new(AtomicU64::new(0));
     let active = Arc::new(AtomicU8::new(0));
-    let failed = Arc::new(AtomicU8::new(0));
     let first_err: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
     let stop = cancel.child_token();
 
@@ -450,7 +488,6 @@ async fn upload_with_post_len(
         let trailer = Arc::clone(&trailer);
         let bytes = Arc::clone(&total_bytes);
         let active = Arc::clone(&active);
-        let failed = Arc::clone(&failed);
         let first_err = Arc::clone(&first_err);
         let stop = stop.clone();
         tasks.spawn(async move {
@@ -465,18 +502,16 @@ async fn upload_with_post_len(
                 &active,
             )
             .await;
-            if let Err(err) = res {
-                failed.fetch_add(1, Ordering::Relaxed);
-                if let Ok(mut slot) = first_err.lock()
-                    && slot.is_none()
-                {
-                    *slot = Some(err);
-                }
+            if let Err(err) = res
+                && let Ok(mut slot) = first_err.lock()
+                && slot.is_none()
+            {
+                *slot = Some(err);
             }
         });
     }
 
-    wait_window(spec.duration, streams, &failed, &stop, cancel).await;
+    wait_window(spec.duration, &mut tasks, &stop, cancel).await;
     let elapsed = started.elapsed();
     stop.cancel();
     drain_or_abort(&mut tasks, Duration::from_millis(800)).await;
@@ -498,6 +533,7 @@ async fn upload_one(
     total_bytes: &AtomicU64,
     active: &AtomicU8,
 ) -> Result<(), String> {
+    const UNCONFIRMED_BUF_LIMIT: u64 = (STREAM_BUF as u64) * 4;
     let mut marked_active = false;
     let chunk = upload_chunk();
 
@@ -515,42 +551,110 @@ async fn upload_one(
             Ok(Err(err)) => return Err(err.to_string()),
             Err(_) => return Err("upload header write timed out".to_owned()),
         }
-        if !marked_active {
-            active.fetch_add(1, Ordering::Relaxed);
-            marked_active = true;
-        }
 
         let mut sent_in_post = 0_u64;
         let mut stalled = false;
-        while sent_in_post < payload_limit {
-            let step_u64 = (payload_limit - sent_in_post).min(UPLOAD_CHUNK_BYTES as u64);
-            let step = usize::try_from(step_u64).unwrap_or(UPLOAD_CHUNK_BYTES);
-            tokio::select! {
-                biased;
-                () = stop.cancelled() => break,
-                res = tokio::time::timeout(CHUNK_WRITE_LIMIT, stream.write_all(&chunk[..step])) => {
-                    match res {
-                        Ok(Ok(())) => {
-                            sent_in_post += step_u64;
-                            total_bytes.fetch_add(step_u64, Ordering::Relaxed);
-                        }
-                        Ok(Err(err)) => {
-                            if total_bytes.load(Ordering::Relaxed) > 0 {
-                                stalled = true;
-                                break;
+        let mut resp_head: Vec<u8> = Vec::new();
+        let mut resp_buf = [0_u8; 256];
+        let mut peer_closed = false;
+        {
+            let (mut rd, mut wr) = stream.split();
+            while sent_in_post < payload_limit {
+                let step_u64 = (payload_limit - sent_in_post).min(UPLOAD_CHUNK_BYTES as u64);
+                let step = usize::try_from(step_u64).unwrap_or(UPLOAD_CHUNK_BYTES);
+                tokio::select! {
+                    biased;
+                    () = stop.cancelled() => break,
+                    read_res = rd.read(&mut resp_buf), if !peer_closed => {
+                        match read_res {
+                            Ok(0) => {
+                                peer_closed = true;
+                                if let Some(err) = check_upload_response(&resp_head, true) {
+                                    if sent_in_post <= UNCONFIRMED_BUF_LIMIT {
+                                        total_bytes.fetch_sub(sent_in_post, Ordering::Relaxed);
+                                    }
+                                    if marked_active {
+                                        stalled = true;
+                                        break;
+                                    }
+                                    return Err(err);
+                                }
                             }
-                            return Err(err.to_string());
-                        }
-                        Err(_) => {
-                            if total_bytes.load(Ordering::Relaxed) > 0 {
-                                stalled = true;
-                                break;
+                            Ok(n) => {
+                                let room = 256_usize.saturating_sub(resp_head.len());
+                                resp_head.extend_from_slice(&resp_buf[..n.min(room)]);
+                                if let Some(err) = check_upload_response(&resp_head, false) {
+                                    if sent_in_post <= UNCONFIRMED_BUF_LIMIT {
+                                        total_bytes.fetch_sub(sent_in_post, Ordering::Relaxed);
+                                    }
+                                    if marked_active {
+                                        stalled = true;
+                                        break;
+                                    }
+                                    return Err(err);
+                                }
                             }
-                            return Err("upload write stalled".to_owned());
+                            Err(err) => {
+                                if sent_in_post <= UNCONFIRMED_BUF_LIMIT {
+                                    total_bytes.fetch_sub(sent_in_post, Ordering::Relaxed);
+                                }
+                                if marked_active {
+                                    stalled = true;
+                                    break;
+                                }
+                                return Err(err.to_string());
+                            }
+                        }
+                    }
+                    res = tokio::time::timeout(CHUNK_WRITE_LIMIT, wr.write(&chunk[..step])) => {
+                        match res {
+                            Ok(Ok(0)) => {
+                                if sent_in_post <= UNCONFIRMED_BUF_LIMIT {
+                                    total_bytes.fetch_sub(sent_in_post, Ordering::Relaxed);
+                                }
+                                if marked_active {
+                                    stalled = true;
+                                    break;
+                                }
+                                return Err("upload connection closed".to_owned());
+                            }
+                            Ok(Ok(n)) => {
+                                let n_u64 = n as u64;
+                                sent_in_post += n_u64;
+                                total_bytes.fetch_add(n_u64, Ordering::Relaxed);
+                                if !marked_active && sent_in_post > UNCONFIRMED_BUF_LIMIT {
+                                    active.fetch_add(1, Ordering::Relaxed);
+                                    marked_active = true;
+                                }
+                            }
+                            Ok(Err(err)) => {
+                                if sent_in_post <= UNCONFIRMED_BUF_LIMIT {
+                                    total_bytes.fetch_sub(sent_in_post, Ordering::Relaxed);
+                                }
+                                if marked_active {
+                                    stalled = true;
+                                    break;
+                                }
+                                return Err(err.to_string());
+                            }
+                            Err(_) => {
+                                if sent_in_post <= UNCONFIRMED_BUF_LIMIT {
+                                    total_bytes.fetch_sub(sent_in_post, Ordering::Relaxed);
+                                }
+                                if marked_active {
+                                    stalled = true;
+                                    break;
+                                }
+                                return Err("upload write stalled".to_owned());
+                            }
                         }
                     }
                 }
             }
+        }
+        if !stalled && sent_in_post > 0 && !marked_active {
+            active.fetch_add(1, Ordering::Relaxed);
+            marked_active = true;
         }
         let _ = tokio::time::timeout(
             Duration::from_millis(250),
@@ -565,16 +669,32 @@ async fn upload_one(
     Ok(())
 }
 
+fn check_upload_response(resp_head: &[u8], eof: bool) -> Option<String> {
+    if resp_head.is_empty() {
+        return eof.then(|| "upload closed before accepting payload".to_owned());
+    }
+    let text = String::from_utf8_lossy(resp_head);
+    if !eof && !text.contains('\n') {
+        return None;
+    }
+    let first = text.lines().next().unwrap_or_default().trim();
+    if first.starts_with("HTTP/1.1 200")
+        || first.starts_with("HTTP/1.0 200")
+        || first.starts_with("HTTP/1.1 100")
+    {
+        return None;
+    }
+    let short: String = first.chars().take(60).collect();
+    Some(format!("upload HTTP error: {short}"))
+}
+
 async fn wait_window(
     duration: Duration,
-    streams: u8,
-    failed: &AtomicU8,
+    tasks: &mut JoinSet<()>,
     stop: &CancellationToken,
     cancel: &CancellationToken,
 ) {
     let deadline = TokioInstant::now() + duration;
-    let mut poll = tokio::time::interval(Duration::from_millis(50));
-    poll.set_missed_tick_behavior(MissedTickBehavior::Skip);
     loop {
         tokio::select! {
             biased;
@@ -583,8 +703,8 @@ async fn wait_window(
                 break;
             }
             () = tokio::time::sleep_until(deadline) => break,
-            _ = poll.tick() => {
-                if failed.load(Ordering::Relaxed) >= streams {
+            joined = tasks.join_next() => {
+                if joined.is_none() {
                     break;
                 }
             }

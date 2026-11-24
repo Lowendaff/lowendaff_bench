@@ -93,11 +93,17 @@ pub fn save_archive(base_path: &Path, contents: &str) -> Result<PathBuf, String>
         match rustix::fs::openat(rustix::fs::CWD, &candidate, flags, mode) {
             Ok(fd) => {
                 let mut file = fs::File::from(fd);
-                return file
+                let res = file
                     .write_all(contents.as_bytes())
-                    .and_then(|()| file.flush())
-                    .map(|()| candidate.clone())
-                    .map_err(|err| locale::words().output_unwritable(&candidate, &err));
+                    .and_then(|()| file.flush());
+                drop(file);
+                return match res {
+                    Ok(()) => Ok(candidate),
+                    Err(err) => {
+                        let _ = fs::remove_file(&candidate);
+                        Err(locale::words().output_unwritable(&candidate, &err))
+                    }
+                };
             }
             Err(err) if io::Error::from(err).kind() == io::ErrorKind::AlreadyExists => {}
             Err(err) => {
@@ -134,12 +140,33 @@ pub fn save_copy(path: &Path, contents: &str) -> Result<(), String> {
 }
 
 /// Saves an interactive report export to `path`: uses [`save_archive`] (`O_CREAT | O_EXCL |
-/// O_NOFOLLOW`, `0600`) when `path` is directly inside `/tmp` so Linux `fs.protected_regular` and
-/// same-second collisions never fail or clobber, or [`save_copy`] elsewhere.
+/// O_NOFOLLOW`, `0600`) when `path`'s parent directory is `/tmp` or world-writable so Linux
+/// `fs.protected_regular` and same-second collisions never fail or clobber, or [`save_copy`]
+/// elsewhere.
 pub fn save_user_report(path: &Path, contents: &str) -> Result<PathBuf, String> {
-    if path.parent() == Some(Path::new(DEFAULT_REPORT_DIR)) {
+    if path.file_name().is_none() {
+        let err = io::Error::new(io::ErrorKind::InvalidInput, "report path has no file name");
+        return Err(locale::words().output_unwritable(path, &err));
+    }
+    let parent = path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    if parent == Path::new(DEFAULT_REPORT_DIR) || is_world_writable_dir(parent) {
         save_archive(path, contents)
     } else {
         save_copy(path, contents).map(|()| path.to_path_buf())
     }
+}
+
+#[cfg(unix)]
+fn is_world_writable_dir(dir: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+
+    fs::metadata(dir).is_ok_and(|meta| meta.is_dir() && (meta.permissions().mode() & 0o002) != 0)
+}
+
+#[cfg(not(unix))]
+fn is_world_writable_dir(_dir: &Path) -> bool {
+    false
 }

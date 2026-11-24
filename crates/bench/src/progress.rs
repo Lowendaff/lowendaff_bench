@@ -68,7 +68,14 @@ where
 impl<W: io::Write> io::Write for SanitizedWriter<W> {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         let text = String::from_utf8_lossy(buf);
-        let clean = report::terminal::strip_terminal_controls(&text, true);
+        let (body, trailing_nl) = match text.strip_suffix('\n') {
+            Some(prefix) => (prefix, true),
+            None => (text.as_ref(), false),
+        };
+        let mut clean = report::terminal::strip_terminal_controls(body, false);
+        if trailing_nl {
+            clean.push('\n');
+        }
         self.0.write_all(clean.as_bytes())?;
         Ok(buf.len())
     }

@@ -385,10 +385,6 @@ impl TuiWords for English {
         "Select at least one CPU sub-suite in cpu.bench (or disable cpu.bench)".to_owned()
     }
 
-    fn tui_no_taier_operators_selected(&self) -> String {
-        "Select at least one carrier in network.taier (or disable network.taier)".to_owned()
-    }
-
     fn tui_invalid_number(&self, field: &str, min: u32, max: u32) -> String {
         format!("{field} must be a whole number from {min} to {max}")
     }

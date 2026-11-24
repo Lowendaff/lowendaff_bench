@@ -517,6 +517,20 @@ struct PluginRunner<P: Plugin, R> {
     wrap: fn(Report<P::Output, P::Failure>) -> R,
 }
 
+struct AbortOnDrop {
+    token: CancellationToken,
+    handle: tokio::task::AbortHandle,
+}
+
+impl Drop for AbortOnDrop {
+    fn drop(&mut self) {
+        if !self.handle.is_finished() {
+            self.token.cancel();
+            self.handle.abort();
+        }
+    }
+}
+
 impl<P: Plugin, R: Send + 'static> Runner<R> for PluginRunner<P, R> {
     fn host_requirements(&self, host: &HostProfile) -> Requirements {
         self.plugin.host_requirements(host)
@@ -549,6 +563,10 @@ impl<P: Plugin, R: Send + 'static> Runner<R> for PluginRunner<P, R> {
             }
             let plugin = self.plugin.clone();
             let mut task = tokio::spawn(async move { plugin.run(&ctx).await });
+            let _abort_guard = AbortOnDrop {
+                token: launch.token.clone(),
+                handle: task.abort_handle(),
+            };
             // In this order, so that a plugin that has already ended is taken at its word, and
             // a stream of progress cannot hold off its deadline or the interrupt.
             let ending = loop {

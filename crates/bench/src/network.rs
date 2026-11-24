@@ -234,7 +234,11 @@ async fn address(v6: bool, sources: &[Source], cancel: &CancellationToken) -> Ad
             }
         }
     }
-    Address::NotFound(failed)
+    if failed.is_empty() {
+        Address::NotAsked
+    } else {
+        Address::NotFound(failed)
+    }
 }
 
 /// The family's base client builder; `None` when its TLS configuration is refused.
@@ -275,7 +279,11 @@ async fn ask(
 /// performed once and `https://` sources never connect to non-public addresses.
 async fn fetch(client: &Client, url: &str, v6: bool) -> Result<String, Why> {
     let parsed = Url::parse(url).map_err(|_| Why::Unreachable)?;
-    let require_public = parsed.scheme() == "https";
+    let require_public = match parsed.scheme() {
+        "https" => true,
+        "http" => false,
+        _ => return Err(Why::Unreachable),
+    };
     let pinned_client;
     let active_client = match resolve_source_addrs(&parsed, v6, require_public).await? {
         SourceTarget::Literal => client,
@@ -334,7 +342,12 @@ async fn resolve_source_addrs(
         if ip.is_ipv6() != v6 {
             return Err(Why::NoAddress);
         }
-        if require_public && !bench_api::is_routable_endpoint_ip(ip) {
+        let permitted = if require_public {
+            bench_api::is_routable_endpoint_ip(ip)
+        } else {
+            ip.is_loopback()
+        };
+        if !permitted {
             return Err(Why::Unreachable);
         }
         return Ok(SourceTarget::Literal);
@@ -348,14 +361,16 @@ async fn resolve_source_addrs(
     if family_addrs.is_empty() {
         return Err(Why::NoAddress);
     }
-    let allowed: Vec<SocketAddr> = if require_public {
-        family_addrs
-            .into_iter()
-            .filter(|addr| bench_api::is_routable_endpoint_ip(addr.ip()))
-            .collect()
-    } else {
-        family_addrs
-    };
+    let allowed: Vec<SocketAddr> = family_addrs
+        .into_iter()
+        .filter(|addr| {
+            if require_public {
+                bench_api::is_routable_endpoint_ip(addr.ip())
+            } else {
+                addr.ip().is_loopback()
+            }
+        })
+        .collect();
     if allowed.is_empty() {
         return Err(Why::Unreachable);
     }
@@ -396,7 +411,9 @@ pub fn public(address: IpAddr) -> bool {
         }
         IpAddr::V6(v6) => {
             let [first, second, ..] = v6.segments();
-            !(first == 0x2001 && second == 0x0db8) && !(first == 0x3fff && second < 0x1000)
+            !(first == 0x2001 && (second < 0x0200 || second == 0x0db8))
+                && !(first == 0x3fff && second < 0x1000)
+                && first != 0x2002
         }
     }
 }

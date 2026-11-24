@@ -4,6 +4,7 @@
 
 use bench_api::Net;
 use bench_host::glibc::GlibcVersion;
+use bench_tool::job;
 use bench_tool::job::Adjustment;
 use plugin_cpu::bench;
 use plugin_cpu::bench::SuiteOutcome;
@@ -442,8 +443,9 @@ fn render_unixbench(out: &mut Out, output: &unixbench::Output, indent: &str) {
 fn unixbench_failure(failure: &unixbench::Failure) -> String {
     let words = locale::words();
     match failure {
-        unixbench::Failure::Single(fault) | unixbench::Failure::Multi(fault) => {
-            unixbench_fault(fault)
+        unixbench::Failure::Single(fault) => unixbench_fault(fault),
+        unixbench::Failure::Multi(fault) => {
+            format!("{}: {}", words.cpu_test(true), unixbench_fault(fault))
         }
         unixbench::Failure::Cancelled => words.interrupted(),
     }
@@ -452,6 +454,10 @@ fn unixbench_failure(failure: &unixbench::Failure) -> String {
 fn unixbench_fault(fault: &unixbench::Fault) -> String {
     let words = locale::words();
     match fault {
+        unixbench::Fault::Tool {
+            item,
+            fault: job::Fault::TimedOut(limit),
+        } => words.unixbench_timed_out(item, limit.as_secs()),
         unixbench::Fault::Tool { item, fault } => {
             tool::fault(&format!("unixbench ({item})"), fault, Unit::Seconds)
         }

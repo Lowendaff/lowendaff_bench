@@ -78,7 +78,14 @@ pub(super) fn section(out: &mut Out, host: &HostProfile, show_ip: bool) {
     match &host.storage {
         Read::Done(storage) if kind == PlatformKind::Container => container_storage(out, storage),
         Read::Done(storage) => self::storage(out, storage, kind == PlatformKind::Dedicated),
-        missing => out.field(INDENT, label(HostLabel::Disks), &missing_text(missing)),
+        missing => {
+            let storage_label = if kind == PlatformKind::Container {
+                HostLabel::Filesystems
+            } else {
+                HostLabel::Disks
+            };
+            out.field(INDENT, label(storage_label), &missing_text(missing));
+        }
     }
     match &host.system {
         Read::Done(system) => self::system(out, system, &host.arch),
@@ -257,7 +264,7 @@ fn storage(out: &mut Out, storage: &StorageFacts, dedicated: bool) {
         .filesystems
         .iter()
         .map(|filesystem| {
-            let mut row = filesystem_row(filesystem, storage.work_dir);
+            let mut row = filesystem_row(filesystem, storage.work_dir, false);
             row.push(if filesystem.disks.is_empty() {
                 "—".to_owned()
             } else {
@@ -283,7 +290,7 @@ fn container_storage(out: &mut Out, storage: &StorageFacts) {
         out.field(INDENT, label(HostLabel::Filesystems), &unavailable());
         return;
     };
-    let row = filesystem_row(root, storage.work_dir);
+    let row = filesystem_row(root, storage.work_dir, true);
     let headers = [
         HostHeader::MountPoint,
         HostHeader::Type,
@@ -349,14 +356,19 @@ fn table(out: &mut Out, title: HostLabel, headers: &[HostHeader], rows: &[Vec<St
 }
 
 /// Mount point, type, size, used and available. A ZFS pool shares its free space among its
-/// datasets, so only the available space is shown for it.
-fn filesystem_row(filesystem: &Filesystem, work_dir: Option<(u32, u32)>) -> Vec<String> {
+/// datasets, so only the available space is shown for it on bare-metal/VM hosts (whereas inside a
+/// container `statvfs("/")` reflects the container dataset quota).
+fn filesystem_row(
+    filesystem: &Filesystem,
+    work_dir: Option<(u32, u32)>,
+    container: bool,
+) -> Vec<String> {
     let mut mount_point = filesystem.mount_point.clone();
     if work_dir.is_some_and(|device| filesystem.devices.contains(&device)) {
         mount_point.push_str(locale::words().test_directory());
     }
     let (total, used, available) = match filesystem.space {
-        Some(space) if filesystem.zfs_pool.is_none() => (
+        Some(space) if filesystem.zfs_pool.is_none() || container => (
             size_text(space.total),
             size_text(space.used),
             size_text(space.available),
@@ -433,6 +445,9 @@ pub fn family_text(family: &Family, name: &str, show_ip: bool) -> String {
             words.public_address(&shown(*address, show_ip), source)
         }
         Address::NotFound(failed) => {
+            if failed.is_empty() {
+                return words.reachable();
+            }
             let reasons: Vec<String> = failed
                 .iter()
                 .map(|(source, why)| why_text(source, *why, name))

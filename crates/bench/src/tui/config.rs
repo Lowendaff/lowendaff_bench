@@ -52,7 +52,7 @@ pub enum ItemParams {
         countries: String,
         /// Comma-separated server IDs; overrides `countries` when non-empty.
         servers: String,
-        /// Test duration per direction in seconds (`1..=3600`).
+        /// Test duration per direction in seconds (`1..=60`).
         seconds: u16,
         /// Parallel TCP streams (`1..=128`).
         streams: u8,
@@ -970,7 +970,7 @@ impl TuiConfig {
                 value: report_path::auto_label(g.format),
                 customized: false,
                 dimmed: false,
-                edit_raw: Some(report_path::default_path(g.format).display().to_string()),
+                edit_raw: Some(String::new()),
             }
         } else {
             FieldRow {
@@ -1066,7 +1066,7 @@ impl TuiConfig {
         {
             match field_idx {
                 3 => {
-                    *seconds = step_u16(*seconds, delta, 1, 3600);
+                    *seconds = step_u16(*seconds, delta, 1, 60);
                     item.enabled = true;
                     return;
                 }
@@ -1300,8 +1300,8 @@ impl TuiConfig {
                     if trimmed.is_empty() {
                         *seconds = IperfSettings::YABS.seconds;
                     } else {
-                        let val = parse_range(trimmed, 1, 3600).ok_or_else(|| {
-                            words.tui_invalid_number(words.tui_field_seconds(), 1, 3600)
+                        let val = parse_range(trimmed, 1, 60).ok_or_else(|| {
+                            words.tui_invalid_number(words.tui_field_seconds(), 1, 60)
                         })?;
                         *seconds = u16::try_from(val).unwrap_or(IperfSettings::YABS.seconds);
                         item.enabled = true;

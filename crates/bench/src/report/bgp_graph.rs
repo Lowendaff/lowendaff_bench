@@ -577,31 +577,22 @@ fn collapse_prepends(path: &BgpPath, use_tier1: bool) -> Vec<HopCell> {
     } else {
         &path.asns_raw
     };
+    let mut clean_fwd: Vec<HopCell> = Vec::with_capacity(source.len());
+    for &asn in source {
+        if let Some(last) = clean_fwd.last_mut()
+            && last.asn == asn
+        {
+            last.repeat += 1;
+            continue;
+        }
+        clean_fwd.push(HopCell { asn, repeat: 1 });
+    }
     if use_tier1 {
-        let trimmed = asns::trunc_to_tier1(source);
-        let mut seq: Vec<HopCell> = Vec::with_capacity(trimmed.len());
-        let reversed = trimmed.iter().rev();
-        for &asn in reversed {
-            if let Some(last) = seq.last_mut()
-                && last.asn == asn
-            {
-                last.repeat += 1;
-                continue;
-            }
-            seq.push(HopCell { asn, repeat: 1 });
-        }
-        seq
+        let clean_asns: Vec<u32> = clean_fwd.iter().map(|h| h.asn).collect();
+        let keep = asns::trunc_to_tier1(&clean_asns).len();
+        let start = clean_fwd.len().saturating_sub(keep);
+        clean_fwd[start..].iter().rev().copied().collect()
     } else {
-        let mut clean_fwd: Vec<(u32, usize)> = Vec::with_capacity(source.len());
-        for &asn in source {
-            if let Some(last) = clean_fwd.last_mut()
-                && last.0 == asn
-            {
-                last.1 += 1;
-                continue;
-            }
-            clean_fwd.push((asn, 1));
-        }
         let without_collector = if clean_fwd.len() > 1 {
             &clean_fwd[1..]
         } else {
@@ -611,7 +602,7 @@ fn collapse_prepends(path: &BgpPath, use_tier1: bool) -> Vec<HopCell> {
             .iter()
             .rev()
             .take(FALLBACK_MAX_HOPS)
-            .map(|&(asn, repeat)| HopCell { asn, repeat })
+            .copied()
             .collect()
     }
 }
@@ -624,20 +615,43 @@ fn compute_size(
     if let Some(&cached) = memo.get(&asn) {
         return cached;
     }
-    memo.insert(asn, 1);
-    let Some(children) = children_of.get(&asn) else {
-        return 1;
-    };
-    if children.is_empty() {
-        return 1;
+    enum SizeFrame {
+        Enter(u32),
+        Exit(u32),
     }
-    let mut sum = 0;
-    for &child in children {
-        sum += compute_size(child, children_of, memo);
+    let mut stack = vec![SizeFrame::Enter(asn)];
+    while let Some(frame) = stack.pop() {
+        match frame {
+            SizeFrame::Enter(node) => {
+                if memo.contains_key(&node) {
+                    continue;
+                }
+                memo.insert(node, 1);
+                let Some(children) = children_of.get(&node) else {
+                    continue;
+                };
+                if children.is_empty() {
+                    continue;
+                }
+                stack.push(SizeFrame::Exit(node));
+                let rev_children = children.iter().rev();
+                for &child in rev_children {
+                    if !memo.contains_key(&child) {
+                        stack.push(SizeFrame::Enter(child));
+                    }
+                }
+            }
+            SizeFrame::Exit(node) => {
+                let sum = children_of.get(&node).map_or(0, |children| {
+                    children.iter().fold(0_usize, |acc, child| {
+                        acc.saturating_add(memo.get(child).copied().unwrap_or(1))
+                    })
+                });
+                memo.insert(node, sum.max(1));
+            }
+        }
     }
-    let val = sum.max(1);
-    memo.insert(asn, val);
-    val
+    memo.get(&asn).copied().unwrap_or(1)
 }
 
 fn dfs_order(
@@ -651,60 +665,86 @@ fn dfs_order(
     if seen.contains(&asn) {
         return ord.get(&asn).copied().unwrap_or(0.0);
     }
-    seen.insert(asn);
-    let all: Vec<u32> = children_of
-        .get(&asn)
-        .map(|set| set.iter().copied().collect())
-        .unwrap_or_default();
-    if all.is_empty() {
-        let val = *leaf_counter as f64;
-        *leaf_counter += 1;
-        ord.insert(asn, val);
-        return val;
+    enum DfsFrame {
+        Enter(u32),
+        Exit {
+            node: u32,
+            all: Vec<u32>,
+            centered: Vec<u32>,
+        },
     }
-
-    // Sort unvisited children largest-subtree-first and alternate front/back so the dominant
-    // trunk sits in the vertical center while smaller leaves fan out to top and bottom.
-    let mut unvisited: Vec<u32> = all.iter().copied().filter(|k| !seen.contains(k)).collect();
-    unvisited.sort_by(|a, b| subtree_size[b].cmp(&subtree_size[a]).then_with(|| a.cmp(b)));
-    let mut centered: VecDeque<u32> = VecDeque::with_capacity(unvisited.len());
-    for (idx, child) in unvisited.into_iter().enumerate() {
-        if idx % 2 == 1 {
-            centered.push_back(child);
-        } else {
-            centered.push_front(child);
+    let mut stack = vec![DfsFrame::Enter(asn)];
+    while let Some(frame) = stack.pop() {
+        match frame {
+            DfsFrame::Enter(node) => {
+                if seen.contains(&node) {
+                    continue;
+                }
+                seen.insert(node);
+                let all: Vec<u32> = children_of
+                    .get(&node)
+                    .map(|set| set.iter().copied().collect())
+                    .unwrap_or_default();
+                if all.is_empty() {
+                    let val = *leaf_counter as f64;
+                    *leaf_counter += 1;
+                    ord.insert(node, val);
+                    continue;
+                }
+                // Sort unvisited children largest-subtree-first and alternate front/back so the
+                // dominant trunk sits in the vertical center while smaller leaves fan out.
+                let mut unvisited: Vec<u32> =
+                    all.iter().copied().filter(|k| !seen.contains(k)).collect();
+                unvisited
+                    .sort_by(|a, b| subtree_size[b].cmp(&subtree_size[a]).then_with(|| a.cmp(b)));
+                let mut centered_dq: VecDeque<u32> = VecDeque::with_capacity(unvisited.len());
+                for (idx, child) in unvisited.into_iter().enumerate() {
+                    if idx % 2 == 1 {
+                        centered_dq.push_back(child);
+                    } else {
+                        centered_dq.push_front(child);
+                    }
+                }
+                let centered: Vec<u32> = centered_dq.into_iter().collect();
+                stack.push(DfsFrame::Exit {
+                    node,
+                    all,
+                    centered: centered.clone(),
+                });
+                let rev_centered = centered.iter().rev();
+                for &child in rev_centered {
+                    stack.push(DfsFrame::Enter(child));
+                }
+            }
+            DfsFrame::Exit {
+                node,
+                all,
+                centered,
+            } => {
+                let mut values = Vec::with_capacity(all.len());
+                for &child in &centered {
+                    values.push(ord.get(&child).copied().unwrap_or(0.0));
+                }
+                for &child in &all {
+                    if !centered.contains(&child)
+                        && let Some(&existing) = ord.get(&child)
+                    {
+                        values.push(existing);
+                    }
+                }
+                let mean = if values.is_empty() {
+                    let v = *leaf_counter as f64;
+                    *leaf_counter += 1;
+                    v
+                } else {
+                    let sum: f64 = values.iter().sum();
+                    sum / (values.len() as f64)
+                };
+                ord.insert(node, mean);
+            }
         }
     }
-
-    let mut values = Vec::with_capacity(all.len());
-    for &child in &centered {
-        values.push(dfs_order(
-            child,
-            children_of,
-            subtree_size,
-            seen,
-            ord,
-            leaf_counter,
-        ));
-    }
-    for &child in &all {
-        if !centered.contains(&child)
-            && let Some(&existing) = ord.get(&child)
-        {
-            values.push(existing);
-        }
-    }
-
-    let mean = if values.is_empty() {
-        let v = *leaf_counter as f64;
-        *leaf_counter += 1;
-        v
-    } else {
-        let sum: f64 = values.iter().sum();
-        sum / (values.len() as f64)
-    };
-    ord.insert(asn, mean);
-    mean
+    ord.get(&asn).copied().unwrap_or(0.0)
 }
 
 // ---------------------------------------------------------------------------
@@ -961,17 +1001,73 @@ fn sanitize_mermaid_label(s: &str) -> String {
 }
 
 fn strip_disallowed_xml_chars(s: &str) -> String {
-    s.chars()
-        .filter_map(|c| match c {
-            '\r' | '\n' | '\t' => Some(' '),
-            other if is_disallowed_xml_char(other) => None,
-            other => Some(other),
-        })
-        .collect()
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(ch) = chars.next() {
+        match ch {
+            '\x1b' => match chars.peek().copied() {
+                Some('[') => {
+                    chars.next();
+                    consume_xml_csi(&mut chars);
+                }
+                Some(']' | 'P' | 'X' | '^' | '_') => {
+                    chars.next();
+                    consume_xml_st(&mut chars, &mut out);
+                }
+                _ => {}
+            },
+            '\u{009b}' => consume_xml_csi(&mut chars),
+            '\u{0090}' | '\u{0098}' | '\u{009d}' | '\u{009e}' | '\u{009f}' => {
+                consume_xml_st(&mut chars, &mut out);
+            }
+            '\r' | '\n' | '\t' => out.push(' '),
+            other if is_disallowed_xml_char(other) => {}
+            other => out.push(other),
+        }
+    }
+    out
+}
+
+fn consume_xml_csi<I: Iterator<Item = char>>(chars: &mut std::iter::Peekable<I>) {
+    while let Some(&ch) = chars.peek() {
+        if ('\x20'..='\x3f').contains(&ch) {
+            chars.next();
+        } else {
+            break;
+        }
+    }
+    if let Some(&fin) = chars.peek()
+        && ('\x40'..='\x7e').contains(&fin)
+    {
+        chars.next();
+    }
+}
+
+fn consume_xml_st<I: Iterator<Item = char>>(chars: &mut std::iter::Peekable<I>, out: &mut String) {
+    while let Some(ch) = chars.next() {
+        match ch {
+            '\x07' | '\u{009c}' => break,
+            '\x1b' => {
+                if chars.peek() == Some(&'\\') {
+                    chars.next();
+                }
+                break;
+            }
+            '\n' => {
+                out.push(' ');
+                break;
+            }
+            _ => {}
+        }
+    }
 }
 
 fn is_disallowed_xml_char(c: char) -> bool {
-    c.is_control() || matches!(c, '\u{fffe}' | '\u{ffff}')
+    c.is_control()
+        || matches!(
+            c,
+            '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}' | '\u{fffe}' | '\u{ffff}'
+        )
 }
 
 fn truncate_chars(text: &str, max_chars: usize) -> String {
@@ -1049,5 +1145,63 @@ mod tests {
                 .any(|c| (c.is_control() && c != '\n') || matches!(c, '\u{fffe}' | '\u{ffff}')),
             "Mermaid must contain no control characters:\n{mermaid}"
         );
+    }
+
+    #[test]
+    fn tier1_self_prepend_and_deep_as_path_layout_without_stack_overflow() {
+        let mut asn_names = BTreeMap::new();
+        asn_names.insert(
+            6939,
+            "Hurricane\x1b[31mEvil\x1b[0m\x1b]52;c;SGVsbG8=\x07\u{202e}".to_owned(),
+        );
+        let deep_chain: Vec<u32> = std::iter::once(3356)
+            .chain((10_000..15_000).rev())
+            .collect();
+        let rep = FamilyBgp {
+            address: "203.0.113.7".parse().expect("ipv4"),
+            announced: true,
+            prefix: Some("203.0.113.0/24".to_owned()),
+            prefix_base: Some("203.0.113.0".parse().expect("base")),
+            prefix_len: Some(24),
+            origin_asn: Some(6939),
+            origins: vec![OriginSummary {
+                asn: 6939,
+                peers: 10,
+            }],
+            rpki: RpkiStatus::Valid,
+            total_peers: 11,
+            distinct_paths: 2,
+            upstreams: vec![UpstreamShare {
+                asn: 1299,
+                peers: 10,
+            }],
+            paths: vec![
+                BgpPath {
+                    asns: vec![1299, 6939],
+                    asns_raw: vec![1299, 6939, 6939],
+                    peers: 10,
+                    is_best: true,
+                },
+                BgpPath {
+                    asns: deep_chain.clone(),
+                    asns_raw: deep_chain,
+                    peers: 1,
+                    is_best: false,
+                },
+            ],
+            asn_names,
+            diagram_url: None,
+        };
+        let graph = layout(&rep, None).expect("layout succeeds");
+        assert!(
+            graph
+                .edges
+                .iter()
+                .any(|e| e.from_asn == 6939 && e.to_asn == 1299 && e.span == 2),
+            "Tier-1 origin self-prepend must preserve upstream edge and ×2 badge"
+        );
+        let svg = render_svg(&graph);
+        assert!(svg.contains("HurricaneEvil"));
+        assert!(!svg.contains("31m") && !svg.contains('\u{202e}'));
     }
 }

@@ -78,7 +78,11 @@ pub use taier_picker::TaierPickerModal;
 #[must_use]
 pub fn run(registry: &[Entry]) -> ExitCode {
     if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
-        eprintln!("{}", locale::words().tui_not_a_tty());
+        let msg = crate::report::terminal::strip_terminal_controls(
+            &locale::words().tui_not_a_tty(),
+            false,
+        );
+        eprintln!("{msg}");
         return ExitCode::from(app::EXIT_USAGE);
     }
 
@@ -90,7 +94,11 @@ pub fn run(registry: &[Entry]) -> ExitCode {
     {
         Ok(rt) => rt,
         Err(err) => {
-            eprintln!("{}", locale::words().runtime_failed(&err));
+            let msg = crate::report::terminal::strip_terminal_controls(
+                &locale::words().runtime_failed(&err),
+                false,
+            );
+            eprintln!("{msg}");
             return ExitCode::from(app::EXIT_USAGE);
         }
     };
@@ -101,7 +109,8 @@ pub fn run(registry: &[Entry]) -> ExitCode {
     let mut term = match TerminalGuard::try_new() {
         Ok(term) => term,
         Err(err) => {
-            eprintln!("{err}");
+            let clean = crate::report::terminal::strip_terminal_controls(&err, false);
+            eprintln!("{clean}");
             return ExitCode::from(app::EXIT_USAGE);
         }
     };
