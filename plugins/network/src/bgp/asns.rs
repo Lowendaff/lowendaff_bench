@@ -178,11 +178,15 @@ pub fn known_name(asn: u32) -> Option<&'static str> {
 /// `"HETZNER-AS, DE"` into a short display name suitable for compact diagram nodes.
 #[must_use]
 pub fn clean_holder(raw: &str) -> String {
-    let trimmed = raw.trim();
+    let sanitized = sanitize_holder_text(raw);
+    let trimmed = sanitized.trim();
     if trimmed.is_empty() {
         return String::new();
     }
-    let without_cc = strip_country_suffix(trimmed);
+    let mut without_cc = strip_country_suffix(trimmed);
+    while let Some(stem) = without_cc.strip_suffix(" -") {
+        without_cc = strip_country_suffix(stem.trim_end());
+    }
     let candidate = if let Some((left, right)) = without_cc.split_once(" - ") {
         let right_clean = strip_corporate_suffix(right.trim());
         let left_clean = strip_corporate_suffix(left.trim());
@@ -248,26 +252,102 @@ fn strip_corporate_suffix(s: &str) -> String {
 }
 
 fn collapse_spaces(s: &str) -> String {
-    let cleaned: String = s
-        .chars()
-        .filter(|&c| {
-            !c.is_control()
-                && !matches!(
-                    c,
-                    '\u{061c}'
-                        | '\u{200e}'
-                        | '\u{200f}'
-                        | '\u{202a}'..='\u{202e}'
-                        | '\u{2066}'..='\u{2069}'
-                )
-        })
-        .collect();
-    let mut out = String::with_capacity(cleaned.len());
-    for word in cleaned.split_whitespace() {
+    let mut out = String::with_capacity(s.len());
+    for word in s.split_whitespace() {
         if !out.is_empty() {
             out.push(' ');
         }
         out.push_str(word);
     }
     out
+}
+
+fn sanitize_holder_text(raw: &str) -> String {
+    let mut out = String::with_capacity(raw.len());
+    let mut chars = raw.chars().peekable();
+    while let Some(ch) = chars.next() {
+        match ch {
+            '\t' | '\r' | '\n' => out.push(' '),
+            '\x1b' => match chars.peek().copied() {
+                Some('[') => {
+                    chars.next();
+                    consume_csi(&mut chars);
+                }
+                Some(']' | 'P' | '_' | '^' | 'X') => {
+                    chars.next();
+                    consume_st(&mut chars, &mut out);
+                }
+                Some(next) if ('\x20'..='\x2f').contains(&next) => {
+                    chars.next();
+                    while let Some(&mid) = chars.peek() {
+                        if ('\x20'..='\x2f').contains(&mid) {
+                            chars.next();
+                        } else {
+                            break;
+                        }
+                    }
+                    if let Some(&fin) = chars.peek()
+                        && ('\x30'..='\x7e').contains(&fin)
+                    {
+                        chars.next();
+                    }
+                }
+                Some(fin) if ('\x30'..='\x7e').contains(&fin) => {
+                    chars.next();
+                }
+                _ => {}
+            },
+            '\u{009b}' => consume_csi(&mut chars),
+            '\u{0090}' | '\u{0098}' | '\u{009d}' | '\u{009e}' | '\u{009f}' => {
+                consume_st(&mut chars, &mut out);
+            }
+            c if c.is_control()
+                || matches!(
+                    c,
+                    '\u{061c}'
+                        | '\u{200e}'
+                        | '\u{200f}'
+                        | '\u{202a}'..='\u{202e}'
+                        | '\u{2066}'..='\u{2069}'
+                        | '\u{fffe}'
+                        | '\u{ffff}'
+                ) => {}
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+fn consume_csi<I: Iterator<Item = char>>(chars: &mut std::iter::Peekable<I>) {
+    while let Some(&ch) = chars.peek() {
+        if ('\x20'..='\x3f').contains(&ch) {
+            chars.next();
+        } else {
+            break;
+        }
+    }
+    if let Some(&fin) = chars.peek()
+        && ('@'..='~').contains(&fin)
+    {
+        chars.next();
+    }
+}
+
+fn consume_st<I: Iterator<Item = char>>(chars: &mut std::iter::Peekable<I>, out: &mut String) {
+    while let Some(ch) = chars.next() {
+        match ch {
+            '\x07' | '\u{009c}' => break,
+            '\x1b' => {
+                if chars.peek() == Some(&'\\') {
+                    chars.next();
+                }
+                break;
+            }
+            '\r' | '\n' => {
+                out.push(' ');
+                break;
+            }
+            _ => {}
+        }
+    }
 }

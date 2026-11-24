@@ -126,11 +126,35 @@ fn redact_ip_in_note(reason: &str, addrs: &[IpAddr]) -> String {
     let mut text = reason.to_owned();
     for &addr in addrs {
         let masked = network::mask(addr);
-        let raw = addr.to_string();
-        text = replace_ip_token(&text, &raw, &masked, addr.is_ipv6());
-        if addr.is_ipv6() {
-            let encoded = raw.replace(':', "%3A");
-            text = replace_ip_token(&text, &encoded, &masked, true);
+        match addr {
+            IpAddr::V4(v4) => {
+                let raw = v4.to_string();
+                let encoded = raw.replace('.', "%2E");
+                text = replace_ip_token(&text, &encoded, &masked, false);
+                text = replace_ip_token(&text, &raw, &masked, false);
+            }
+            IpAddr::V6(v6) => {
+                let segs = v6.segments();
+                let padded = format!(
+                    "{:04x}:{:04x}:{:04x}:{:04x}:{:04x}:{:04x}:{:04x}:{:04x}",
+                    segs[0], segs[1], segs[2], segs[3], segs[4], segs[5], segs[6], segs[7]
+                );
+                let full = format!(
+                    "{:x}:{:x}:{:x}:{:x}:{:x}:{:x}:{:x}:{:x}",
+                    segs[0], segs[1], segs[2], segs[3], segs[4], segs[5], segs[6], segs[7]
+                );
+                let canonical = v6.to_string();
+                for candidate in [
+                    padded.replace(':', "%3A"),
+                    padded,
+                    full.replace(':', "%3A"),
+                    full,
+                    canonical.replace(':', "%3A"),
+                    canonical,
+                ] {
+                    text = replace_ip_token(&text, &candidate, &masked, true);
+                }
+            }
         }
     }
     text
@@ -147,6 +171,7 @@ fn replace_ip_token(haystack: &str, needle: &str, replacement: &str, ipv6: bool)
             b.is_ascii_digit()
         }
     };
+    let sep_hex: &[u8; 2] = if ipv6 { b"3A" } else { b"2E" };
     let bytes = haystack.as_bytes();
     let nlen = needle.len();
     let mut out = String::with_capacity(haystack.len());
@@ -157,8 +182,17 @@ fn replace_ip_token(haystack: &str, needle: &str, replacement: &str, ipv6: bool)
             && haystack.is_char_boundary(i + nlen)
             && haystack[i..i + nlen].eq_ignore_ascii_case(needle)
         {
-            let prev_ok = i == 0 || !is_token_cont(bytes[i - 1]);
-            let next_ok = i + nlen == bytes.len() || !is_token_cont(bytes[i + nlen]);
+            let pct_before = i >= 3
+                && bytes[i - 3] == b'%'
+                && bytes[i - 2].is_ascii_hexdigit()
+                && bytes[i - 1].is_ascii_hexdigit()
+                && !bytes[i - 2..i].eq_ignore_ascii_case(sep_hex);
+            let prev_ok = i == 0 || !is_token_cont(bytes[i - 1]) || pct_before;
+            let pct_sep_after = i + nlen + 3 <= bytes.len()
+                && bytes[i + nlen] == b'%'
+                && bytes[i + nlen + 1..i + nlen + 3].eq_ignore_ascii_case(sep_hex);
+            let next_ok =
+                (i + nlen == bytes.len() || !is_token_cont(bytes[i + nlen])) && !pct_sep_after;
             if prev_ok && next_ok {
                 out.push_str(&haystack[cursor..i]);
                 out.push_str(replacement);

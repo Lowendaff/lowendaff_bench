@@ -476,6 +476,31 @@ async fn provisioning_through_github_mirror_rewrites_github_tool_urls_and_verifi
     assert!(provisioned.failed.is_empty(), "{:?}", provisioned.failed);
     assert_eq!(std::fs::read(&provisioned.ready["fio"]).unwrap(), SCRIPT);
     assert_eq!(std::fs::read(&provisioned.ready["big"]).unwrap(), big());
+
+    // A compromised mirror redirecting cross-origin to another loopback port or metadata IP is
+    // rejected immediately, as are trailing-dot localhost URLs on direct routes.
+    let ssrf_target = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let ssrf_addr = ssrf_target.local_addr().unwrap();
+    let evil_mirror = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let evil_url = format!("http://{}/", evil_mirror.local_addr().unwrap());
+    tokio::spawn(async move {
+        while let Ok((mut socket, _)) = evil_mirror.accept().await {
+            let redirect = format!(
+                "HTTP/1.1 302 Found\r\nLocation: http://{ssrf_addr}/secret\r\n\
+                 Content-Length: 0\r\nConnection: close\r\n\r\n"
+            );
+            let _ = socket.write_all(redirect.as_bytes()).await;
+        }
+    });
+    let evil_proxy = DownloadProxy::try_new(None, Some(&evil_url)).unwrap();
+    let evil_fetchers = Fetchers::try_new_with_proxy(&evil_proxy).unwrap();
+    assert!(evil_fetchers.open(None, gh_fio, None).await.is_err());
+
+    let direct = Fetcher::try_new().unwrap();
+    assert!(matches!(
+        direct.open("https://localhost./fio", None).await,
+        Err(DownloadError::Final(_))
+    ));
 }
 
 /// An executable tool named `name`, pinned to `body` at `url`.

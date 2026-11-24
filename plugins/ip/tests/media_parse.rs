@@ -362,6 +362,17 @@ fn global_platform_modules_distinguish_full_originals_regions_and_restrictions()
         r#"{"odata.error":{"code":10000,"message":{"value":"NotAvailableInCountry"}}}"#,
     );
     assert_eq!(dazn::parse(&dazn_odata), Verdict::no());
+    assert_eq!(
+        dazn::parse(&response(
+            403,
+            "https://startup.core.indazn.com/misl/v5/Startup",
+            &[],
+            r#"{"odata.error":{"code":"10006","message":{"value":"VPN or proxy detected"}}}"#,
+        )),
+        Verdict::No {
+            restriction: Some(Restriction::ProxyDetected)
+        }
+    );
 
     let cr = response(
         200,
@@ -464,6 +475,15 @@ fn asia_platform_modules_cover_hk_mo_tw_japan_korea_and_singapore_services() {
     );
     assert_eq!(bahamut::parse(&baha_tok), Verdict::yes_in("TW"));
     assert_eq!(
+        bahamut::parse(&response(
+            200,
+            "https://ani.gamer.com.tw/ajax/token.php",
+            &[],
+            r#"{"animeSn":"0","error":{"code":1004,"message":"sn not found"}}"#,
+        )),
+        Verdict::Unexpected("Bahamut error code 1004".to_owned())
+    );
+    assert_eq!(
         bahamut::parse(&response(404, "https://x", &[], r#"{"error":"Not Found"}"#)),
         Verdict::Unexpected("HTTP 404".to_owned())
     );
@@ -498,6 +518,10 @@ fn asia_platform_modules_cover_hk_mo_tw_japan_korea_and_singapore_services() {
             r#"{"data":{"country":"TW","is_allowed":true}}"#
         )),
         Verdict::yes_in("TW")
+    );
+    assert_eq!(
+        kktv::parse(&response(401, "https://x", &[], r#"{"country":"TW"}"#)),
+        Verdict::Unexpected("HTTP 401".to_owned())
     );
     assert_eq!(
         litv::parse(&response(200, "https://x", &[], r#"{"errorMessage":null}"#)),
@@ -975,6 +999,15 @@ fn europe_americas_and_oceania_platform_modules_cover_every_regional_service() {
             ""
         )),
         Verdict::Unexpected("redirected to Disney+".to_owned())
+    );
+    assert_eq!(
+        hulu::parse(&response(
+            302,
+            "https://www.hulu.com/welcome",
+            &[("location", "https://www.hulu.jp/unavailable")],
+            ""
+        )),
+        Verdict::no()
     );
     assert_eq!(
         max::parse(&response(

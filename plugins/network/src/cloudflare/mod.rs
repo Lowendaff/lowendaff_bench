@@ -182,7 +182,10 @@ pub fn validate_stun_host(raw: &str) -> Result<String, Failure> {
         }
         return Ok(v4.to_string());
     }
-    let host = trimmed.trim_end_matches('.').to_ascii_lowercase();
+    let host = trimmed
+        .strip_suffix('.')
+        .unwrap_or(trimmed)
+        .to_ascii_lowercase();
     if host.is_empty()
         || host.len() > 253
         || !host.contains('.')
@@ -195,7 +198,7 @@ pub fn validate_stun_host(raw: &str) -> Result<String, Failure> {
     {
         return Err(invalid());
     }
-    let mut last_has_alpha = false;
+    let mut last_is_valid_tld = false;
     for label in host.split('.') {
         if label.is_empty()
             || label.len() > 63
@@ -207,9 +210,12 @@ pub fn validate_stun_host(raw: &str) -> Result<String, Failure> {
         {
             return Err(invalid());
         }
-        last_has_alpha = label.bytes().any(|b| b.is_ascii_alphabetic());
+        let is_hex_num = label
+            .strip_prefix("0x")
+            .is_some_and(|hex| !hex.is_empty() && hex.bytes().all(|b| b.is_ascii_hexdigit()));
+        last_is_valid_tld = label.bytes().any(|b| b.is_ascii_alphabetic()) && !is_hex_num;
     }
-    if !last_has_alpha {
+    if !last_is_valid_tld {
         return Err(invalid());
     }
     Ok(host)

@@ -2026,6 +2026,45 @@ async fn default_report_archive_formats_utc_timestamps_and_writes_unwrapped_copy
             "create_output must refuse symlink targets with O_NOFOLLOW"
         );
         assert_eq!(std::fs::read_to_string(&link_target).unwrap(), "keep\n");
+
+        let fifo_path = tmp.path().join("fifo-report.md");
+        assert!(
+            std::process::Command::new("mkfifo")
+                .arg(&fifo_path)
+                .status()
+                .unwrap()
+                .success()
+        );
+        assert!(
+            app::create_output(&fifo_path).is_err(),
+            "create_output must fail immediately on unread FIFOs without blocking"
+        );
+
+        let lax_file = tmp.path().join("lax-report.md");
+        std::fs::write(&lax_file, "old contents\n").unwrap();
+        std::fs::set_permissions(&lax_file, std::fs::Permissions::from_mode(0o644)).unwrap();
+        let reopened = app::create_output(&lax_file).unwrap();
+        assert_eq!(reopened.metadata().unwrap().len(), 0);
+        assert_eq!(
+            reopened.metadata().unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+
+        let shared_dir = tmp.path().join("world-writable");
+        std::fs::create_dir(&shared_dir).unwrap();
+        std::fs::set_permissions(&shared_dir, std::fs::Permissions::from_mode(0o777)).unwrap();
+        let hardlink_path = shared_dir.join("hardlinked.md");
+        std::fs::hard_link(&link_target, &hardlink_path).unwrap();
+        assert!(
+            app::create_output(&hardlink_path).is_err(),
+            "create_output must refuse hardlinked files in world-writable directories"
+        );
+        assert_eq!(std::fs::read_to_string(&link_target).unwrap(), "keep\n");
+
+        assert!(
+            app::create_output(std::path::Path::new("/dev/null")).is_ok(),
+            "create_output must still permit /dev/null"
+        );
     }
     assert!(
         log.lines()

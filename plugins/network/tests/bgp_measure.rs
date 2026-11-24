@@ -283,10 +283,12 @@ async fn scrubs_public_ips_from_query_errors_and_avoids_premature_empty_publish(
             let url = req.url.clone();
             Box::pin(async move {
                 if url.contains("2001:db8") {
-                    Err(HttpError::NotHttps(url))
+                    Err(HttpError::NotHttps(url.replace("http://", "HTTP://")))
                 } else {
                     Err(HttpError::Transport(format!(
-                        "error sending request for url ({url}): reset by 198.51.100.7"
+                        "error sending request for url ({url}): reset by 198.51.\u{200e}100.7 \
+                         via https://[::1]:8443/v1(beta)/state?ip=\
+                         2001:0db8:0000:0000:0000:0000:0000:0009"
                     )))
                 }
             })
@@ -329,8 +331,49 @@ async fn scrubs_public_ips_from_query_errors_and_avoids_premature_empty_publish(
         "total failure must not leave empty published output"
     );
     let formatted = format!("{err:?}");
+    assert!(formatted.contains("198.51.*.*"), "{formatted}");
     assert!(
-        !formatted.contains("198.51.100.7") && !formatted.contains("2001:db8::9"),
-        "public IPs must be scrubbed from failure details: {formatted}"
+        !formatted.contains("198.51.100.7")
+            && !formatted.contains("2001:db8")
+            && !formatted.contains("2001:0db8")
+            && !formatted.contains("/v1(beta)/"),
+        "public IPs and inline URL paths must be scrubbed from failure details: {formatted}"
+    );
+
+    let v6_only_net = Network {
+        ipv4: Family::default(),
+        ipv6: Family {
+            targets: vec![(
+                "[2606:4700:4700::1111]:443".parse().unwrap(),
+                Reach::Connected,
+            )],
+            address: Address::Found {
+                address: "2001:db8::9".parse().unwrap(),
+                source: "Cloudflare",
+            },
+        },
+    };
+    let (v6_ctx, _) = Context::new(
+        Arc::new(host_with_network(v6_only_net)),
+        Arc::new(BTreeMap::new()),
+        Arc::new(BTreeMap::new()),
+        Instant::now() + Duration::from_secs(30),
+        PathBuf::from("."),
+        CancellationToken::new(),
+    );
+    let v6_ctx = v6_ctx.with_http(Arc::new(LeakErrorHttp));
+    let v6_err = bgp::measure::measure(
+        &v6_ctx,
+        bgp::Settings::default(),
+        Some("http://ripe.example/"),
+    )
+    .await
+    .expect_err("IPv6 NotHttps fails");
+    let v6_fmt = format!("{v6_err:?}");
+    assert!(
+        v6_fmt.contains("NotHttps")
+            && !v6_fmt.contains("2001:db8::9")
+            && !v6_fmt.contains("resource="),
+        "IPv6 NotHttps error must scrub query path and IP: {v6_fmt}"
     );
 }

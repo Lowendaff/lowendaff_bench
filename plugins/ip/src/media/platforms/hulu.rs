@@ -41,13 +41,15 @@ pub fn parse(response: &HttpResponse) -> Verdict {
     if let Some(early) = parse::gate(response) {
         return early;
     }
-    if let Some(loc) = response.header("location") {
+    if (300..400).contains(&response.status)
+        && let Some(loc) = response.header("location")
+    {
         let lower = loc.to_ascii_lowercase();
-        if lower.contains("hulu.jp") {
-            return Verdict::yes_in("JP");
-        }
         if lower.contains("unavailable") || lower.contains("geo") {
             return Verdict::no();
+        }
+        if lower.contains("hulu.jp") {
+            return Verdict::yes_in("JP");
         }
         if lower.contains("disneyplus") {
             return Verdict::Unexpected("redirected to Disney+".to_owned());

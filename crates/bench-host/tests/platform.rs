@@ -150,7 +150,7 @@ fn a_container_inside_a_virtual_machine_is_a_container() {
 
 #[test]
 fn virtual_machines_are_recognized_by_cpuid_and_dmi() {
-    let cases: [(Layout, Option<&str>, Platform); 11] = [
+    let cases: [(Layout, Option<&str>, Platform); 13] = [
         (
             (&[], &[]),
             Some("VMwareVMware"),
@@ -190,6 +190,28 @@ fn virtual_machines_are_recognized_by_cpuid_and_dmi() {
             (&[("/sys/class/dmi/id/sys_vendor", "innotek GmbH\n")], &[]),
             Some("KVMKVMKVM"),
             Platform::Vm(Hypervisor::VirtualBox),
+        ),
+        (
+            (
+                &[
+                    ("/sys/class/dmi/id/product_name", "VirtualBox\n"),
+                    ("/sys/class/dmi/id/sys_vendor", "Oracle Corporation\n"),
+                ],
+                &[],
+            ),
+            Some("-"),
+            Platform::Vm(Hypervisor::VirtualBox),
+        ),
+        (
+            (
+                &[
+                    ("/sys/class/dmi/id/product_name", "ORACLE SERVER X9-2\n"),
+                    ("/sys/class/dmi/id/sys_vendor", "Oracle Corporation\n"),
+                ],
+                &[],
+            ),
+            Some("-"),
+            Platform::Dedicated,
         ),
         (
             (

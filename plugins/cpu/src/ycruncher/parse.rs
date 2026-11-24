@@ -88,46 +88,35 @@ fn sanitize_console(raw: &str) -> String {
             '\x1b' => match chars.peek().copied() {
                 Some('[') => {
                     chars.next();
-                    for c in chars.by_ref() {
-                        if ('@'..='~').contains(&c) {
-                            break;
-                        }
-                    }
+                    consume_csi(&mut chars);
                 }
                 Some(']' | 'P' | '_' | '^' | 'X') => {
                     chars.next();
-                    while let Some(c) = chars.next() {
-                        if c == '\x07' {
-                            break;
-                        }
-                        if c == '\x1b' && chars.peek() == Some(&'\\') {
+                    consume_st_sequence(&mut chars, &mut out);
+                }
+                Some(next) if ('\x20'..='\x2f').contains(&next) => {
+                    chars.next();
+                    while let Some(&mid) = chars.peek() {
+                        if ('\x20'..='\x2f').contains(&mid) {
                             chars.next();
+                        } else {
                             break;
                         }
                     }
+                    if let Some(&fin) = chars.peek()
+                        && ('\x30'..='\x7e').contains(&fin)
+                    {
+                        chars.next();
+                    }
                 }
-                Some(c) if (' '..='_').contains(&c) => {
+                Some(fin) if ('\x30'..='\x7e').contains(&fin) => {
                     chars.next();
                 }
                 _ => {}
             },
-            '\u{009b}' => {
-                for c in chars.by_ref() {
-                    if ('@'..='~').contains(&c) {
-                        break;
-                    }
-                }
-            }
+            '\u{009b}' => consume_csi(&mut chars),
             '\u{0090}' | '\u{0098}' | '\u{009d}' | '\u{009e}' | '\u{009f}' => {
-                while let Some(c) = chars.next() {
-                    if c == '\x07' || c == '\u{009c}' {
-                        break;
-                    }
-                    if c == '\x1b' && chars.peek() == Some(&'\\') {
-                        chars.next();
-                        break;
-                    }
-                }
+                consume_st_sequence(&mut chars, &mut out);
             }
             c if c.is_control()
                 || matches!(
@@ -142,6 +131,43 @@ fn sanitize_console(raw: &str) -> String {
         }
     }
     out
+}
+
+fn consume_csi<I: Iterator<Item = char>>(chars: &mut std::iter::Peekable<I>) {
+    while let Some(&ch) = chars.peek() {
+        if ('\x20'..='\x3f').contains(&ch) {
+            chars.next();
+        } else {
+            break;
+        }
+    }
+    if let Some(&fin) = chars.peek()
+        && ('@'..='~').contains(&fin)
+    {
+        chars.next();
+    }
+}
+
+fn consume_st_sequence<I: Iterator<Item = char>>(
+    chars: &mut std::iter::Peekable<I>,
+    out: &mut String,
+) {
+    while let Some(ch) = chars.next() {
+        match ch {
+            '\x07' | '\u{009c}' => break,
+            '\x1b' => {
+                if chars.peek() == Some(&'\\') {
+                    chars.next();
+                }
+                break;
+            }
+            '\r' | '\n' => {
+                out.push('\n');
+                break;
+            }
+            _ => {}
+        }
+    }
 }
 
 fn parse_commas_u64(raw: &str) -> Option<u64> {

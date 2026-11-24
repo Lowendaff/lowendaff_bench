@@ -130,6 +130,13 @@ impl GithubProxy {
         let parsed = parse_github_download_url(target_url)?;
         Some(format!("{}/{}", self.prefix, parsed.as_str()))
     }
+
+    fn host_lower(&self) -> Option<String> {
+        Url::parse(&self.prefix)
+            .ok()?
+            .host_str()
+            .map(|host| host.trim_end_matches('.').to_ascii_lowercase())
+    }
 }
 
 /// Whether `url` points to a GitHub download host eligible for `--github-proxy` rewriting.
@@ -240,6 +247,18 @@ impl Fetcher {
             .build()
             .map_err(|err| locale::words().http_client_failed(&err))?;
         Ok(Self { client, route })
+    }
+
+    fn build_github_mirror(allow_host: Option<String>) -> Result<Self, String> {
+        let client = timeouts(builder()?)
+            .redirect(safe_redirect_policy(ProxyRoute::GithubMirror))
+            .dns_resolver(Arc::new(PublicDnsResolver::with_allowed_host(allow_host)))
+            .build()
+            .map_err(|err| locale::words().http_client_failed(&err))?;
+        Ok(Self {
+            client,
+            route: ProxyRoute::GithubMirror,
+        })
     }
 
     /// Opens a download: the whole file, or the byte `range` of it. Non-2xx answers are errors,
@@ -358,8 +377,8 @@ fn is_permitted_direct_url(url: &Url, allow_loopback_http: bool) -> bool {
         "https" => match host_ip {
             Some(ip) => bench_api::is_routable_endpoint_ip(ip),
             None => {
-                let lower = clean.to_ascii_lowercase();
-                lower != "localhost" && !lower.ends_with(".localhost")
+                let lower = clean.trim_end_matches('.').to_ascii_lowercase();
+                !lower.is_empty() && lower != "localhost" && !lower.ends_with(".localhost")
             }
         },
         "http" => allow_loopback_http && host_ip.is_some_and(|ip| ip.is_loopback()),
@@ -379,16 +398,31 @@ fn safe_redirect_policy(route: ProxyRoute) -> reqwest::redirect::Policy {
         {
             return attempt.error("refusing HTTPS downgrade redirect");
         }
-        if matches!(route, ProxyRoute::Direct | ProxyRoute::DirectProbe) {
-            let same_loopback_http = attempt.previous().first().is_some_and(|orig| {
-                orig.scheme() == "http"
-                    && next.scheme() == "http"
-                    && parse_url_ip(orig).is_some_and(|ip| ip.is_loopback())
-                    && parse_url_ip(next) == parse_url_ip(orig)
-            });
-            if !same_loopback_http && !is_permitted_direct_url(next, false) {
-                return attempt.error("refusing redirect to non-public target");
+        match route {
+            ProxyRoute::Direct | ProxyRoute::DirectProbe => {
+                let same_loopback_http = attempt.previous().first().is_some_and(|orig| {
+                    orig.scheme() == "http"
+                        && next.scheme() == "http"
+                        && parse_url_ip(orig).is_some_and(|ip| ip.is_loopback())
+                        && parse_url_ip(next) == parse_url_ip(orig)
+                        && orig.port_or_known_default() == next.port_or_known_default()
+                });
+                if !same_loopback_http && !is_permitted_direct_url(next, false) {
+                    return attempt.error("refusing redirect to non-public target");
+                }
             }
+            ProxyRoute::GithubMirror => {
+                let same_origin = attempt.previous().first().is_some_and(|orig| {
+                    orig.scheme() == next.scheme()
+                        && orig.host_str() == next.host_str()
+                        && orig.port_or_known_default() == next.port_or_known_default()
+                });
+                if !same_origin && !is_permitted_direct_url(next, false) {
+                    return attempt
+                        .error("refusing cross-origin mirror redirect to non-public target");
+                }
+            }
+            ProxyRoute::Socks5 => {}
         }
         attempt.follow()
     })
@@ -423,9 +457,10 @@ impl Fetchers {
             )?),
             None => None,
         };
+        let github_host = proxy.github.as_ref().and_then(GithubProxy::host_lower);
         Ok(Self {
             direct: Fetcher::build(None, ProxyRoute::Direct)?,
-            github_direct: Fetcher::build(None, ProxyRoute::GithubMirror)?,
+            github_direct: Fetcher::build_github_mirror(github_host)?,
             socks5,
             github: proxy.github.clone(),
             ipv4: Fetcher::try_new_for(IpFamily::Ipv4)?,
@@ -487,13 +522,24 @@ fn shared_tls_config() -> Result<ClientConfig, String> {
 /// to one [`IpFamily`]).
 pub struct PublicDnsResolver {
     family: Option<IpFamily>,
+    allow_host: Option<String>,
 }
 
 impl PublicDnsResolver {
     /// Creates a public-IP-only DNS resolver, optionally restricted to `family`.
     #[must_use]
     pub fn new(family: Option<IpFamily>) -> Self {
-        Self { family }
+        Self {
+            family,
+            allow_host: None,
+        }
+    }
+
+    fn with_allowed_host(allow_host: Option<String>) -> Self {
+        Self {
+            family: None,
+            allow_host,
+        }
     }
 }
 
@@ -501,6 +547,10 @@ impl Resolve for PublicDnsResolver {
     fn resolve(&self, name: Name) -> Resolving {
         let host = name.as_str().to_owned();
         let family = self.family;
+        let allow_any_ip = self
+            .allow_host
+            .as_deref()
+            .is_some_and(|allowed| host.trim_end_matches('.').eq_ignore_ascii_case(allowed));
         Box::pin(async move {
             let resolved: Vec<SocketAddr> = tokio::net::lookup_host((host.as_str(), 0))
                 .await?
@@ -510,7 +560,7 @@ impl Resolve for PublicDnsResolver {
                         Some(IpFamily::Ipv6) => addr.is_ipv6(),
                         None => true,
                     };
-                    family_ok && bench_api::is_routable_endpoint_ip(addr.ip())
+                    family_ok && (allow_any_ip || bench_api::is_routable_endpoint_ip(addr.ip()))
                 })
                 .collect();
             if resolved.is_empty() {

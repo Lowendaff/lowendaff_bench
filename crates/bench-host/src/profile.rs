@@ -409,19 +409,30 @@ fn memory_facts(root: &Root, kind: PlatformKind) -> Option<MemoryFacts> {
     let limits = (kind == PlatformKind::Container).then(|| memory::cgroup_limits(root));
     let cgroup = limits.filter(|limits| limits.memory.is_some_and(|limit| limit < memory.total));
     let (total, used) = match cgroup {
-        Some(limits) => (
-            limits.memory.unwrap_or(memory.total),
-            limits.memory_used.unwrap_or_else(|| memory.used()),
-        ),
+        Some(limits) => {
+            let capped = limits.memory.unwrap_or(memory.total);
+            let used = limits
+                .memory_used
+                .unwrap_or_else(|| memory.used())
+                .min(capped);
+            (capped, used)
+        }
         None => (memory.total, memory.used()),
     };
-    let (swap_total, swap_used) = match cgroup.and_then(|limits| limits.swap) {
-        Some(swap) => {
-            let capped = swap.min(memory.swap_total);
-            let used = cgroup
-                .and_then(|limits| limits.swap_used)
-                .unwrap_or(0)
-                .min(capped);
+    let swap_cgroup = cgroup.or_else(|| {
+        limits.filter(|limits| limits.swap.is_some_and(|swap| swap < memory.swap_total))
+    });
+    let (swap_total, swap_used) = match swap_cgroup {
+        Some(limits) => {
+            let capped = limits
+                .swap
+                .map_or(memory.swap_total, |swap| swap.min(memory.swap_total));
+            let fallback = if limits.swap.is_some() {
+                0
+            } else {
+                memory.swap_used()
+            };
+            let used = limits.swap_used.unwrap_or(fallback).min(capped);
             (capped, used)
         }
         None => (memory.swap_total, memory.swap_used()),

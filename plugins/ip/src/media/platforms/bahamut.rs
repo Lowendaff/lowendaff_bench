@@ -101,7 +101,10 @@ pub fn parse(response: &HttpResponse) -> Verdict {
         return Verdict::Unexpected(format!("HTTP {}", response.status));
     };
     let has_sn = val.get("animeSn").is_some_and(|v| {
-        v.as_i64().is_some_and(|n| n > 0) || v.as_str().is_some_and(|s| !s.trim().is_empty())
+        v.as_i64().is_some_and(|n| n > 0)
+            || v.as_str()
+                .and_then(|s| s.trim().parse::<i64>().ok())
+                .is_some_and(|n| n > 0)
     });
     if has_sn {
         let region = val
@@ -111,10 +114,30 @@ pub fn parse(response: &HttpResponse) -> Verdict {
             .unwrap_or_else(|| "TW".to_owned());
         return Verdict::yes_in(region);
     }
-    if val
+    if let Some(err_val) = val
         .get("error")
-        .is_some_and(|v| !v.is_null() && v.as_bool() != Some(false))
+        .filter(|v| !v.is_null() && v.as_bool() != Some(false))
     {
+        let code = err_val.get("code").and_then(|v| {
+            v.as_i64()
+                .or_else(|| v.as_str().and_then(|s| s.trim().parse().ok()))
+        });
+        let msg = err_val
+            .get("message")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        let is_geo = code == Some(1007)
+            || msg.contains("region")
+            || msg.contains("area")
+            || msg.contains("country")
+            || msg.contains("\u{5730}\u{5340}")
+            || msg.contains("\u{5340}\u{57df}");
+        if let Some(code) = code
+            && !is_geo
+        {
+            return Verdict::Unexpected(format!("Bahamut error code {code}"));
+        }
         return Verdict::no();
     }
     Verdict::Unexpected("unrecognized Bahamut token response".to_owned())

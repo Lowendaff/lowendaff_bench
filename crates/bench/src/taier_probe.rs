@@ -581,7 +581,7 @@ async fn upload_one(
                                 }
                             }
                             Ok(n) => {
-                                let room = 256_usize.saturating_sub(resp_head.len());
+                                let room = RESP_HEAD_LIMIT.saturating_sub(resp_head.len());
                                 resp_head.extend_from_slice(&resp_buf[..n.min(room)]);
                                 if let Some(err) = check_upload_response(&resp_head, false) {
                                     if sent_in_post <= UNCONFIRMED_BUF_LIMIT {
@@ -669,12 +669,14 @@ async fn upload_one(
     Ok(())
 }
 
+const RESP_HEAD_LIMIT: usize = 256;
+
 fn check_upload_response(resp_head: &[u8], eof: bool) -> Option<String> {
     if resp_head.is_empty() {
         return eof.then(|| "upload closed before accepting payload".to_owned());
     }
     let text = String::from_utf8_lossy(resp_head);
-    if !eof && !text.contains('\n') {
+    if !eof && resp_head.len() < RESP_HEAD_LIMIT && !text.contains('\n') {
         return None;
     }
     let first = text.lines().next().unwrap_or_default().trim();
@@ -962,5 +964,12 @@ mod tests {
             super::parse_dovalid_http(crlf_injected),
             Ok(TaierAdmission::Unexpected(_))
         ));
+
+        let mut long_reject = b"HTTP/1.1 403 Forbidden ".to_vec();
+        long_reject.resize(super::RESP_HEAD_LIMIT, b'X');
+        assert!(
+            super::check_upload_response(&long_reject, false).is_some(),
+            "status line filling RESP_HEAD_LIMIT without newline must fail immediately"
+        );
     }
 }

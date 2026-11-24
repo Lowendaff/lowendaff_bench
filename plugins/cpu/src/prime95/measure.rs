@@ -45,20 +45,30 @@ pub fn torture_config(threads: usize) -> String {
 /// `duration`.
 #[must_use]
 pub fn attempt(program: &Path, work_dir: &Path, duration: Duration) -> Job {
+    let norm_work = if work_dir.as_os_str().is_empty() {
+        Path::new(".")
+    } else {
+        work_dir
+    };
     let bin_dir = program
         .parent()
         .filter(|dir| !dir.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("."));
     let ld_path = OsString::from(bin_dir.as_os_str());
+    let w_dir = if norm_work.is_absolute() {
+        norm_work
+    } else {
+        Path::new(".")
+    };
     let mut work_arg = OsString::from("-W");
-    work_arg.push(work_dir.as_os_str());
+    work_arg.push(w_dir.as_os_str());
     let mut job = Job::new(
         program,
         [OsString::from("-t"), OsString::from("-d"), work_arg],
         RUN_LIMIT.max(duration.saturating_add(Duration::from_secs(30))),
     );
     job.envs = vec![("LD_LIBRARY_PATH".into(), ld_path)];
-    job.dir = Some(work_dir.to_path_buf());
+    job.dir = Some(norm_work.to_path_buf());
     job.interrupt_after = Some(duration);
     job.group = true;
     job.first_to_go = true;
@@ -88,22 +98,26 @@ where
         stage: None,
         threads: Some(threads),
     });
-    if let Err(err) = tokio::fs::create_dir_all(work_dir).await {
+    let program =
+        std::path::absolute(program).map_err(|err| Failure::Run(Fault::Setup(err.to_string())))?;
+    let work_dir =
+        std::path::absolute(work_dir).map_err(|err| Failure::Run(Fault::Setup(err.to_string())))?;
+    if let Err(err) = tokio::fs::create_dir_all(&work_dir).await {
         return Err(Failure::Run(Fault::Setup(err.to_string())));
     }
     let cfg = torture_config(threads);
     for name in ["local.txt", "prime.txt"] {
         if let Err(err) = tokio::fs::write(work_dir.join(name), &cfg).await {
-            let _ = tokio::fs::remove_dir_all(work_dir).await;
+            let _ = tokio::fs::remove_dir_all(&work_dir).await;
             return Err(Failure::Run(Fault::Setup(err.to_string())));
         }
     }
     let secs = duration.as_secs().max(1);
-    let result = match run(attempt(program, work_dir, duration)).await {
+    let result = match run(attempt(&program, &work_dir, duration)).await {
         Ok(out) => parse::reading(&out, secs).map_err(Failure::Run),
         Err(RunError::Fault(fault)) => Err(Failure::Run(Fault::Tool(fault))),
         Err(RunError::Cancelled) => Err(Failure::Cancelled),
     };
-    let _ = tokio::fs::remove_dir_all(work_dir).await;
+    let _ = tokio::fs::remove_dir_all(&work_dir).await;
     result
 }

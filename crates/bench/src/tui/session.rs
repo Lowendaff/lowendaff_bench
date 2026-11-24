@@ -940,6 +940,7 @@ impl Session {
                 Command::None
             }
             KeyCode::Left | KeyCode::Char('h') => {
+                self.note = None;
                 match self.current_target() {
                     NavTarget::Start => {}
                     NavTarget::Item(idx) => {
@@ -955,6 +956,7 @@ impl Session {
                 if self.is_taier_browse_row() {
                     return self.open_taier_picker();
                 }
+                self.note = None;
                 match self.current_target() {
                     NavTarget::Start => {}
                     NavTarget::Item(idx) => {
@@ -992,6 +994,7 @@ impl Session {
         if self.is_taier_browse_row() {
             return self.open_taier_picker();
         }
+        self.note = None;
         let words = locale::words();
         match self.current_target() {
             NavTarget::Start => {}
@@ -1173,6 +1176,7 @@ impl Session {
                 Command::None
             }
             KeyCode::Char('s' | 'S') => {
+                self.note = None;
                 let default_path = if self.config.global.output.trim().is_empty() {
                     report_path::default_path(results.format)
                         .display()
