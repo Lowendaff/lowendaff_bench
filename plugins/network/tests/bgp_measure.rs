@@ -274,3 +274,63 @@ async fn prioritizes_high_numbered_origin_and_top_upstreams_under_lookup_cap() {
         "dominant direct upstream must be enriched ahead of minor 1-peer transits"
     );
 }
+
+#[tokio::test]
+async fn scrubs_public_ips_from_query_errors_and_avoids_premature_empty_publish() {
+    struct LeakErrorHttp;
+    impl HttpClient for LeakErrorHttp {
+        fn send<'a>(&'a self, req: &'a HttpRequest) -> HttpFuture<'a> {
+            let url = req.url.clone();
+            Box::pin(async move {
+                if url.contains("2001:db8") {
+                    Err(HttpError::NotHttps(url))
+                } else {
+                    Err(HttpError::Transport(format!(
+                        "error sending request for url ({url}): reset by 198.51.100.7"
+                    )))
+                }
+            })
+        }
+    }
+
+    let net = Network {
+        ipv4: Family {
+            targets: vec![("1.1.1.1:443".parse().unwrap(), Reach::Connected)],
+            address: Address::Found {
+                address: "198.51.100.7".parse().unwrap(),
+                source: "Cloudflare",
+            },
+        },
+        ipv6: Family {
+            targets: vec![(
+                "[2606:4700:4700::1111]:443".parse().unwrap(),
+                Reach::Connected,
+            )],
+            address: Address::Found {
+                address: "2001:db8::9".parse().unwrap(),
+                source: "Cloudflare",
+            },
+        },
+    };
+    let (ctx, channels) = Context::new(
+        Arc::new(host_with_network(net)),
+        Arc::new(BTreeMap::new()),
+        Arc::new(BTreeMap::new()),
+        Instant::now() + Duration::from_secs(30),
+        PathBuf::from("."),
+        CancellationToken::new(),
+    );
+    let ctx = ctx.with_http(Arc::new(LeakErrorHttp));
+    let err = bgp::measure::measure(&ctx, bgp::Settings::default(), Some("http://ripe.example/"))
+        .await
+        .expect_err("both families fail");
+    assert!(
+        channels.published.borrow().is_none(),
+        "total failure must not leave empty published output"
+    );
+    let formatted = format!("{err:?}");
+    assert!(
+        !formatted.contains("198.51.100.7") && !formatted.contains("2001:db8::9"),
+        "public IPs must be scrubbed from failure details: {formatted}"
+    );
+}

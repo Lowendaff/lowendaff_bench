@@ -6,6 +6,7 @@
 use std::collections::BTreeSet;
 use std::env;
 use std::fs;
+use std::io::Read;
 use std::net::Ipv4Addr;
 use std::path::PathBuf;
 
@@ -20,7 +21,13 @@ fn main() {
     let out_dir = PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR set by cargo"));
     let generated = out_dir.join("taier_snapshot.rs");
 
-    let raw_path = env::var("BENCH_TAIER_SNAPSHOT_PATH").unwrap_or_default();
+    let raw_path = match env::var("BENCH_TAIER_SNAPSHOT_PATH") {
+        Ok(val) => val,
+        Err(env::VarError::NotPresent) => String::new(),
+        Err(env::VarError::NotUnicode(_)) => {
+            panic!("BENCH_TAIER_SNAPSHOT_PATH must be valid UTF-8")
+        }
+    };
     let trimmed = raw_path.trim();
     if trimmed.is_empty() {
         fs::write(
@@ -37,9 +44,15 @@ fn main() {
     );
     println!("cargo:rerun-if-changed={trimmed}");
 
-    let bytes = fs::read(trimmed).unwrap_or_else(|err| {
-        panic!("failed to read BENCH_TAIER_SNAPSHOT_PATH ({trimmed}): {err}")
+    let file = fs::File::open(trimmed).unwrap_or_else(|err| {
+        panic!("failed to open BENCH_TAIER_SNAPSHOT_PATH ({trimmed}): {err}")
     });
+    let mut bytes = Vec::new();
+    file.take(MAX_SNAPSHOT_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .unwrap_or_else(|err| {
+            panic!("failed to read BENCH_TAIER_SNAPSHOT_PATH ({trimmed}): {err}")
+        });
     validate_snapshot(trimmed, &bytes);
 
     let snapshot_copy = out_dir.join("taier-snapshot.json");
@@ -61,6 +74,7 @@ fn validate_snapshot(path_label: &str, bytes: &[u8]) {
     let parsed: Value = serde_json::from_slice(bytes).unwrap_or_else(|err| {
         panic!("BENCH_TAIER_SNAPSHOT_PATH ({path_label}) is not valid JSON: {err}")
     });
+    assert_no_duplicate_keys(path_label, bytes);
     assert_eq!(
         parsed.get("version").and_then(Value::as_u64),
         Some(1),
@@ -161,12 +175,68 @@ fn ascii_printable(text: &str, max_len: usize) -> bool {
     (1..=max_len).contains(&text.len()) && text.bytes().all(|b| (0x20..=0x7e).contains(&b))
 }
 
+fn assert_no_duplicate_keys(path_label: &str, bytes: &[u8]) {
+    let mut stack: Vec<(bool, BTreeSet<String>, bool)> = Vec::new();
+    let mut idx = 0;
+    while idx < bytes.len() {
+        match bytes[idx] {
+            b'{' => {
+                stack.push((true, BTreeSet::new(), false));
+                idx += 1;
+            }
+            b'[' => {
+                stack.push((false, BTreeSet::new(), false));
+                idx += 1;
+            }
+            b'}' | b']' => {
+                stack.pop();
+                idx += 1;
+            }
+            b':' => {
+                if let Some((true, _, after_colon)) = stack.last_mut() {
+                    *after_colon = true;
+                }
+                idx += 1;
+            }
+            b',' => {
+                if let Some((true, _, after_colon)) = stack.last_mut() {
+                    *after_colon = false;
+                }
+                idx += 1;
+            }
+            b'"' => {
+                let mut end = idx + 1;
+                while end < bytes.len() {
+                    if bytes[end] == b'\\' {
+                        end += 2;
+                        continue;
+                    }
+                    if bytes[end] == b'"' {
+                        break;
+                    }
+                    end += 1;
+                }
+                if let Some((true, seen, false)) = stack.last_mut() {
+                    let key: String =
+                        serde_json::from_slice(&bytes[idx..=end]).expect("valid JSON object key");
+                    assert!(
+                        seen.insert(key.clone()),
+                        "duplicate JSON key `{key}` in {path_label}"
+                    );
+                }
+                idx = end + 1;
+            }
+            _ => idx += 1,
+        }
+    }
+}
+
 fn parse_routable_ipv4(raw: &str) -> Option<Ipv4Addr> {
     let ip: Ipv4Addr = raw.parse().ok()?;
     if ip.to_string() != raw {
         return None;
     }
-    let [a, b, ..] = ip.octets();
+    let [a, b, c, _] = ip.octets();
     let routable = !(ip.is_unspecified()
         || ip.is_loopback()
         || ip.is_private()
@@ -174,6 +244,9 @@ fn parse_routable_ipv4(raw: &str) -> Option<Ipv4Addr> {
         || ip.is_multicast()
         || a == 0
         || a >= 224
-        || (a == 100 && (64..128).contains(&b)));
+        || (a == 100 && (64..128).contains(&b))
+        || (a == 192 && b == 0 && c == 0)
+        || (a == 192 && b == 88 && c == 99)
+        || (a == 198 && (b == 18 || b == 19)));
     routable.then_some(ip)
 }

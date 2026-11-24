@@ -176,6 +176,24 @@ fn the_owners_board_has_no_l3_and_shares_its_l2() {
 }
 
 #[test]
+fn a_container_honors_its_cgroup_memory_and_cpu_limits() {
+    let plan = Plan::new(&captured(
+        "lxc-limits-debian13-aarch64",
+        PlatformKind::Container,
+    ));
+    assert_eq!(plan.budget, (512 * MIB - 2_674_688) / 2);
+    assert_eq!(plan.threads, 10);
+    assert_eq!(plan.stream, Some(8));
+    assert!(
+        Host::read(
+            &Root::new("/nonexistent-bench-root"),
+            PlatformKind::Dedicated
+        )
+        .is_none()
+    );
+}
+
+#[test]
 fn unknown_caches_count_as_32_mib() {
     let mut host = host(MIB, 8 * GIB, 2);
     host.caches.clear();
@@ -207,6 +225,16 @@ fn unknown_caches_count_as_32_mib() {
     assert!(zero_plan.cache_unknown);
     assert_eq!(zero_plan.chases, [chase(Level::Memory, 128 * MIB)]);
     assert_eq!(zero_plan.missing, [Level::L1, Level::L2, Level::L3]);
+
+    // A zero-sized entry before a valid sibling at the same level is skipped.
+    host.caches = vec![unified(3, 0, &[0]), unified(3, 8 * MIB, &[1])];
+    let mixed = Plan::new(&host);
+    assert!(!mixed.cache_unknown);
+    assert_eq!(
+        mixed.chases,
+        [chase(Level::L3, 4 * MIB), chase(Level::Memory, 32 * MIB)]
+    );
+    assert_eq!(mixed.missing, [Level::L1, Level::L2]);
 }
 
 #[test]
@@ -427,5 +455,18 @@ fn a_cell_fits_in_half_of_its_nodes_free_memory() {
             },
         ],
         "the shared L3 serves both nodes; node 1 has 20 MiB to spare"
+    );
+
+    let mut limited = host;
+    limited.available = 40 * MIB;
+    limited.layout.nodes[1].free = None;
+    let limited_matrix = Plan::new(&limited).matrix.expect("two nodes");
+    assert_eq!(
+        limited_matrix.cells[0],
+        [Cell {
+            per_thread: 8 * MIB,
+            latency: 16 * MIB,
+        }; 2],
+        "global container budget caps abundant node 0 and missing-MemFree node 1"
     );
 }
