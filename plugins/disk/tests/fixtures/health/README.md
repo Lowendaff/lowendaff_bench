@@ -1,39 +1,44 @@
-# Fixtures for disk health
+# Disk SMART Health Captures _(health)_
 
-smartctl's JSON output for the plugin's tests. Every file is `smartctl --json` output, real or written by hand as marked below. No file contains a real serial number, WWN or other unique identifier.
+> Scrubbed `smartctl --json` captures and edge-case fixtures for `disk.health` parser tests.
 
-## `owner/`: the owner's dedicated server
+This directory (`plugins/disk/tests/fixtures/health/`) stores `smartctl` 7.5 JSON samples for the
+`disk.health` plugin inside `lowendaff_bench`.
 
-Captured 2026-11-09 through `ssh` pipes only, nothing stored on the server, with the server's own smartctl 7.5 (its Debian package, so its drive database may differ from the one built into `smartctl-7.5-1`).
+## Security
 
-- `scan.json`: `smartctl --json --scan-open`, unchanged.
-- `sda.json` to `sdd.json`: `smartctl --json -x -d sat /dev/sdX`.
-- `megaraid-18.json`, `-21`, `-23`, `-24`: `smartctl --json -x -d sat+megaraid,N /dev/bus/0`, the same disks through the MegaRAID SAS 9361-8i: 18 is `sda`, 21 `sdb`, 23 `sdc` and 24 `sdd`.
+No file contains a real drive serial number, `logical_unit_id`, `eui64`, `nguid`, or `wwn`. Real
+serials were replaced prior to storage with `FIXTURE-SERIAL-<letter>` and WWN/UID fields were
+zeroed or scrubbed, verified to zero occurrences of original identifiers before leaving the host.
 
-On the server, `sed` replaced each disk's serial with `FIXTURE-SERIAL-<letter>`, the same for both paths of one disk, and set every number of `wwn` to 0. Before printing, the server counted the real serial in the output and printed only that count, which was 0 for all eight files. Nothing else was changed.
+## Background
 
-The disks are four Samsung SATA SSDs (860 EVO 250GB, 870 EVO 1TB, 860 EVO 1TB, 870 EVO 1TB). Through the RAID card the SCT commands fail, which sets exit status bit 2, and smartctl judges health from the attributes, with the warning "This result is based on an Attribute check".
+Samples cover physical SATA/SAS/NVMe drives (direct and behind MegaRAID controllers), cloud virtual
+disks, container missing-device responses, and handwritten failure edge cases derived from
+`smartmontools` 7.5 (`ataprint.cpp`, `nvmeprint.cpp`, `scsiprint.cpp`).
 
-## `runner/`: GitHub's runners
+## Fixture Sets
 
-Captured 2026-11-09 with `smartctl-7.5-1` on `ubuntu-24.04` runners, by a temporary branch whose workflow replaced `serial_number`, `logical_unit_id`, `eui64`, `nguid` and `wwn` before uploading. The workflow re-serialized the JSON with two-space indentation.
+- **`owner/` (dedicated server, 2026-11-09)**: Four Samsung SATA SSDs (`sda`..`sdd`) captured both
+  directly (`-x -d sat`) and behind a MegaRAID SAS 9361-8i (`-x -d sat+megaraid,N /dev/bus/0`,
+  where SCT commands fail with status bit 2 and health falls back to SMART attributes), plus
+  `scan.json` (`--scan-open`).
+- **`runner/` (GitHub `ubuntu-24.04` runners, 2026-11-09)**: `scan-nvme.json` / `nvme0.json`
+  (Azure virtual NVMe disk) and `scan-virtual-disk.json` / `sda-virtual-disk.json` (Hyper-V virtual
+  SCSI disk exiting with status 2).
+- **`local/` (`smartctl-7.5-1` in `debian:13-slim`, 2026-11-09)**: `open-failed.json` (missing
+  `/dev/sdz`, exit status 2) and `scan-empty.json` (`--scan-open` with no devices).
+- **`handwritten/`**: `sata-hdd.json` (failing SATA HDD, exit status 88, Device Statistics vs SMART
+  attributes precedence), `sas-hdd.json` (MegaRAID SAS HDD with grown defect list), `nvme-worn.json`
+  (NVMe SSD at 104% wear with media errors), `smart-off.json` (SMART disabled, exit status 4), and
+  `identify-failed.json` (failed `IDENTIFY`, exit status 2 without JSON messages).
 
-- `scan-nvme.json`, `nvme0.json`: Azure's virtual NVMe disk ("MSFT NVMe Accelerator v1.0"). Its health log is complete but every count is 0. `/sys/class/nvme/nvme0` held one namespace, `nvme0n1`, although `nvme_number_of_namespaces` is 127.
-- `scan-virtual-disk.json`, `sda-virtual-disk.json`: Hyper-V's virtual SCSI disk ("Msft Virtual Disk"). After its identity, a mandatory command fails, so smartctl exits with status 2 and no message.
+## Contributing
 
-## `local/`: this repository's smartctl in a container
+Questions and pull requests are welcome via
+[GitHub Issues](https://github.com/Lowendaff/lowendaff_bench/issues); scrub all drive identifiers
+and follow [`CONTRIBUTING.md`](../../../../../CONTRIBUTING.md).
 
-Made 2026-11-09 with `smartctl-7.5-1` (aarch64) in `debian:13-slim`, unchanged.
+## License
 
-- `open-failed.json`: `smartctl --json -x -d sat /dev/sdz`, a device that does not exist: exit status 2 with an error message.
-- `scan-empty.json`: `smartctl --json --scan-open` without disks: no `devices` at all.
-
-## `handwritten/`: written by hand
-
-Written from the field names and structure in smartmontools 7.5's source (`ataprint.cpp`, `nvmeprint.cpp`, `scsiprint.cpp`), for hardware the project has no sample of. Model names and values are made up.
-
-- `sata-hdd.json`: a failing SATA hard disk (exit status 88) whose Device Statistics (pages 1, 3 and 6) differ from attributes 5, 197 and 199, so that tests see which wins.
-- `sas-hdd.json`: a SAS hard disk behind a MegaRAID card (`megaraid,8`), with its grown defect list and error counter logs.
-- `nvme-worn.json`: an NVMe SSD past its rated endurance (104%), with a critical warning and media errors.
-- `smart-off.json`: a SATA SSD with SMART switched off; smartctl stops after the identity, with exit status 4.
-- `identify-failed.json`: a failed IDENTIFY, which smartctl reports only as plain output: exit status 2 and no message.
+[MIT](../../../../../LICENSE) (c) 2026 Lowendaff

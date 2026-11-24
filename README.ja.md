@@ -1,36 +1,99 @@
-# lowendaff-bench
+# lowendaff-bench _(lowendaff_bench)_
+
+[![standard-readme compliant](https://img.shields.io/badge/standard--readme-OK-green.svg?style=flat-square)](https://github.com/RichardLitt/standard-readme)
+[![CI](https://img.shields.io/github/actions/workflow/status/Lowendaff/lowendaff_bench/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/Lowendaff/lowendaff_bench/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/Lowendaff/lowendaff_bench?style=flat-square)](https://github.com/Lowendaff/lowendaff_bench/releases)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-linux--x86__64%20%7C%20linux--aarch64-lightgrey.svg?style=flat-square)](https://github.com/Lowendaff/lowendaff_bench/releases)
+
+> Linux サーバー向けのハードウェア性能・回線速度・経路追跡・BGP・IP 品質・動画配信対応の統合診断ツール。
 
 [English](README.md) | [简体中文](README.zh-CN.md) | **日本語**
 
-`lowendaff-bench` は、Linux サーバーのハードウェア性能・回線速度・IP 品質・動画配信サービスの対応状況をまとめて診断できるオールインワンツールです。専用物理サーバー、VPS・クラウド（KVM / Xen など）、コンテナ（Docker / LXC / OpenVZ など）ですぐに使えます。
+`lowendaff-bench` は、CPU 演算性能、キャッシュ・メモリ帯域と遅延、ディスク SMART 健康状態と混合ランダム I/O、国内外の回線速度、ホップ単位の経路追跡、BGP 上流トポロジー、IP 評判、動画配信サービスの地域判定を 1 つの静的バイナリに統合した Linux サーバー診断ツールです。`x86_64` および `aarch64` の専用物理サーバー、VPS・クラウド（KVM / Xen など）、コンテナ（Docker / LXC / OpenVZ など）で動作し、対話型 TUI と非対話 CLI の両方からテキスト表・GitHub 形式 Markdown・JSON レポートを出力できます。
 
-### 主な特徴
+補足：GitHub リポジトリおよびルートディレクトリ名は `lowendaff_bench` であり、配布される Linux 単一実行ファイル名は `lowendaff-bench`（ワークスペースの `bench` クレートからビルド）です。
 
-- **単一ファイルですぐ動く・事前インストールや設定ファイルは不要**：実行ファイルを 1 つダウンロードするだけで動作します（`x86_64` / `aarch64` 対応）。引数なしで実行すると対話型 TUI 画面が開き、任意のオプション（`-a` / `--all` など）を付けると非対話 CLI モードで動作します。
-- **どの OS でも同じ基準で公平に比較可能**：測定に使う外部ツール（`sysbench`、`7-Zip`、`UnixBench`、`HPL`、`PassMark`、`fio`、`iperf3`、`NextTrace`、`Geekbench 7` など）は、実行時に固定バージョンを自動取得し、サイズと SHA-256 を検証して動かします。サーバー側の古いパッケージを使わないため、OS が違ってもスコアをそのまま比較できます。
-- **環境に合わせて自動調整・小メモリ VPS でも安心**：仮想環境での物理ディスク SMART 診断、シングル CPU での NUMA 測定、ARM64 環境での `x86_64` 専用 CPU 負荷テストなど、非対応の項目やサブスイートは自動でスキップします。メモリや HPL の規模は空きメモリに応じて自動調整され、Geekbench 7 実行時にメモリが足りない場合は一時的な Swap を自動作成してクラッシュを防ぎます。
-- **個人情報を自動でマスク・`/tmp` に自動保存**：端末での表形式表示や **Markdown** / **JSON** 出力に対応し、既定で `/tmp/lowendaff-bench-<タイムスタンプ>.<ext>` にもレポートを自動保存します。グローバル IP アドレスやホスト名、シリアル番号は既定で伏せ字になります。
+## 目次
 
-各テストの詳しい計算方法や判定基準については [`docs/`（中国語解説）](docs/README.md) をご覧ください。
+- [セキュリティ](#セキュリティ)
+- [背景](#背景)
+- [インストール](#インストール)
+  - [依存関係](#依存関係)
+  - [ソースからのビルド](#ソースからのビルド)
+  - [アップデート](#アップデート)
+- [使い方](#使い方)
+  - [CLI](#cli)
+  - [オプション一覧](#オプション一覧)
+  - [指定可能な値](#指定可能な値)
+- [テスト項目一覧](#テスト項目一覧)
+- [メンテナー](#メンテナー)
+- [謝辞](#謝辞)
+- [コントリビューション](#コントリビューション)
+- [ライセンス](#ライセンス)
 
----
+## セキュリティ
 
-## かんたん 3 ステップで実行
+- **固定バージョンと厳格な整合性検証**：外部測定ツール（`sysbench`、`7zz`、`UnixBench`、`HPL`、`PassMark`、`fio`、`iperf3`、`NextTrace`、`Geekbench 7`、`smartctl`、`STREAM`、`multichase`、`y-cruncher`、`mprime`）は固定バージョンを HTTPS 経由で取得し、実行前にファイルサイズと `SHA-256` ハッシュを検証します。ホスト側にインストール済みの同名バイナリは一切呼び出しません。
+- **権限分離と安全なクリーンアップ**：特権不要な外部ツールは権限を落としたプロセスグループおよび一時ディレクトリ内で実行されます。`Ctrl-C` や `SIGTERM` / `SIGHUP` 受信時には子プロセスグループの終了、一時 Swap の解除・削除、端末状態の復元、作業ディレクトリの削除を自動で行います。
+- **ダウンロード専用プロキシの分離**：`--socks5-proxy` と `--github-proxy` はツールおよび公開リストの取得にのみ使用されます。`HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` 環境変数は無視・除去されるため、IP 判定・速度・経路・BGP・配信チェックは常にホストの直接通信を測定します。
+- **既定のプライバシーマスク**：`--show-ip` を明示しない限り、グローバル IPv4/IPv6 アドレス、逆引きホスト名、MAC アドレス、シリアル番号はすべての出力形式およびアップロードされる BGP SVG トポロジー図で自動的に伏せ字になります。
 
-[GitHub Releases](https://github.com/Lowendaff/lowendaff_bench/releases) からお使いの CPU 向けのファイル（通常の Intel/AMD サーバーは `lowendaff-bench-x86_64`、ARM64 サーバーは `lowendaff-bench-aarch64`）をダウンロードし、実行権限を付けて `sudo`（または `root`）で実行します。
+セキュリティ上の問題を発見された場合は、公開 Issue に認証情報や未マスクのアドレスを記載せず、[@Lowendaff](https://github.com/Lowendaff) または [GitHub Issues](https://github.com/Lowendaff/lowendaff_bench/issues) までご連絡ください。
+
+## 背景
+
+Linux サーバーの性能検証では、複数のシェルスクリプトやディストリビューションごとに異なるパッケージを組み合わせる必要があり、小メモリ VPS での OOM クラッシュやレポート共有時の IP 漏洩といった課題がありました。`lowendaff-bench` はこれらを単一の静的 Rust バイナリで解決します。
+
+- **単一ファイルですぐ動く・設定ファイル不要**：1 つの実行ファイルを置くだけで動作し、引数なしでは対話型 TUI、オプション指定時は非対話 CLI として実行されます。
+- **OS に依存しない公平な比較基準**：すべての外部ベンチマークを同一ビルド（`crates/bench-tool`）に固定しているため、ディストリビューション間でスコアをそのまま比較できます。
+- **環境への自動適応と低メモリ VPS 保護**：非対応の項目（仮想環境での物理 SMART 診断、単一ソケット機での NUMA 測定、ARM64 での `x86_64` 専用負荷テストなど）は自動スキップします。メモリ・7-Zip 辞書・HPL 行列サイズは空きメモリやコンテナ cgroup 制限に応じて自動調整され、Geekbench 7 実行時にメモリが不足する場合は一時 Swap を自動作成します。
+- **レポート自動保存**：`-o` / `--output` 未指定時は、画面出力に加えて `/tmp/lowendaff-bench-<タイムスタンプ>.<txt|md|json>` にも折り返しなしのレポートを自動保存します。
+
+各テストの計算式や判定ロジックの詳細は [`docs/README.md`](docs/README.md)（中国語）、実行時に取得する公開サーバー・ターゲット一覧は [`Lowendaff/bench_data`](https://github.com/Lowendaff/bench_data) を参照してください。
+
+## インストール
+
+[GitHub Releases](https://github.com/Lowendaff/lowendaff_bench/releases) から CPU アーキテクチャに合った静的バイナリ（Intel/AMD サーバーは `lowendaff-bench-x86_64`、ARM64 サーバーは `lowendaff-bench-aarch64`）を取得し、実行権限を付与します。
 
 ```sh
 # x86_64 サーバーの例（ARM64 の場合は lowendaff-bench-aarch64 に置き換えてください）
 curl -fLO https://github.com/Lowendaff/lowendaff_bench/releases/latest/download/lowendaff-bench-x86_64
 chmod +x lowendaff-bench-x86_64
-sudo ./lowendaff-bench-x86_64        # 引数なしで対話型 TUI を起動（非対話で全実行する場合は --all）
 ```
 
-> 完了時には画面表示に加え、`/tmp/lowendaff-bench-<タイムスタンプ>.<txt|md|json>` にもレポートが自動保存されます。途中で `Ctrl-C` を 1 回押すと安全に中断し、完了済み項目のレポートを出力します。
+### 依存関係
 
----
+- **対応 OS・アーキテクチャ**：Linux `x86_64` または `aarch64`（ホスト側への事前パッケージ導入は不要。なお `passmark` は `glibc >= 2.28`、`prime95` は `x86_64` かつ `glibc >= 2.18`、`geekbench` は `glibc >= 2.35` かつ IPv4 接続が必要で、満たさない環境では自動スキップされます）。
+- **実行権限**：ハードウェア情報（`SMBIOS`、`SMART`、Raw ソケットによる経路追跡、一時 Swap 管理）を含む本測定には `sudo`（または `root`）が必要です。一覧・ヘルプ表示（`--list`、`--taier-list`、`--help`、`--version`）は一般ユーザーで実行できます。
 
-## よく使う実行例
+### ソースからのビルド
+
+[`rust-toolchain.toml`](rust-toolchain.toml) に記載された Rust ツールチェーンと `musl-tools`（`musl-gcc`）を導入し、静的 `musl` バイナリをビルドします。
+
+```sh
+rustup target add x86_64-unknown-linux-musl
+cargo build --release --locked --target x86_64-unknown-linux-musl --bin lowendaff-bench
+```
+
+生成された実行ファイルは `target/x86_64-unknown-linux-musl/release/lowendaff-bench` に出力されます（ARM64 の場合は `aarch64-unknown-linux-musl` を指定）。
+
+### アップデート
+
+[GitHub Releases](https://github.com/Lowendaff/lowendaff_bench/releases) から最新のバイナリをダウンロードして既存のファイルを上書きするだけで更新が完了します。
+
+## 使い方
+
+引数なしで実行すると対話型 TUI が起動し、`--all`（または `--only` / `--skip`）を指定すると非対話 CLI モードで動作します。
+
+```sh
+sudo ./lowendaff-bench-x86_64        # 引数なしで対話型 TUI を起動
+sudo ./lowendaff-bench-x86_64 --all  # 非対話 CLI モードで全項目を実行
+```
+
+`-o` / `--output` を指定しない場合、完了時に `/tmp/lowendaff-bench-<タイムスタンプ>.<txt|md|json>` にもレポートが自動保存されます。途中で `Ctrl-C` を 1 回押すと安全に中断し、完了済み項目のレポートを出力します。
+
+### CLI
 
 以下はバイナリ名を `lowendaff-bench` にした場合の実用例です。
 
@@ -64,10 +127,11 @@ sudo ./lowendaff-bench -o report.json -f json
 # 8. 別ドライブ（マウント先）のディスク速度を測る（※メモリ上の /tmp は避けてください）
 sudo ./lowendaff-bench --only disk.fio --work-dir /mnt/data
 
-# 9. 地域を絞って測定：日本と米国の速度測定、中国主要キャリア（Taier）速度測定、中国向け経路、アジア圏の配信サービスのみ確認
+# 9. 地域を絞って測定：日本と米国の速度測定、中国主要キャリア（Taier）、Cloudflare/Apple CDN、中国向け経路、アジア圏の配信サービスのみ確認
 ./lowendaff-bench --taier-list guangdong
 sudo ./lowendaff-bench --only network.iperf3 --countries JP,US
 sudo ./lowendaff-bench --only network.taier --taier beijing:cu,guangdong/shenzhen:ct+cm,jiangsu:ct
+sudo ./lowendaff-bench --only network.cloudflare,network.inetspeed --inetspeed-threads 8
 sudo ./lowendaff-bench --only network.trace --trace-groups china
 sudo ./lowendaff-bench --only ip.media --media-groups global,asia
 
@@ -79,10 +143,6 @@ sudo ./lowendaff-bench --only ip.quality --no-mail
 sudo ./lowendaff-bench --all --github-proxy https://ghfast.top/
 sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-connections 16 --show-ip
 ```
-
----
-
-## コマンドオプションと指定できる値
 
 ### オプション一覧
 
@@ -118,7 +178,7 @@ sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-
 | `-h, --help` | 値なし | — | 使い方ヘルプを表示します |
 | `-V, --version` | 値なし | — | バージョン番号を表示します |
 
-### 各オプションで指定できる値
+### 指定可能な値
 
 | オプション | 指定できる値 | 内容 |
 |---|---|---|
@@ -158,15 +218,13 @@ sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-
 | `--taier-operators` | `telecom`, `unicom`, `mobile`, `cernet`, `cbn`, `other`, または `all` | CAICT GlobalSpeed の通信キャリアを絞り込みます（既定：`telecom,unicom,mobile`） |
 | `--socks5-proxy` | `socks5://[user:pass@]host[:port]` | ローカルでホスト名を解決してから SOCKS5 プロキシ経由でファイルをダウンロード |
 | | `socks5h://[user:pass@]host[:port]` | リモートの SOCKS5 プロキシ側でホスト名を解決してファイルをダウンロード |
-| `--github-proxy` | `https://<mirror>/` *（または `http://<mirror>/`）* | GitHub からのツール・一覧取得 URL の先頭にプレフィックスを付与して直接取得（例：`https://ghfast.top/https://github.com/...`） |
+| `--github-proxy` | `https://<mirror>/` *（または `http://<mirror>/`）* | GitHub からのツール・一覧取得 URL の先頭にプレフィックスを付与して直接取得（例：`https://ghfast.top/https://github.com/...`、`--socks5-proxy` と併用可能） |
 
----
+## テスト項目一覧
 
-## 各テスト項目でわかること
+測定開始前に、サーバー構成である **システム概要（`[System]`）** を読み取り専用で自動収集します。物理サーバー・VM・コンテナの判別、CPU 型番とキャッシュ容量、メモリと Swap、OS・カーネル・稼働時間・TCP 輻輳制御（BBR など）、ディスク構成、NIC リンク速度（PCIe 帯域低下の警告付き）、IPv4/IPv6 の疎通状況を確認でき、物理サーバーではメモリスロット情報、ECC エラー数、IPMI/BMC、ハードウェア RAID カードも一覧表示します（詳細：[`docs/system.md`](docs/system.md)）。
 
-テスト開始前に、まずサーバーの基本構成である **システム概要（`[System]`）** を自動で読み取ります。物理サーバー・VM・コンテナの判別、CPU 型番とキャッシュ容量、メモリと Swap、OS・カーネル・稼働時間・TCP 輻輳制御（BBR など）、ディスク構成、NIC リンク速度（PCIe 帯域低下の警告付き）、IPv4/IPv6 の疎通状況を確認でき、物理サーバーではメモリスロット情報、ECC エラー数、IPMI/BMC、ハードウェア RAID カードも一覧表示します（詳細：[`docs/system.md`](docs/system.md)）。
-
-続いて、以下の最大 15 項目を順番に測定します。
+続いて、以下の最大 15 項目を登録順に測定します。
 
 | カテゴリ | 項目 ID・名前 | 対象環境 | このテストでわかること | 詳細解説 |
 |---|---|---|---|---|
@@ -186,20 +244,9 @@ sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-
 | `ip` | `ip.media`<br>動画配信サービス判定 | 通信可能な環境 | 世界 5 地域・計 68 の動画配信・オンラインサービス（Netflix、Disney+、YouTube、Abema、U-NEXT、TVer など）にどこまで対応しているかと判定地域を表示します | [`docs/ip.md`](docs/ip.md) |
 | `cpu` | `cpu.bench`<br>CPU 統合ベンチマーク | 全サーバー *（スイート別判定）* | 8 種の選択式 CPU サブスイート（`--cpu-bench`）を実行：既定の `sysbench`・`7zip`・`unixbench`・`hpl`・`passmark`・`geekbench` に加え、`x86_64` 向けの `ycruncher` や `prime95` 負荷テストにも対応します | [`docs/cpu.md`](docs/cpu.md) |
 
----
+## メンテナー
 
-## ソースコードからのビルド
-
-通常は [GitHub Releases](https://github.com/Lowendaff/lowendaff_bench/releases) のビルド済みバイナリをそのままご利用いただけます。手元で静的バイナリをビルドする場合は、Rust ツールチェーン（[`rust-toolchain.toml`](rust-toolchain.toml)）と `musl-tools`（`musl-gcc`）を用意して以下を実行してください。
-
-```sh
-rustup target add x86_64-unknown-linux-musl
-cargo build --release --locked --target x86_64-unknown-linux-musl --bin lowendaff-bench
-```
-
-ビルドされた実行ファイルは `target/x86_64-unknown-linux-musl/release/lowendaff-bench` に出力されます。開発への参加方法やコード構成については [`CONTRIBUTING.md`](CONTRIBUTING.md) を参照してください。
-
----
+- [@Lowendaff](https://github.com/Lowendaff)
 
 ## 謝辞
 
@@ -214,3 +261,13 @@ cargo build --release --locked --target x86_64-unknown-linux-musl --bin lowendaf
 - **[cloudflare-speed-cli (`kavehtehrani/cloudflare-speed-cli`)](https://github.com/kavehtehrani/cloudflare-speed-cli)**：`network.cloudflare` における定常 HTTPS スループット、高負荷時遅延、Waveform Bufferbloat / 安定性評価、および STUN UDP パケットロス・MOS 測定の参考。
 - **[iNetSpeed-CLI (`nxtrace/iNetSpeed-CLI`)](https://github.com/nxtrace/iNetSpeed-CLI)**：`network.inetspeed` における Dual DoH エンドポイント探索・IP ピン留めおよび `mensura.cdn-apple.com` 速度測定プロトコルの参考。
 - **上流ベンチマークツール・公開データソース**：[`sysbench`](https://github.com/akopytov/sysbench)（Alexey Kopytov）、[`7-Zip`](https://www.7-zip.org/)（Igor Pavlov）、[`Byte-UnixBench`](https://github.com/kdlucas/byte-unixbench）、[`HPL`](https://www.netlib.org/benchmark/hpl/) および [`OpenBLAS`](https://www.openblas.net/)、[`PassMark PerformanceTest`](https://www.passmark.com/products/pt_linux/)、[`y-cruncher`](http://www.numberworld.org/y-cruncher/)（Alexander J. Yee）、[`Prime95 / GIMPS`](https://www.mersenne.org/)、[`Geekbench`](https://www.geekbench.com/)（Primate Labs）、[`STREAM`](https://www.cs.virginia.edu/stream/)（John D. McCalpin）、[`multichase`](https://github.com/google/multichase)（Google）、[`smartmontools`](https://www.smartmontools.org/)（`smartctl`）、[`fio`](https://github.com/axboe/fio)（Jens Axboe）、[`iperf3`](https://github.com/esnet/iperf)（ESnet）、[`RIPEstat`](https://stat.ripe.net/)（RIPE NCC）、[`iperf3serverlist.net`](https://iperf3serverlist.net/)、[`PeeringDB`](https://www.peeringdb.com/)。
+
+## コントリビューション
+
+質問・不具合報告・機能要望は [GitHub Issues](https://github.com/Lowendaff/lowendaff_bench/issues) までお寄せください。Pull Request も歓迎します。変更を提出する前に、モジュール構成・Rust コーディング規約・`ast-grep` ルール・コミットメッセージ規約・CI ゲートについて [`CONTRIBUTING.md`](CONTRIBUTING.md) をご確認ください。
+
+補足：このリポジトリの `README` を編集する際は、[standard-readme](https://github.com/RichardLitt/standard-readme) 仕様に準拠してください。
+
+## ライセンス
+
+[MIT](LICENSE) © 2026 Lowendaff
