@@ -14,9 +14,16 @@ fn fixture(name: &str) -> String {
     std::fs::read_to_string(&path).unwrap_or_else(|err| panic!("{path}: {err}"))
 }
 
-fn answer(address: &str, network: Option<&str>, place: Option<&str>, latency: u64) -> Answer {
+fn answer(
+    address: &str,
+    asn: Option<&str>,
+    network: Option<&str>,
+    place: Option<&str>,
+    latency: u64,
+) -> Answer {
     Answer {
         address: address.parse::<IpAddr>().expect("an address"),
+        asn: asn.map(str::to_owned),
         network: network.map(str::to_owned),
         exchange: None,
         place: place.map(str::to_owned),
@@ -34,7 +41,8 @@ fn reached_hops() -> Vec<Hop> {
     let near = |hop_number: u8, latency| {
         hop(vec![answer(
             &format!("192.0.2.{hop_number}"),
-            Some("AS64496 Example Net"),
+            Some("AS64496"),
+            Some("Example Net"),
             None,
             latency,
         )])
@@ -42,7 +50,7 @@ fn reached_hops() -> Vec<Hop> {
     let telecom = Some("China Telecom");
     let beijing = Some("China Beijing");
     vec![
-        hop(vec![answer("10.0.0.1", None, None, 1059)]),
+        hop(vec![answer("10.0.0.1", None, None, None, 1059)]),
         near(2, 2700),
         near(3, 3317),
         hop(Vec::new()),
@@ -52,16 +60,18 @@ fn reached_hops() -> Vec<Hop> {
         hop(Vec::new()),
         hop(vec![answer(
             "203.22.178.186",
+            None,
             Some("CTGNet"),
             Some("China Hong Kong"),
             80239,
         )]),
-        hop(vec![answer("59.43.181.241", telecom, beijing, 64050)]),
-        hop(vec![answer("59.43.19.93", telecom, beijing, 65059)]),
+        hop(vec![answer("59.43.181.241", None, telecom, beijing, 64050)]),
+        hop(vec![answer("59.43.19.93", None, telecom, beijing, 65059)]),
         hop(Vec::new()),
         hop(vec![answer(
             "219.142.211.23",
-            Some("AS4847 China Telecom"),
+            Some("AS4847"),
+            telecom,
             beijing,
             63530,
         )]),
@@ -85,6 +95,7 @@ fn a_hop_that_answers_from_two_addresses_shows_both_in_the_order_they_first_answ
     // The second probe of hop 10 came from another address; the first and third from the same.
     hops[9].answers.push(answer(
         "203.0.113.10",
+        None,
         Some("China Telecom"),
         Some("China Beijing"),
         64612,
@@ -109,7 +120,7 @@ fn a_target_that_no_router_answered_is_not_reached_after_its_30_silent_hops() {
 fn the_warning_before_the_json_is_skipped() {
     let loopback = Trace {
         reached: true,
-        hops: vec![hop(vec![answer("127.0.0.1", None, None, 78)])],
+        hops: vec![hop(vec![answer("127.0.0.1", None, None, None, 78)])],
     };
     assert_eq!(parse::trace(&fixture("loopback.json")), Some(loopback));
     let warned = parse::trace(&fixture("warned.txt")).expect("the trace after the warning");
@@ -221,6 +232,7 @@ fn names_lose_control_characters_and_runs_of_spaces_and_an_as_number_must_be_one
             reached: true,
             hops: vec![hop(vec![answer(
                 "192.0.2.9",
+                None,
                 Some("example.net [2J Example"),
                 Some("Ex ample"),
                 1,

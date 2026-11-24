@@ -37,16 +37,3 @@ expression: text
     failed: bandwidth test of threads on node 0 and memory on node 1: multiload printed no bandwidth (4 attempts)
   Memory NUMA
     skipped: needs several NUMA nodes
-
-[Summary]
-  Memory sysbench     failed: single-thread read: sysbench exit code 1: boom (4 attempts)
-  Memory sysbench     failed: cannot read the available memory (/proc/meminfo)
-  Memory STREAM       skipped: available memory short: the three arrays need at least 46 MiB, and half of the available memory is only 16 MiB
-  Memory STREAM       failed: single-thread test: STREAM exit code 1: boom (4 attempts)
-  Memory STREAM       interrupted
-  Memory latency      failed: L3 test: multichase printed no latency (4 attempts)
-  Memory NUMA         skipped: the container does not allow binding memory to a node
-  Memory NUMA         failed: bandwidth test of threads on node 0 and memory on node 1: multiload printed no bandwidth (4 attempts)
-  Memory NUMA         skipped: needs several NUMA nodes
-
-9 items: 0 done, 3 skipped, 5 failed, 0 timed out, 1 interrupted. Total time 5.0 s

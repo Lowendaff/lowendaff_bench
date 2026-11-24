@@ -45,9 +45,3 @@ Environment: KVM virtual machine
   stays on one
   line in a
   file
-  done in 1.0 s
-
-[Summary]
-  Disk health         done in 1.0 s
-
-1 item: 1 done, 0 skipped, 0 failed, 0 timed out, 0 interrupted. Total time 1.0 s

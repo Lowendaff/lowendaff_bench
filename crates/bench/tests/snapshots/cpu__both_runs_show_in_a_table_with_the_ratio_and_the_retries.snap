@@ -10,9 +10,3 @@ expression: text
   Ratio               multi-thread is 3.88 times single-thread
   Note                single-thread test: worked after 1 failure; the last reason: sysbench exit code 1: x
   Note                multi-thread test: worked after 2 failures; the last reason: sysbench printed no events per second
-  done in 40.1 s
-
-[Summary]
-  CPU benchmark       done in 40.1 s
-
-1 item: 1 done, 0 skipped, 0 failed, 0 timed out, 0 interrupted. Total time 50.0 s

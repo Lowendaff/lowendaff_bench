@@ -56,3 +56,16 @@
 3. **默认脱敏规则**：
    - 实时进度日志（`stderr`）**始终**对公网地址打码。
    - 最终报告（无论是 `text`、`markdown` 还是 `json`）默认仅保留 IPv4 前两段（如 `203.0.*.*`）与 IPv6 前 32 位（如 `2001:db8:*`），仅在显式传入 `--show-ip` 时才输出完整地址。
+
+## 5. 虚拟机全程 `%si` 与 `%st` 周期采样（`[CPU steal & softirq]`）
+
+在 VPS / 云主机测评中，宿主机超售导致的 CPU 争抢（`steal`）与高带宽测速期间的内核网络软中断开销（`softirq`）往往直接决定真实负载表现：
+
+1. **仅在虚拟机环境启用（`PlatformKind::Vm`）**：
+   - 仅当运行环境被识别为虚拟机（如 KVM、Xen、VMware、Hyper-V、EC2 非 `.metal` 实例、Apple Virtualization 等）时启动后台采样；独立物理服务器（`Dedicated`）与容器环境（`Container`）不采集、不在报告中渲染该章节。
+2. **全程每 5 秒 `/proc/stat` 差分计算**：
+   - 自编排器启动测试生命周期起至全部测试结束，后台任务每 **5 秒** 读取一次 `/proc/stat` 首行聚合 `cpu` 计数器，并关联当前正在执行的检测项名称（工具准备阶段记为 `Setup`；若单次运行总时长不足 5 秒，在结束时自动补采一次全程区间样本）。
+   - 由于 Linux 内核在 `user` 与 `nice` 字段中已包含 `guest` 与 `guest_nice` 时钟节拍，分母严格取前 8 项基础状态增量之和（`user + nice + system + idle + iowait + irq + softirq + steal`），并对每个计数器使用饱和减法（`saturating_sub`）规避无滴答内核（`NO_HZ`）偶发的单调微抖动，分别计算窗口内的 **`%si`（`softirq / total`）** 与 **`%st`（`steal / total`）**。
+3. **汇总与逐 5 秒时间线双表展示**：
+   - **`text` 与 `markdown` 模式**：在报告末尾输出 `[CPU steal & softirq]` / `## CPU steal & softirq` 章节，包含 **`Summary` 统计表**（`Average` 均值、`P95` 分位数、`Peak` 峰值以及峰值发生时的测试项与时间点 `Peak during`）与 **`Samples` 明细表**（`Time | Item | %si | %st`）；
+   - **`json` 模式**：在顶层 `vm_cpu_telemetry` 对象中输出采样周期、样本数、`si_pct` / `st_pct` 汇总指标及完整样本数组（非虚拟机环境该字段为 `null`）。

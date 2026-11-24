@@ -11,11 +11,3 @@ expression: shown
     failed: base_url must start with https:// or loopback http://127.0.0.1 or http://[::1]: http://bad
   Media unlock
     failed: interrupted
-
-[Summary]
-  Media unlock        skipped: the host reaches neither IPv4 nor IPv6
-  Media unlock        skipped: no streaming service in the catalog for foo
-  Media unlock        failed: base_url must start with https:// or loopback http://127.0.0.1 or http://[::1]: http://bad
-  Media unlock        failed: interrupted
-
-4 items: 0 done, 2 skipped, 2 failed, 0 timed out, 0 interrupted. Total time 7.4 s

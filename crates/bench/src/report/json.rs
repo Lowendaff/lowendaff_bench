@@ -50,12 +50,24 @@ use crate::orchestrator::Fault;
 use crate::orchestrator::Run;
 use crate::orchestrator::Status;
 use crate::results::Measured;
+use crate::vm_cpu;
+use crate::vm_cpu::MetricStats;
+use crate::vm_cpu::VmCpuSample;
 
 /// Renders `page` as pretty-printed JSON with a trailing newline.
 #[must_use]
 pub fn render(page: &Page) -> String {
+    render_with_vm_cpu(page, &[])
+}
+
+/// Renders `page` and optional virtual-machine `%si`/`%st` samples as pretty-printed JSON.
+#[must_use]
+pub fn render_with_vm_cpu(page: &Page, vm_cpu_samples: &[VmCpuSample]) -> String {
     let own = terminal::collect_own_addresses(page.host, page.runs);
     let totals = terminal::totals(page);
+    let vm_cpu_telemetry = (page.host.platform.kind() == PlatformKind::Vm)
+        .then(|| build_vm_cpu_telemetry(vm_cpu_samples))
+        .flatten();
     let document = Document {
         version: page.version,
         environment: terminal::platform_text(page.host.platform),
@@ -66,6 +78,7 @@ pub fn render(page: &Page) -> String {
             .iter()
             .map(|run| build_run(run, &own, page.show_ip))
             .collect(),
+        vm_cpu_telemetry,
         not_applicable: page.not_applicable,
         summary: SummaryJson {
             items: totals.items,
@@ -89,8 +102,75 @@ struct Document<'a> {
     show_ip: bool,
     system: SystemSection,
     runs: Vec<RunJson<'a>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    vm_cpu_telemetry: Option<VmCpuTelemetryJson>,
     not_applicable: &'a [&'a str],
     summary: SummaryJson,
+}
+
+#[derive(Serialize)]
+struct VmCpuTelemetryJson {
+    interval_seconds: u64,
+    sample_count: usize,
+    si_pct: VmCpuMetricJson,
+    st_pct: VmCpuMetricJson,
+    samples: Vec<VmCpuSampleJson>,
+}
+
+#[derive(Serialize)]
+struct VmCpuMetricJson {
+    avg: f64,
+    p95: f64,
+    max: f64,
+    peak_elapsed_seconds: f64,
+    peak_item: Option<&'static str>,
+    peak_title: String,
+}
+
+#[derive(Serialize)]
+struct VmCpuSampleJson {
+    elapsed_seconds: f64,
+    time: String,
+    item: Option<&'static str>,
+    title: String,
+    si_pct: f64,
+    st_pct: f64,
+}
+
+fn build_vm_cpu_telemetry(samples: &[VmCpuSample]) -> Option<VmCpuTelemetryJson> {
+    let summary = vm_cpu::summarize(samples)?;
+    let words = locale::words();
+    let item_title = |item: Option<&'static str>| -> String {
+        match item {
+            Some(id) => words.item_name(id).unwrap_or(id).to_owned(),
+            None => words.vm_cpu_setup_phase().to_owned(),
+        }
+    };
+    let metric = |stats: &MetricStats| VmCpuMetricJson {
+        avg: stats.avg,
+        p95: stats.p95,
+        max: stats.max,
+        peak_elapsed_seconds: stats.peak_elapsed.as_secs_f64(),
+        peak_item: stats.peak_item,
+        peak_title: item_title(stats.peak_item),
+    };
+    Some(VmCpuTelemetryJson {
+        interval_seconds: vm_cpu::SAMPLE_INTERVAL.as_secs(),
+        sample_count: samples.len(),
+        si_pct: metric(&summary.si),
+        st_pct: metric(&summary.st),
+        samples: samples
+            .iter()
+            .map(|s| VmCpuSampleJson {
+                elapsed_seconds: s.elapsed.as_secs_f64(),
+                time: vm_cpu::format_elapsed(s.elapsed),
+                item: s.item,
+                title: item_title(s.item),
+                si_pct: s.si_pct,
+                st_pct: s.st_pct,
+            })
+            .collect(),
+    })
 }
 
 #[derive(Serialize)]

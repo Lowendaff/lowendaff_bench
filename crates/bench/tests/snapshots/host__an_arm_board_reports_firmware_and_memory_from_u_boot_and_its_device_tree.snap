@@ -39,7 +39,3 @@ Environment: no virtualization detected
   end0       rockchip,rk3568-gmac  rk_gmac-dwmac  1 Gbit/s, full duplex  1500  default route (IPv4)
   IPv4                unavailable
   IPv6                unavailable
-
-[Summary]
-
-0 items: 0 done, 0 skipped, 0 failed, 0 timed out, 0 interrupted. Total time 1.0 s

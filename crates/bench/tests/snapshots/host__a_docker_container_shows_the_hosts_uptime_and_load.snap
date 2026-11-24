@@ -27,7 +27,3 @@ Environment: Docker container
   Network cards       none visible inside a container
   IPv4                unavailable
   IPv6                unavailable
-
-[Summary]
-
-0 items: 0 done, 0 skipped, 0 failed, 0 timed out, 0 interrupted. Total time 1.0 s

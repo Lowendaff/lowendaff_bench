@@ -36,9 +36,3 @@ expression: masked
     Gmail    yes (220)                blocked
     iCloud   rejected (554)           no IPv6 address
     Note                DB-IP over IPv6: HTTP 502
-  done in 3.8 s
-
-[Summary]
-  IP reputation       done in 3.8 s
-
-1 item: 1 done, 0 skipped, 0 failed, 0 timed out, 0 interrupted. Total time 4.8 s

@@ -401,18 +401,17 @@ pub(super) fn trace(
     if let Some(reason) = exchanges_missing(&output.exchanges) {
         out.field(indent, &words.note(), &words.no_exchanges(&reason));
     }
+    if out.is_markdown() {
+        trace_markdown(out, output, indent, own, show_ip);
+        return;
+    }
     for (ipv6, traced) in [(false, &output.ipv4), (true, &output.ipv6)] {
         if traced.is_empty() {
             continue;
         }
         out.heading(indent, words.family_title(ipv6));
         for target in traced {
-            let outcome = match &target.route {
-                Route::Traced(trace) if trace.reached => words.reached(trace.hops.len()),
-                Route::Traced(trace) => words.not_reached(trace.hops.len()),
-                Route::Unavailable(why) => words.unavailable_lookup(&unavailable(why)),
-                Route::Failed(error) => trace_error(error),
-            };
+            let outcome = route_outcome(&target.route);
             let heading = words.trace_heading(
                 &target_name(&target.target),
                 target.host.as_deref(),
@@ -424,6 +423,54 @@ pub(super) fn trace(
                 out.table_left(indent, &headers, &hop_rows(trace, own, show_ip));
             }
         }
+    }
+}
+
+fn trace_markdown(
+    out: &mut Out,
+    output: &trace::Output,
+    indent: &str,
+    own: &[IpAddr],
+    show_ip: bool,
+) {
+    let words = locale::words();
+    let headers = words.trace_headers().map(str::to_owned);
+    for (group, code) in [
+        (targets::Group::Services, "services"),
+        (targets::Group::China, "china"),
+        (targets::Group::International, "international"),
+    ] {
+        let mut entries = Vec::new();
+        for (ipv6, list) in [(false, &output.ipv4), (true, &output.ipv6)] {
+            for item in list {
+                if item.target.group() == group {
+                    entries.push((ipv6, item));
+                }
+            }
+        }
+        if entries.is_empty() {
+            continue;
+        }
+        out.subsection(words.trace_group_title(code));
+        for (ipv6, target) in entries {
+            let outcome = route_outcome(&target.route);
+            let title = words.trace_md_target_title(&target_name(&target.target), ipv6);
+            out.heading(indent, &title);
+            out.line(&words.trace_md_target_line(target.host.as_deref(), &outcome));
+            if let Route::Traced(trace) = &target.route {
+                out.table_left(indent, &headers, &hop_rows(trace, own, show_ip));
+            }
+        }
+    }
+}
+
+fn route_outcome(route: &Route) -> String {
+    let words = locale::words();
+    match route {
+        Route::Traced(trace) if trace.reached => words.reached(trace.hops.len()),
+        Route::Traced(trace) => words.not_reached(trace.hops.len()),
+        Route::Unavailable(why) => words.unavailable_lookup(&unavailable(why)),
+        Route::Failed(error) => trace_error(error),
     }
 }
 
@@ -452,8 +499,9 @@ fn target_name(target: &Target) -> String {
 }
 
 /// A trace's rows: each hop's number, then for each address that answered it, the address, its
-/// network with its exchange, its place and its latency; `*` for a hop that no probe got an
-/// answer from. A second address of a hop takes a row of its own, under the same number.
+/// AS number, its network with its exchange, its place and its latency; `*` for a hop that no
+/// probe got an answer from. A second address of a hop takes a row of its own, under the same
+/// number.
 fn hop_rows(trace: &Trace, own: &[IpAddr], show_ip: bool) -> Vec<Vec<String>> {
     let words = locale::words();
     let mut rows = Vec::new();
@@ -461,7 +509,7 @@ fn hop_rows(trace: &Trace, own: &[IpAddr], show_ip: bool) -> Vec<Vec<String>> {
     for (number, hop) in numbered_hops {
         if hop.answers.is_empty() {
             let mut row = vec![number.to_string(), "*".to_owned()];
-            row.resize(5, String::new());
+            row.resize(6, String::new());
             rows.push(row);
             continue;
         }
@@ -476,12 +524,20 @@ fn hop_rows(trace: &Trace, own: &[IpAddr], show_ip: bool) -> Vec<Vec<String>> {
             } else {
                 answer.address.to_string()
             };
+            let asn = answer.asn.clone().unwrap_or_else(|| MISSING.to_owned());
             let network = match &answer.exchange {
                 Some(exchange) => words.at_exchange(answer.network.as_deref(), exchange),
                 None => answer.network.clone().unwrap_or_else(|| MISSING.to_owned()),
             };
             let place = answer.place.clone().unwrap_or_else(|| MISSING.to_owned());
-            rows.push(vec![hop, address, network, place, latency(answer.latency)]);
+            rows.push(vec![
+                hop,
+                address,
+                asn,
+                network,
+                place,
+                latency(answer.latency),
+            ]);
         }
     }
     rows

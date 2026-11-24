@@ -118,10 +118,10 @@ fn the_owners_server_shows_four_disks_with_their_values() {
         "  sdb     passed  38112 h   28 °C  49%   169.0 TB  380 / —     0",
         "  sdc     passed  53544 h   27 °C  79%   277.2 TB  0 / —       0",
         "  sdd     passed  35124 h   27 °C  30%   155.6 TB  13 / —      0",
-        "  done in 0.4 s",
     ] {
         assert!(shows(&text, line), "{line:?} in {text}");
     }
+    assert!(!text.contains("done in "), "{text}");
     assert!(!text.contains("Note"), "nothing to explain: {text}");
 }
 
@@ -527,10 +527,10 @@ fn the_tables_have_yabss_rows_one_column_per_block_size_and_a_note_per_failed_te
         "  512K and 1M",
         "  Note                512K still running after 35 s, stopped",
         "  Note                1M failed: fio: error=No space left on device",
-        "  done in 150.3 s",
     ] {
         assert!(shows(&text, line), "{line:?} in {text}");
     }
+    assert!(!text.contains("done in "), "{text}");
     assert_eq!(
         row(&text, "Block size"),
         [["Block size", "4K", "64K"], ["Block size", "512K", "1M"]]

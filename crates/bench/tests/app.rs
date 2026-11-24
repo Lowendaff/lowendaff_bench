@@ -512,7 +512,7 @@ async fn optional_files_come_over_their_family_and_a_missing_one_leaves_the_plug
             ..Downloads::default()
         };
         let planned = vec![Planned::new(plugin, Measured::cpu_bench)];
-        let (code, text, _) = run(
+        let (code, text, log) = run(
             planned,
             host,
             &CancellationToken::new(),
@@ -523,9 +523,11 @@ async fn optional_files_come_over_their_family_and_a_missing_one_leaves_the_plug
         .await;
         assert_eq!(code, 0);
         assert!(
-            summary_line(&text, "test.optional-files").is_some_and(|line| line.contains("done")),
-            "it runs: {text}"
+            log.iter()
+                .any(|line| line.starts_with("test.optional-files done in ")),
+            "it runs: {log:?}"
         );
+        assert!(!text.contains("done in "), "{text}");
         let seen = seen
             .lock()
             .expect("no test panics while holding it")
@@ -933,7 +935,8 @@ async fn a_run_prints_sections_and_summary_then_removes_its_directory() {
     )
     .unwrap();
 
-    let (code, text, _) = execute(planned, HostProfile::default(), &CancellationToken::new()).await;
+    let (code, text, log) =
+        execute(planned, HostProfile::default(), &CancellationToken::new()).await;
 
     assert_eq!(code, 0);
     assert!(
@@ -948,11 +951,12 @@ async fn a_run_prints_sections_and_summary_then_removes_its_directory() {
         text.contains("  Single-core         3\n"),
         "the score that the config gave: {text}"
     );
+    assert!(!text.contains("\n[Summary]\n"), "{text}");
+    assert!(!text.contains("done in "), "{text}");
     assert!(
-        text.contains(
-            "\n1 item: 1 done, 0 skipped, 0 failed, 0 timed out, 0 interrupted. Total time "
-        ),
-        "{text}"
+        log.iter()
+            .any(|line| line.starts_with("test.good done in ")),
+        "{log:?}"
     );
 }
 
@@ -962,7 +966,7 @@ async fn an_interrupted_run_exits_130_and_still_lists_every_plugin() {
     cancel.cancel();
     let planned = app::prepare(&cli(&[]), &plugins()).unwrap();
 
-    let (code, text, _) = execute(planned, HostProfile::default(), &cancel).await;
+    let (code, text, log) = execute(planned, HostProfile::default(), &cancel).await;
 
     assert_eq!(code, EXIT_INTERRUPTED);
     assert!(
@@ -970,9 +974,11 @@ async fn an_interrupted_run_exits_130_and_still_lists_every_plugin() {
         "two plugins of one group share a section: {text}"
     );
     assert_eq!(text.matches("[test]").count(), 1, "{text}");
+    assert!(!text.contains("\n[Summary]\n"), "{text}");
     assert!(
-        text.contains("2 items: 0 done, 0 skipped, 0 failed, 0 timed out, 2 interrupted."),
-        "{text}"
+        log.contains(&"test.good interrupted".to_owned())
+            && log.contains(&"test.other interrupted".to_owned()),
+        "{log:?}"
     );
 }
 
@@ -1073,39 +1079,19 @@ fn with_nodes(count: usize) -> HostProfile {
     }
 }
 
-/// The summary's line of the plugin `id`, which a plugin that ran has.
-fn summary_line<'a>(text: &'a str, id: &str) -> Option<&'a str> {
-    text.lines().find(|line| {
-        line.strip_prefix("  ")
-            .is_some_and(|rest| rest.starts_with(&format!("{id} ")))
-    })
-}
-
 #[tokio::test]
 async fn a_plugin_that_needs_numa_nodes_runs_only_where_two_can_be_used() {
     let registry = [entry::<Numa>()];
     for (count, runs) in [(1, false), (2, true)] {
         let planned = app::prepare(&cli(&[]), &registry).unwrap();
-        let (code, text, _) = execute(planned, with_nodes(count), &CancellationToken::new()).await;
+        let (code, text, log) =
+            execute(planned, with_nodes(count), &CancellationToken::new()).await;
         assert_eq!(code, 0);
+        assert_eq!(text.contains("\n[test]\n"), runs, "{count} nodes: {text}");
         assert_eq!(
-            summary_line(&text, "test.numa").is_some(),
+            log.iter().any(|line| line.contains("test.numa started")),
             runs,
-            "{count} nodes: {text}"
-        );
-        assert_eq!(
-            text.contains("  Not applicable here: test.numa\n"),
-            !runs,
-            "{count} nodes: {text}"
-        );
-        let total = if runs {
-            "1 item: 1 done,"
-        } else {
-            "0 items: 0 done,"
-        };
-        assert!(
-            text.contains(total),
-            "{count} nodes, not counted elsewhere: {text}"
+            "{count} nodes: {log:?}"
         );
     }
 }
@@ -1130,20 +1116,18 @@ async fn only_plugins_for_the_detected_platform_run() {
     );
     assert!(text.contains("\n\n[test]\n"), "{text}");
     assert!(
-        text.contains("  Not applicable here: test.info-dedicated, test.disk-health, test.numa\n"),
-        "{text}"
+        log.iter().any(|line| line.contains("test.info-vm started")),
+        "{log:?}"
     );
-    assert!(
-        summary_line(&text, "test.info-vm").is_some_and(|line| line.contains("done")),
-        "{text}"
-    );
+    for other in ["test.info-dedicated", "test.disk-health", "test.numa"] {
+        assert!(
+            !log.iter().any(|line| line.contains(other)),
+            "{other} must not run on KVM: {log:?}"
+        );
+    }
     assert!(
         !log.iter().any(|line| line.starts_with("Tools: ")),
         "tools of plugins that do not apply must not be downloaded: {log:?}"
-    );
-    assert!(
-        text.contains("\n1 item: 1 done, 0 skipped, 0 failed, 0 timed out, 0 interrupted."),
-        "{text}"
     );
 }
 
@@ -1380,9 +1364,11 @@ async fn the_program_hands_its_plugins_the_tools_it_downloaded() {
             "{log:?}"
         );
         assert!(
-            summary_line(&text, "test.script").is_some_and(|line| line.contains("done in")),
-            "the plugin ran the tool it was handed: {text}"
+            log.iter()
+                .any(|line| line.starts_with("test.script done in ")),
+            "the plugin ran the tool it was handed: {log:?}"
         );
+        assert!(!text.contains("done in "), "{text}");
     }
 }
 
@@ -1409,10 +1395,7 @@ async fn ctrl_c_during_the_downloads_ends_the_run_at_once() {
         log.contains(&"Tools: script 1.0 failed: download interrupted".to_owned()),
         "{log:?}"
     );
-    assert!(
-        summary_line(&text, "test.script").is_some_and(|line| line.ends_with("interrupted")),
-        "{text}"
-    );
+    assert!(text.contains("\n[test]\n  interrupted\n"), "{text}");
 }
 
 #[tokio::test]
@@ -2073,4 +2056,46 @@ async fn default_report_archive_formats_utc_timestamps_and_writes_unwrapped_copy
         "progress log should confirm archive path: {:?}",
         log.lines()
     );
+}
+
+#[tokio::test]
+async fn vm_cpu_sampler_collects_only_on_vms_and_ignores_dedicated_and_containers() {
+    use bench::vm_cpu::VmCpuSampler;
+    use bench_host::Root;
+    use bench_host::platform::ContainerKind;
+    use std::time::Instant;
+
+    let dir = tempfile::tempdir().expect("temp root");
+    std::fs::create_dir_all(dir.path().join("proc")).expect("proc");
+    let stat_path = dir.path().join("proc/stat");
+    std::fs::write(&stat_path, "cpu  100 0 50 800 0 0 10 40 0 0\n").expect("stat 0");
+
+    for non_vm in [
+        Platform::Dedicated,
+        Platform::Container(ContainerKind::Docker),
+    ] {
+        let sampler = VmCpuSampler::start_with_interval(
+            non_vm,
+            Root::new(dir.path()),
+            Instant::now(),
+            Duration::from_millis(20),
+        );
+        tokio::time::sleep(Duration::from_millis(35)).await;
+        assert!(sampler.finish().await.is_empty());
+    }
+
+    let sampler = VmCpuSampler::start_with_interval(
+        Platform::Vm(Hypervisor::Kvm),
+        Root::new(dir.path()),
+        Instant::now(),
+        Duration::from_millis(25),
+    );
+    sampler.set_active_item(Some("cpu.bench"));
+    std::fs::write(&stat_path, "cpu  300 0 100 1450 0 0 30 120 0 0\n").expect("stat 1");
+    tokio::time::sleep(Duration::from_millis(40)).await;
+    let samples = sampler.finish().await;
+    assert!(!samples.is_empty(), "VM must record /proc/stat samples");
+    assert_eq!(samples[0].item, Some("cpu.bench"));
+    assert!((samples[0].si_pct - 2.0).abs() < 1e-6);
+    assert!((samples[0].st_pct - 8.0).abs() < 1e-6);
 }

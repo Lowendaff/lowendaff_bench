@@ -32,7 +32,3 @@ Environment: KVM virtual machine
   eth0       Red Hat Virtio network device  virtio_net  not reported  1500  default route (IPv4)
   IPv4                unavailable
   IPv6                unavailable
-
-[Summary]
-
-0 items: 0 done, 0 skipped, 0 failed, 0 timed out, 0 interrupted. Total time 1.0 s

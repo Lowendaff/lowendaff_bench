@@ -179,8 +179,11 @@ pub struct Hop {
 pub struct Answer {
     /// The address.
     pub address: IpAddr,
-    /// Its network as NextTrace's service names it: its AS number and its ISP or owner, such as
-    /// `AS4809 China Telecom CN2`; none when the service names none.
+    /// Its Autonomous System number as NextTrace's service names it, such as `AS4809`; none when
+    /// the service names none.
+    pub asn: Option<String>,
+    /// Its ISP or owner as NextTrace's service names it, such as `China Telecom CN2`; none when
+    /// the service names none.
     pub network: Option<String>,
     /// The internet exchange where Netflix's network takes this address, from the list.
     pub exchange: Option<String>,

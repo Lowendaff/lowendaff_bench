@@ -19,9 +19,3 @@ expression: text
   Location   Provider  Upload      Download  Latency
   Tokyo, JP  Leaseweb  410 Mbit/s  error     104 ms
   Note                Tokyo, JP: the download failed: iperf3 measured nothing
-  done in 301.0 s
-
-[Summary]
-  Network speed       done in 301.0 s
-
-1 item: 1 done, 0 skipped, 0 failed, 0 timed out, 0 interrupted. Total time 302.0 s

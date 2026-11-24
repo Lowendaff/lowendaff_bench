@@ -39,7 +39,6 @@ Environment: KVM virtual machine
   Single thread        1    859.00
   Multi-thread        64  44631.33
   Ratio               multi-thread is 51.96 times single-thread
-  done in 41.2 s
 
 [Memory performance]
   failed: single-thread test: STREAM printed no result (4 attempts)
@@ -61,15 +60,3 @@ Environment: KVM virtual machine
     skipped: the test directory is on a RAM disk, which would measure memory; run in a directory on a disk, or name one with --work-dir
   test.panic
     failed: the plugin crashed: index out of bounds
-
-[Summary]
-  Disk health         timed out; the results until then are kept
-  CPU benchmark       done in 41.2 s
-  Memory STREAM       failed: single-thread test: STREAM printed no result (4 attempts)
-  Disk performance    skipped: tool fio unavailable: download failed: HTTP 404
-  Media unlock        interrupted
-  test.own-skip       skipped: the test directory is on a RAM disk, which would measure memory; run in a directory on a disk, or name one with --work-dir
-  test.panic          failed: the plugin crashed: index out of bounds
-  Not applicable here: Memory NUMA
-
-7 items: 1 done, 2 skipped, 2 failed, 1 timed out, 1 interrupted. Total time 137.8 s

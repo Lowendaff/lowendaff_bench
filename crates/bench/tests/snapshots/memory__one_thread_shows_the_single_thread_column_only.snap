@@ -9,7 +9,6 @@ expression: text
     Test   Single thread
     Read   100.00 MiB/s
     Write  50.00 MiB/s
-    done in 41.2 s
   Memory STREAM
     STREAM              5.10: 8 million elements per array (61 MiB, 183 MiB for the three), the fastest of 10 passes each
     STREAM results
@@ -18,10 +17,3 @@ expression: text
     Scale  9000.2 MB/s
     Add    11000.3 MB/s
     Triad  11500.4 MB/s
-    done in 41.2 s
-
-[Summary]
-  Memory sysbench     done in 41.2 s
-  Memory STREAM       done in 41.2 s
-
-2 items: 2 done, 0 skipped, 0 failed, 0 timed out, 0 interrupted. Total time 5.0 s

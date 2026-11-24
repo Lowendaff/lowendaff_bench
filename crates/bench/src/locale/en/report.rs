@@ -220,4 +220,51 @@ impl ReportWords for English {
             format!("{count} bytes")
         }
     }
+
+    fn md_kv_headers(&self) -> [&'static str; 2] {
+        ["Item", "Value"]
+    }
+
+    fn vm_cpu_title(&self) -> &'static str {
+        "CPU steal & softirq"
+    }
+
+    fn vm_cpu_method(&self, interval_secs: u64) -> String {
+        format!(
+            "/proc/stat sampled every {interval_secs} s from start to finish: \
+             softirq (%si) and hypervisor steal (%st)"
+        )
+    }
+
+    fn vm_cpu_summary_title(&self) -> &'static str {
+        "Summary"
+    }
+
+    fn vm_cpu_summary_headers(&self) -> [&'static str; 5] {
+        ["Metric", "Average", "P95", "Peak", "Peak during"]
+    }
+
+    fn vm_cpu_metric_label(&self, steal: bool) -> &'static str {
+        if steal {
+            "Steal (%st)"
+        } else {
+            "SoftIRQ (%si)"
+        }
+    }
+
+    fn vm_cpu_peak_cell(&self, item: &str, time: &str) -> String {
+        format!("{item} ({time})")
+    }
+
+    fn vm_cpu_samples_title(&self) -> &'static str {
+        "Samples"
+    }
+
+    fn vm_cpu_samples_headers(&self) -> [&'static str; 4] {
+        ["Time", "Item", "%si", "%st"]
+    }
+
+    fn vm_cpu_setup_phase(&self) -> &'static str {
+        "Setup"
+    }
 }

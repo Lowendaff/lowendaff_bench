@@ -12,8 +12,3 @@ expression: text
   Write       93.07 MB/s (22.7k)   —
   Total       185.89 MB/s (45.3k)  —
   interrupted
-
-[Summary]
-  Disk performance    interrupted
-
-1 item: 0 done, 0 skipped, 0 failed, 0 timed out, 1 interrupted. Total time 5.0 s

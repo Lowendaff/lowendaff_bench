@@ -288,7 +288,9 @@ whether the host is bare metal, a VM, or a container, CPU model and cache hierar
 OS, kernel, uptime, TCP congestion control (such as BBR), disks, network link speeds (flagging
 degraded PCIe slots), and IPv4/IPv6 connectivity. On dedicated servers, it also lists populated RAM
 slots, ECC memory error counts, IPMI/BMC controllers, and hardware RAID cards (see
-[`docs/system.md`](docs/system.md)).
+[`docs/system.md`](docs/system.md)). On virtual machines, the orchestrator also samples
+`/proc/stat` every 5 seconds from start to finish and appends a `[CPU steal & softirq]` section
+reporting average, P95, peak, and 5-second `%si` / `%st` timelines.
 
 Then it executes up to 15 test items in deterministic registry order:
 
