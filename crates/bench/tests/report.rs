@@ -1156,6 +1156,13 @@ fn cloudflare_and_inetspeed_render_text_markdown_json_and_mask_client_ip() {
         }),
     };
 
+    let cf_v6 = cloudflare::FamilyCloudflare {
+        client_ip: Some("2001:db8::77".parse().expect("doc ipv6")),
+        udp: None,
+        udp_note: Some(cloudflare::FamilyIssue::TimedOut),
+        ..cf_fam.clone()
+    };
+
     let cf_run = run(
         "network.cloudflare",
         Status::Completed,
@@ -1164,8 +1171,8 @@ fn cloudflare_and_inetspeed_render_text_markdown_json_and_mask_client_ip() {
             output: Some(cloudflare::Output {
                 settings: cloudflare::Settings::default(),
                 ipv4: Some(Box::new(cf_fam)),
-                ipv6: None,
-                notes: Vec::new(),
+                ipv6: Some(Box::new(cf_v6)),
+                notes: vec![(true, cloudflare::FamilyIssue::NoAddress)],
             }),
             stop: None,
         })),
@@ -1223,16 +1230,48 @@ fn cloudflare_and_inetspeed_render_text_markdown_json_and_mask_client_ip() {
                         loaded_latency: None,
                         error: None,
                     },
+                    inetspeed::RoundResult {
+                        direction: inetspeed::TransferDirection::Upload,
+                        threads: 1,
+                        bytes: 0,
+                        duration_ms: 5_000,
+                        bps: 0,
+                        mbps: 0.0,
+                        fault_count: 1,
+                        loaded_latency: None,
+                        error: Some(inetspeed::RoundIssue::WorkerFaults(1)),
+                    },
                 ],
                 total_bytes: 800_000_000,
-                warnings: Vec::new(),
+                warnings: vec![inetspeed::Warning::DohEmpty],
             }),
             stop: None,
         })),
     );
 
+    let cf_failed = run(
+        "network.cloudflare",
+        Status::Failed(None),
+        Some(2.0),
+        Some(Measured::NetworkCloudflare(Report {
+            output: None,
+            stop: Some(bench_api::Stop::Failed(cloudflare::Failure::NoResult(
+                Some(cloudflare::FamilyIssue::TimedOut),
+            ))),
+        })),
+    );
+    let inet_failed = run(
+        "network.inetspeed",
+        Status::Failed(None),
+        Some(2.0),
+        Some(Measured::NetworkInetspeed(Report {
+            output: None,
+            stop: Some(bench_api::Stop::Failed(inetspeed::Failure::NoResult)),
+        })),
+    );
+
     let host_profile = host();
-    let runs = [cf_run, inet_run];
+    let runs = [cf_run, inet_run, cf_failed, inet_failed];
     let masked_page = Page {
         version: "0.1.0",
         host: &host_profile,
@@ -1249,11 +1288,11 @@ fn cloudflare_and_inetspeed_render_text_markdown_json_and_mask_client_ip() {
     );
     assert!(text.contains("LAX - Los Angeles, United States"), "{text}");
     assert!(
-        text.contains("198.51.*.*"),
-        "masks Cloudflare client IP:\n{text}"
+        text.contains("198.51.*.*") && text.contains("2001:db8:*"),
+        "masks Cloudflare v4 and v6 client IPs:\n{text}"
     );
     assert!(
-        !text.contains("198.51.100.77"),
+        !text.contains("198.51.100.77") && !text.contains("2001:db8::77"),
         "leaks no raw client IP:\n{text}"
     );
     assert!(
@@ -1270,6 +1309,8 @@ fn cloudflare_and_inetspeed_render_text_markdown_json_and_mask_client_ip() {
     );
     assert!(text.contains("Download (single)"), "{text}");
     assert!(text.contains("Upload (multi)"), "{text}");
+    assert!(text.contains("Upload (single)"), "{text}");
+    assert!(text.contains("error"), "{text}");
 
     let md = report::render(&masked_page, Format::Markdown, None);
     assert!(md.contains("| Metric | IPv4 | IPv6 |"), "{md}");
@@ -1277,14 +1318,29 @@ fn cloudflare_and_inetspeed_render_text_markdown_json_and_mask_client_ip() {
         md.contains("| Round | Threads | Speed | Data | Loaded latency |"),
         "{md}"
     );
-    assert!(!md.contains("198.51.100.77"), "{md}");
+    assert!(
+        !md.contains("198.51.100.77") && !md.contains("2001:db8::77"),
+        "{md}"
+    );
+    assert!(
+        md.contains("198.51.\\*.\\*") && md.contains("2001:db8:\\*"),
+        "{md}"
+    );
 
     let json_raw = report::render(&masked_page, Format::Json, None);
-    assert!(!json_raw.contains("198.51.100.77"), "{json_raw}");
+    assert!(
+        !json_raw.contains("198.51.100.77") && !json_raw.contains("2001:db8::77"),
+        "{json_raw}"
+    );
     let json: serde_json::Value = serde_json::from_str(&json_raw).expect("valid JSON");
     assert_eq!(json["runs"][0]["output"]["ipv4"]["client_ip"], "198.51.*.*");
+    assert_eq!(json["runs"][0]["output"]["ipv6"]["client_ip"], "2001:db8:*");
     assert_eq!(json["runs"][1]["id"], "network.inetspeed");
     assert_eq!(json["runs"][1]["title"], "Apple CDN speed");
+    assert_eq!(json["runs"][2]["status"], "failed");
+    assert!(json["runs"][2]["reason"].as_str().is_some());
+    assert_eq!(json["runs"][3]["status"], "failed");
+    assert!(json["runs"][3]["reason"].as_str().is_some());
 
     let unmasked_json: serde_json::Value = serde_json::from_str(&report::render(
         &Page {
@@ -1298,5 +1354,9 @@ fn cloudflare_and_inetspeed_render_text_markdown_json_and_mask_client_ip() {
     assert_eq!(
         unmasked_json["runs"][0]["output"]["ipv4"]["client_ip"],
         "198.51.100.77"
+    );
+    assert_eq!(
+        unmasked_json["runs"][0]["output"]["ipv6"]["client_ip"],
+        "2001:db8::77"
     );
 }

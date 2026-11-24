@@ -175,6 +175,10 @@ async fn the_setup_then_four_tests_in_yabss_order_and_each_is_published() {
         "YABS's timeout 35"
     );
     assert!(
+        measured.jobs.iter().all(|job| job.group),
+        "fio forks --numjobs=2 worker processes"
+    );
+    assert!(
         measured.jobs.iter().all(|job| job.quotable),
         "fio's error lines help"
     );
@@ -375,6 +379,19 @@ async fn a_failed_setup_fails_the_item_with_fios_error_line() {
 
 #[tokio::test]
 async fn a_cancellation_ends_the_item_and_keeps_the_tests_that_ended() {
+    let first_cancel = measure(
+        &host(Some(100 * GIB)),
+        "x86_64",
+        vec![set_up(), Err(RunError::Cancelled)],
+    )
+    .await;
+    assert_eq!(first_cancel.result, Err(Stop::Failed(Failure::Cancelled)));
+    let published = first_cancel
+        .published
+        .expect("setup version was published before 4k");
+    assert_eq!(published.version.as_deref(), Some("3.43"));
+    assert!(published.tests.is_empty());
+
     let script = vec![
         set_up(),
         tested("4k"),
@@ -384,6 +401,7 @@ async fn a_cancellation_ends_the_item_and_keeps_the_tests_that_ended() {
     let measured = measure(&host(Some(100 * GIB)), "x86_64", script).await;
     assert_eq!(measured.result, Err(Stop::Failed(Failure::Cancelled)));
     let published = measured.published.expect("two tests were published");
+    assert_eq!(published.version.as_deref(), Some("3.43"));
     let ended: Vec<&str> = published.tests.iter().map(|test| test.block_size).collect();
     assert_eq!(ended, ["4k", "64k"]);
 }

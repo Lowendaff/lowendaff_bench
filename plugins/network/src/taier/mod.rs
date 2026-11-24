@@ -65,7 +65,15 @@ pub async fn load_servers(
     embedded: Option<&[u8]>,
 ) -> Result<Vec<u8>, Stop<Failure>> {
     if let Some(path) = ctx.file(SERVERS) {
-        return read(path).await;
+        match read(path).await {
+            Ok(raw) => return Ok(raw),
+            Err(err) => {
+                if !custom_list && let Some(snapshot) = embedded {
+                    return Ok(snapshot.to_vec());
+                }
+                return Err(err);
+            }
+        }
     }
     if !custom_list && let Some(snapshot) = embedded {
         return Ok(snapshot.to_vec());
@@ -73,6 +81,45 @@ pub async fn load_servers(
     match ctx.missing(SERVERS) {
         Some(why) => Err(Stop::Failed(Failure::Unreadable(why.to_owned()))),
         None => Err(Stop::Failed(Failure::MissingList)),
+    }
+}
+
+/// Loads and validates `servers/taier.json` locations for a plugin run, falling back to `embedded`
+/// when no custom `list` was configured and the live download is missing, unreadable, or rejected
+/// by schema validation (such as an HTML proxy block page or newer format version).
+pub async fn load_locations(
+    ctx: &Context<Output>,
+    custom_list: bool,
+    local_list: bool,
+    embedded: Option<&[u8]>,
+) -> Result<Vec<nodes::Location>, Stop<Failure>> {
+    if let Some(path) = ctx.file(SERVERS) {
+        let live = read(path)
+            .await
+            .and_then(|raw| nodes::parse_for_source(&raw, local_list).map_err(list_stop));
+        match live {
+            Ok(locations) => return Ok(locations),
+            Err(err) => {
+                if !custom_list && let Some(snapshot) = embedded {
+                    return nodes::parse_for_source(snapshot, false).map_err(list_stop);
+                }
+                return Err(err);
+            }
+        }
+    }
+    if !custom_list && let Some(snapshot) = embedded {
+        return nodes::parse_for_source(snapshot, false).map_err(list_stop);
+    }
+    match ctx.missing(SERVERS) {
+        Some(why) => Err(Stop::Failed(Failure::Unreadable(why.to_owned()))),
+        None => Err(Stop::Failed(Failure::MissingList)),
+    }
+}
+
+fn list_stop(error: ListError) -> Stop<Failure> {
+    match error {
+        ListError::Newer(_) => Stop::Skipped(Failure::List(error)),
+        _ => Stop::Failed(Failure::List(error)),
     }
 }
 
@@ -139,11 +186,8 @@ impl Plugin for Taier {
 
     async fn run(&self, ctx: &Context<Output>) -> Result<Output, Stop<Failure>> {
         let local_list = self.list.as_deref().is_some_and(|s| !s.contains("://"));
-        let raw = load_servers(ctx, self.list.is_some(), EMBEDDED_SERVERS).await?;
-        let locations = nodes::parse_for_source(&raw, local_list).map_err(|error| match error {
-            ListError::Newer(_) => Stop::Skipped(Failure::List(error)),
-            _ => Stop::Failed(Failure::List(error)),
-        })?;
+        let locations =
+            load_locations(ctx, self.list.is_some(), local_list, EMBEDDED_SERVERS).await?;
         let chosen = nodes::select(&locations, &self.selections, &self.cities, &self.operators);
         if chosen.slots.is_empty() {
             return Err(Stop::Skipped(Failure::NoNode(chosen.unknown)));

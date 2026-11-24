@@ -327,4 +327,92 @@ async fn load_servers_prefers_live_file_and_falls_back_to_embedded_only_for_defa
         custom_err,
         bench_api::Stop::Failed(Failure::Unreadable("connection timed out".to_owned()))
     );
+
+    // 4. Corrupt/HTML live payloads fall back to embedded for the default list, never custom.
+    let dir = tempfile::tempdir().unwrap();
+    let html_path = dir.path().join("blocked.html");
+    std::fs::write(&html_path, b"<html>blocked</html>").unwrap();
+    let mut corrupt_files = BTreeMap::new();
+    corrupt_files.insert(SERVERS.to_owned(), Ok(html_path));
+    let (ctx_corrupt, _) = Context::<Output>::new(
+        Arc::new(HostProfile::default()),
+        Arc::new(BTreeMap::new()),
+        Arc::new(corrupt_files),
+        Instant::now() + Duration::from_secs(10),
+        ".".into(),
+        CancellationToken::new(),
+    );
+    let fallback_locs = taier::load_locations(&ctx_corrupt, false, false, Some(embedded))
+        .await
+        .expect("corrupt live list falls back to embedded snapshot");
+    assert_eq!(fallback_locs.len(), 1);
+    assert_eq!(fallback_locs[0].id, "embedded");
+
+    assert!(
+        taier::load_locations(&ctx_corrupt, true, false, Some(embedded))
+            .await
+            .is_err(),
+        "custom list parse failure must not fall back to embedded"
+    );
+}
+
+#[tokio::test]
+async fn empty_candidates_do_not_panic_and_answered_outcome_survives_unreachable_fallback() {
+    let mock = Arc::new(MockTaier::default());
+    let (ctx, _) = Context::<Output>::new(
+        Arc::new(HostProfile::default()),
+        Arc::new(BTreeMap::new()),
+        Arc::new(BTreeMap::new()),
+        Instant::now() + Duration::from_secs(60),
+        ".".into(),
+        CancellationToken::new(),
+    );
+    let ctx = ctx.with_net(Arc::clone(&mock) as Arc<dyn NetClient>);
+    let chosen = nodes::Chosen {
+        slots: vec![
+            nodes::TargetSlot {
+                id: "empty".to_owned(),
+                province: "Beijing".to_owned(),
+                city: "Beijing".to_owned(),
+                operator: Operator::Telecom,
+                candidates: Vec::new(),
+            },
+            nodes::TargetSlot {
+                id: "busy-then-dead".to_owned(),
+                province: "Beijing".to_owned(),
+                city: "Beijing".to_owned(),
+                operator: Operator::Unicom,
+                candidates: vec![
+                    (Ipv4Addr::new(198, 51, 100, 1), 65499),
+                    (Ipv4Addr::new(198, 51, 100, 99), 65499),
+                ],
+            },
+            nodes::TargetSlot {
+                id: "ok".to_owned(),
+                province: "Beijing".to_owned(),
+                city: "Beijing".to_owned(),
+                operator: Operator::Mobile,
+                candidates: vec![(Ipv4Addr::new(198, 51, 100, 2), 65499)],
+            },
+        ],
+        operators: vec![Operator::Telecom, Operator::Unicom, Operator::Mobile],
+        unknown: Vec::new(),
+    };
+    let settings = Settings {
+        seconds: 4,
+        streams: 8,
+        selections: Vec::new(),
+        cities: Vec::new(),
+        operators: chosen.operators.clone(),
+        custom_list: false,
+    };
+
+    let output = measure::measure(&ctx, chosen, settings, 7, || 1_700_000_000)
+        .await
+        .expect("mobile slot succeeded");
+    assert_eq!(output.results.len(), 2);
+    assert_eq!(output.results[0].id, "busy-then-dead");
+    assert_eq!(output.results[0].ip, Ipv4Addr::new(198, 51, 100, 1));
+    assert_eq!(output.results[0].tried_nodes, 2);
+    assert_eq!(output.results[0].outcome, NodeOutcome::Busy);
 }

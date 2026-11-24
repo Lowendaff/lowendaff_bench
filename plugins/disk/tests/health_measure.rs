@@ -543,8 +543,23 @@ fn readings_without_a_serial_are_never_merged() {
     let readings = [
         made_up("/dev/sda", "sat", None, failed()),
         made_up("/dev/bus/0", "sat+megaraid,18", None, failed()),
+        made_up("/dev/sdb", "scsi", Some(""), Health::Passed),
+        made_up("/dev/sdc", "scsi", Some("   "), Health::Passed),
     ];
-    assert_eq!(measure::disks(&readings, &nowhere()).len(), 2);
+    assert_eq!(measure::disks(&readings, &nowhere()).len(), 4);
+
+    let padded = [
+        made_up(
+            "/dev/bus/0",
+            "sat+megaraid,18",
+            Some("  A  "),
+            Health::Passed,
+        ),
+        made_up("/dev/sda", "sat", Some("A"), Health::Passed),
+    ];
+    let merged = measure::disks(&padded, &nowhere());
+    assert_eq!(merged.len(), 1);
+    assert_eq!(merged[0].location, named("sda"));
 }
 
 #[test]

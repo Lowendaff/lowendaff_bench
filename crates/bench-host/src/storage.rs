@@ -222,6 +222,12 @@ pub fn root_filesystem(root: &Root, space: impl Fn(&str) -> Option<Space>) -> Op
 /// Size and usage of the filesystem at `path`, computed as `df` does.
 #[must_use]
 pub fn statvfs(path: &str) -> Option<Space> {
+    statvfs_path(Path::new(path))
+}
+
+/// Size and usage of the filesystem at `path`, accepting arbitrary Unix `Path` bytes.
+#[must_use]
+pub fn statvfs_path(path: &Path) -> Option<Space> {
     let stat = rustix::fs::statvfs(path).ok()?;
     let block = stat.f_frsize;
     Some(Space {

@@ -34,7 +34,11 @@ impl Reading {
         if let Some(fault) = json.failure() {
             return Self::failed(device, fault);
         }
-        let serial = json.str_at("/serial_number").map(str::to_owned);
+        let serial = json
+            .str_at("/serial_number")
+            .map(str::trim)
+            .filter(|serial| !serial.is_empty())
+            .map(str::to_owned);
         if json.bool_at("/smart_support/available") == Some(false) {
             return Self {
                 device,

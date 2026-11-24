@@ -87,6 +87,7 @@ where
     let cfg = torture_config(threads);
     for name in ["local.txt", "prime.txt"] {
         if let Err(err) = tokio::fs::write(work_dir.join(name), &cfg).await {
+            let _ = tokio::fs::remove_dir_all(work_dir).await;
             return Err(Failure::Run(Fault::Setup(err.to_string())));
         }
     }

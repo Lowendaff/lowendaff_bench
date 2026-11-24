@@ -411,3 +411,42 @@ fn remote_taier_list_rejects_internal_and_loopback_ips_while_local_override_allo
         "local file override may use 127.0.0.1 for smoke tests"
     );
 }
+
+#[test]
+fn match_locations_rejects_extra_slashes_and_empty_slug_false_matches() {
+    let raw = br#"{
+        "version": 1,
+        "locations": [
+            {
+                "id": "guangdong-shenzhen",
+                "province": "Guangdong",
+                "city": "Shenzhen",
+                "nodes": [
+                    {"operator": "telecom", "ip": "198.51.100.13", "port": 65499}
+                ]
+            },
+            {
+                "id": "dash-city",
+                "province": "---",
+                "city": "-",
+                "nodes": [
+                    {"operator": "unicom", "ip": "198.51.100.14", "port": 65499}
+                ]
+            }
+        ]
+    }"#;
+    let locations = nodes::parse(raw).expect("valid fixture");
+    for bad in [
+        "guangdong/",
+        "/shenzhen",
+        "guangdong/shen/zhen",
+        "guangdong/shenzhen/",
+        "???",
+        "*",
+    ] {
+        assert!(
+            nodes::match_locations(&locations, bad).is_empty(),
+            "`{bad}` must not match any location"
+        );
+    }
+}

@@ -63,6 +63,21 @@ where
     if let Err(err) = tokio::fs::create_dir_all(work_dir).await {
         return Err(Failure::Run(Fault::Io(err.to_string())));
     }
+    let result = measure_in(program, libs_file, work_dir, run).await;
+    let _ = tokio::fs::remove_dir_all(work_dir).await;
+    result
+}
+
+async fn measure_in<F, Fut>(
+    program: &Path,
+    libs_file: &Path,
+    work_dir: &Path,
+    run: F,
+) -> Result<Output, Failure>
+where
+    F: Fn(Job) -> Fut,
+    Fut: Future<Output = Result<job::Output, RunError>>,
+{
     let out = match run(attempt(program, libs_file, work_dir)).await {
         Ok(out) => out,
         Err(RunError::Fault(fault)) => return Err(Failure::Run(Fault::Tool(fault))),

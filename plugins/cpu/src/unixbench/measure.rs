@@ -224,8 +224,14 @@ where
     let bin_dir = dhry2reg_path.parent().unwrap_or_else(|| Path::new("."));
     let single = match run_pass(ctx, bin_dir, work_dir, 1, &run).await {
         Ok(pass) => pass,
-        Err(RunPassErr::Fault(fault)) => return Err((None, Failure::Single(fault))),
-        Err(RunPassErr::Cancelled) => return Err((None, Failure::Cancelled)),
+        Err(RunPassErr::Fault(fault)) => {
+            let _ = tokio::fs::remove_dir_all(work_dir).await;
+            return Err((None, Failure::Single(fault)));
+        }
+        Err(RunPassErr::Cancelled) => {
+            let _ = tokio::fs::remove_dir_all(work_dir).await;
+            return Err((None, Failure::Cancelled));
+        }
     };
     let mut output = Output {
         version: UNIXBENCH.version.to_owned(),
@@ -233,17 +239,20 @@ where
         multi: None,
     };
     if threads <= 1 {
+        let _ = tokio::fs::remove_dir_all(work_dir).await;
         return Ok(output);
     }
     on_partial(&output);
-    match run_pass(ctx, bin_dir, work_dir, threads, &run).await {
+    let result = match run_pass(ctx, bin_dir, work_dir, threads, &run).await {
         Ok(pass) => {
             output.multi = Some(pass);
             Ok(output)
         }
         Err(RunPassErr::Fault(fault)) => Err((Some(Box::new(output)), Failure::Multi(fault))),
         Err(RunPassErr::Cancelled) => Err((Some(Box::new(output)), Failure::Cancelled)),
-    }
+    };
+    let _ = tokio::fs::remove_dir_all(work_dir).await;
+    result
 }
 
 enum RunPassErr {

@@ -118,11 +118,14 @@ where
     let n = choose_order(available_bytes);
     let dat_path = work_dir.join("HPL.dat");
     if let Err(err) = tokio::fs::write(&dat_path, hpl_dat(n, BLOCK_SIZE)).await {
+        let _ = tokio::fs::remove_dir_all(work_dir).await;
         return Err(Failure::Run(Fault::Setup(err.to_string())));
     }
-    match run(attempt(program, work_dir, threads)).await {
+    let result = match run(attempt(program, work_dir, threads)).await {
         Ok(output) => parse::reading(&output, threads).map_err(Failure::Run),
         Err(RunError::Fault(fault)) => Err(Failure::Run(Fault::Tool(fault))),
         Err(RunError::Cancelled) => Err(Failure::Cancelled),
-    }
+    };
+    let _ = tokio::fs::remove_dir_all(work_dir).await;
+    result
 }

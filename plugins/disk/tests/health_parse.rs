@@ -391,3 +391,17 @@ fn the_runners_scans_list_their_single_disk() {
     };
     assert_eq!(scsi, [expected]);
 }
+
+#[test]
+fn blank_or_padded_serial_numbers_are_trimmed_or_omitted() {
+    let serial_of = |serial: &str| {
+        let output = format!(
+            r#"{{"json_format_version": [1, 0], "smartctl": {{"exit_status": 0}},
+                "serial_number": "{serial}", "smart_status": {{"passed": true}}}}"#
+        );
+        Reading::new(device("/dev/sdx", "sat"), &output).serial
+    };
+    assert_eq!(serial_of(""), None);
+    assert_eq!(serial_of("   "), None);
+    assert_eq!(serial_of("  SN-123  "), Some("SN-123".to_owned()));
+}

@@ -122,13 +122,17 @@ pub fn test_args(file: &Path, size: &str, block_size: &str) -> Vec<OsString> {
 /// The setup run of `program` on `file`.
 #[must_use]
 pub fn setup(program: &Path, file: &Path, size: FileSize) -> Job {
-    Job::new(program, setup_args(file, size.fio), SETUP_LIMIT)
+    let mut job = Job::new(program, setup_args(file, size.fio), SETUP_LIMIT);
+    job.group = true;
+    job
 }
 
 /// The test of `program` on `file` at `block_size`.
 #[must_use]
 pub fn test(program: &Path, file: &Path, size: FileSize, block_size: &str) -> Job {
-    Job::new(program, test_args(file, size.fio, block_size), TEST_LIMIT)
+    let mut job = Job::new(program, test_args(file, size.fio, block_size), TEST_LIMIT);
+    job.group = true;
+    job
 }
 
 /// The free space in GiB that YABS asks for on ZFS, twice `spa_asize_inflation`, when the
@@ -213,6 +217,9 @@ where
         return Err(Stop::Failed(Failure::Setup(fault)));
     }
     output.version = parse::version(&setup.text, "setup");
+    if output.version.is_some() {
+        ctx.publish(&output);
+    }
 
     let block_sizes = BLOCK_SIZES.into_iter().flatten();
     for block_size in block_sizes {
