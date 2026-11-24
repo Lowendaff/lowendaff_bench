@@ -107,13 +107,30 @@ pub fn host(host: &str) -> bool {
 }
 
 /// Whether `host` is permitted in an unpinned remote list or cache-lookup response: rejects
-/// `localhost`, `*.localhost`, and non-public IP literals (loopback, private, link-local, metadata,
-/// multicast, and non-global IPv6).
+/// `localhost`, `*.localhost`, WHATWG numeric/hex final labels, and non-public IP literals
+/// (loopback, private, link-local, metadata, multicast, and non-global IPv6).
 #[must_use]
 pub fn is_remote_safe_host(host: &str) -> bool {
     if let Ok(ip) = host.parse::<IpAddr>() {
         return bench_api::is_routable_endpoint_ip(ip);
     }
+    if !self::host(host) || ends_in_a_number(host) {
+        return false;
+    }
     let lower = host.to_ascii_lowercase();
     lower != "localhost" && !lower.ends_with(".localhost")
+}
+
+pub(crate) fn ends_in_a_number(host: &str) -> bool {
+    let last = host.rsplit('.').next().unwrap_or(host);
+    if last.is_empty() {
+        return false;
+    }
+    if last.bytes().all(|b| b.is_ascii_digit()) {
+        return true;
+    }
+    if let Some(hex) = last.strip_prefix("0x").or_else(|| last.strip_prefix("0X")) {
+        return hex.bytes().all(|b| b.is_ascii_hexdigit());
+    }
+    false
 }

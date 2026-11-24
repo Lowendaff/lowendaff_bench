@@ -326,6 +326,16 @@ fn remote_safe_host_and_target_source_guard_loopback_and_private_v4_and_v6() {
         "::1",
         "fe80::1",
         "fc00::1",
+        "",
+        "localhost.",
+        "[::1]",
+        "127.0.0.1:80",
+        "-option",
+        "2130706433",
+        "0x7f000001",
+        "0177.0.0.1",
+        "127.1",
+        "999.999.999.999",
     ] {
         assert!(
             !lists::is_remote_safe_host(forbidden),

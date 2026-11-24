@@ -172,6 +172,19 @@ async fn skips_when_offline_or_without_public_ip() {
     let ctx = make_ctx(host_with_network(offline), Arc::new(MockRipeHttp));
     let res = Bgp::default().run(&ctx).await;
     assert_eq!(res, Err(Stop::Skipped(Failure::NoFamily)));
+
+    let reachable_no_ip = Network {
+        ipv4: Family {
+            targets: vec![("192.0.2.1:443".parse().unwrap(), Reach::Connected)],
+            address: Address::NotAsked,
+        },
+        ipv6: Family::default(),
+    };
+    let no_ip_ctx = make_ctx(host_with_network(reachable_no_ip), Arc::new(MockRipeHttp));
+    assert_eq!(
+        Bgp::default().run(&no_ip_ctx).await,
+        Err(Stop::Skipped(Failure::NoPublicAddress))
+    );
 }
 
 struct ManyAsnsHttp;

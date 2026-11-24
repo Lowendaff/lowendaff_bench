@@ -4,6 +4,9 @@
 //! serve it. Of an answer, only the server's name and place are kept; the host's own address,
 //! which both name, is not.
 
+use std::net::Ipv4Addr;
+use std::net::Ipv6Addr;
+
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -63,7 +66,8 @@ pub enum LookupError {
     /// Google's answer names no server: it is not text, or has no id after `=>`.
     NoServer,
     /// Google's answer names a server whose id the code cannot write: longer than
-    /// [`LONGEST_ID`], or with a character other than a lowercase letter, a digit or `-`.
+    /// [`LONGEST_ID`], starting or ending with `-`, or with a character other than a lowercase
+    /// letter, a digit or `-`.
     Id,
     /// fast.com's answer is not the JSON of its API.
     Format,
@@ -84,11 +88,12 @@ pub enum LookupError {
 pub fn youtube(answer: &[u8]) -> Result<String, LookupError> {
     let text = std::str::from_utf8(answer).map_err(|_| LookupError::NoServer)?;
     let (_, after) = text.split_once("=>").ok_or(LookupError::NoServer)?;
-    let id = after
+    let same_line = after.split(['\r', '\n']).next().unwrap_or_default();
+    let id = same_line
         .split_whitespace()
         .next()
         .ok_or(LookupError::NoServer)?;
-    if id.len() > LONGEST_ID {
+    if id.len() > LONGEST_ID || id.starts_with('-') || id.ends_with('-') {
         return Err(LookupError::Id);
     }
     let code: Option<String> = id
@@ -167,10 +172,50 @@ pub fn netflix(answer: &[u8]) -> Result<Cache, LookupError> {
 /// The host of an HTTPS address: a DNS name or an IP address, an IPv6 address without its
 /// brackets.
 fn url_host(url: &str) -> Option<String> {
+    if !url.bytes().all(|b| b.is_ascii_graphic() && b != b'\\') {
+        return None;
+    }
     let rest = url.strip_prefix("https://")?;
-    let host = match rest.strip_prefix('[') {
-        Some(bracketed) => bracketed.split_once(']')?.0,
-        None => rest.split(['/', '?', '#', ':']).next()?,
-    };
-    lists::host(host).then(|| host.to_owned())
+    let end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+    let authority = &rest[..end];
+    if authority.is_empty() || authority.contains('@') {
+        return None;
+    }
+    if let Some(bracketed) = authority.strip_prefix('[') {
+        let (v6, tail) = bracketed.split_once(']')?;
+        if let Some(port) = tail.strip_prefix(':') {
+            if !valid_port(port) {
+                return None;
+            }
+        } else if !tail.is_empty() {
+            return None;
+        }
+        v6.parse::<Ipv6Addr>().ok()?;
+        Some(v6.to_owned())
+    } else {
+        if authority.contains('[') || authority.contains(']') {
+            return None;
+        }
+        let host = match authority.split_once(':') {
+            Some((h, port)) => {
+                if !valid_port(port) {
+                    return None;
+                }
+                h
+            }
+            None => authority,
+        };
+        if host.parse::<Ipv4Addr>().is_ok() {
+            return Some(host.to_owned());
+        }
+        (host.parse::<Ipv6Addr>().is_err() && !lists::ends_in_a_number(host) && lists::host(host))
+            .then(|| host.to_owned())
+    }
+}
+
+fn valid_port(port: &str) -> bool {
+    !port.is_empty()
+        && !port.starts_with('0')
+        && port.bytes().all(|b| b.is_ascii_digit())
+        && port.parse::<u16>().is_ok()
 }

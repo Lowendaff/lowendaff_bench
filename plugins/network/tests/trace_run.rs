@@ -485,17 +485,27 @@ async fn remote_netflix_lookup_rejects_loopback_localhost_and_private_ips_unless
             "youtube-ipv4".to_owned(),
             Ok(fixture("lookups/report-mapping-isp.txt")),
         ),
+        (
+            "youtube-ipv6".to_owned(),
+            Ok(fixture("lookups/report-mapping-u.txt")),
+        ),
         ("netflix-ipv4".to_owned(), Ok(lo_fast.clone())),
+        ("netflix-ipv6".to_owned(), Ok(lo_fast.clone())),
     ]);
     let (_, published) = run_with(
         json!({
             "groups": ["services"],
             "netflix_api": lo_fast.to_str().unwrap()
         }),
-        ipv4_host(),
+        dual_host(),
         files,
     )
     .await;
     let published = published.expect("published");
     assert_eq!(published.ipv4[1].host.as_deref(), Some("127.0.0.1"));
+    assert_eq!(
+        published.ipv6[1].route,
+        Route::Unavailable(Unavailable::Answer(LookupError::Url)),
+        "IPv4 literal in netflix-ipv6 lookup must be rejected at planning time"
+    );
 }
