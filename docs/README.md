@@ -26,7 +26,7 @@
 
 | 模块文档 | 对应报告章节 | 包含内容 / 插件 ID |
 |---|---|---|
-| [主机画像与环境探测](system.md) | `[System]` | 虚拟化与容器识别、CPU/内存/cgroup 采集、SMBIOS/EDAC/BMC/RAID 卡硬件识别、存储与网卡拓扑、双栈公网 IP 直连探测 |
+| [主机画像与环境探测](system.md) | `[System]` / `[CPU steal & softirq]` | 虚拟化与容器识别、CPU/内存/cgroup 采集、SMBIOS/EDAC/BMC/RAID 卡硬件识别、存储与网卡拓扑、双栈公网 IP 直连探测，以及虚拟机环境全程每 5 秒 `%si` / `%st` 周期采样 |
 | [CPU 性能检测](cpu.md) | `[CPU performance]` | `cpu.bench`（统一调度 `sysbench`、`7zip`、`unixbench`、`hpl`、`passmark`、`ycruncher`、`prime95`、`geekbench` 共 8 项可选子基准） |
 | [内存与缓存性能检测](memory.md) | `[Memory performance]` | 共享工作集规划器、`memory.sysbench`（顺序读写）、`memory.stream`（STREAM 四核函数）、`memory.latency`（各级缓存与主存延迟）、`memory.numa`（跨节点带宽与延迟矩阵） |
 | [磁盘健康与性能检测](disk.md) | `[Disks]` | `disk.health`（物理盘只读 SMART 与硬件 RAID 穿透）、`disk.fio`（对齐 YABS 的四块大小混合随机读写） |
@@ -41,7 +41,7 @@
 2. **并行主机画像与网络探测**：只读扫描内核接口（`/proc`、`/sys` 等）采集硬件与系统信息，同时强制忽略一切代理环境变量（`HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY`）与下载代理参数，直连探测 IPv4 / IPv6 公网连通性与出口地址。
 3. **按平台裁剪与按需拉取工具（支持纯下载代理分流）**：自动剔除不适用于当前平台的检测项（如容器/虚拟机上的 `disk.health`、单 NUMA 节点机器上的 `memory.numa`），仅下载本次实际可运行插件所需的外部工具与静态节点列表（支持通过 `--github-proxy` 直连镜像前缀改写与 `--socks5-proxy` `socks5://`/`socks5h://` 加速下载，且代理严格局限于文件下载，子工具进程亦自动剥离代理环境变量，绝不干预任何检测流量），逐一校验文件大小与固定 `SHA-256` 摘要（绝不调用宿主机预装的同名程序）。
 4. **隔离目录、超时受控执行与虚拟机 `%si` / `%st` 全程采样**：在 `--work-dir`（默认当前目录 `.`，避开 `/tmp` 内存盘以免干扰磁盘跑分）下创建权限受限的临时运行目录，按注册顺序逐个运行插件；当主机识别为虚拟机（`Vm`）时，编排器在整个执行期间每 5 秒读取一次 `/proc/stat` 采集内核软中断（`%si`）与宿主机 CPU 争抢（`%st`）时间线。每个插件均设有最坏情况超时上限、阶段性结果实时发布（`Ctrl-C` 中断或超时时保留已完成子阶段数据）与任务级 `panic` 隔离，运行结束后自动清理临时目录。
-5. **统一报告渲染与 `/tmp` 默认归档**：将全部结果按 `text`（默认终端对齐）、`markdown`（`md`，对齐 `lowendaff.com` 测评文档规范：双列 `Item | Value` 属性表、`> **Note:**` 引用块、`#`..`####` 严格标题层级与上下文感知转义，不含冗余耗时调试行）或 `json` 渲染输出；当未显式指定自定义输出文件路径时，TUI 与 CLI 模式均会自动在 `/tmp/lowendaff-bench-<时间戳>.<txt|md|json>` 额外保存一份不折行的完整报告副本。除非显式传入 `--show-ip`，所有格式均默认对本机公网 IP 与反向解析主机名脱敏。
+5. **统一报告渲染与 `/tmp` 默认归档**：将全部结果按 `text`（默认终端对齐）、`markdown`（`md`，对齐 `lowendaff.com` 测评文档规范：双列 `Item | Value` 属性表、`> **Note:**` 引用块、`#`..`####` 严格标题层级、上下文感知转义，以及 BGP 拓扑与虚拟机 `%si` / `%st` 的原生 Mermaid 图表，不含冗余耗时调试行）或 `json` 渲染输出；当未显式指定自定义输出文件路径时，TUI 与 CLI 模式均会自动在 `/tmp/lowendaff-bench-<时间戳>.<txt|md|json>` 额外保存一份不折行的完整报告副本。除非显式传入 `--show-ip`，所有格式均默认对本机公网 IP 与反向解析主机名脱敏。
 
 ## 主要维护人员
 

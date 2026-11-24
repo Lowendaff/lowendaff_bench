@@ -194,7 +194,7 @@ sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-
 | | `ip` | IP テスト 2 項目：`ip.quality`、`ip.media` |
 | `--only` / `--skip` *（個別 ID）* | `disk.health`, `memory.sysbench`, `memory.stream`, `memory.latency`, `memory.numa`, `disk.fio`, `network.iperf3`, `network.taier`, `network.cloudflare`, `network.inetspeed`, `network.trace`, `network.bgp`, `ip.quality`, `ip.media`, `cpu.bench` | 個別のテスト項目をピンポイントで選択・除外します |
 | `-f, --format` | `text` | ターミナルで読みやすい整形済みテキスト表 |
-| | `markdown` *（または `md`）* | ブログ・GitHub・掲示板にそのまま貼り付けられる Markdown 形式 |
+| | `markdown` *（または `md`）* | `lowendaff.com` 互換の GitHub 形式 Markdown（2 列属性表・引用ブロック・文脈に応じたエスケープ、および BGP トポロジーと VM `%si`/`%st` の Mermaid 図） |
 | | `json` | スクリプトでの自動集計や保存に便利な JSON 形式 |
 | `--cpu-bench` | `sysbench` | 1 スレッドおよび全スレッドでの 20 秒間素数計算 *（既定）* |
 | | `7zip` | 7-Zip LZMA2 圧縮・展開 MIPS（1 スレッド / 全スレッド）*（既定）* |
@@ -227,7 +227,7 @@ sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-
 
 ## テスト項目一覧
 
-測定開始前に、サーバー構成である **システム概要（`[System]`）** を読み取り専用で自動収集します。物理サーバー・VM・コンテナの判別、CPU 型番とキャッシュ容量、メモリと Swap、OS・カーネル・稼働時間・TCP 輻輳制御（BBR など）、ディスク構成、NIC リンク速度（PCIe 帯域低下の警告付き）、IPv4/IPv6 の疎通状況を確認でき、物理サーバーではメモリスロット情報、ECC エラー数、IPMI/BMC、ハードウェア RAID カードも一覧表示します。また仮想マシン環境では、テスト開始から終了まで 5 秒ごとに `/proc/stat` の `%si`（ソフト割り込み）と `%st`（CPU スティール）を記録し、末尾に集計表と時系列一覧を出力します（詳細：[`docs/system.md`](docs/system.md)）。
+測定開始前に、サーバー構成である **システム概要（`[System]`）** を読み取り専用で自動収集します。物理サーバー・VM・コンテナの判別、CPU 型番とキャッシュ容量、メモリと Swap、OS・カーネル・稼働時間・TCP 輻輳制御（BBR など）、ディスク構成、NIC リンク速度（PCIe 帯域低下の警告付き）、IPv4/IPv6 の疎通状況を確認でき、物理サーバーではメモリスロット情報、ECC エラー数、IPMI/BMC、ハードウェア RAID カードも一覧表示します。また仮想マシン環境では、テスト開始から終了まで 5 秒ごとに `/proc/stat` の `%si`（ソフト割り込み）と `%st`（CPU スティール）を記録し、`text` では集計表と時系列一覧、`markdown` では集計表と Mermaid `xychart-beta` 折れ線グラフ、`json` では `vm_cpu_telemetry` を出力します（詳細：[`docs/system.md`](docs/system.md)）。
 
 続いて、以下の最大 15 項目を登録順に測定します。
 
@@ -243,7 +243,7 @@ sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-
 | `network` | `network.taier`<br>中国キャリア回線速度 | IPv4 通信可能な環境 | 純 Rust 実装による中国 CAICT GlobalSpeed（泰爾測速）拠点とのマルチストリーム HTTP/1.1 上り・下り速度測定を行います（既定：北京・上海・広州 × 電信・聯通・移動） | [`docs/network.md`](docs/network.md) |
 | `network` | `network.cloudflare`<br>Cloudflare 回線速度 | 通信可能な環境 | 純 Rust 実装による `speed.cloudflare.com` デュアルスタック上り・下り速度、無負荷・高負荷時遅延、Bufferbloat / 安定性評価、および STUN UDP パケットロス・MOS 測定を行います | [`docs/network.md`](docs/network.md) |
 | `network` | `network.inetspeed`<br>Apple CDN 回線速度 | 通信可能な環境 | 純 Rust 実装による `mensura.cdn-apple.com` 速度測定。Dual DoH で最小 RTT エッジ IP を自動選択・固定し、シングルスレッドとマルチスレッドの上り・下り速度を測定します | [`docs/network.md`](docs/network.md) |
-| `network` | `network.trace`<br>ネットワーク経路追跡 | Raw ソケット対応環境 | YouTube / Netflix キャッシュや中国主要キャリア、海外バックボーンまでの経路を一跳びずつ追跡し、直通か迂回ルートかを可視化します | [`docs/network.md`](docs/network.md) |
+| `network` | `network.trace`<br>ネットワーク経路追跡 | Raw ソケット対応環境 | YouTube / Netflix キャッシュや中国主要キャリア、海外バックボーンまでの経路を一跳びずつ追跡し、`ASN` とキャリア名を分けた 6 列表示（IX 注記付き）で直通か迂回ルートかを可視化します | [`docs/network.md`](docs/network.md) |
 | `network` | `network.bgp`<br>BGP 経路トポロジー | グローバル IP 保有機 | 世界の BGP 収集拠点から広告プレフィックス・RPKI 状態・直接の上流キャリアを取得し、`text` 形式では限定公開の `imageupload.app` SVG トポロジー URL、Markdown では Mermaid 図、JSON ではスタンドアロン SVG コードを出力します | [`docs/network.md`](docs/network.md) |
 | `ip` | `ip.quality`<br>IP 品質・リスク診断 | グローバル IP 保有機 | 9 つの評価データベースを照合し、**ネイティブ IP / ブロードキャスト IP** の判別、データセンター / 家庭用回線の区分、不正リスク、公開ポート、25 種のブラックリスト、25 番メールポートの疎通を診断します | [`docs/ip.md`](docs/ip.md) |
 | `ip` | `ip.media`<br>動画配信サービス判定 | 通信可能な環境 | 世界 5 地域・計 68 の動画配信・オンラインサービス（Netflix、Disney+、YouTube、Abema、U-NEXT、TVer など）にどこまで対応しているかと判定地域を表示します | [`docs/ip.md`](docs/ip.md) |
