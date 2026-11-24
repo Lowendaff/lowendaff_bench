@@ -48,6 +48,30 @@ fn available_memory_counts_free_swap_and_a_containers_limit() {
         memory::available(&host(8 * GIB, 0), Some(&unlimited)),
         8 * GIB
     );
+    let swap_disabled = CgroupLimits {
+        memory: Some(6 * GIB),
+        memory_used: Some(0),
+        swap: Some(0),
+        swap_used: Some(0),
+        ..CgroupLimits::default()
+    };
+    assert_eq!(
+        memory::available(&host(GIB, 8 * GIB), Some(&swap_disabled)),
+        GIB,
+        "disabled container swap must not count host swap"
+    );
+    let ram_and_swap = CgroupLimits {
+        memory: Some(2 * GIB),
+        memory_used: Some(GIB + 512 * MIB),
+        swap: Some(2 * GIB),
+        swap_used: Some(512 * MIB),
+        ..CgroupLimits::default()
+    };
+    assert_eq!(
+        memory::available(&host(8 * GIB, 8 * GIB), Some(&ram_and_swap)),
+        2 * GIB,
+        "RAM headroom plus swap headroom"
+    );
 }
 
 #[test]

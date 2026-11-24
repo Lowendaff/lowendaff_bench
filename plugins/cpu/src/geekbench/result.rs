@@ -2,6 +2,7 @@
 //! why it failed. Numbers and kinds of reasons only, with Geekbench's and the system's own
 //! messages; the reporter words them.
 
+use std::path::Path;
 use std::path::PathBuf;
 
 use bench_api::Measurement;
@@ -9,6 +10,7 @@ use bench_api::ToolVersion;
 use bench_tool::GEEKBENCH;
 use bench_tool::job;
 use serde::Serialize;
+use serde::Serializer;
 
 /// The scores of a run that uploaded its result.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -65,9 +67,14 @@ pub enum NoSwap {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct SwapLeft {
     /// The swap file.
+    #[serde(serialize_with = "serialize_path")]
     pub path: PathBuf,
     /// The system's reason.
     pub error: String,
+}
+
+fn serialize_path<S: Serializer>(path: &Path, serializer: S) -> Result<S::Ok, S::Error> {
+    serializer.serialize_str(&path.to_string_lossy())
 }
 
 /// Geekbench 7's result, partial until the scores arrive.

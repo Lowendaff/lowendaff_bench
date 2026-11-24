@@ -34,7 +34,7 @@ pub const RUN_LIMIT: Duration = Duration::from_secs(10 * 60);
 pub fn choose_order(available_bytes: Option<u64>) -> u32 {
     let budget = available_bytes
         .map_or(256 << 20, |avail| avail / 4)
-        .clamp(48 << 20, 1088 << 20);
+        .min(1088 << 20);
     let raw = u32::try_from((budget / 8).isqrt()).unwrap_or(MAX_ORDER);
     let blocks = (raw / BLOCK_SIZE).max(1);
     (blocks * BLOCK_SIZE).clamp(MIN_ORDER, MAX_ORDER)
@@ -107,6 +107,10 @@ where
     F: Fn(Job) -> Fut,
     Fut: Future<Output = Result<job::Output, RunError>>,
 {
+    if ctx.cancel_token().is_cancelled() {
+        return Err(Failure::Cancelled);
+    }
+    let threads = threads.max(1);
     ctx.progress(Step::CpuSuite {
         suite: "hpl",
         stage: None,

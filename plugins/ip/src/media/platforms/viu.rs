@@ -46,19 +46,27 @@ pub fn parse(response: &HttpResponse) -> Verdict {
     if lower_url.contains("no-service") || matches!(response.status, 403 | 451) {
         return Verdict::no();
     }
-    if let Some(seg) = parse::extract_between(&lower_url, "/ott/", "/")
-        && let Some(code) = parse::country_code(seg)
+    let url_region = lower_url
+        .split_once("/ott/")
+        .and_then(|(_, rest)| rest.split(['/', '?', '#']).next())
+        .and_then(parse::country_code);
+    if let Some(code) = url_region
+        && (200..300).contains(&response.status)
     {
         return Verdict::yes_in(code);
     }
     let body = response.text();
-    if body.contains("no-service") || body.contains("not available in your country") {
+    let lower_body = body.to_ascii_lowercase();
+    if lower_body.contains("no-service") || lower_body.contains("not available in your country") {
         return Verdict::no();
     }
     if response.status == 200 {
         let region =
             parse::extract_between(&body, "\"countryCode\":\"", "\"").and_then(parse::country_code);
-        Verdict::Yes { region }
+        match region {
+            Some(code) => Verdict::yes_in(code),
+            None => parse::no_region(),
+        }
     } else {
         Verdict::Unexpected(format!("HTTP {}", response.status))
     }

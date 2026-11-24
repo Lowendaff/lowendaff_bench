@@ -110,10 +110,16 @@ fn hpl_parses_passed_gflops_and_rejects_failed_residuals() {
         Err(hpl::Fault::ResidualFailed)
     );
 
+    let order_zero = hpl::measure::choose_order(Some(0));
     let order_small = hpl::measure::choose_order(Some(512 << 20));
     let order_large = hpl::measure::choose_order(Some(32 << 30));
+    assert_eq!(order_zero, hpl::measure::MIN_ORDER);
     assert_eq!(order_small % hpl::measure::BLOCK_SIZE, 0);
     assert_eq!(order_large, hpl::measure::MAX_ORDER);
+    assert_eq!(
+        hpl::parse::reading(&exited(0, String::new()), 4),
+        Err(hpl::Fault::NoResult)
+    );
 }
 
 #[test]

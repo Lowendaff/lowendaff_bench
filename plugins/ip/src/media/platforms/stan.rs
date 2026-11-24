@@ -7,6 +7,7 @@ use bench_api::IpFamily;
 
 use super::super::parse;
 use super::super::result::Output;
+use super::super::result::Restriction;
 use super::super::result::Verdict;
 use super::Platform;
 use super::ProbeFuture;
@@ -45,9 +46,17 @@ pub fn parse(response: &HttpResponse) -> Verdict {
     if let Some(early) = parse::gate(response) {
         return early;
     }
-    let body = response.text();
-    if body.contains("StreamCo.Concurrency.GeoBlocked")
-        || body.contains("AccessDenied")
+    let lower = response.text().to_ascii_lowercase();
+    if lower.contains("vpndetected")
+        || (lower.contains("vpn") && (lower.contains("proxy") || lower.contains("unblocker")))
+    {
+        return Verdict::No {
+            restriction: Some(Restriction::ProxyDetected),
+        };
+    }
+    if lower.contains("geoblocked")
+        || lower.contains("accessdenied")
+        || lower.contains("outside australia")
         || matches!(response.status, 403 | 451)
     {
         return Verdict::no();

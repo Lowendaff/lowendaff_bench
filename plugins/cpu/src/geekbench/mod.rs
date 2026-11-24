@@ -23,6 +23,7 @@ use bench_api::Stop;
 use bench_host::Root;
 use bench_host::glibc::GlibcVersion;
 use bench_tool::GEEKBENCH;
+use bench_tool::job;
 use serde::Deserialize;
 use swap_file::SwapFile;
 
@@ -71,9 +72,14 @@ impl Plugin for Geekbench {
             .to_path_buf();
         let (output, result) = run_with(ctx, &program, false, |partial| ctx.publish(partial)).await;
         match result {
-            Ok(()) => Ok(output),
-            Err(failure) => {
+            Ok(()) => {
                 ctx.publish(&output);
+                Ok(output)
+            }
+            Err(failure) => {
+                if output != Output::default() {
+                    ctx.publish(&output);
+                }
                 Err(Stop::Failed(failure))
             }
         }
@@ -113,7 +119,14 @@ where
     let kind = ctx.host().platform.kind();
     let work_dir = if in_subdir {
         let dir = ctx.work_dir().join("geekbench");
-        let _ = tokio::fs::create_dir_all(&dir).await;
+        if let Err(err) = tokio::fs::create_dir_all(&dir).await {
+            return (
+                Output::default(),
+                Err(Failure::Run(Fault::Tool(job::Fault::Spawn(
+                    err.to_string(),
+                )))),
+            );
+        }
         dir
     } else {
         ctx.work_dir().to_path_buf()
@@ -134,7 +147,9 @@ where
         Ok(swap) => swap,
         Err(failure) => return (output, Err(failure)),
     };
-    on_partial(&output);
+    if output != Output::default() {
+        on_partial(&output);
+    }
     let root = Root::system();
     let (mut output, result) =
         measure::measure_in(ctx, output, program, &work_dir, &mut on_partial, |job| {

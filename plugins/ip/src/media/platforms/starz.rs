@@ -44,23 +44,41 @@ pub fn parse(response: &HttpResponse) -> Verdict {
     if let Some(early) = parse::gate(response) {
         return early;
     }
-    if matches!(response.status, 403 | 451) {
-        return Verdict::no();
-    }
     if let Some(val) = parse::json(response) {
-        let allowed = val
-            .get("isAllowedCountry")
-            .and_then(serde_json::Value::as_bool);
-        let vpn = val.get("isKnownProxy").and_then(serde_json::Value::as_bool);
+        let props = val.get("properties");
+        let bool_field = |key: &str| {
+            val.get(key)
+                .and_then(serde_json::Value::as_bool)
+                .or_else(|| {
+                    props
+                        .and_then(|p| p.get(key))
+                        .and_then(serde_json::Value::as_bool)
+                })
+        };
+        let vpn = bool_field("isKnownProxy");
         if vpn == Some(true) {
             return Verdict::No {
                 restriction: Some(Restriction::ProxyDetected),
             };
         }
+        let allowed = bool_field("isAllowedCountry");
+        let access = bool_field("isAllowedAccess");
+        if allowed == Some(false) || access == Some(false) || matches!(response.status, 403 | 451) {
+            return Verdict::no();
+        }
+        if !(200..300).contains(&response.status) {
+            return Verdict::Unexpected(format!("HTTP {}", response.status));
+        }
         let country = val
             .get("country")
             .and_then(serde_json::Value::as_str)
-            .and_then(parse::country_code);
+            .and_then(parse::country_code)
+            .or_else(|| {
+                props
+                    .and_then(|p| p.get("country"))
+                    .and_then(serde_json::Value::as_str)
+                    .and_then(parse::country_code)
+            });
         return match allowed {
             Some(true) => Verdict::Yes {
                 region: Some(country.unwrap_or_else(|| "US".to_owned())),
@@ -68,6 +86,9 @@ pub fn parse(response: &HttpResponse) -> Verdict {
             Some(false) => Verdict::no(),
             None => Verdict::Unexpected("missing Starz isAllowedCountry".to_owned()),
         };
+    }
+    if matches!(response.status, 403 | 451) {
+        return Verdict::no();
     }
     Verdict::Unexpected(format!("HTTP {}", response.status))
 }

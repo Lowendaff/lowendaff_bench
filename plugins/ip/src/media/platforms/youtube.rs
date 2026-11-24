@@ -30,7 +30,8 @@ pub fn probe<'a>(
         let url = |real: &str| parse::endpoint(base_url, SPEC.id, "check", real);
         let req = HttpRequest::get(family, url("https://www.youtube.com/premium"))
             .with_header("cookie", "CONSENT=YES+cb.20210328-17-p0.en+FX+700")
-            .with_redirect(RedirectPolicy::Follow { max: 5 });
+            .with_redirect(RedirectPolicy::Follow { max: 5 })
+            .with_max_bytes(2 * 1024 * 1024);
         match parse::send(ctx, req).await {
             Ok(res) => parse(&res),
             Err(verdict) => verdict,
@@ -44,7 +45,11 @@ pub fn parse(response: &HttpResponse) -> Verdict {
     if let Some(early) = parse::gate(response) {
         return early;
     }
-    if response.final_url.contains("google.cn") {
+    if response
+        .final_url
+        .to_ascii_lowercase()
+        .contains("google.cn")
+    {
         return Verdict::No {
             restriction: Some(Restriction::ChinaMainland),
         };
@@ -53,22 +58,29 @@ pub fn parse(response: &HttpResponse) -> Verdict {
         return Verdict::Unexpected(format!("HTTP {}", response.status));
     }
     let body = response.text();
-    if body.contains("YouTube replicates") && body.contains("google.cn") {
+    let region = parse::extract_between(&body, "\"INNERTUBE_CONTEXT_GL\":\"", "\"")
+        .and_then(parse::country_code)
+        .or_else(|| {
+            parse::extract_between(&body, "\"countryCode\":\"", "\"").and_then(parse::country_code)
+        });
+    if body.contains("www.google.cn")
+        || (body.contains("YouTube replicates") && body.contains("google.cn"))
+        || region.as_deref() == Some("CN")
+    {
         return Verdict::No {
             restriction: Some(Restriction::ChinaMainland),
         };
     }
     if body.contains("YouTube Premium is not available in your country")
         || body.contains("not available in your country")
+        || body.contains("isn't available in your country")
     {
         return Verdict::no();
     }
-    let region = parse::extract_between(&body, "\"INNERTUBE_CONTEXT_GL\":\"", "\"")
-        .or_else(|| parse::extract_between(&body, "\"countryCode\":\"", "\""))
-        .and_then(parse::country_code);
-    if region.is_some()
-        || body.contains("YouTube and YouTube Music ad-free")
+    if body.contains("YouTube and YouTube Music ad-free")
         || body.contains("Manage your membership")
+        || body.contains("premiumPurchaseButton")
+        || body.contains("manageSubscriptionButton")
         || body.contains("ytInitialData")
     {
         Verdict::Yes { region }

@@ -4,6 +4,7 @@ use bench_api::Context;
 use bench_api::HttpRequest;
 use bench_api::HttpResponse;
 use bench_api::IpFamily;
+use bench_api::RedirectPolicy;
 
 use super::super::parse;
 use super::super::result::Output;
@@ -27,6 +28,7 @@ pub fn probe<'a>(
     Box::pin(async move {
         let url = |real: &str| parse::endpoint(base_url, SPEC.id, "check", real);
         let req = HttpRequest::get(family, url("https://www.tiktok.com/explore"))
+            .with_redirect(RedirectPolicy::Follow { max: 5 })
             .with_max_bytes(1024 * 1024);
         match parse::send(ctx, req).await {
             Ok(res) => parse(&res),
@@ -50,11 +52,48 @@ pub fn parse(response: &HttpResponse) -> Verdict {
     let body = response.text();
     let region = body
         .find("\"webapp.app-context\"")
-        .and_then(|start| parse::extract_between(&body[start..], "\"region\":\"", "\""))
-        .and_then(parse::country_code);
+        .and_then(|start| extract_json_object(&body[start + "\"webapp.app-context\"".len()..]))
+        .and_then(|obj| serde_json::from_str::<serde_json::Value>(obj).ok())
+        .and_then(|val| {
+            val.get("region")
+                .and_then(serde_json::Value::as_str)
+                .and_then(parse::country_code)
+        });
     match region.as_deref() {
         Some("CN" | "HK" | "IN" | "IR" | "KP" | "AF") => Verdict::no(),
         Some(code) => Verdict::yes_in(code),
         None => Verdict::Unexpected("missing TikTok region".to_owned()),
     }
+}
+
+fn extract_json_object(text: &str) -> Option<&str> {
+    let open = text.find('{')?;
+    let tail = &text[open..];
+    let mut depth = 0_usize;
+    let mut in_string = false;
+    let mut escaped = false;
+    for (idx, ch) in tail.char_indices() {
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+        match ch {
+            '"' => in_string = true,
+            '{' => depth += 1,
+            '}' => {
+                depth = depth.checked_sub(1)?;
+                if depth == 0 {
+                    return Some(&tail[..=idx]);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
 }

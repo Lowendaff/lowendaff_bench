@@ -270,9 +270,11 @@ async fn discover_endpoint(
     } else {
         IpFamily::Ipv6
     };
+    let doh_fallback = (families.ipv4 && families.ipv6).then_some(IpFamily::Ipv6);
     let doh_ips = query_dual_doh(
         ctx,
         doh_family,
+        doh_fallback,
         &dl_host,
         endpoints.cf_doh_url,
         endpoints.ali_doh_url,
@@ -345,6 +347,7 @@ async fn discover_endpoint(
 async fn query_dual_doh(
     ctx: &Context<Output>,
     doh_family: IpFamily,
+    doh_fallback: Option<IpFamily>,
     host: &str,
     cf_base: &str,
     ali_base: &str,
@@ -360,21 +363,44 @@ async fn query_dual_doh(
         queries.push((format!("{ali_base}?name={host}&type=AAAA&short=1"), false));
     }
 
-    let mut lists = Vec::with_capacity(queries.len());
-    for (url, accept_dns_json) in queries {
-        let mut req = HttpRequest::get(doh_family, url)
-            .with_header("User-Agent", "iNetSpeed-CLI")
-            .with_timeout(DOH_TIMEOUT);
-        if accept_dns_json {
-            req = req.with_header("Accept", "application/dns-json");
-        }
-        match ctx.probe(&req).await {
-            Err(HttpError::Cancelled) => return Err(Stop::Failed(Failure::Cancelled)),
-            Ok(resp) if resp.status == 200 => {
-                lists.push(parse::extract_doh_ips(&resp.body, families));
+    let tasks = queries
+        .into_iter()
+        .map(|(url, accept_dns_json)| async move {
+            let send_for = |family: IpFamily| {
+                let mut req = HttpRequest::get(family, url.clone())
+                    .with_header("User-Agent", "iNetSpeed-CLI")
+                    .with_timeout(DOH_TIMEOUT);
+                if accept_dns_json {
+                    req = req.with_header("Accept", "application/dns-json");
+                }
+                req
+            };
+            match ctx.probe(&send_for(doh_family)).await {
+                Err(HttpError::Cancelled) => return Err(Stop::Failed(Failure::Cancelled)),
+                Ok(resp) if resp.status == 200 => {
+                    return Ok(parse::extract_doh_ips(&resp.body, families));
+                }
+                Ok(_) | Err(_) => {}
             }
-            Ok(_) | Err(_) => {}
-        }
+            if let Some(fallback) = doh_fallback {
+                match ctx.probe(&send_for(fallback)).await {
+                    Err(HttpError::Cancelled) => return Err(Stop::Failed(Failure::Cancelled)),
+                    Ok(resp) if resp.status == 200 => {
+                        return Ok(parse::extract_doh_ips(&resp.body, families));
+                    }
+                    Ok(_) | Err(_) => {}
+                }
+            }
+            Ok(Vec::new())
+        });
+    let cancel = ctx.cancel_token();
+    let results = bench_api::run_bounded(4, &cancel, tasks).await;
+    if cancel.is_cancelled() {
+        return Err(Stop::Failed(Failure::Cancelled));
+    }
+    let mut lists = Vec::with_capacity(results.len());
+    for res in results {
+        lists.push(res?);
     }
     Ok(parse::merge_unique_ips(&lists))
 }
