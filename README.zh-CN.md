@@ -194,7 +194,7 @@ sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-
 | | `ip` | 包含全部 2 项 IP 测试：`ip.quality`、`ip.media` |
 | `--only` / `--skip` *（按单项）* | `disk.health`、`memory.sysbench`、`memory.stream`、`memory.latency`、`memory.numa`、`disk.fio`、`network.iperf3`、`network.taier`、`network.cloudflare`、`network.inetspeed`、`network.trace`、`network.bgp`、`ip.quality`、`ip.media`、`cpu.bench` | 精确指定某一个测试项目（无论怎么填，都会按固定的合理顺序依次执行） |
 | `-f, --format` | `text` | 适合直接在 SSH 终端阅读的对齐纯文本表格 |
-| | `markdown` *（或 `md`）* | GitHub 风格 Markdown 文档，复制即可直接发到支持 Markdown 的社区或工单 |
+| | `markdown` *（或 `md`）* | 对齐 `lowendaff.com` 测评规范的 GitHub 风格 Markdown（双列属性表、引用块、上下文感知转义，以及 BGP 拓扑与虚拟机 `%si`/`%st` 的 Mermaid 图表） |
 | | `json` | 结构化 JSON 数据，适合自动化汇总、监控脚本或二次开发读取 |
 | `--cpu-bench` | `sysbench` | 单线程与满线程 20 秒素数筛查运算 *（默认启用）* |
 | | `7zip` | 7-Zip LZMA2 单线程与满线程压缩/解压 MIPS 吞吐率 *（默认启用）* |
@@ -227,7 +227,7 @@ sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-
 
 ## 检测项目一览
 
-在正式跑分前，程序会先只读采集 **系统概览（`[System]`）**：识别独立物理机、虚拟机或容器环境，读取 CPU 型号与各级缓存、内存与 Swap、系统内核与 TCP 拥塞算法（如 BBR）、磁盘分区、网卡协商速率（含 PCIe 降速提示）及双栈连通性；在独立物理服务器上还会列出内存插槽、ECC 报错计数、IPMI/BMC 与硬件 RAID 卡信息，而在虚拟机环境下则会在整个测试期间每 5 秒采样一次 `/proc/stat` 的 `%si`（软中断）与 `%st`（宿主机争抢）并在末尾输出统计与时间线明细表（详见 [`docs/system.md`](docs/system.md)）。
+在正式跑分前，程序会先只读采集 **系统概览（`[System]`）**：识别独立物理机、虚拟机或容器环境，读取 CPU 型号与各级缓存、内存与 Swap、系统内核与 TCP 拥塞算法（如 BBR）、磁盘分区、网卡协商速率（含 PCIe 降速提示）及双栈连通性；在独立物理服务器上还会列出内存插槽、ECC 报错计数、IPMI/BMC 与硬件 RAID 卡信息，而在虚拟机环境下则会在整个测试期间每 5 秒采样一次 `/proc/stat` 的 `%si`（软中断）与 `%st`（宿主机争抢），并在末尾输出统计汇总及时间线（`text` 模式为逐 5 秒明细表，`markdown` 模式为 Mermaid `xychart-beta` 双折线趋势图，`json` 模式为 `vm_cpu_telemetry`；详见 [`docs/system.md`](docs/system.md)）。
 
 随后按固定注册顺序执行以下 15 个检测项目：
 
@@ -243,7 +243,7 @@ sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-
 | `network` | `network.taier`<br>中国三网测速（泰尔） | 有 IPv4 公网连接的机器 | 纯 Rust 原生实现的中国信通院“全球网测（泰尔测速）”多线程 HTTP/1.1 上下行带宽测速（默认测北京、上海、广州 × 电信、联通、移动，繁忙节点自动降级候选） | [`docs/network.md`](docs/network.md) |
 | `network` | `network.cloudflare`<br>Cloudflare 测速 | 所有联网机器 | 纯 Rust 原生实现的双栈 `speed.cloudflare.com` 稳态上下行吞吐、空载与负载延迟、Waveform 缓冲膨胀（Bufferbloat）/ 稳定性评级及 STUN UDP 丢包与语音 MOS 评估 | [`docs/network.md`](docs/network.md) |
 | `network` | `network.inetspeed`<br>Apple CDN 测速 | 所有联网机器 | 纯 Rust 原生实现的 `mensura.cdn-apple.com` 测速，支持双 DoH（Cloudflare + 阿里 DNS）最低 RTT 边缘节点优选绑定、空载延迟与单线程/多线程上下行吞吐测试 | [`docs/network.md`](docs/network.md) |
-| `network` | `network.trace`<br>去程路由追踪 | 支持原始套接字的机器 | 追踪本机到 YouTube/Netflix 节点、国内三网（163/CN2/9929/CMIN2）及国际骨干网的每一跳路径，看清线路是直连还是绕路 | [`docs/network.md`](docs/network.md) |
+| `network` | `network.trace`<br>去程路由追踪 | 支持原始套接字的机器 | 追踪本机到 YouTube/Netflix 节点、国内三网（163/CN2/9929/CMIN2）及国际骨干网的每一跳路径（独立 `ASN` 与运营商名称六列展示并标注 IX 交换中心），看清线路是直连还是绕路 | [`docs/network.md`](docs/network.md) |
 | `network` | `network.bgp`<br>BGP 上游拓扑图 | 有公网 IP 的机器 | 查询本机 IP 所在网段的 BGP 宣告前缀、RPKI 签名状态与直连上游占比，在终端模式生成 `imageupload.app` 高清 SVG 拓扑图链接（不含本机 IP；Markdown 模式生成 Mermaid 矢量图，JSON 模式内置独立 SVG 源码） | [`docs/network.md`](docs/network.md) |
 | `ip` | `ip.quality`<br>IP 质量与纯净度 | 有公网 IP 的机器 | 汇总 9 家风控数据库结果，判断 IP 是**原生 IP** 还是**广播 IP**、属于机房还是家宽、欺诈风险高低、历史暴露端口、是否在 25 个黑名单里，以及 25 邮件端口是否开放 | [`docs/ip.md`](docs/ip.md) |
 | `ip` | `ip.media`<br>流媒体解锁检测 | 所有联网机器 | 实测全球五大区域共 68 个流媒体与在线平台（Netflix、Disney+、YouTube、B站港澳台、巴哈姆特、Abema 等）能否正常解锁及识别到的所在地区 | [`docs/ip.md`](docs/ip.md) |

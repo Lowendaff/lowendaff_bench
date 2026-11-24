@@ -250,7 +250,7 @@ sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-
 | | `ip` | Both IP tests: `ip.quality`, `ip.media` |
 | `--only` / `--skip` *(single items)* | `disk.health`, `memory.sysbench`, `memory.stream`, `memory.latency`, `memory.numa`, `disk.fio`, `network.iperf3`, `network.taier`, `network.cloudflare`, `network.inetspeed`, `network.trace`, `network.bgp`, `ip.quality`, `ip.media`, `cpu.bench` | Include or exclude any individual test item |
 | `-f, --format` | `text` | Aligned plain-text tables formatted for terminal viewing |
-| | `markdown` *(or `md`)* | GitHub-Flavored Markdown ready to paste into posts, wikis, or issues |
+| | `markdown` *(or `md`)* | `lowendaff.com`-compatible GitHub-Flavored Markdown (`Item \| Value` tables, blockquotes, context-aware escaping, and Mermaid BGP / VM CPU diagrams) |
 | | `json` | Structured JSON output for scripts, dashboards, or automated archiving |
 | `--cpu-bench` | `sysbench` | 20-second prime sieve on 1 thread and all threads *(default)* |
 | | `7zip` | 7-Zip LZMA2 compression & decompression MIPS on 1 thread and all threads *(default)* |
@@ -289,8 +289,9 @@ OS, kernel, uptime, TCP congestion control (such as BBR), disks, network link sp
 degraded PCIe slots), and IPv4/IPv6 connectivity. On dedicated servers, it also lists populated RAM
 slots, ECC memory error counts, IPMI/BMC controllers, and hardware RAID cards (see
 [`docs/system.md`](docs/system.md)). On virtual machines, the orchestrator also samples
-`/proc/stat` every 5 seconds from start to finish and appends a `[CPU steal & softirq]` section
-reporting average, P95, peak, and 5-second `%si` / `%st` timelines.
+`/proc/stat` every 5 seconds from start to finish and appends a `CPU steal & softirq` section
+reporting average, P95, and peak `%si` / `%st` alongside a 5-second sample table in `text` mode, a
+Mermaid `xychart-beta` timeline in `markdown` mode, and `vm_cpu_telemetry` in `json` mode.
 
 Then it executes up to 15 test items in deterministic registry order:
 
@@ -306,7 +307,7 @@ Then it executes up to 15 test items in deterministic registry order:
 | `network` | `network.taier`<br>China carrier speed | Servers with IPv4 | Pure-Rust multi-stream HTTP/1.1 download and upload speed test against CAICT GlobalSpeed carrier nodes (default: Beijing, Shanghai, Guangzhou across Telecom, Unicom, Mobile) | [`docs/network.md`](docs/network.md) |
 | `network` | `network.cloudflare`<br>Cloudflare speed | Servers with internet | Pure-Rust dual-stack `speed.cloudflare.com` HTTPS download/upload throughput, idle & loaded latency, Waveform bufferbloat & CV stability grades, and STUN UDP packet-loss / MOS probing | [`docs/network.md`](docs/network.md) |
 | `network` | `network.inetspeed`<br>Apple CDN speed | Servers with internet | Pure-Rust Apple CDN (`mensura.cdn-apple.com`) speed test with Dual DoH (`cloudflare-dns.com` + `dns.alidns.com`) optimal IP pinning, idle latency, and 1-thread & multi-thread download/upload rounds | [`docs/network.md`](docs/network.md) |
-| `network` | `network.trace`<br>Route tracing | Servers with raw sockets | Traces hop-by-hop network paths to nearest YouTube/Netflix caches, Chinese carriers, and global backbones so you can spot direct vs detoured routing | [`docs/network.md`](docs/network.md) |
+| `network` | `network.trace`<br>Route tracing | Servers with raw sockets | Traces hop-by-hop ICMP routes (`Hop`, `Address`, `ASN`, `Network`, `Place`, `Latency`) to nearest YouTube/Netflix caches, Chinese carriers, and global backbones with IX tagging | [`docs/network.md`](docs/network.md) |
 | `network` | `network.bgp`<br>BGP paths | Servers with a public IP | Queries global RIS route collectors for your announced prefix, RPKI status, and upstream carriers, providing an unlisted `imageupload.app` SVG topology link in `text` mode, a Mermaid flowchart in Markdown, and standalone SVG markup in JSON | [`docs/network.md`](docs/network.md) |
 | `ip` | `ip.quality`<br>IP reputation | Servers with a public IP | Cross-checks 9 IP databases to show whether your IP is **native** or **broadcast**, datacenter vs residential, fraud/risk indicators, open ports, 25 spam blacklists, and port-25 mail reachability | [`docs/ip.md`](docs/ip.md) |
 | `ip` | `ip.media`<br>Streaming unlock | Servers with internet | Tests direct IPv4/IPv6 access across 68 streaming and online services in 5 world regions (Netflix, Disney+, YouTube, BBC iPlayer, Bahamut, Abema, etc.) and reports the unlocked region | [`docs/ip.md`](docs/ip.md) |
