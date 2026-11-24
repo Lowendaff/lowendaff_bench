@@ -421,8 +421,15 @@ pub trait TraceWords {
     fn reached(&self, hops: usize) -> String;
     /// A trace that did not reach its target after `hops` hops.
     fn not_reached(&self, hops: usize) -> String;
-    /// The table's headers: the hop, the address, the network, the place and the latency.
-    fn trace_headers(&self) -> [&'static str; 5];
+    /// The table's headers: the hop, the address, the ASN, the network, the place and the latency.
+    fn trace_headers(&self) -> [&'static str; 6];
+    /// Group subheading for Markdown route-tracing sections (`services`, `china`, `international`).
+    fn trace_group_title(&self, code: &str) -> &'static str;
+    /// Level-4 target heading in Markdown route-tracing sections (`<name> (IPv4)` or
+    /// `<name> (IPv6)`).
+    fn trace_md_target_title(&self, name: &str, ipv6: bool) -> String;
+    /// Target detail line under a Markdown route-tracing heading.
+    fn trace_md_target_line(&self, host: Option<&str>, outcome: &str) -> String;
     /// An address's network, when the service names one, with the internet exchange where
     /// Netflix's network takes the address.
     fn at_exchange(&self, network: Option<&str>, exchange: &str) -> String;

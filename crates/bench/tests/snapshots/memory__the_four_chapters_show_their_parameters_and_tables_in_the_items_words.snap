@@ -9,7 +9,6 @@ expression: text
     Test   Single thread  Multi-thread (4 threads)
     Read   100.00 MiB/s   400.00 MiB/s
     Write  50.00 MiB/s    200.00 MiB/s
-    done in 41.2 s
   Memory STREAM
     STREAM              5.10: 8 million elements per array (61 MiB, 183 MiB for the three), the fastest of 10 passes each; the threads spread evenly over the nodes
     STREAM results
@@ -18,7 +17,6 @@ expression: text
     Scale  9000.2 MB/s    36000.2 MB/s
     Add    11000.3 MB/s   44000.3 MB/s
     Triad  11500.4 MB/s   46000.4 MB/s
-    done in 41.2 s
   Memory latency
     Latency             multichase: random pointer chasing, 2.5 s per level
     Latency results
@@ -27,7 +25,6 @@ expression: text
     L2      512 KiB  4.200 ns
     L3      4 MiB    12.000 ns
     Memory  32 MiB   90.500 ns
-    done in 41.2 s
   Memory NUMA
     NUMA                2 nodes; bandwidth by multiload's stream-triad, the fastest of 3 samples per cell; latency as above
     NUMA bandwidth (MiB/s; rows: the threads' node, columns: the memory's node)
@@ -38,12 +35,3 @@ expression: text
             Node 0  Node 1
     Node 0  95.000   140.1
     Node 1   140.1  95.000
-    done in 41.2 s
-
-[Summary]
-  Memory sysbench     done in 41.2 s
-  Memory STREAM       done in 41.2 s
-  Memory latency      done in 41.2 s
-  Memory NUMA         done in 41.2 s
-
-4 items: 4 done, 0 skipped, 0 failed, 0 timed out, 0 interrupted. Total time 5.0 s

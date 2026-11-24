@@ -96,9 +96,16 @@ fn shows(text: &str, line: &str) -> bool {
     text.lines().any(|shown| shown == line)
 }
 
-fn answer(address: &str, network: Option<&str>, place: Option<&str>, latency: u64) -> Answer {
+fn answer(
+    address: &str,
+    asn: Option<&str>,
+    network: Option<&str>,
+    place: Option<&str>,
+    latency: u64,
+) -> Answer {
     Answer {
         address: address.parse::<IpAddr>().expect("an address"),
+        asn: asn.map(str::to_owned),
         network: network.map(str::to_owned),
         exchange: None,
         place: place.map(str::to_owned),
@@ -136,24 +143,38 @@ fn defaults() -> Settings {
 }
 
 fn output() -> trace::Output {
-    let mut exchange = answer("206.223.116.133", Some("AS2906 Netflix"), Some("US"), 1_830);
+    let mut exchange = answer(
+        "206.223.116.133",
+        Some("AS2906"),
+        Some("Netflix"),
+        Some("US"),
+        1_830,
+    );
     exchange.exchange = Some("Equinix San Jose".to_owned());
     let youtube = Trace {
         reached: true,
         hops: vec![
-            hop(vec![answer("10.0.0.1", None, None, 412)]),
-            hop(vec![answer(OWN, Some("AS64496 Example Net"), None, 1_020)]),
+            hop(vec![answer("10.0.0.1", None, None, None, 412)]),
+            hop(vec![answer(
+                OWN,
+                Some("AS64496"),
+                Some("Example Net"),
+                None,
+                1_020,
+            )]),
             hop(Vec::new()),
             hop(vec![
                 answer(
                     "192.0.2.4",
-                    Some("AS15169 Google"),
+                    Some("AS15169"),
+                    Some("Google"),
                     Some("US California"),
                     8_912,
                 ),
                 answer(
                     "192.0.2.5",
-                    Some("AS15169 Google"),
+                    Some("AS15169"),
+                    Some("Google"),
                     Some("US California"),
                     9_105,
                 ),
@@ -168,10 +189,11 @@ fn output() -> trace::Output {
     let beijing = Trace {
         reached: true,
         hops: vec![
-            hop(vec![answer("10.0.0.1", None, None, 404)]),
+            hop(vec![answer("10.0.0.1", None, None, None, 404)]),
             hop(vec![answer(
                 "219.142.211.23",
-                Some("AS4847 China Telecom"),
+                Some("AS4847"),
+                Some("China Telecom"),
                 Some("China Beijing"),
                 182_400,
             )]),
@@ -259,7 +281,42 @@ fn each_target_has_its_line_and_the_table_of_its_hops() {
         "the host's own address is masked: {text}"
     );
     assert!(text.contains("198.51.*.*"), "{text}");
-    assert!(text.contains("AS2906 Netflix [Equinix San Jose]"), "{text}");
+    assert!(
+        text.contains("AS2906") && text.contains("Netflix [Equinix San Jose]"),
+        "{text}"
+    );
+
+    let host = host();
+    let runs = [run(Status::Completed, Some(output()), None)];
+    let md = report::render(
+        &Page {
+            version: "0.1.0",
+            host: &host,
+            show_ip: false,
+            not_applicable: &[],
+            runs: &runs,
+            total: Duration::from_secs(722),
+        },
+        bench::report::Format::Markdown,
+        None,
+    );
+    assert!(md.contains("\n## Route tracing\n"), "{md}");
+    assert!(md.contains("\n### Public services\n"), "{md}");
+    assert!(md.contains("\n#### YouTube (IPv4)\n"), "{md}");
+    assert!(
+        md.contains("| Hop | Address | ASN | Network | Place | Latency |\n"),
+        "{md}"
+    );
+    assert!(
+        md.contains("| 3 | * |  |  |  |  |\n"),
+        "timeout hop `*` must not be backslash-escaped: {md}"
+    );
+    assert!(
+        md.contains(
+            "| 5 | 206.223.116.133 | AS2906 | Netflix [Equinix San Jose] | US | 1.83 ms |\n"
+        ),
+        "ASN is separated from Network and non-link brackets stay unescaped: {md}"
+    );
 }
 
 #[test]

@@ -100,3 +100,104 @@ pub fn congestion_control(root: &Root) -> Option<String> {
 pub fn default_qdisc(root: &Root) -> Option<String> {
     root.read_line("/proc/sys/net/core/default_qdisc")
 }
+
+/// Aggregate kernel CPU time counters from the `cpu ` line of `/proc/stat`, in `USER_HZ` ticks.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct CpuTimes {
+    /// User mode (already includes `guest` in Linux `account_guest_time`).
+    pub user: u64,
+    /// Low-priority user mode (already includes `guest_nice`).
+    pub nice: u64,
+    /// Kernel mode.
+    pub system: u64,
+    /// Idle task.
+    pub idle: u64,
+    /// Waiting for I/O completion.
+    pub iowait: u64,
+    /// Servicing hardware interrupts (`%hi`).
+    pub irq: u64,
+    /// Servicing software interrupts (`%si`).
+    pub softirq: u64,
+    /// Involuntary wait while the hypervisor services another virtual CPU (`%st`).
+    pub steal: u64,
+}
+
+impl CpuTimes {
+    /// Reads aggregate CPU counters from `/proc/stat` under `root`.
+    #[must_use]
+    pub fn read(root: &Root) -> Option<Self> {
+        let stat = root.read("/proc/stat")?;
+        Self::parse(&stat)
+    }
+
+    /// Parses the aggregate `cpu ` line from `/proc/stat` text.
+    #[must_use]
+    pub fn parse(stat: &str) -> Option<Self> {
+        let rest = stat.lines().find_map(|line| line.strip_prefix("cpu "))?;
+        let mut fields = rest.split_whitespace();
+        let user = fields.next()?.parse::<u64>().ok()?;
+        let nice = fields.next()?.parse::<u64>().ok()?;
+        let system = fields.next()?.parse::<u64>().ok()?;
+        let idle = fields.next()?.parse::<u64>().ok()?;
+        let mut next_opt = || match fields.next() {
+            Some(word) => word.parse::<u64>().ok(),
+            None => Some(0),
+        };
+        let iowait = next_opt()?;
+        let irq = next_opt()?;
+        let softirq = next_opt()?;
+        let steal = next_opt()?;
+        Some(Self {
+            user,
+            nice,
+            system,
+            idle,
+            iowait,
+            irq,
+            softirq,
+            steal,
+        })
+    }
+
+    /// Computes `(%si, %st)` over the interval from `earlier` to `self`; `None` when zero ticks
+    /// elapsed across all CPU states.
+    #[must_use]
+    pub fn delta_si_st(&self, earlier: &Self) -> Option<(f64, f64)> {
+        let d_user = u128::from(self.user.saturating_sub(earlier.user));
+        let d_nice = u128::from(self.nice.saturating_sub(earlier.nice));
+        let d_system = u128::from(self.system.saturating_sub(earlier.system));
+        let d_idle = u128::from(self.idle.saturating_sub(earlier.idle));
+        let d_iowait = u128::from(self.iowait.saturating_sub(earlier.iowait));
+        let d_irq = u128::from(self.irq.saturating_sub(earlier.irq));
+        let d_softirq = u128::from(self.softirq.saturating_sub(earlier.softirq));
+        let d_steal = u128::from(self.steal.saturating_sub(earlier.steal));
+        let d_total = d_user + d_nice + d_system + d_idle + d_iowait + d_irq + d_softirq + d_steal;
+        if d_total == 0 {
+            return None;
+        }
+        let total = d_total as f64;
+        let si = ((d_softirq as f64) * 100.0 / total).clamp(0.0, 100.0);
+        let st = ((d_steal as f64) * 100.0 / total).clamp(0.0, 100.0);
+        Some((si, st))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::CpuTimes;
+
+    #[test]
+    fn cpu_times_excludes_guest_columns_and_handles_nohz_jitter() {
+        let t0 =
+            CpuTimes::parse("cpu  1000 20 300 8000 50 10 20 100 500 10\ncpu0 1000 20 300 8000\n")
+                .expect("valid /proc/stat");
+        let t1 = CpuTimes::parse("cpu  1200 20 400 8595 49 10 45 180 600 10\n")
+            .expect("valid /proc/stat");
+        // Deltas: user=200, nice=0, sys=100, idle=595, iowait=0 (saturated), irq=0, si=25, st=80
+        // Total = 1000 ticks -> si = 2.5%, st = 8.0%.
+        let (si, st) = t1.delta_si_st(&t0).expect("non-zero delta");
+        assert!((si - 2.5).abs() < 1e-9, "expected 2.5% si, got {si}");
+        assert!((st - 8.0).abs() < 1e-9, "expected 8.0% st, got {st}");
+        assert_eq!(t0.delta_si_st(&t0), None);
+    }
+}

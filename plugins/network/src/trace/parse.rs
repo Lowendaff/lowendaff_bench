@@ -91,6 +91,7 @@ pub fn trace(text: &str) -> Option<Trace> {
                         let geo = probe.geo.unwrap_or_default();
                         answers.push(Answer {
                             address,
+                            asn: asn(&geo),
                             network: network(&geo),
                             exchange: None,
                             place: place(&geo),
@@ -120,19 +121,19 @@ fn json_start(text: &str) -> Option<usize> {
     None
 }
 
-/// An address's network: its AS number, when it is one, and its ISP, else its owner.
+/// An address's Autonomous System number, when NextTrace's service names a valid numeric ASN.
+fn asn(geo: &Geo) -> Option<String> {
+    let digits = clean(&geo.asnumber);
+    (!digits.is_empty() && digits.bytes().all(|byte| byte.is_ascii_digit()))
+        .then(|| format!("AS{digits}"))
+}
+
+/// An address's network: its ISP, else its owner.
 fn network(geo: &Geo) -> Option<String> {
-    let asn = clean(&geo.asnumber);
-    let asn = (!asn.is_empty() && asn.bytes().all(|byte| byte.is_ascii_digit())).then_some(asn);
-    let name = [&geo.isp, &geo.owner]
+    [&geo.isp, &geo.owner]
         .into_iter()
         .map(|name| clean(name))
-        .find(|name| !name.is_empty());
-    match (asn, name) {
-        (Some(asn), Some(name)) => Some(format!("AS{asn} {name}")),
-        (Some(asn), None) => Some(format!("AS{asn}")),
-        (None, name) => name,
-    }
+        .find(|name| !name.is_empty())
 }
 
 /// An address's place: its country, province and city, those that the service names.

@@ -19,6 +19,7 @@ use std::time::Instant;
 use bench_api::CancellationToken;
 use bench_api::IpFamily;
 use bench_api::Plugin;
+use bench_host::Root;
 use bench_host::profile::HostProfile;
 use plugin_cpu::bench::CpuBench;
 use plugin_ip::media::Media;
@@ -65,6 +66,9 @@ use crate::tui;
 use crate::tui::taier_picker::CityEntry;
 use crate::tui::taier_picker::RegionEntry;
 use crate::tui::taier_picker::RegionKind;
+use crate::vm_cpu::SamplingObserver;
+use crate::vm_cpu::VmCpuSample;
+use crate::vm_cpu::VmCpuSampler;
 
 /// Exit code for usage, option or environment errors, and for not running as root.
 pub const EXIT_USAGE: u8 = 2;
@@ -1179,6 +1183,8 @@ pub struct Outcome {
     pub not_applicable: Vec<&'static str>,
     /// Every applicable plugin's run result, in run order.
     pub runs: Vec<Run<Measured>>,
+    /// 5-second `/proc/stat` `%si` and `%st` samples collected when running on a virtual machine.
+    pub vm_cpu_samples: Vec<VmCpuSample>,
     /// Total elapsed wall time of the run.
     pub total: Duration,
     /// Process exit code (`0`, or `EXIT_INTERRUPTED` if cancelled).
@@ -1197,7 +1203,7 @@ impl Outcome {
             runs: &self.runs,
             total: self.total,
         };
-        report::render(&page, format, width)
+        report::render_with_vm_cpu(&page, &self.vm_cpu_samples, format, width)
     }
 }
 
@@ -1313,6 +1319,7 @@ where
     use std::os::unix::fs::PermissionsExt;
 
     let started = Instant::now();
+    let vm_sampler = VmCpuSampler::start_for_host(host.platform, Root::system(), started);
     // Absolute and without `.` components: tempfile joins a relative directory to the current
     // one as it is, which left `/./` in every path under it, such as fio's test file.
     let work_dir = std::path::absolute(work_dir)
@@ -1382,7 +1389,9 @@ where
         net: Some(net_probers),
         host: Arc::clone(&host),
     };
-    let runs = orchestrator::run_plan(planned, cancel, &settings, observer).await;
+    let mut sampling_obs = SamplingObserver::new(observer, &vm_sampler);
+    let runs = orchestrator::run_plan(planned, cancel, &settings, &mut sampling_obs).await;
+    let vm_cpu_samples = vm_sampler.finish().await;
     let total = started.elapsed();
     drop(run_dir);
     let exit_code = if cancel.is_cancelled() {
@@ -1394,6 +1403,7 @@ where
         host,
         not_applicable,
         runs,
+        vm_cpu_samples,
         total,
         exit_code,
     })

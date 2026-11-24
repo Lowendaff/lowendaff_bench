@@ -71,12 +71,26 @@ printf '%s\n' "$output"
 stamp='^\[[0-9][0-9]:[0-9][0-9]:[0-9][0-9]\] '
 grep -q "${stamp}Host: " "$log" || fail "stderr shows no host"
 grep -q "${stamp}Network: IPv4 " "$log" || fail "stderr shows no network"
-items=$(printf '%s\n' "$output" | sed -n 's/^\([0-9][0-9]*\) items\{0,1\}: .*/\1/p')
-if [ "${items:-0}" -gt 0 ]; then
-    grep -q "${stamp}[a-z][a-z0-9.-]* started\$" "$log" || fail "stderr shows no test item starting"
-    grep -q "${stamp}[a-z][a-z0-9.-]* done in " "$log" ||
-        fail "stderr shows no test item completing"
+printf '%s\n' "$output" | grep -qx '\[System\]' || fail "root run printed no [System] section"
+if printf '%s\n' "$output" | grep -Eq 'done in [0-9]+\.[0-9] s$|^\[Summary\]$'; then
+    fail "report still contains debug timing or [Summary] section"
 fi
+if printf '%s\n' "$output" | grep -Eq '^  (  )?(skipped:|failed:|timed out|interrupted$)'; then
+    fail "a test item was skipped, failed, timed out or interrupted in stdout"
+fi
+if grep -Eq "${stamp}[a-z][a-z0-9.-]* (skipped:|failed:|timed out|interrupted\$)" "$log"; then
+    fail "a test item was skipped, failed, timed out or interrupted in stderr"
+fi
+started=$(grep -c "${stamp}[a-z][a-z0-9.-]* started\$" "$log" || true)
+completed=$(grep -c "${stamp}[a-z][a-z0-9.-]* done in " "$log" || true)
+[ "$started" -eq "$completed" ] ||
+    fail "started item count ($started) does not match completed count ($completed)"
+case " $* " in
+    *" --skip cpu,memory,disk,network,ip "*) ;;
+    *)
+        [ "$completed" -gt 0 ] || fail "stderr shows no test item completing"
+        ;;
+esac
 # The runners reach the Internet over IPv4 only: its line shows a masked address and its source.
 masked='[0-9]+\.[0-9]+\.\*\.\*'
 sources='Cloudflare|ipify|icanhazip'
@@ -94,9 +108,6 @@ proxied=$($as_root env HTTPS_PROXY=http://127.0.0.1:9 ALL_PROXY=http://127.0.0.1
 printf '%s\n' "$proxied" |
     grep -Eq "^  IPv4 +available; public address $masked \(from ($sources)\)\$" ||
     fail "the public address went through the proxy"
-printf '%s\n' "$output" | grep -Eq '^[0-9]+ items?: ' || fail "root run printed no summary"
-printf '%s\n' "$output" | grep -q ', 0 skipped, 0 failed, 0 timed out, ' ||
-    fail "a test item was skipped, failed or timed out"
 [ -z "$(ls -A "$work")" ] || fail "run directory left behind in $work"
 rmdir "$work"
 echo "smoke: ok"

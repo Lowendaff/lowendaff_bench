@@ -15,9 +15,3 @@ expression: shown
     Bilibili  yes (HK/MO)  no IPv6 address
     Abema     timed out    error
     Note                Abema over IPv6: HTTP 503
-  done in 6.4 s
-
-[Summary]
-  Media unlock        done in 6.4 s
-
-1 item: 1 done, 0 skipped, 0 failed, 0 timed out, 0 interrupted. Total time 7.4 s

@@ -39,25 +39,3 @@ expression: text
     failed: no target got a route
   Route tracing
     failed: interrupted
-
-[Summary]
-  Route tracing       failed: cannot read the target list: No such file or directory (os error 2)
-  Route tracing       failed: the target list is larger than 65536 bytes
-  Route tracing       failed: the target list is not in its format: expected value at line 1 column 1
-  Route tracing       skipped: the target list needs a newer lowendaff-bench (format 2)
-  Route tracing       failed: the target list names a format that does not exist: 0
-  Route tracing       failed: the target list has 201 targets, more than 200
-  Route tracing       failed: target 3 of the target list breaks a rule: its id must be 1 to 40 characters of a to z, digits and -, other than youtube and netflix
-  Route tracing       failed: target 1 of the target list breaks a rule: its group must be china or international
-  Route tracing       failed: target 2 of the target list breaks a rule: its name must be 1 to 40 characters that print
-  Route tracing       failed: target 4 of the target list breaks a rule: its AS number must be from 1 to 4294967295
-  Route tracing       failed: target 5 of the target list breaks a rule: its ipv4 must be a DNS name or an IPv4 address
-  Route tracing       failed: target 6 of the target list breaks a rule: its ipv6 must be a DNS name or an IPv6 address
-  Route tracing       failed: two targets of the target list have the id pek-4809
-  Route tracing       skipped: no target of the list is chosen
-  Route tracing       skipped: no target in the list for xyz, abc
-  Route tracing       skipped: no chosen target has a name of a network family of this host
-  Route tracing       failed: no target got a route
-  Route tracing       failed: interrupted
-
-18 items: 0 done, 4 skipped, 14 failed, 0 timed out, 0 interrupted. Total time 722.0 s

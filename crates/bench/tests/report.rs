@@ -490,8 +490,20 @@ fn markdown_format_renders_gfm_headings_pipe_tables_and_escaped_masked_ips() {
     assert!(md.starts_with("# lowendaff-bench 0.1.0\n\nEnvironment: KVM virtual machine\n"));
     assert!(md.contains("\n## System\n"), "{md}");
     assert!(
-        md.contains("- **IPv4:** available; public address 203.0.\\*.\\* (from Cloudflare)\n"),
-        "masked IPv4 asterisks must be escaped so CommonMark does not italicize them: {md}"
+        md.contains("| IPv4 | available; public address 203.0.\\*.\\* (from Cloudflare) |\n"),
+        "key-value fields render as a 2-column table and masked IPv4 asterisks stay escaped: {md}"
+    );
+    assert!(
+        !md.contains("\n- **"),
+        "lowendaff.com review-markdown forbids bullet lists: {md}"
+    );
+    assert!(
+        !md.contains("done in "),
+        "no trailing elapsed debug lines: {md}"
+    );
+    assert!(
+        !md.contains("\n## Summary\n"),
+        "no trailing Summary section: {md}"
     );
     assert!(
         !md.contains("203.0.113.7"),
@@ -503,18 +515,20 @@ fn markdown_format_renders_gfm_headings_pipe_tables_and_escaped_masked_ips() {
     );
     assert!(
         md.contains(
-            "\n## CPU performance\n\nsysbench 1.0.20: prime limit 10000, \
+            "\n## CPU benchmark\n\nsysbench 1.0.20: prime limit 10000, \
              20 s each\n\n| Test | Threads | Events/s |\n| --- | ---: | ---: |\n\
              | Single thread | 1 | 859.00 |\n"
         ),
-        "numeric columns align right: {md}"
+        "numeric columns align right under per-item h2 section: {md}"
     );
     assert!(
         !md.contains("\n#### 4K and 64K\n"),
         "no fio result in this page: {md}"
     );
-    assert!(md.contains("\n## Summary\n"), "{md}");
-    assert!(md.contains("\nNot applicable here: Memory NUMA\n"), "{md}");
+    assert!(
+        !md.contains("\n##### "),
+        "heading depth never exceeds h4: {md}"
+    );
 
     let single = vec![run(
         "disk.fio",
@@ -544,9 +558,68 @@ fn markdown_format_renders_gfm_headings_pipe_tables_and_escaped_masked_ips() {
     };
     let single_md = report::render(&single_page, Format::Markdown, None);
     assert!(
-        single_md.contains("\n## Disks\n\nfio 3.43\n") && single_md.contains("\n### 4K and 64K\n"),
-        "single-plugin section uses h3 for table subheadings without skipping levels: {single_md}"
+        single_md.contains("\n## Disk performance\n\nfio 3.43\n")
+            && single_md.contains("\n### 4K and 64K\n"),
+        "item section uses h2 and table subheadings use h3 without skipping levels: {single_md}"
     );
+
+    // VM CPU %si / %st 5-second telemetry renders on VMs and is omitted on dedicated servers.
+    let vm_samples = vec![
+        bench::vm_cpu::VmCpuSample {
+            elapsed: Duration::from_secs(5),
+            item: Some("disk.fio"),
+            si_pct: 0.35,
+            st_pct: 0.10,
+        },
+        bench::vm_cpu::VmCpuSample {
+            elapsed: Duration::from_secs(10),
+            item: Some("cpu.bench"),
+            si_pct: 0.80,
+            st_pct: 3.25,
+        },
+    ];
+    let vm_text = report::render_with_vm_cpu(&single_page, &vm_samples, Format::Text, None);
+    assert!(vm_text.contains("\n[CPU steal & softirq]\n"), "{vm_text}");
+    assert!(
+        vm_text.contains("00:05  Disk performance  0.35%  0.10%"),
+        "{vm_text}"
+    );
+    assert!(
+        vm_text.contains("00:10  CPU benchmark     0.80%  3.25%"),
+        "{vm_text}"
+    );
+
+    let vm_md = report::render_with_vm_cpu(&single_page, &vm_samples, Format::Markdown, None);
+    assert!(vm_md.contains("\n## CPU steal & softirq\n"), "{vm_md}");
+    assert!(vm_md.contains("\n### Summary\n"), "{vm_md}");
+    assert!(vm_md.contains("\n### Samples\n"), "{vm_md}");
+    assert!(
+        vm_md.contains("| 00:10 | CPU benchmark | 0.80% | 3.25% |\n"),
+        "{vm_md}"
+    );
+
+    let vm_json: serde_json::Value = serde_json::from_str(&report::render_with_vm_cpu(
+        &single_page,
+        &vm_samples,
+        Format::Json,
+        None,
+    ))
+    .expect("valid VM JSON");
+    assert_eq!(vm_json["vm_cpu_telemetry"]["interval_seconds"], 5);
+    assert_eq!(vm_json["vm_cpu_telemetry"]["sample_count"], 2);
+    assert_eq!(
+        vm_json["vm_cpu_telemetry"]["st_pct"]["peak_item"],
+        "cpu.bench"
+    );
+
+    let mut dedicated_host = crate::host();
+    dedicated_host.platform = Platform::Dedicated;
+    let dedicated_page = Page {
+        host: &dedicated_host,
+        ..single_page
+    };
+    let ded_text = report::render_with_vm_cpu(&dedicated_page, &vm_samples, Format::Text, None);
+    assert!(!ded_text.contains("CPU steal & softirq"), "{ded_text}");
 }
 
 #[test]
@@ -630,6 +703,7 @@ fn json_format_is_structured_and_respects_show_ip_across_host_trace_and_ip_quali
                             Hop {
                                 answers: vec![Answer {
                                     address: "203.0.113.7".parse().expect("own hop"),
+                                    asn: None,
                                     network: None,
                                     exchange: None,
                                     place: None,
@@ -639,7 +713,8 @@ fn json_format_is_structured_and_respects_show_ip_across_host_trace_and_ip_quali
                             Hop {
                                 answers: vec![Answer {
                                     address: "198.51.100.1".parse().expect("router hop"),
-                                    network: Some("AS64496 Example".to_owned()),
+                                    asn: Some("AS64496".to_owned()),
+                                    network: Some("Example".to_owned()),
                                     exchange: None,
                                     place: None,
                                     latency: 1500,
@@ -1379,7 +1454,7 @@ fn cloudflare_and_inetspeed_render_text_markdown_json_and_mask_client_ip() {
         "{md}"
     );
     assert!(
-        md.contains("198.51.\\*.\\*") && md.contains("2001:db8:\\*"),
+        md.contains("198.51.\\*.\\*") && md.contains("2001:db8:*"),
         "{md}"
     );
 

@@ -124,6 +124,7 @@ fn sample_outcome(exit_code: u8) -> Outcome {
         host: Arc::new(host),
         not_applicable: vec!["Disk health"],
         runs: vec![run],
+        vm_cpu_samples: Vec::new(),
         total: Duration::from_secs(2),
         exit_code,
     }

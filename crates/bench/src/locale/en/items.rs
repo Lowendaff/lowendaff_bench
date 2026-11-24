@@ -948,8 +948,29 @@ impl TraceWords for English {
         format!("not reached after {}", super::count(hops, "hop", "hops"))
     }
 
-    fn trace_headers(&self) -> [&'static str; 5] {
-        ["Hop", "Address", "Network", "Place", "Latency"]
+    fn trace_headers(&self) -> [&'static str; 6] {
+        ["Hop", "Address", "ASN", "Network", "Place", "Latency"]
+    }
+
+    fn trace_group_title(&self, code: &str) -> &'static str {
+        match code {
+            "services" => "Public services",
+            "china" => "Mainland China",
+            "international" => "International",
+            _ => "Routes",
+        }
+    }
+
+    fn trace_md_target_title(&self, name: &str, ipv6: bool) -> String {
+        let fam = if ipv6 { "IPv6" } else { "IPv4" };
+        format!("{name} ({fam})")
+    }
+
+    fn trace_md_target_line(&self, host: Option<&str>, outcome: &str) -> String {
+        match host {
+            Some(host) => format!("Target: {host} ({outcome})"),
+            None => outcome.to_owned(),
+        }
     }
 
     fn at_exchange(&self, network: Option<&str>, exchange: &str) -> String {

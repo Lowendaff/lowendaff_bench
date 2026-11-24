@@ -1368,6 +1368,7 @@ fn extract_sections(lines: &[String], format: Format) -> Vec<SectionAnchor> {
                 for (prefix, label) in [
                     ("\"system\":", "system"),
                     ("\"runs\":", "runs"),
+                    ("\"vm_cpu_telemetry\":", "vm_cpu_telemetry"),
                     ("\"summary\":", "summary"),
                 ] {
                     if trimmed.starts_with(prefix) && line.starts_with("  \"") {

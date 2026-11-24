@@ -521,3 +521,17 @@ fn the_running_kernel_reports_what_its_proc_files_show() {
     });
     assert!(agrees, "sysinfo(2) and /proc/loadavg disagree");
 }
+
+#[test]
+fn cpu_times_reads_aggregate_proc_stat_from_root() {
+    let dir = tempfile::tempdir().expect("temp root");
+    fs::create_dir_all(dir.path().join("proc")).expect("proc dir");
+    fs::write(
+        dir.path().join("proc/stat"),
+        "cpu  50 0 10 400 0 0 5 35 0 0\n",
+    )
+    .expect("write stat");
+    let times = system::CpuTimes::read(&Root::new(dir.path())).expect("read /proc/stat");
+    assert_eq!(times.softirq, 5);
+    assert_eq!(times.steal, 35);
+}

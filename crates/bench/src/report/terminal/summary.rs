@@ -1,8 +1,7 @@
-//! The summary section, and the words for how each plugin ended.
+//! Summary helpers and the words for how each plugin ended.
 
 use bench_api::Stop;
 
-use super::Out;
 use super::Page;
 use super::cpu;
 use super::disk;
@@ -16,39 +15,6 @@ use crate::orchestrator::Run;
 use crate::orchestrator::Status;
 use crate::orchestrator::Unmet;
 use crate::results::Measured;
-
-/// Each plugin's title and how it ended, the items made for other platforms, and the count of
-/// each status with the run's total time.
-pub(super) fn section(out: &mut Out, page: &Page) {
-    use unicode_width::UnicodeWidthStr;
-
-    let words = locale::words();
-    out.section(&words.summary_title());
-    let width = page
-        .runs
-        .iter()
-        .map(|run| {
-            let clean = super::strip_terminal_controls(run.title.unwrap_or(run.id), false);
-            clean.width()
-        })
-        .max()
-        .unwrap_or(0)
-        .max(words.label_width());
-    for run in page.runs {
-        out.field_width("  ", width, run.title.unwrap_or(run.id), &run_status(run));
-    }
-    if !page.not_applicable.is_empty() {
-        let names: Vec<String> = page
-            .not_applicable
-            .iter()
-            .map(|name| (*name).to_owned())
-            .collect();
-        out.line(&format!("  {}", words.not_applicable(&names)));
-    }
-    let totals = totals(page);
-    out.gap();
-    out.line(&words.totals(&totals));
-}
 
 /// Counts of each status and total elapsed time for `page`.
 pub(in crate::report) fn totals(page: &Page) -> Totals {

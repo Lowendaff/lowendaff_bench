@@ -152,13 +152,13 @@ fn both_runs_show_in_a_table_with_the_ratio_and_the_retries() {
          sysbench exit code 1: x",
         "  Note                multi-thread test: worked after 2 failures; the last reason: \
          sysbench printed no events per second",
-        "  done in 40.1 s",
     ] {
         assert!(
             text.lines().any(|shown| shown == line),
             "{line:?} in {text}"
         );
     }
+    assert!(!text.contains("done in "), "{text}");
 }
 
 #[test]
@@ -376,13 +376,13 @@ fn geekbench_shows_its_version_scores_link_and_notes() {
          unable to resolve host browser.geekbench.com",
         "  Note                cannot turn off the temporary swap: Device or resource busy \
          (os error 16); run swapoff /root/run/swapfile by hand, then delete the file",
-        "  done in 300.0 s",
     ] {
         assert!(
             text.lines().any(|shown| shown == line),
             "{line:?} in {text}"
         );
     }
+    assert!(!text.contains("done in "), "{text}");
 }
 
 #[test]

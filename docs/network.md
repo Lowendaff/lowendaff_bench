@@ -147,9 +147,10 @@ sudo ./lowendaff-bench --only network.taier --taier-cities Jiangsu,guangdong-she
    - **流媒体边缘缓存节点**：分别在 IPv4 与 IPv6 下直连请求 Google `redirector.googlevideo.com/report_mapping?di=no`（还原出 `r1---sn-<code>.googlevideo.com` 边缘域名）和 Netflix `fast.com` API，自动定位离当前主机最近的 YouTube 与 Netflix 缓存服务器（且不保存或展示接口响应中回显的本机 IP）。
    - **中国大陆三网与精品网目标**：从 `Lowendaff/bench_data`（`servers/traceroute.json`）拉取北京、上海、广州等地的电信（163 / CN2 GT / CN2 GIA `AS4809`）、联通（169 / CUII `AS9929`）、移动（CMNET / CMIN2 `AS58807`）标准测试目标。
    - **国际骨干与云服务目标**：涵盖 Telegram 数据中心、AWS、GCP 以及十大国际 Tier-1 骨干网运营商，共计 71 个预设目标（默认运行精简代表集或按配置展开）。
-3. **逐跳解析与 Netflix IX 交换中心标注**：
+3. **逐跳解析、独立 ASN 列与 Netflix IX 交换中心标注**：
    - 执行参数：`nexttrace --traceroute -j -M -C -g en -q 3 -m 30 --timeout 1000 -4|-6 <target>`（每跳 3 探针、最多 30 跳、单探针超时 1 秒、始终禁用 `-M` 轨迹地图上传，单目标限时 60 秒）。
-   - 结合 `Lowendaff/bench_data` 自动同步 PeeringDB 生成的 `servers/netflix-ix.json`（`net_id=457`），当路由经过 Netflix 在全球各大互联网交换中心（如 Equinix、DE-CIX、HKIX、BBIX 等）的对等互联端口 IP 时，自动在跳点网络名旁标注所属 IX 名称。
+   - **明确 6 列输出（`ASN` 与 `Network` 分离）**：路由表固定展示 `Hop | Address | ASN | Network | Place | Latency` 六列，将自治域号（如 `AS3462`、`AS2914`）单独拆分至 `ASN` 列，运营商/机构名称保留在 `Network` 列；超时无响应跳点直接输出字面量 `*`（在 Markdown 模式下采用上下文感知转义，不会误转义为 `\*`），并在 `-f markdown` 模式下按 `### Public services` / `### Mainland China` / `### International` 与 `#### <Target> (IPv4|IPv6)` 分级组织。
+   - 结合 `Lowendaff/bench_data` 自动同步 PeeringDB 生成的 `servers/netflix-ix.json`（`net_id=457`），当路由经过 Netflix 在全球各大互联网交换中心（如 Equinix、DE-CIX、HKIX、BBIX 等）的对等互联端口 IP 时，自动在跳点 `Network` 列标注所属 IX 名称（如 `[HKIX]`）。
    - **本机跳点脱敏**：未传入 `--show-ip` 时，路由路径中凡是匹配本机公网 IPv4 / IPv6 的跳点均自动打码（中间运营商路由器 IP 原样保留）。
 
 ### `--trace-groups` 命令行枚举与示例

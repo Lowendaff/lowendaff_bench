@@ -90,4 +90,24 @@ pub trait ReportWords {
     fn attempts(&self, last: &str, attempts: usize) -> String;
     /// A size of a few bytes, below a KiB.
     fn bytes(&self, count: u64) -> String;
+    /// Two-column Markdown table headers for key-value blocks (`Item`, `Value`).
+    fn md_kv_headers(&self) -> [&'static str; 2];
+    /// Section title for 5-second VM `%si` and `%st` CPU telemetry.
+    fn vm_cpu_title(&self) -> &'static str;
+    /// Method line explaining `/proc/stat` `%si` and `%st` sampling on virtual machines.
+    fn vm_cpu_method(&self, interval_secs: u64) -> String;
+    /// Subheading for aggregated `%si` / `%st` summary table.
+    fn vm_cpu_summary_title(&self) -> &'static str;
+    /// Headers for the VM CPU summary table.
+    fn vm_cpu_summary_headers(&self) -> [&'static str; 5];
+    /// Row label in the VM CPU summary table (`SoftIRQ (%si)` or `Steal (%st)`).
+    fn vm_cpu_metric_label(&self, steal: bool) -> &'static str;
+    /// Formats the peak item and timestamp cell in the VM CPU summary table.
+    fn vm_cpu_peak_cell(&self, item: &str, time: &str) -> String;
+    /// Subheading for the full 5-second `%si` / `%st` sample table.
+    fn vm_cpu_samples_title(&self) -> &'static str;
+    /// Headers for the 5-second `%si` / `%st` sample table.
+    fn vm_cpu_samples_headers(&self) -> [&'static str; 4];
+    /// Phase label shown for samples collected before the first plugin starts.
+    fn vm_cpu_setup_phase(&self) -> &'static str;
 }

@@ -19,15 +19,3 @@ expression: text
     failed: none of the four block sizes has a result
   Disk performance
     failed: interrupted
-
-[Summary]
-  Disk performance    skipped: the test directory is on a RAM disk, which would measure memory; run in a directory on a disk, or name one with --work-dir
-  Disk performance    skipped: the test directory has less than 2 GiB free (only 1.9 GiB)
-  Disk performance    failed: cannot read the free space of the test directory
-  Disk performance    skipped: the test directory's filesystem does not support direct I/O
-  Disk performance    failed: cannot create the test file: fio: pid=0, err=28/file:filesetup.c:241, func=write, error=No space left on device
-  Disk performance    failed: cannot create the test file: cannot run fio: Text file busy (os error 26)
-  Disk performance    failed: none of the four block sizes has a result
-  Disk performance    failed: interrupted
-
-8 items: 0 done, 3 skipped, 5 failed, 0 timed out, 0 interrupted. Total time 5.0 s

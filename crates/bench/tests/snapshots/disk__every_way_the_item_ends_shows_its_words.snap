@@ -29,14 +29,3 @@ expression: text
     sdc     passed  53544 h   27 °C  79%   277.2 TB  0 / —       0
     sdd     passed  35124 h   27 °C  30%   155.6 TB  13 / —      0
     timed out; the results until then are kept
-
-[Summary]
-  Disk health         skipped: smartctl found no disks
-  Disk health         failed: smartctl's scan for disks failed: still running after 60 s
-  Disk health         failed: smartctl's scan for disks failed: Smartctl open device: /dev/sdz [SAT] failed: No such device
-  Disk health         failed: smartctl's scan for disks failed: smartctl's output cannot be parsed
-  Disk health         failed: no disk could be read
-  Disk health         failed: interrupted
-  Disk health         timed out; the results until then are kept
-
-7 items: 0 done, 1 skipped, 5 failed, 1 timed out, 0 interrupted. Total time 5.0 s

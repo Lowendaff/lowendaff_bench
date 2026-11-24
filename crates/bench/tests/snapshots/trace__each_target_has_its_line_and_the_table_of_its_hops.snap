@@ -7,20 +7,20 @@ expression: text
   Note                no target in the list for xyz
   IPv4
   YouTube (r1---sn-npoldn7s.googlevideo.com): reached in 5 hops
-  Hop  Address          Network                            Place          Latency
-  1    10.0.0.1         —                                  —              0.41 ms
-  2    198.51.*.*       AS64496 Example Net                —              1.02 ms
+  Hop  Address          ASN      Network                     Place          Latency
+  1    10.0.0.1         —        —                           —              0.41 ms
+  2    198.51.*.*       AS64496  Example Net                 —              1.02 ms
   3    *
-  4    192.0.2.4        AS15169 Google                     US California  8.91 ms
-       192.0.2.5        AS15169 Google                     US California  9.11 ms
-  5    206.223.116.133  AS2906 Netflix [Equinix San Jose]  US             1.83 ms
+  4    192.0.2.4        AS15169  Google                      US California  8.91 ms
+       192.0.2.5        AS15169  Google                      US California  9.11 ms
+  5    206.223.116.133  AS2906   Netflix [Equinix San Jose]  US             1.83 ms
   Netflix: unavailable: download failed: HTTP 404
   Beijing Telecom CN2 (ipv4.pek-4809.endpoint.nxtrace.org): reached in 2 hops
-  Hop  Address         Network               Place          Latency
-  1    10.0.0.1        —                     —              0.40 ms
-  2    219.142.211.23  AS4847 China Telecom  China Beijing  182 ms
+  Hop  Address         ASN     Network        Place          Latency
+  1    10.0.0.1        —       —              —              0.40 ms
+  2    219.142.211.23  AS4847  China Telecom  China Beijing  182 ms
   Cogent Communications - Frankfurt, DE (t1.174.de.fra.jam114514.me): not reached after 30 hops
-  Hop  Address  Network  Place  Latency
+  Hop  Address  ASN  Network  Place  Latency
   1    *
   2    *
   3    *
@@ -55,12 +55,6 @@ expression: text
   IPv6
   Netflix, Frankfurt, DE (ipv6-c001-fra002-ix.1.oca.nflxvideo.net): still running after 60 s, stopped
   Beijing Telecom CN2 (ipv6.pek-4809.endpoint.nxtrace.org): reached in 2 hops
-  Hop  Address         Network               Place          Latency
-  1    10.0.0.1        —                     —              0.40 ms
-  2    219.142.211.23  AS4847 China Telecom  China Beijing  182 ms
-  done in 721.0 s
-
-[Summary]
-  Route tracing       done in 721.0 s
-
-1 item: 1 done, 0 skipped, 0 failed, 0 timed out, 0 interrupted. Total time 722.0 s
+  Hop  Address         ASN     Network        Place          Latency
+  1    10.0.0.1        —       —              —              0.40 ms
+  2    219.142.211.23  AS4847  China Telecom  China Beijing  182 ms

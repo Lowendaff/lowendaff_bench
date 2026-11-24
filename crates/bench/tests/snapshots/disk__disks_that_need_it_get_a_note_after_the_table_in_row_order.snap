@@ -15,9 +15,3 @@ expression: text
   Note                sdd does not support SMART
   Note                sde has SMART turned off, and this program does not turn it on
   Note                cannot delete /dev/megaraid_sas_ioctl_node: Is a directory (os error 21)
-  done in 0.4 s
-
-[Summary]
-  Disk health         done in 0.4 s
-
-1 item: 1 done, 0 skipped, 0 failed, 0 timed out, 0 interrupted. Total time 5.0 s

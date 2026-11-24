@@ -12,7 +12,6 @@ expression: text
     Note                no word on the last-level caches; 32 MiB assumed
     Note                available memory short: the test data is below 4 times the last-level caches (32 MiB), so some reads and writes hit the caches and the results run high
     Note                multi-thread write: worked after 2 failures; the last reason: still running after 60 s, stopped
-    done in 41.2 s
   Memory STREAM
     STREAM              5.10: 8 million elements per array (61 MiB, 183 MiB for the three), the fastest of 10 passes each; the threads spread evenly over the nodes
     STREAM results
@@ -23,7 +22,6 @@ expression: text
     Triad  11500.4 MB/s   46000.4 MB/s
     Note                not quite within STREAM's run rules (each array at least 4 times the last-level caches)
     Note                multi-thread test: worked after 1 failure; the last reason: STREAM's results failed their check: Failed Validation on array a[], AvgRelAbsErr > epsilon (1.000000e-13)
-    done in 41.2 s
   Memory latency
     Latency             multichase: random pointer chasing, 2.5 s per level
     Latency results
@@ -34,7 +32,6 @@ expression: text
     Note                no word on L3; that level is left out
     Note                available memory short: the memory level's buffer is below 4 times the last-level caches (32 MiB), so some reads hit the caches and the latency runs low
     Note                L1 test: worked after 1 failure; the last reason: multichase printed no latency
-    done in 41.2 s
   Memory NUMA
     NUMA                2 nodes; bandwidth by multiload's stream-triad, the fastest of 3 samples per cell; latency as above
     NUMA bandwidth (MiB/s; rows: the threads' node, columns: the memory's node)
@@ -46,12 +43,3 @@ expression: text
     Node 0  95.000   140.1
     Node 1   140.1  95.000
     Note                bandwidth test of threads on node 1 and memory on node 0: worked after 1 failure; the last reason: still running after 60 s, stopped
-    done in 41.2 s
-
-[Summary]
-  Memory sysbench     done in 41.2 s
-  Memory STREAM       done in 41.2 s
-  Memory latency      done in 41.2 s
-  Memory NUMA         done in 41.2 s
-
-4 items: 4 done, 0 skipped, 0 failed, 0 timed out, 0 interrupted. Total time 5.0 s

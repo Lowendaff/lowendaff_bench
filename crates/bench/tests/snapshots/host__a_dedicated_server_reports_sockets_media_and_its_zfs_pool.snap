@@ -73,7 +73,3 @@ Environment: no virtualization detected
   ens51f1np1  Mellanox MT27710 Family [ConnectX-4 Lx]        mlx5_core  down                   1500  —
   IPv4                unavailable
   IPv6                unavailable
-
-[Summary]
-
-0 items: 0 done, 0 skipped, 0 failed, 0 timed out, 0 interrupted. Total time 1.0 s

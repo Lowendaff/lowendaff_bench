@@ -11,9 +11,3 @@ expression: text
   Note                cannot make Geekbench the first to go when memory runs out: No such file or directory (os error 2)
   Note                ran again after 2 failed uploads; the reason: unable to resolve host browser.geekbench.com
   Note                cannot turn off the temporary swap: Device or resource busy (os error 16); run swapoff /root/run/swapfile by hand, then delete the file
-  done in 300.0 s
-
-[Summary]
-  CPU benchmark       done in 300.0 s
-
-1 item: 1 done, 0 skipped, 0 failed, 0 timed out, 0 interrupted. Total time 50.0 s

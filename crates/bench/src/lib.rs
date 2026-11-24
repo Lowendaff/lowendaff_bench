@@ -21,3 +21,4 @@ pub mod report_path;
 pub mod results;
 mod taier_probe;
 pub mod tui;
+pub mod vm_cpu;

@@ -17,9 +17,3 @@ expression: text
   Total       timed out  error
   Note                512K still running after 35 s, stopped
   Note                1M failed: fio: error=No space left on device
-  done in 150.3 s
-
-[Summary]
-  Disk performance    done in 150.3 s
-
-1 item: 1 done, 0 skipped, 0 failed, 0 timed out, 0 interrupted. Total time 5.0 s

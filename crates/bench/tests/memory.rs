@@ -284,9 +284,9 @@ fn the_four_chapters_show_their_parameters_and_tables_in_the_items_words() {
         ]
     );
     assert_eq!(
-        text.matches("done in 41.2 s").count(),
-        8,
-        "each chapter ends on its own, in the section and in the summary"
+        text.matches("done in ").count(),
+        0,
+        "completed chapters emit no trailing elapsed-time debug line: {text}"
     );
 }
 
