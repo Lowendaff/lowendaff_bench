@@ -146,8 +146,8 @@ sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-
 | | `all` | 以上全部目标一起测（共 73 个目标） |
 | `--media-groups` | `global` | 全球通用平台（Netflix、YouTube Premium、Disney+、Prime Video、Spotify、TikTok 等） |
 | | `asia` | 亚洲地区平台（Bilibili 港澳台、巴哈姆特动画疯、Abema、U-NEXT、TVer、Viu 等） |
-| | `europe` | 欧洲地区平台（BBC iPlayer、ITVX、Channel 4、Canal+、ZDF、ARTE、RAI Play 等） |
-| | `americas` | 美洲地区平台（Hulu、Max、Peacock、Paramount+、Starz、Crave、Globoplay 等） |
+| | `europe` | 欧洲地区平台（BBC iPlayer、ITVX、Channel 4、Canal+、ZDF、France TV、RAI Play 等） |
+| | `americas` | 美洲地区平台（Hulu、Max、Peacock、Paramount+、Starz、Crave 等） |
 | | `oceania` | 大洋洲地区平台（澳大利亚与新西兰的 Stan、9Now、7plus、ABC iview、TVNZ+ 等） |
 | | `all` | 一次测完五大区域共 68 个平台（默认） |
 | `--countries` | 两位国家/地区代码 *（如 `US`、`JP`、`DE`、`SG`、`GB`）* | 只连接对应国家/地区的公共 `iperf3` 测速节点（大小写均可） |

@@ -157,10 +157,10 @@ jobs:
           # The whole history, so that the scope step can compare this commit with earlier ones.
           fetch-depth: 0
       # Decides whether this job runs its other steps. It reuses an earlier run that validated an
-      # ancestor of this commit in full, with nothing but Markdown, LICENSE or server lists
-      # changed since, and skips a change made only of those; anything else, or any doubt, runs
-      # everything. The gate below reads "unless the decision was to skip", so that a failure of
-      # this step runs everything too. The decision and its evidence go to the job summary.
+      # ancestor of this commit in full, with nothing but Markdown or LICENSE changed since, and
+      # skips a change made only of those; anything else, or any doubt, runs everything. The gate
+      # below reads "unless the decision was to skip", so that a failure of this step runs
+      # everything too. The decision and its evidence go to the job summary.
       - name: Scope
         id: scope
         continue-on-error: true

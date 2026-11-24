@@ -288,6 +288,21 @@ fn statvfs_and_device_of_work_on_this_host() {
     assert!(storage::device_of(Path::new(".")).is_some());
     assert_eq!(storage::device_of(Path::new("/no/such/path")), None);
     assert!(fs::metadata(".").is_ok());
+
+    #[cfg(unix)]
+    {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let fifo = tmp.path().join("unopened.fifo");
+        let status = std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .expect("mkfifo");
+        assert!(status.success());
+        assert!(
+            storage::device_of(&fifo).is_some(),
+            "device_of must resolve FIFO mount device via O_PATH without blocking"
+        );
+    }
 }
 
 #[test]

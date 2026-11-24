@@ -50,6 +50,7 @@ pub(super) fn quality(
     out: &mut Out,
     report: &Report<quality::Output, quality::Failure>,
     indent: &str,
+    own: &[IpAddr],
     show_ip: bool,
 ) {
     let words = locale::words();
@@ -100,10 +101,14 @@ pub(super) fn quality(
     }
 
     // Unexpected provider notes.
-    let redact_addrs: Vec<IpAddr> = [v4.map(|r| r.address), v6.map(|r| r.address)]
-        .into_iter()
-        .flatten()
-        .collect();
+    let mut redact_addrs = own.to_vec();
+    for maybe_rep in [v4, v6] {
+        if let Some(rep) = maybe_rep
+            && !redact_addrs.contains(&rep.address)
+        {
+            redact_addrs.push(rep.address);
+        }
+    }
     for (ipv6, fam) in [(false, v4), (true, v6)] {
         if let Some(rep) = fam {
             for (provider, reason) in &rep.notes {
@@ -122,7 +127,7 @@ pub(super) fn quality(
     }
 }
 
-fn redact_ip_in_note(reason: &str, addrs: &[IpAddr]) -> String {
+pub(in crate::report) fn redact_ip_in_note(reason: &str, addrs: &[IpAddr]) -> String {
     let mut text = reason.to_owned();
     for &addr in addrs {
         let masked = network::mask(addr);
