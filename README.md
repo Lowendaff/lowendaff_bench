@@ -144,6 +144,16 @@ Every finished run without `-o` / `--output` also archives an unwrapped report c
 `/tmp/lowendaff-bench-<timestamp>.<txt|md|json>`. Press `Ctrl-C` once at any time to stop early and
 emit a report containing all items completed so far.
 
+**Notes before running:**
+
+- **Resource usage & provider policies**: Running benchmarks briefly saturates CPU cores and
+  network bandwidth (as well as memory and disk I/O). Make sure running these tests complies with
+  your hosting provider's Acceptable Use Policy (AUP) and Terms of Service (ToS).
+- **Full-suite duration & background sessions**: A full benchmark run covers multiple CPU suites,
+  multi-region speed tests, and route traces and takes a noticeable amount of time to finish.
+  Running inside `tmux` or `screen` is recommended so execution continues safely in the background
+  if your SSH connection drops.
+
 ### CLI
 
 Assuming the binary is named `lowendaff-bench`:
