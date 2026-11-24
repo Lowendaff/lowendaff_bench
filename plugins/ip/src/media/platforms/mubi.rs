@@ -49,15 +49,16 @@ pub fn parse(response: &HttpResponse) -> Verdict {
         if available == Some(false) {
             return Verdict::no();
         }
-        let code = val
-            .get("code")
-            .or_else(|| val.get("country"))
-            .and_then(serde_json::Value::as_str)
-            .and_then(parse::country_code);
+        let field_code = |key: &str| {
+            val.get(key)
+                .and_then(serde_json::Value::as_str)
+                .and_then(parse::country_code)
+        };
+        let code = field_code("code").or_else(|| field_code("country"));
         if matches!(code.as_deref(), Some("CN" | "KP" | "IR" | "SY" | "CU")) {
             return Verdict::no();
         }
-        if code.is_some() || available == Some(true) {
+        if (200..300).contains(&response.status) && (code.is_some() || available == Some(true)) {
             return Verdict::Yes { region: code };
         }
     }

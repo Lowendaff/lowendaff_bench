@@ -42,22 +42,23 @@ impl SwapFile {
             .map_err(|err| io::Error::new(io::ErrorKind::InvalidInput, err))?;
         let page_size = rustix::param::page_size();
         let pages = size / page_size as u64;
-        let last_page = u32::try_from(pages.saturating_sub(1))
-            .map_err(|err| io::Error::new(io::ErrorKind::InvalidInput, err))?;
         if pages < MIN_PAGES {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 format!("a swap area needs at least {MIN_PAGES} pages"),
             ));
         }
+        let total_pages =
+            u32::try_from(pages).map_err(|err| io::Error::new(io::ErrorKind::InvalidInput, err))?;
+        let last_page = total_pages - 1;
         let file = File::options()
             .write(true)
             .create_new(true)
             .mode(0o600)
             .open(path)?;
         // From here on the file is this call's own, and an error removes it.
-        let outcome =
-            fill(file, page_size, pages, last_page, cancelled).and_then(|()| swap_on(&c_path));
+        let outcome = fill(file, page_size, pages, last_page, cancelled)
+            .and_then(|()| swap_on(&c_path, cancelled));
         if outcome.is_err() {
             let _ = fs::remove_file(path);
         }
@@ -135,37 +136,54 @@ fn fill(
         file.write_all(&zeros[..length])?;
         left -= length as u64;
     }
+    if cancelled() {
+        return Err(io::Error::from(io::ErrorKind::Interrupted));
+    }
     file.sync_all()
 }
 
 #[cfg(target_os = "linux")]
 #[allow(unsafe_code)]
-fn swap_on(path: &CString) -> io::Result<()> {
-    // SAFETY: `path` is a NUL-terminated string that lives for the whole call, and swapon
-    // only reads it. The flags 0 ask for the default priority.
-    let status = unsafe { libc::swapon(path.as_ptr(), 0) };
-    if status == 0 {
-        Ok(())
-    } else {
-        Err(io::Error::last_os_error())
+fn swap_on(path: &CString, cancelled: &dyn Fn() -> bool) -> io::Result<()> {
+    loop {
+        if cancelled() {
+            return Err(io::Error::from(io::ErrorKind::Interrupted));
+        }
+        // SAFETY: `path` is a NUL-terminated string that lives for the whole call, and swapon
+        // only reads it. The flags 0 ask for the default priority.
+        let status = unsafe { libc::swapon(path.as_ptr(), 0) };
+        if status == 0 {
+            return Ok(());
+        }
+        let err = io::Error::last_os_error();
+        if err.kind() != io::ErrorKind::Interrupted {
+            return Err(err);
+        }
     }
 }
 
 #[cfg(target_os = "linux")]
 #[allow(unsafe_code)]
 fn swap_off(path: &CString) -> io::Result<()> {
-    // SAFETY: `path` is a NUL-terminated string that lives for the whole call, and swapoff
-    // only reads it.
-    let status = unsafe { libc::swapoff(path.as_ptr()) };
-    if status == 0 {
-        Ok(())
-    } else {
-        Err(io::Error::last_os_error())
+    loop {
+        // SAFETY: `path` is a NUL-terminated string that lives for the whole call, and swapoff
+        // only reads it.
+        let status = unsafe { libc::swapoff(path.as_ptr()) };
+        if status == 0 {
+            return Ok(());
+        }
+        let err = io::Error::last_os_error();
+        if err.kind() != io::ErrorKind::Interrupted {
+            return Err(err);
+        }
     }
 }
 
 #[cfg(not(target_os = "linux"))]
-fn swap_on(_path: &CString) -> io::Result<()> {
+fn swap_on(_path: &CString, cancelled: &dyn Fn() -> bool) -> io::Result<()> {
+    if cancelled() {
+        return Err(io::Error::from(io::ErrorKind::Interrupted));
+    }
     Err(io::Error::from(io::ErrorKind::Unsupported))
 }
 

@@ -225,6 +225,12 @@ fn global_platform_modules_distinguish_full_originals_regions_and_restrictions()
             restriction: Some(Restriction::ProxyDetected)
         }
     );
+    assert_eq!(
+        netflix::parse(&nf_us, &nf_proxy),
+        Verdict::No {
+            restriction: Some(Restriction::ProxyDetected)
+        }
+    );
 
     // YouTube Premium: unlocked with region, Mainland China redirect, and unavailable.
     let yt_jp = response(
@@ -379,15 +385,24 @@ fn global_platform_modules_distinguish_full_originals_regions_and_restrictions()
         200,
         "https://gql.twitch.tv/gql",
         &[],
-        r#"{"data":{"requestInfo":{"countryCode":"KR"}}}"#,
+        r#"{"data":{"requestInfo":{"countryCode":"SK"}}}"#,
     );
-    assert_eq!(twitch::parse(&tw), Verdict::yes_in("KR"));
+    assert_eq!(twitch::parse(&tw), Verdict::yes_in("SK"));
+    assert_eq!(
+        twitch::parse(&response(
+            200,
+            "https://gql.twitch.tv/gql",
+            &[],
+            r#"{"data":null,"errors":[{"message":"PersistedQueryNotFound"}]}"#,
+        )),
+        Verdict::Unexpected("Twitch GraphQL error".to_owned())
+    );
 
     let rk = response(
         200,
         "https://gizmo.rakuten.tv/v3/me/start",
         &[],
-        r#"{"data":{"market_code":"es"}}"#,
+        r#"{"errors":[],"data":{"market_code":"es"}}"#,
     );
     assert_eq!(rakuten_tv::parse(&rk), Verdict::yes_in("ES"));
 
@@ -395,9 +410,13 @@ fn global_platform_modules_distinguish_full_originals_regions_and_restrictions()
         200,
         "https://api.mubi.com/v3/country",
         &[],
-        r#"{"code":"FR","available":true}"#,
+        r#"{"code":null,"country":"FR","available":true}"#,
     );
     assert_eq!(mubi::parse(&mubi_res), Verdict::yes_in("FR"));
+    assert_eq!(
+        mubi::parse(&response(401, "https://x", &[], r#"{"code":"UA"}"#)),
+        Verdict::Unexpected("HTTP 401".to_owned())
+    );
 }
 
 #[test]
@@ -459,11 +478,16 @@ fn asia_platform_modules_cover_hk_mo_tw_japan_korea_and_singapore_services() {
         Verdict::yes_in("HK")
     );
     assert_eq!(
-        hoy_tv::parse(&response(200, "https://x", &[], r#"{"code":200}"#)),
+        hoy_tv::parse(&response(
+            200,
+            "https://x",
+            &[],
+            r#"{"code":200,"channel":"National Geographic"}"#
+        )),
         parse::no_region()
     );
     assert_eq!(
-        hoy_tv::parse(&response(200, "https://x", &[], r#"{"code":403}"#)),
+        hoy_tv::parse(&response(200, "https://x", &[], r#"{"code": 403}"#)),
         Verdict::no()
     );
     assert_eq!(
@@ -555,6 +579,15 @@ fn asia_platform_modules_cover_hk_mo_tw_japan_korea_and_singapore_services() {
         Verdict::yes_in("TW")
     );
     assert_eq!(
+        hamivideo::parse(&response(
+            200,
+            "https://x",
+            &[],
+            r#"{"code":"99999","url":null}"#
+        )),
+        Verdict::no()
+    );
+    assert_eq!(
         abema::parse(&response(
             200,
             "https://x",
@@ -603,9 +636,18 @@ fn asia_platform_modules_cover_hk_mo_tw_japan_korea_and_singapore_services() {
             200,
             "https://x",
             &[],
-            r#"{"result":{"platform_uid":"u1"}}"#
+            r#"{"result":{"title":"Forbidden Love"}}"#
         )),
         Verdict::yes_in("JP")
+    );
+    assert_eq!(
+        tver::credentials(&response(
+            200,
+            "https://x",
+            &[],
+            r#"{"result":{"platform_uid":"u1&x=1","platform_token":"t1"}}"#
+        )),
+        None
     );
     assert_eq!(
         tver::parse(&response(
@@ -636,6 +678,15 @@ fn asia_platform_modules_cover_hk_mo_tw_japan_korea_and_singapore_services() {
             )
         )),
         Verdict::no()
+    );
+    assert_eq!(
+        niconico::parse(&response(
+            400,
+            "https://x",
+            &[],
+            r#"{"meta":{"status":400,"errorCode":"FORBIDDEN"},"data":{"reasonCode":"MEMBER_ONLY"}}"#
+        )),
+        Verdict::Unexpected("watch API status 400".to_owned())
     );
     assert_eq!(
         niconico::parse(&response(
@@ -847,6 +898,15 @@ fn europe_americas_and_oceania_platform_modules_cover_every_regional_service() {
         Verdict::yes_in("IT")
     );
     assert_eq!(
+        rai_play::parse(&response(
+            302,
+            "https://x",
+            &[("location", "https://cdn.rai.it/video_no_available.mp4")],
+            ""
+        )),
+        Verdict::no()
+    );
+    assert_eq!(
         movistar_plus::parse(&response(200, "https://x", &[], "ok")),
         parse::no_region()
     );
@@ -895,6 +955,17 @@ fn europe_americas_and_oceania_platform_modules_cover_every_regional_service() {
             "welcome"
         )),
         parse::no_region()
+    );
+    assert_eq!(
+        hulu::parse(&response(
+            403,
+            "https://www.hulu.com/welcome",
+            &[],
+            "Anonymous Proxy Tool detected"
+        )),
+        Verdict::No {
+            restriction: Some(Restriction::ProxyDetected)
+        }
     );
     assert_eq!(
         hulu::parse(&response(
@@ -1006,7 +1077,7 @@ fn europe_americas_and_oceania_platform_modules_cover_every_regional_service() {
             200,
             "https://x",
             &[],
-            r#"{"session":{"countryCode":"US"}}"#
+            r#"{"error":null,"session":{"countryCode":"US"}}"#
         )),
         Verdict::yes_in("US")
     );
@@ -1073,12 +1144,20 @@ fn europe_americas_and_oceania_platform_modules_cover_every_regional_service() {
         parse::no_region()
     );
     assert_eq!(
-        nine_now::parse(&response(200, "https://x", &[], r#"{"geoblocked":true}"#)),
+        nine_now::parse(&response(200, "https://x", &[], r#"{"geoblocked": true}"#)),
         Verdict::no()
+    );
+    assert_eq!(
+        nine_now::parse(&response(200, "https://x", &[], r#"{"geoblocked": false}"#)),
+        Verdict::yes_in("AU")
     );
     assert_eq!(
         seven_plus::parse(&response(200, "https://x", &[], r#"{"token":"abc"}"#)),
         Verdict::yes_in("AU")
+    );
+    assert_eq!(
+        seven_plus::parse(&response(200, "https://x", &[], r#"{"token":null}"#)),
+        parse::no_region()
     );
     assert_eq!(
         abc_iview::parse(&response(200, "https://x", &[], "{}")),

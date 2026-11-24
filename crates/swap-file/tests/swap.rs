@@ -58,16 +58,35 @@ fn a_cancelled_fill_stops_and_removes_the_file() {
     let err = SwapFile::try_new(&path, 64 << 20, &|| true).expect_err("cancelled");
     assert_eq!(err.kind(), io::ErrorKind::Interrupted);
     assert!(!path.exists());
+
+    let calls = std::cell::Cell::new(0_usize);
+    let ten_pages = 10 * rustix::param::page_size() as u64;
+    let err = SwapFile::try_new(&path, ten_pages, &|| {
+        let seen = calls.get();
+        calls.set(seen + 1);
+        seen >= 1
+    })
+    .expect_err("cancelled after final chunk write");
+    assert_eq!(err.kind(), io::ErrorKind::Interrupted);
+    assert!(!path.exists());
 }
 
 #[test]
-fn a_swap_area_needs_ten_pages_and_a_new_file() {
+fn a_swap_area_needs_ten_pages_at_most_u32_max_pages_and_a_new_file() {
     let dir = tempfile::tempdir().expect("temp dir");
     let path = dir.path().join("swapfile");
-    let five_pages = 5 * rustix::param::page_size() as u64;
+    let page_size = rustix::param::page_size() as u64;
+    let five_pages = 5 * page_size;
     let err = SwapFile::try_new(&path, five_pages, &|| false).expect_err("too small");
     assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
     assert!(!path.exists(), "nothing is created for a refused size");
+
+    let overflow_pages = (u64::from(u32::MAX) + 1).saturating_mul(page_size);
+    if overflow_pages / page_size > u64::from(u32::MAX) {
+        let err = SwapFile::try_new(&path, overflow_pages, &|| false).expect_err("too many pages");
+        assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
+        assert!(!path.exists(), "nothing is created for an oversized header");
+    }
 
     std::fs::write(&path, b"someone else's file").expect("write");
     let err = SwapFile::try_new(&path, 4 << 20, &|| false).expect_err("exists");

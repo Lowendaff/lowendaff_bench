@@ -43,10 +43,18 @@ pub fn parse(response: &HttpResponse) -> Verdict {
     if matches!(response.status, 403 | 451) {
         return Verdict::no();
     }
-    if let Some(loc) = response.header("location")
-        && loc.contains("geo")
-    {
+    if let Some(loc) = response.header("location") {
+        let lower = loc.to_ascii_lowercase();
+        if lower.contains("geo") || lower.contains("unavailable") {
+            return Verdict::no();
+        }
+    }
+    let body = response.text().to_ascii_lowercase();
+    if body.contains("geoblock") || body.contains("not available in your country") {
         return Verdict::no();
     }
-    parse::no_region()
+    if (200..300).contains(&response.status) {
+        return parse::no_region();
+    }
+    Verdict::Unexpected(format!("HTTP {}", response.status))
 }

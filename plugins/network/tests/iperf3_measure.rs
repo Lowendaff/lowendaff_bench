@@ -593,4 +593,19 @@ async fn cancellation_preempts_pause_and_retry_wait_immediately() {
     );
     assert_eq!(during_retry_wait.jobs.len(), 1);
     assert_eq!(during_retry_wait.took, Duration::ZERO);
+
+    let one_port = server("one", "Osaka", "JP", (5201, 5201), false);
+    let single_port_cancelled = measure_with(
+        chosen(vec![one_port]),
+        (true, false),
+        Settings::YABS,
+        vec![refused()],
+        Some(1),
+    )
+    .await;
+    assert_eq!(
+        single_port_cancelled.result,
+        Err(Stop::Failed(Failure::Cancelled))
+    );
+    assert_eq!(single_port_cancelled.jobs.len(), 1);
 }

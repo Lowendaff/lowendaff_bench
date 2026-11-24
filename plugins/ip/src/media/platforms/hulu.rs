@@ -41,28 +41,29 @@ pub fn parse(response: &HttpResponse) -> Verdict {
     if let Some(early) = parse::gate(response) {
         return early;
     }
-    if matches!(response.status, 403 | 451) {
-        return Verdict::no();
-    }
     if let Some(loc) = response.header("location") {
-        if loc.contains("hulu.jp") {
+        let lower = loc.to_ascii_lowercase();
+        if lower.contains("hulu.jp") {
             return Verdict::yes_in("JP");
         }
-        if loc.contains("unavailable") || loc.contains("geo") {
+        if lower.contains("unavailable") || lower.contains("geo") {
             return Verdict::no();
         }
-        if loc.contains("disneyplus") {
+        if lower.contains("disneyplus") {
             return Verdict::Unexpected("redirected to Disney+".to_owned());
         }
     }
-    let body = response.text();
+    let body = response.text().to_ascii_lowercase();
     if body.contains("anonymous proxy tool") || body.contains("unblocker") {
         return Verdict::No {
             restriction: Some(Restriction::ProxyDetected),
         };
     }
-    if body.contains("not available in your region") {
+    if matches!(response.status, 403 | 451) || body.contains("not available in your region") {
         return Verdict::no();
     }
-    parse::no_region()
+    if (200..400).contains(&response.status) {
+        return parse::no_region();
+    }
+    Verdict::Unexpected(format!("HTTP {}", response.status))
 }

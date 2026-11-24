@@ -43,11 +43,26 @@ pub fn parse(response: &HttpResponse) -> Verdict {
     if matches!(response.status, 403 | 451) {
         return Verdict::no();
     }
+    let body = response.text().to_ascii_lowercase();
+    if body.contains("geoblock")
+        || body.contains("geo_block")
+        || body.contains("geo-block")
+        || body.contains("outside australia")
+        || body.contains("not available in your")
+    {
+        return Verdict::no();
+    }
     if let Some(val) = parse::json(response) {
-        if val.get("token").is_some() {
+        let has_token = val
+            .get("token")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|tok| !tok.trim().is_empty());
+        if (200..300).contains(&response.status) && has_token {
             return Verdict::yes_in("AU");
         }
-        return Verdict::no();
+        if response.status == 200 {
+            return parse::no_region();
+        }
     }
     Verdict::Unexpected(format!("HTTP {}", response.status))
 }

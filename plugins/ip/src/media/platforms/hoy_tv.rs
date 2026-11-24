@@ -40,14 +40,31 @@ pub fn parse(response: &HttpResponse) -> Verdict {
     if let Some(early) = parse::gate(response) {
         return early;
     }
+    if matches!(response.status, 403 | 451) {
+        return Verdict::no();
+    }
+    if let Some(val) = parse::json(response) {
+        let blocked = val
+            .get("code")
+            .is_some_and(|code| code.as_i64() == Some(403) || code.as_str() == Some("403"));
+        if blocked {
+            return Verdict::no();
+        }
+    }
     let body = response.text().to_ascii_lowercase();
-    if matches!(response.status, 403 | 451)
-        || body.contains("geo")
+    if body.contains("geoblock")
+        || body.contains("geo-block")
+        || body.contains("geo_block")
+        || body.contains("geolocation")
+        || body.contains("georestrict")
         || body.contains("not available")
         || body.contains("outside hong kong")
         || body.contains("\"code\":403")
     {
         return Verdict::no();
     }
-    parse::no_region()
+    if (200..300).contains(&response.status) {
+        return parse::no_region();
+    }
+    Verdict::Unexpected(format!("HTTP {}", response.status))
 }

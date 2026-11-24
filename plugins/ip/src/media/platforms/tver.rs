@@ -50,8 +50,9 @@ pub fn probe<'a>(
             Some(base) => format!("{base}/tver/callapi"),
             None => format!("{home}?platform_uid={uid}&platform_token={token}&require_data=mylist"),
         };
-        let check_req =
-            HttpRequest::get(family, check_url).with_header("x-tver-platform-type", "web");
+        let check_req = HttpRequest::get(family, check_url)
+            .with_header("x-tver-platform-type", "web")
+            .with_max_bytes(2 * 1024 * 1024);
         match parse::send(ctx, check_req).await {
             Ok(res) => parse(&res),
             Err(verdict) => verdict,
@@ -67,12 +68,18 @@ pub fn credentials(response: &HttpResponse) -> Option<(String, String)> {
     }
     let val = parse::json(response)?;
     let result = val.get("result").unwrap_or(&val);
-    let uid = result.get("platform_uid")?.as_str()?.trim();
-    let token = result.get("platform_token")?.as_str()?.trim();
-    if uid.is_empty() || token.is_empty() {
-        return None;
-    }
-    Some((uid.to_owned(), token.to_owned()))
+    let clean = |raw: &str| {
+        let trimmed = raw.trim();
+        let valid = !trimmed.is_empty()
+            && trimmed.bytes().all(|b| {
+                b.is_ascii_graphic()
+                    && !matches!(b, b'&' | b'#' | b'?' | b'=' | b'%' | b'+' | b'/' | b'\\')
+            });
+        valid.then(|| trimmed.to_owned())
+    };
+    let uid = clean(result.get("platform_uid")?.as_str()?)?;
+    let token = clean(result.get("platform_token")?.as_str()?)?;
+    Some((uid, token))
 }
 
 /// Verdict when `browser/create` gave no credentials.
@@ -96,19 +103,40 @@ pub fn parse(response: &HttpResponse) -> Verdict {
     if matches!(response.status, 403 | 451) {
         return Verdict::no();
     }
-    let body = response.text().to_ascii_lowercase();
-    if body.contains("forbidden") || body.contains("outside japan") {
-        return Verdict::no();
-    }
     if let Some(val) = parse::json(response) {
+        let err_geo = [
+            val.get("message"),
+            val.get("error"),
+            val.pointer("/result/message"),
+        ]
+        .into_iter()
+        .flatten()
+        .filter_map(serde_json::Value::as_str)
+        .any(|msg| {
+            let lower = msg.to_ascii_lowercase();
+            lower.contains("forbidden") || lower.contains("outside japan")
+        });
+        if err_geo {
+            return Verdict::no();
+        }
+        let code_ok = val.get("code").is_none_or(|code| {
+            matches!(code.as_i64(), Some(0 | 200)) || matches!(code.as_str(), Some("0" | "200"))
+        });
         let populated = match val.get("result") {
             Some(serde_json::Value::Object(map)) => !map.is_empty(),
             Some(serde_json::Value::Array(items)) => !items.is_empty(),
             _ => false,
         };
-        if populated {
+        if response.status == 200 && code_ok && populated {
             return Verdict::yes_in("JP");
         }
     }
-    parse::no_region()
+    let body = response.text().to_ascii_lowercase();
+    if body.contains("forbidden") || body.contains("outside japan") {
+        return Verdict::no();
+    }
+    if (200..300).contains(&response.status) {
+        return parse::no_region();
+    }
+    Verdict::Unexpected(format!("HTTP {}", response.status))
 }

@@ -65,11 +65,11 @@ pub fn parse(response: &HttpResponse) -> Verdict {
         let reason = val
             .pointer("/data/reasonCode")
             .and_then(serde_json::Value::as_str);
-        if status == Some(200) {
-            return Verdict::yes_in("JP");
-        }
-        if error == Some("FORBIDDEN") || reason == Some("DOMESTIC_VIDEO") {
+        if reason == Some("DOMESTIC_VIDEO") || (error == Some("FORBIDDEN") && reason.is_none()) {
             return Verdict::no();
+        }
+        if (200..300).contains(&response.status) && status == Some(200) && reason.is_none() {
+            return Verdict::yes_in("JP");
         }
         return Verdict::Unexpected(format!(
             "watch API status {}",

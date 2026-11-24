@@ -40,9 +40,20 @@ pub fn parse(response: &HttpResponse) -> Verdict {
     if let Some(early) = parse::gate(response) {
         return early;
     }
-    let body = response.text();
-    if matches!(response.status, 403 | 451)
-        || body.contains("geoblocage")
+    if matches!(response.status, 403 | 451) {
+        return Verdict::no();
+    }
+    if let Some(val) = parse::json(response) {
+        let code_blocked = val
+            .get("code")
+            .is_some_and(|code| code.as_i64() == Some(2003) || code.as_str() == Some("2003"));
+        if code_blocked {
+            return Verdict::no();
+        }
+    }
+    let body = response.text().to_lowercase();
+    if body.contains("geoblocage")
+        || body.contains("g\u{00e9}oblocage")
         || body.contains("\"code\":2003")
     {
         return Verdict::no();

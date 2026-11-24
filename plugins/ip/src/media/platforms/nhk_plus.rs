@@ -44,25 +44,40 @@ pub fn parse(response: &HttpResponse) -> Verdict {
         return Verdict::no();
     }
     if let Some(loc) = response.header("location")
-        && loc.contains("web.nhk")
+        && loc.to_ascii_lowercase().contains("web.nhk")
     {
         return Verdict::no();
     }
     if let Some(val) = parse::json(response) {
         let allowed = val
             .get("is_domestic")
-            .or_else(|| val.pointer("/data/is_domestic"))
-            .or_else(|| val.get("allowed"))
-            .and_then(serde_json::Value::as_bool);
+            .and_then(serde_json::Value::as_bool)
+            .or_else(|| {
+                val.pointer("/data/is_domestic")
+                    .and_then(serde_json::Value::as_bool)
+            })
+            .or_else(|| val.get("allowed").and_then(serde_json::Value::as_bool));
         let country = val
             .get("country_code")
             .and_then(serde_json::Value::as_str)
-            .and_then(parse::country_code);
-        return match (allowed, country.as_deref()) {
-            (Some(true), _) | (None, Some("JP")) => Verdict::yes_in("JP"),
-            (Some(false), _) | (None, Some(_)) => Verdict::no(),
-            (None, None) => Verdict::Unexpected("unrecognized NHK+ payload".to_owned()),
-        };
+            .and_then(parse::country_code)
+            .or_else(|| {
+                val.pointer("/data/country_code")
+                    .and_then(serde_json::Value::as_str)
+                    .and_then(parse::country_code)
+            });
+        if allowed == Some(false) {
+            return Verdict::no();
+        }
+        if (200..300).contains(&response.status) {
+            return match (allowed, country.as_deref()) {
+                (Some(true), _) | (None, Some("JP")) => Verdict::yes_in("JP"),
+                (None, Some(_)) => Verdict::no(),
+                (None, None) | (Some(false), _) => {
+                    Verdict::Unexpected("unrecognized NHK+ payload".to_owned())
+                }
+            };
+        }
     }
     Verdict::Unexpected(format!("HTTP {}", response.status))
 }
