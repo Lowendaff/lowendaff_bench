@@ -53,16 +53,19 @@ pub fn parse(response: &HttpResponse) -> Result<ProviderData, ProviderFailure> {
     if let Some(early) = parse::gate(response) {
         return Err(early);
     }
-    // HTTP 404 means Shodan observed no open ports or threat tags on this IPv4 address.
+    // HTTP 404 with JSON means Shodan observed no open ports or threat tags on this IPv4 address.
     if response.status == 404 {
-        return Ok(ProviderData {
-            score: Some(ScoreVerdict::Shodan {
-                ports: 0,
-                vulns: 0,
-                flagged: false,
-            }),
-            ..ProviderData::default()
-        });
+        if parse::json(response).is_some_and(|val| val.is_object()) {
+            return Ok(ProviderData {
+                score: Some(ScoreVerdict::Shodan {
+                    ports: 0,
+                    vulns: 0,
+                    flagged: false,
+                }),
+                ..ProviderData::default()
+            });
+        }
+        return Err(ProviderFailure::Unexpected("HTTP 404".to_owned()));
     }
     if response.status != 200 {
         return Err(ProviderFailure::Unexpected(format!(

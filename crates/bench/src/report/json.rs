@@ -203,9 +203,31 @@ fn to_value<T: Serialize>(value: &T) -> Value {
 }
 
 fn mask_quality_family(root: &mut Value, key: &str, address: IpAddr) {
-    if let Some(family) = root.get_mut(key).and_then(Value::as_object_mut) {
-        family.insert("address".to_owned(), Value::String(network::mask(address)));
-        family.insert("hostname".to_owned(), Value::Null);
+    let Some(family) = root.get_mut(key).and_then(Value::as_object_mut) else {
+        return;
+    };
+    family.insert("address".to_owned(), Value::String(network::mask(address)));
+    family.insert("hostname".to_owned(), Value::Null);
+    if let Some(notes) = family.get_mut("notes").and_then(Value::as_array_mut) {
+        for entry in notes {
+            if let Some(pair) = entry.as_array_mut()
+                && let Some(reason) = pair.get_mut(1)
+                && let Some(text) = reason.as_str()
+            {
+                *reason = Value::String(plugin_ip::quality::parse::scrub_ip(text, address));
+            }
+        }
+    }
+    if let Some(scores) = family.get_mut("scores").and_then(Value::as_array_mut) {
+        for entry in scores {
+            if let Some(pair) = entry.as_array_mut()
+                && let Some(verdict) = pair.get_mut(1).and_then(Value::as_object_mut)
+                && let Some(detail) = verdict.get_mut("detail")
+                && let Some(text) = detail.as_str()
+            {
+                *detail = Value::String(plugin_ip::quality::parse::scrub_ip(text, address));
+            }
+        }
     }
 }
 

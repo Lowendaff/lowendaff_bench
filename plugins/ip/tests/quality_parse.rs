@@ -74,10 +74,15 @@ fn all_nine_provider_modules_parse_scores_identities_flags_and_waf_gates() {
     let scam_html = response(
         200,
         &[],
-        concat!(
-            r#"<pre>{"ip":"198.51.100.7","score":"12","risk":"low"}</pre>"#,
-            "<tr><th>Anonymizing VPN</th><td><div class=\"risk no\">No</div></td></tr>",
-            "<tr><th>Server</th><td><div class=\"risk yes\">Yes</div></td></tr>"
+        &format!(
+            concat!(
+                r#"<pre>{{"ip":"198.51.100.7","score":"12","risk":"low"}}</pre>"#,
+                "<p>Dedicated Server</p>",
+                "<tr><th>Anonymizing VPN</th><td><div class=\"risk no\">No</div></td></tr>",
+                "<tr><th>Server</th><td><div class=\"risk yes\">Yes</div></td></tr>",
+                "<th>Tor Exit Node</th>{pad}"
+            ),
+            pad = "\u{2014}".repeat(100)
         ),
     );
     let scam_data = scamalytics::parse(&scam_html).expect("scamalytics parse");
@@ -103,14 +108,17 @@ fn all_nine_provider_modules_parse_scores_identities_flags_and_waf_gates() {
         200,
         &[],
         concat!(
-            r#"{"status":"ok","198.51.100.7":{"asn":"AS13335","provider":"Cloudflare","#,
-            r#""isocode":"SG","proxy":"no","type":"Hosting","risk":15}}"#
+            r#"{"status":"ok","198.51.100.7":{"asn":"AS13335","#,
+            r#""provider":"","organisation":"Cloudflare","#,
+            r#""isocode":"SG","proxy":"no","vpn":"no","type":"Hosting","risk":15}}"#
         ),
     );
     let pc_data = proxycheck::parse(&pc_res).expect("proxycheck parse");
     assert_eq!(pc_data.asn, Some(13335));
+    assert_eq!(pc_data.org.as_deref(), Some("Cloudflare"));
     assert_eq!(pc_data.geo_country.as_deref(), Some("SG"));
     assert_eq!(pc_data.usage, Some(UsageType::Hosting));
+    assert!(pc_data.flags.contains(&(RiskFactor::Vpn, false)));
     assert_eq!(
         pc_data.score,
         Some(ScoreVerdict::Numeric {
@@ -195,16 +203,44 @@ fn all_nine_provider_modules_parse_scores_identities_flags_and_waf_gates() {
         dbip::parse(&dbip_res).expect("dbip").geo_country.as_deref(),
         Some("SG")
     );
+    assert_eq!(
+        dbip::parse(&response(200, &[], r#"{"countryCode":"ZZ"}"#))
+            .expect("dbip placeholder")
+            .geo_country,
+        None
+    );
+    assert!(greynoise::parse(&response(404, &[], "<html>404</html>")).is_err());
+    assert!(greynoise::parse(&response(200, &[], "{}")).is_err());
+    let num_org = ipinfo::parse(&response(200, &[], r#"{"org":"1984 ehf"}"#)).expect("ipinfo");
+    assert_eq!(num_org.asn, None);
+    assert_eq!(num_org.org.as_deref(), Some("1984 ehf"));
+    let bad_ratio = ipapi::parse(&response(
+        200,
+        &[],
+        r#"{"company":{"abuser_score":"NaN"},"asn":{"abuser_score":"0.0100 (Elevated)"}}"#,
+    ))
+    .expect("ipapi fallback");
+    assert_eq!(
+        bad_ratio.score,
+        Some(ScoreVerdict::Ratio {
+            text: "0.0100".to_owned(),
+            level: RiskLevel::Medium,
+        })
+    );
 
     // 9. IPWHOIS
     let whois_res = response(
         200,
         &[],
-        r#"{"success":true,"country_code":"SG","connection":{"asn":13335,"org":"Cloudflare"}}"#,
+        concat!(
+            r#"{"success":true,"country_code":"SG","#,
+            r#""connection":{"asn":13335,"org":"","isp":"Cloudflare"}}"#
+        ),
     );
     let whois_data = ipwhois::parse(&whois_res).expect("ipwhois");
     assert_eq!(whois_data.geo_country.as_deref(), Some("SG"));
     assert_eq!(whois_data.asn, Some(13335));
+    assert_eq!(whois_data.org.as_deref(), Some("Cloudflare"));
 }
 
 #[test]

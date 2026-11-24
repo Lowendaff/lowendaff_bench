@@ -77,10 +77,16 @@ pub fn parse(response: &HttpResponse) -> Result<ProviderData, ProviderFailure> {
         .and_then(Value::as_u64)
         .and_then(|n| u32::try_from(n).ok())
         .filter(|&n| n > 0);
-    let org = conn
-        .and_then(|c| c.get("org").or_else(|| c.get("isp")))
-        .and_then(Value::as_str)
-        .and_then(parse::clean_text);
+    let org = conn.and_then(|c| {
+        c.get("org")
+            .and_then(Value::as_str)
+            .and_then(parse::clean_text)
+            .or_else(|| {
+                c.get("isp")
+                    .and_then(Value::as_str)
+                    .and_then(parse::clean_text)
+            })
+    });
 
     Ok(ProviderData {
         asn,

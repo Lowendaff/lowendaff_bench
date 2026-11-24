@@ -29,8 +29,8 @@ pub fn results_yml(yml: &str) -> Result<Output, Fault> {
         if line.is_empty() {
             continue;
         }
-        if !line.starts_with(' ') && line.ends_with(':') {
-            section = line.trim_end_matches(':');
+        if !line.starts_with(' ') && !line.starts_with('\t') {
+            section = line.strip_suffix(':').unwrap_or("");
             continue;
         }
         let Some((key, val)) = line.trim().split_once(':') else {
@@ -63,16 +63,13 @@ pub fn results_yml(yml: &str) -> Result<Output, Fault> {
         .filter(|v| *v > 0.0)
         .ok_or(Fault::NoScores)?;
 
+    let is_digits = |s: &str| !s.is_empty() && s.chars().all(|c| c.is_ascii_digit());
     let version = match (
         version_fields.get("Major"),
         version_fields.get("Minor"),
         version_fields.get("Build"),
     ) {
-        (Some(maj), Some(min), Some(bld))
-            if maj.chars().all(|c| c.is_ascii_digit())
-                && min.chars().all(|c| c.is_ascii_digit())
-                && bld.chars().all(|c| c.is_ascii_digit()) =>
-        {
+        (Some(maj), Some(min), Some(bld)) if is_digits(maj) && is_digits(min) && is_digits(bld) => {
             Some(format!("{maj}.{min}.{bld}"))
         }
         _ => None,

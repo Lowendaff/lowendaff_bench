@@ -319,4 +319,33 @@ async fn quality_skips_when_offline_or_without_public_address_and_rejects_bad_en
             "8.8.8.8:53".to_owned()
         )))
     );
+
+    let addr: std::net::IpAddr = "198.51.100.7".parse().expect("ip");
+    let outcomes = [
+        (
+            plugin_ip::quality::providers::ripestat::SPEC,
+            Ok(plugin_ip::quality::parse::ProviderData {
+                org: Some("Parent Registry Block".to_owned()),
+                ..Default::default()
+            }),
+        ),
+        (
+            plugin_ip::quality::providers::ipinfo::SPEC,
+            Ok(plugin_ip::quality::parse::ProviderData {
+                asn: Some(64500),
+                org: Some("Downstream ISP".to_owned()),
+                ..Default::default()
+            }),
+        ),
+        (
+            plugin_ip::quality::providers::ipapi::SPEC,
+            Err(plugin_ip::quality::parse::ProviderFailure::Unexpected(
+                "query failed for 198.51.100.7".to_owned(),
+            )),
+        ),
+    ];
+    let agg = plugin_ip::quality::measure::aggregate(addr, &outcomes, None, Vec::new());
+    assert_eq!(agg.asn, Some(64500));
+    assert_eq!(agg.org.as_deref(), Some("Downstream ISP"));
+    assert_eq!(agg.notes[0].1, "query failed for 198.51.*.*");
 }

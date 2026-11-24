@@ -53,17 +53,20 @@ pub fn parse(response: &HttpResponse) -> Result<ProviderData, ProviderFailure> {
     if let Some(early) = parse::gate(response) {
         return Err(early);
     }
-    // HTTP 404 means GreyNoise has not observed this IP scanning the Internet.
+    // HTTP 404 with a JSON object means GreyNoise has not observed this IP scanning the Internet.
     if response.status == 404 {
-        return Ok(ProviderData {
-            score: Some(ScoreVerdict::GreyNoise {
-                riot: false,
-                noise: false,
-                classification: GreyNoiseClass::NotObserved,
-            }),
-            flags: vec![(RiskFactor::Abuser, false)],
-            ..ProviderData::default()
-        });
+        if parse::json(response).is_some_and(|val| val.is_object()) {
+            return Ok(ProviderData {
+                score: Some(ScoreVerdict::GreyNoise {
+                    riot: false,
+                    noise: false,
+                    classification: GreyNoiseClass::NotObserved,
+                }),
+                flags: vec![(RiskFactor::Abuser, false)],
+                ..ProviderData::default()
+            });
+        }
+        return Err(ProviderFailure::Unexpected("HTTP 404".to_owned()));
     }
     if response.status != 200 {
         return Err(ProviderFailure::Unexpected(format!(
@@ -74,8 +77,24 @@ pub fn parse(response: &HttpResponse) -> Result<ProviderData, ProviderFailure> {
     let Some(val) = parse::json(response) else {
         return Err(ProviderFailure::Unexpected("invalid JSON".to_owned()));
     };
-    let noise = val.get("noise").and_then(Value::as_bool).unwrap_or(false);
-    let riot = val.get("riot").and_then(Value::as_bool).unwrap_or(false);
+    let (Some(noise), Some(riot)) = (
+        val.get("noise").and_then(Value::as_bool),
+        val.get("riot").and_then(Value::as_bool),
+    ) else {
+        let rate_limited = ["message", "error"].into_iter().any(|key| {
+            val.get(key).and_then(Value::as_str).is_some_and(|msg| {
+                let lower = msg.to_ascii_lowercase();
+                lower.contains("limit") || lower.contains("rate")
+            })
+        });
+        return if rate_limited {
+            Err(ProviderFailure::RateLimited)
+        } else {
+            Err(ProviderFailure::Unexpected(
+                "missing GreyNoise telemetry fields".to_owned(),
+            ))
+        };
+    };
     let class_str = val
         .get("classification")
         .and_then(Value::as_str)
@@ -84,6 +103,7 @@ pub fn parse(response: &HttpResponse) -> Result<ProviderData, ProviderFailure> {
     let classification = match class_str.as_str() {
         "benign" => GreyNoiseClass::Benign,
         "malicious" => GreyNoiseClass::Malicious,
+        _ if riot && !noise => GreyNoiseClass::Benign,
         _ if !noise && !riot => GreyNoiseClass::NotObserved,
         _ => GreyNoiseClass::Unknown,
     };

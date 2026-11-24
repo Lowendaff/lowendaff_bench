@@ -43,7 +43,7 @@ pub enum ZoneVerdict {
     Refused,
 }
 
-/// 24 curated, actively maintained public DNSBL zones (24 covering IPv4, 9 covering IPv6).
+/// 25 curated, actively maintained public DNSBL zones (24 covering IPv4, 9 covering IPv6).
 pub const ZONES: [DnsblZone; 25] = [
     DnsblZone {
         name: "Spamhaus ZEN",

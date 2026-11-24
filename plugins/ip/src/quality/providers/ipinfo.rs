@@ -89,12 +89,16 @@ pub fn parse(response: &HttpResponse) -> Result<ProviderData, ProviderFailure> {
 
 fn split_asn_org(raw: &str) -> (Option<u32>, Option<String>) {
     let trimmed = raw.trim();
-    if let Some((first, rest)) = trimmed.split_once(' ')
+    let has_as_prefix = |token: &str| token.starts_with("AS") || token.starts_with("as");
+    if let Some((first, rest)) = trimmed.split_once(char::is_whitespace)
+        && has_as_prefix(first)
         && let Some(asn) = parse::parse_asn(first)
     {
         return (Some(asn), parse::clean_text(rest));
     }
-    if let Some(asn) = parse::parse_asn(trimmed) {
+    if has_as_prefix(trimmed)
+        && let Some(asn) = parse::parse_asn(trimmed)
+    {
         return (Some(asn), None);
     }
     (None, parse::clean_text(trimmed))

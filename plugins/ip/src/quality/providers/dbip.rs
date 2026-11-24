@@ -57,15 +57,16 @@ pub fn parse(response: &HttpResponse) -> Result<ProviderData, ProviderFailure> {
         return Err(ProviderFailure::Unexpected("invalid JSON".to_owned()));
     };
     if let Some(err) = val.get("errorCode").and_then(Value::as_str) {
-        if err.contains("OVER_QUERY_LIMIT") {
+        if err.contains("OVER_QUERY_LIMIT") || err.contains("TEMPORARY_BLOCKED") {
             return Err(ProviderFailure::RateLimited);
         }
         return Err(ProviderFailure::Unexpected(err.to_owned()));
     }
-    let Some(geo_country) = val
+    let Some(raw_country) = val
         .get("countryCode")
         .and_then(Value::as_str)
-        .and_then(parse::country_code)
+        .map(str::trim)
+        .filter(|code| code.len() == 2 && code.bytes().all(|b| b.is_ascii_alphabetic()))
     else {
         return Err(ProviderFailure::Unexpected(
             "missing DB-IP countryCode".to_owned(),
@@ -73,7 +74,7 @@ pub fn parse(response: &HttpResponse) -> Result<ProviderData, ProviderFailure> {
     };
 
     Ok(ProviderData {
-        geo_country: Some(geo_country),
+        geo_country: parse::country_code(raw_country),
         ..ProviderData::default()
     })
 }

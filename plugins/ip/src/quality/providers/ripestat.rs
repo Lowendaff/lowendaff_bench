@@ -56,7 +56,12 @@ pub fn parse(response: &HttpResponse) -> Result<ProviderData, ProviderFailure> {
     let Some(val) = parse::json(response) else {
         return Err(ProviderFailure::Unexpected("invalid JSON".to_owned()));
     };
-    let Some(data) = val.get("data") else {
+    if let Some(status) = val.get("status").and_then(Value::as_str)
+        && !status.eq_ignore_ascii_case("ok")
+    {
+        return Err(ProviderFailure::Unexpected(format!("status {status}")));
+    }
+    let Some(data) = val.get("data").filter(|d| d.is_object()) else {
         return Err(ProviderFailure::Unexpected(
             "missing data object".to_owned(),
         ));
@@ -105,7 +110,7 @@ pub fn parse(response: &HttpResponse) -> Result<ProviderData, ProviderFailure> {
     if asn.is_none()
         && let Some(irr_groups) = data.get("irr_records").and_then(Value::as_array)
     {
-        for group in irr_groups {
+        'irr: for group in irr_groups {
             let Some(attrs) = group.as_array() else {
                 continue;
             };
@@ -115,11 +120,10 @@ pub fn parse(response: &HttpResponse) -> Result<ProviderData, ProviderFailure> {
                     .and_then(Value::as_str)
                     .is_some_and(|k| k.eq_ignore_ascii_case("origin"))
                     && let Some(raw) = attr.get("value").and_then(Value::as_str)
+                    && let Some(parsed) = parse::parse_asn(raw)
                 {
-                    asn = parse::parse_asn(raw);
-                    if asn.is_some() {
-                        break;
-                    }
+                    asn = Some(parsed);
+                    break 'irr;
                 }
             }
         }

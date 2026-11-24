@@ -26,7 +26,10 @@ const RESULTS_LIMIT: u64 = 256 * 1024;
 /// Builds the PassMark `-r 1` job with isolated `LD_LIBRARY_PATH`, `TERMINFO`, and `TERM=xterm`.
 #[must_use]
 pub fn attempt(program: &Path, libs_file: &Path, work_dir: &Path) -> Job {
-    let libs_dir = libs_file.parent().unwrap_or_else(|| Path::new("."));
+    let libs_dir = match libs_file.parent() {
+        Some(dir) if !dir.as_os_str().is_empty() => dir,
+        _ => Path::new("."),
+    };
     let ld_path = OsString::from(libs_dir.as_os_str());
     let terminfo = libs_dir.join("terminfo");
     let mut job = Job::new(program, ["-r", "1"], RUN_LIMIT);
@@ -55,6 +58,9 @@ where
     F: Fn(Job) -> Fut,
     Fut: Future<Output = Result<job::Output, RunError>>,
 {
+    if ctx.cancel_token().is_cancelled() {
+        return Err(Failure::Cancelled);
+    }
     ctx.progress(Step::CpuSuite {
         suite: "passmark",
         stage: None,
@@ -78,6 +84,8 @@ where
     F: Fn(Job) -> Fut,
     Fut: Future<Output = Result<job::Output, RunError>>,
 {
+    let yml_path = work_dir.join("results_cpu.yml");
+    let _ = tokio::fs::remove_file(&yml_path).await;
     let out = match run(attempt(program, libs_file, work_dir)).await {
         Ok(out) => out,
         Err(RunError::Fault(fault)) => return Err(Failure::Run(Fault::Tool(fault))),
@@ -86,7 +94,6 @@ where
     if let Err(fault) = parse::check_exit(&out) {
         return Err(Failure::Run(fault));
     }
-    let yml_path = work_dir.join("results_cpu.yml");
     let yml = read_bounded(&yml_path)
         .await
         .map_err(|_| Failure::Run(Fault::NoScores))?;

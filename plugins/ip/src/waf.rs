@@ -14,24 +14,55 @@ const CHALLENGE_MARKERS: [&str; 9] = [
     "errors&#46;edgesuite&#46;net",
 ];
 
-/// Detects Cloudflare Turnstile, Cloudflare JS challenge, DataDome, PerimeterX, Imperva, and
-/// Akamai anti-bot challenge responses across `ip.quality` and `ip.media`.
+/// Detects Cloudflare Turnstile, Cloudflare JS challenge, AWS WAF, DataDome, PerimeterX,
+/// Imperva, and Akamai anti-bot challenge responses across `ip.quality` and `ip.media`.
 #[must_use]
 pub(crate) fn is_challenge(response: &HttpResponse) -> bool {
     if response
         .header("cf-mitigated")
-        .is_some_and(|val| val.eq_ignore_ascii_case("challenge"))
+        .is_some_and(|val| val.trim().eq_ignore_ascii_case("challenge"))
+    {
+        return true;
+    }
+    if response.header("x-amzn-waf-action").is_some_and(|val| {
+        let trimmed = val.trim();
+        trimmed.eq_ignore_ascii_case("challenge") || trimmed.eq_ignore_ascii_case("captcha")
+    }) {
+        return true;
+    }
+    if response
+        .header("x-dd-b")
+        .is_some_and(|val| !val.trim().is_empty())
+    {
+        return true;
+    }
+    if response.status == 200
+        && contains_ascii_ci(&response.body, b"_incapsula_resource")
+        && (contains_ascii_ci(&response.body, b"main-iframe")
+            || contains_ascii_ci(&response.body, b"incapsula incident id"))
     {
         return true;
     }
     if !matches!(response.status, 403 | 503) {
         return false;
     }
-    if response.header("x-datadome").is_some() || response.header("x-dd-b").is_some() {
+    if response
+        .header("x-datadome")
+        .is_some_and(|val| !val.trim().is_empty())
+    {
         return true;
     }
-    let body = response.text().to_ascii_lowercase();
-    CHALLENGE_MARKERS.iter().any(|marker| body.contains(marker))
+    CHALLENGE_MARKERS
+        .iter()
+        .any(|marker| contains_ascii_ci(&response.body, marker.as_bytes()))
+}
+
+fn contains_ascii_ci(haystack: &[u8], needle: &[u8]) -> bool {
+    !needle.is_empty()
+        && haystack.len() >= needle.len()
+        && haystack
+            .windows(needle.len())
+            .any(|win| win.eq_ignore_ascii_case(needle))
 }
 
 #[cfg(test)]
@@ -51,17 +82,38 @@ mod tests {
     }
 
     #[test]
-    fn detects_case_insensitive_cloudflare_datadome_and_akamai_challenges() {
+    fn detects_case_insensitive_cloudflare_aws_datadome_imperva_and_akamai_challenges() {
+        for marker in super::CHALLENGE_MARKERS {
+            assert!(
+                super::is_challenge(&resp(403, &[], &marker.to_ascii_uppercase())),
+                "403 marker {marker}"
+            );
+            assert!(
+                super::is_challenge(&resp(503, &[], marker)),
+                "503 marker {marker}"
+            );
+        }
         assert!(super::is_challenge(&resp(
-            403,
-            &[],
-            "<HTML><HEAD><TITLE>Just a moment...</TITLE></HEAD></HTML>"
+            200,
+            &[("cf-mitigated", " Challenge ")],
+            ""
         )));
         assert!(super::is_challenge(&resp(
-            403,
+            202,
+            &[("x-amzn-waf-action", "challenge")],
+            ""
+        )));
+        assert!(super::is_challenge(&resp(
+            405,
+            &[("x-amzn-waf-action", "CAPTCHA")],
+            ""
+        )));
+        assert!(super::is_challenge(&resp(
+            401,
             &[("x-dd-b", "1")],
             "blocked"
         )));
+        assert!(!super::is_challenge(&resp(403, &[("x-dd-b", "  ")], "ok")));
         assert!(super::is_challenge(&resp(
             403,
             &[("X-DataDome", "protected")],
@@ -73,9 +125,14 @@ mod tests {
             "ok"
         )));
         assert!(super::is_challenge(&resp(
-            403,
+            200,
             &[],
-            "Reference #18.abc https://errors.edgesuite.net/18.abc"
+            "<iframe id=\"main-iframe\" src=\"/_Incapsula_Resource?SWJIYLWA=719d\"></iframe>"
+        )));
+        assert!(!super::is_challenge(&resp(
+            200,
+            &[],
+            "<script src=\"/_Incapsula_Resource?b=1\"></script><html>ok</html>"
         )));
         assert!(!super::is_challenge(&resp(
             403,

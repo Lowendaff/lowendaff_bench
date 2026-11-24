@@ -48,7 +48,7 @@ pub fn reading(output: &job::Output, duration_secs: u64) -> Result<Output, Fault
         }
     }
 
-    if completed_workers == 0 {
+    if completed_workers == 0 || completed_workers < started_workers {
         if let Some(fault) = output.fault() {
             return Err(Fault::Tool(fault));
         }
