@@ -46,7 +46,9 @@ pub fn parse(response: &HttpResponse) -> Verdict {
     if matches!(response.status, 403 | 451) {
         return Verdict::no();
     }
-    if let Some(val) = parse::json(response) {
+    if (200..300).contains(&response.status)
+        && let Some(val) = parse::json(response)
+    {
         let country = val
             .get("isoCountryCode")
             .and_then(serde_json::Value::as_str)

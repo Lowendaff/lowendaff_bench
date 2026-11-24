@@ -71,7 +71,7 @@ pub const EXIT_USAGE: u8 = 2;
 /// Exit code after Ctrl-C; the results so far were printed.
 pub const EXIT_INTERRUPTED: u8 = 130;
 
-const GRACE: Duration = Duration::from_secs(5);
+pub(crate) const GRACE: Duration = Duration::from_secs(5);
 
 /// The connections that one tool's download uses at most, unless `--download-connections` says
 /// otherwise.
@@ -1103,20 +1103,58 @@ pub fn parse_overrides(raw: Option<&str>) -> Result<BTreeMap<String, serde_json:
 }
 
 /// Opens `--output` before the run starts (creating new files with `0600` permissions and refusing
-/// symlinks), so an unwritable path fails at once.
+/// symlinks, FIFOs, block devices, sockets, and untrusted pre-created files in world-writable
+/// directories), so an unwritable or unsafe path fails at once without blocking.
 pub fn create_output(path: &Path) -> Result<fs::File, String> {
+    create_output_inner(path).map_err(|err| locale::words().output_unwritable(path, &err))
+}
+
+fn create_output_inner(path: &Path) -> io::Result<fs::File> {
+    use std::os::unix::fs::FileTypeExt;
+    use std::os::unix::fs::MetadataExt;
+    use std::os::unix::fs::PermissionsExt;
+
     use rustix::fs::Mode;
     use rustix::fs::OFlags;
 
     let flags =
-        OFlags::WRONLY | OFlags::CREATE | OFlags::TRUNC | OFlags::NOFOLLOW | OFlags::CLOEXEC;
+        OFlags::WRONLY | OFlags::CREATE | OFlags::NOFOLLOW | OFlags::CLOEXEC | OFlags::NONBLOCK;
     let mode = Mode::RUSR | Mode::WUSR;
-    rustix::fs::openat(rustix::fs::CWD, path, flags, mode)
-        .map(fs::File::from)
-        .map_err(|err| {
-            let io_err = io::Error::from(err);
-            locale::words().output_unwritable(path, &io_err)
-        })
+    let fd = rustix::fs::openat(rustix::fs::CWD, path, flags, mode).map_err(io::Error::from)?;
+    let file = fs::File::from(fd);
+    let meta = file.metadata()?;
+    let file_type = meta.file_type();
+    if file_type.is_char_device() {
+        let cur = rustix::fs::fcntl_getfl(&file).map_err(io::Error::from)?;
+        rustix::fs::fcntl_setfl(&file, cur - OFlags::NONBLOCK).map_err(io::Error::from)?;
+        return Ok(file);
+    }
+    if !file_type.is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "output path must be a regular file",
+        ));
+    }
+    let euid = rustix::process::geteuid().as_raw();
+    let parent = path
+        .parent()
+        .filter(|dir| !dir.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let world_writable = fs::metadata(parent)
+        .is_ok_and(|dir_meta| dir_meta.is_dir() && (dir_meta.permissions().mode() & 0o002) != 0);
+    if world_writable && (meta.uid() != euid || meta.nlink() > 1) {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "refusing pre-existing unowned or hardlinked output file in world-writable directory",
+        ));
+    }
+    if meta.uid() == euid {
+        rustix::fs::fchmod(&file, mode).map_err(io::Error::from)?;
+    }
+    file.set_len(0)?;
+    let cur = rustix::fs::fcntl_getfl(&file).map_err(io::Error::from)?;
+    rustix::fs::fcntl_setfl(&file, cur - OFlags::NONBLOCK).map_err(io::Error::from)?;
+    Ok(file)
 }
 
 /// How the report is written.

@@ -296,21 +296,21 @@ pub fn compute_throughput_stats(
 ) -> (ThroughputStats, Vec<f64>) {
     let interval_mbps = tick_rates_mbps(ticks);
     let (bytes, win_ms, steady_mbps) = steady_state_window(ticks, &interval_mbps, duration_ms)
-        .unwrap_or_else(|| (total_bytes, duration_ms.max(1), interval_mbps.clone()));
+        .unwrap_or((total_bytes, duration_ms.max(1), Vec::new()));
 
-    let fallback_mbps = {
+    let window_mbps = {
         let secs = (win_ms.max(1) as f64) / 1000.0;
         ((bytes as f64) * 8.0) / (secs * 1_000_000.0)
     };
 
     let (mean, median, p25, p75, p95, p99) = if steady_mbps.is_empty() {
         (
-            fallback_mbps,
-            fallback_mbps,
-            fallback_mbps,
-            fallback_mbps,
-            fallback_mbps,
-            fallback_mbps,
+            window_mbps,
+            window_mbps,
+            window_mbps,
+            window_mbps,
+            window_mbps,
+            window_mbps,
         )
     } else {
         let mut sorted = steady_mbps.clone();
@@ -327,13 +327,13 @@ pub fn compute_throughput_stats(
         )
     };
 
-    let bps = f64_to_u64_sat((mean.max(0.0) * 1_000_000.0).round());
+    let bps = f64_to_u64_sat((window_mbps.max(0.0) * 1_000_000.0).round());
     (
         ThroughputStats {
             bytes,
             duration_ms: win_ms,
             bps,
-            mbps: mean,
+            mbps: window_mbps,
             mean_mbps: mean,
             median_mbps: median,
             p25_mbps: p25,
@@ -559,9 +559,9 @@ fn calculate_mos(rtt_ms: f64, jitter_ms: f64, loss_pct: f64) -> Option<f64> {
         return None;
     }
     let d = rtt_ms / 2.0 + 2.0 * jitter_ms;
-    let ld = d.min(177.3);
+    let id = (d / 40.0) + 0.11 * (d - 177.3).max(0.0);
     let ie_eff = 30.0 * (loss_pct / 100.0).min(1.0);
-    let r = (93.2 - (ld / 40.0) - ie_eff).clamp(0.0, 100.0);
+    let r = (93.2 - id - ie_eff).clamp(0.0, 100.0);
     let mos = 1.0 + 0.035 * r + 7.0e-6 * r * (r - 60.0) * (100.0 - r);
     Some(mos.clamp(1.0, 5.0))
 }
@@ -728,6 +728,60 @@ mod tests {
         assert_eq!(udp.out_of_order_pct, 10.0);
         assert_eq!(udp.quality, super::UdpQuality::Excellent);
         assert!(udp.mos.expect("mos") > 4.0);
+    }
+
+    #[test]
+    fn short_runs_use_window_rate_without_ramp_samples_and_high_delay_degrades_mos() {
+        let ramp_ticks = vec![
+            ThroughputTick {
+                elapsed_ms: 250,
+                bytes: 10_000,
+            },
+            ThroughputTick {
+                elapsed_ms: 500,
+                bytes: 40_000,
+            },
+            ThroughputTick {
+                elapsed_ms: 750,
+                bytes: 120_000,
+            },
+        ];
+        let (fallback, steady) = super::compute_throughput_stats(1_000_000, 1_000, &ramp_ticks);
+        assert!(
+            steady.is_empty(),
+            "sub-ramp runs must not treat slow-start ramp ticks as steady-state samples"
+        );
+        assert_eq!(fallback.bytes, 1_000_000);
+        assert_eq!(fallback.bps, 8_000_000);
+        assert!((fallback.mbps - 8.0).abs() < 1e-6);
+        assert!(super::compute_quality(None, None, None, &steady, &steady).is_none());
+
+        let uneven = vec![
+            ThroughputTick {
+                elapsed_ms: 1_000,
+                bytes: 100_000,
+            },
+            ThroughputTick {
+                elapsed_ms: 1_500,
+                bytes: 600_000,
+            },
+            ThroughputTick {
+                elapsed_ms: 3_000,
+                bytes: 5_100_000,
+            },
+        ];
+        let (uneven_stats, uneven_steady) =
+            super::compute_throughput_stats(5_100_000, 3_000, &uneven);
+        assert_eq!(uneven_steady.len(), 2);
+        assert_eq!(uneven_stats.bps, 20_000_000);
+        assert!((uneven_stats.mbps - 20.0).abs() < 1e-6);
+        assert!((uneven_stats.mean_mbps - 16.0).abs() < 1e-6);
+
+        let degraded_mos = super::calculate_mos(2_000.0, 0.0, 0.0).expect("mos");
+        assert!(
+            degraded_mos < 2.0,
+            "G.107 delay slope > 177.3 ms must degrade 2s RTT MOS, got {degraded_mos}"
+        );
     }
 
     #[test]

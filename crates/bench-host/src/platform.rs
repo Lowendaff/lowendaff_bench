@@ -318,7 +318,7 @@ fn from_cpuid(signature: &str) -> Option<Hypervisor> {
 }
 
 /// Vendor prefixes in DMI fields, as in systemd's table.
-const DMI_VENDORS: [(&str, Hypervisor); 18] = [
+const DMI_VENDORS: [(&str, Hypervisor); 17] = [
     ("KVM", Hypervisor::Kvm),
     ("OpenStack", Hypervisor::Kvm),
     ("KubeVirt", Hypervisor::Kvm),
@@ -329,7 +329,6 @@ const DMI_VENDORS: [(&str, Hypervisor); 18] = [
     ("VMW", Hypervisor::Vmware),
     ("innotek GmbH", Hypervisor::VirtualBox),
     ("VirtualBox", Hypervisor::VirtualBox),
-    ("Oracle Corporation", Hypervisor::VirtualBox),
     ("Xen", Hypervisor::Xen),
     ("Bochs", Hypervisor::Other),
     ("Parallels", Hypervisor::Parallels),

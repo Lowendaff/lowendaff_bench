@@ -50,12 +50,17 @@ pub fn parse(response: &HttpResponse) -> Verdict {
             .get("country")
             .and_then(serde_json::Value::as_str)
             .and_then(parse::country_code);
-        return match (allowed, country.as_deref()) {
-            (Some(true), Some(code)) => Verdict::yes_in(code),
-            (Some(true), None) | (None, Some("TW")) => Verdict::yes_in("TW"),
-            (Some(false), _) | (_, Some(_)) => Verdict::no(),
-            (None, None) => Verdict::Unexpected("unrecognized KKTV payload".to_owned()),
-        };
+        if allowed == Some(false) {
+            return Verdict::no();
+        }
+        if (200..300).contains(&response.status) {
+            return match (allowed, country.as_deref()) {
+                (Some(true), Some(code)) => Verdict::yes_in(code),
+                (Some(true), None) | (None, Some("TW")) => Verdict::yes_in("TW"),
+                (Some(false), _) | (_, Some(_)) => Verdict::no(),
+                (None, None) => Verdict::Unexpected("unrecognized KKTV payload".to_owned()),
+            };
+        }
     }
     Verdict::Unexpected(format!("HTTP {}", response.status))
 }

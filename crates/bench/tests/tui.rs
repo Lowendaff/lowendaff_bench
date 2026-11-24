@@ -1186,6 +1186,13 @@ fn tui_hardening_guards_modifiers_sanitizes_controls_and_clamps_narrow_viewports
         json_frame.contains("\"system\""),
         "switching to narrower JSON format must reset/clamp scroll_x: {json_frame}"
     );
+    session.set_note(tui::session::NoteKind::Error, "stale save error");
+    let _ = session.handle_key(press(KeyCode::Char('s')));
+    assert!(
+        session.note.is_none(),
+        "opening Save Report editor must clear stale error notes"
+    );
+    let _ = session.handle_key(press(KeyCode::Esc));
 
     // 7. TaierPicker classifies overseas city-states as Overseas, single-city provinces as
     //    Province, steps out of Operators on '/', and handles 0-default catalogs cleanly.

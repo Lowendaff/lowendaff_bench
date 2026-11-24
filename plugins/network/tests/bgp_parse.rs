@@ -153,4 +153,16 @@ fn retains_rare_multi_layer_upstreams_when_primary_tier1_has_over_128_collector_
             .any(|p| p.asns == [65200, 174, 64521, 64520, 64500]),
         "retains 3-hop multi-layer backup chain despite >128 AS6939 collector variants"
     );
+    assert_eq!(
+        plugin_network::bgp::asns::clean_holder("Cloudflare\tInc."),
+        "Cloudflare"
+    );
+    assert_eq!(
+        plugin_network::bgp::asns::clean_holder("HETZNER-AS, DE\u{200e}"),
+        "HETZNER-AS"
+    );
+    assert_eq!(
+        plugin_network::bgp::asns::clean_holder("GOOD-AS - \x1b[31m\u{202e}"),
+        "GOOD-AS"
+    );
 }

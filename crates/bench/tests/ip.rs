@@ -279,6 +279,25 @@ fn report_masks_addresses_and_hides_ptr_by_default_and_shows_them_with_show_ip()
     assert!(full.contains("2001:db8::10"));
     assert!(full.contains("host-198-51-100-10.example.net"));
     insta::assert_snapshot!("ip_quality_show_ip", full);
+
+    let mut pct_out = sample_output();
+    pct_out.ipv4.as_mut().unwrap().notes = vec![(
+        "Scamalytics",
+        concat!(
+            "query%20198.51.100.10 and %5B2001%3Adb8%3A%3A10%5D ",
+            "or 2001:0db8:0000:0000:0000:0000:0000:0010 failed"
+        )
+        .to_owned(),
+    )];
+    let pct_masked = section(&[run(Status::Completed, Some(pct_out), None)], false);
+    assert!(!pct_masked.contains("198.51.100.10"), "{pct_masked}");
+    assert!(!pct_masked.contains("2001%3Adb8%3A%3A10"), "{pct_masked}");
+    assert!(
+        !pct_masked.contains("2001:0db8:0000:0000:0000:0000:0000:0010"),
+        "{pct_masked}"
+    );
+    assert!(pct_masked.contains("query%20198.51.*.*"), "{pct_masked}");
+    assert!(pct_masked.contains("%5B2001:db8:*%5D"), "{pct_masked}");
 }
 
 #[test]

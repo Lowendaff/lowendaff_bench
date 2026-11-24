@@ -445,4 +445,47 @@ fn a_memory_limit_counts_only_below_what_proc_shows() {
             swap_used: 0,
         }
     );
+
+    const HOST_SWAP: &str = "MemTotal:        1048576 kB\nMemFree:          131072 kB\n\
+        MemAvailable:     262144 kB\nSwapTotal:        524288 kB\nSwapFree:         262144 kB\n";
+    let ram_capped_unbounded_swap = container((
+        &[
+            ("/proc/meminfo", HOST_SWAP),
+            ("/sys/fs/cgroup/memory.max", "268435456\n"),
+            ("/sys/fs/cgroup/memory.current", "300000000\n"),
+            ("/sys/fs/cgroup/memory.swap.max", "max\n"),
+            ("/sys/fs/cgroup/memory.swap.current", "0\n"),
+        ],
+        &[],
+    ));
+    assert_eq!(
+        memory(ram_capped_unbounded_swap),
+        MemoryFacts {
+            total: 256 << 20,
+            used: 256 << 20,
+            estimated: false,
+            swap_total: 512 << 20,
+            swap_used: 0,
+        }
+    );
+
+    let swap_disabled_only = container((
+        &[
+            ("/proc/meminfo", HOST_SWAP),
+            ("/sys/fs/cgroup/memory.max", "max\n"),
+            ("/sys/fs/cgroup/memory.swap.max", "0\n"),
+            ("/sys/fs/cgroup/memory.swap.current", "0\n"),
+        ],
+        &[],
+    ));
+    assert_eq!(
+        memory(swap_disabled_only),
+        MemoryFacts {
+            total: 1 << 30,
+            used: 768 << 20,
+            estimated: false,
+            swap_total: 0,
+            swap_used: 0,
+        }
+    );
 }

@@ -18,6 +18,23 @@ pub enum Verdict {
     Failed(Fault),
 }
 
+const MAX_QUOTED_CHARS: usize = 512;
+
+fn is_claim_line(line: &str) -> bool {
+    let lower = line.to_ascii_lowercase();
+    lower.contains("claim?key=")
+        || (lower.contains("geekbench.com/") && lower.contains("/claim"))
+        || (lower.starts_with("https://browser.geekbench.com/") && lower.contains("key="))
+}
+
+fn bound_quoted(line: &str) -> &str {
+    let trimmed = line.trim();
+    match trimmed.char_indices().nth(MAX_QUOTED_CHARS) {
+        Some((idx, _)) => &trimmed[..idx],
+        None => trimmed,
+    }
+}
+
 /// The verdict on a run that finished.
 #[must_use]
 pub fn verdict(output: &job::Output) -> Verdict {
@@ -25,12 +42,13 @@ pub fn verdict(output: &job::Output) -> Verdict {
     if let Some(scores) = scores(text) {
         return Verdict::Scores(scores);
     }
-    let lines: Vec<&str> = text.lines().map(str::trim).collect();
+    let lines: Vec<&str> = text.split(['\n', '\r']).map(str::trim).collect();
     if let Some(reason) = lines
         .iter()
+        .filter(|line| !is_claim_line(line))
         .find_map(|line| line.strip_prefix("console_upload_failed "))
     {
-        return Verdict::UploadFailed(reason.trim().to_owned());
+        return Verdict::UploadFailed(bound_quoted(reason).to_owned());
     }
     let uploading = lines
         .iter()
@@ -54,7 +72,7 @@ pub fn verdict(output: &job::Output) -> Verdict {
 /// version in the first line.
 fn scores(text: &str) -> Option<Scores> {
     let summary = text
-        .lines()
+        .split(['\n', '\r'])
         .skip_while(|line| line.trim() != "Benchmark Summary");
     let mut single = None;
     let mut multi = None;
@@ -67,10 +85,15 @@ fn scores(text: &str) -> Option<Scores> {
         }
     }
     let url = text
-        .lines()
+        .split(['\n', '\r'])
         .skip_while(|line| !line.trim().starts_with("Upload succeeded"))
         .map(str::trim)
-        .find(|line| line.starts_with("https://browser.geekbench.com/") && !line.contains("/claim"))
+        .find(|line| {
+            line.starts_with("https://browser.geekbench.com/")
+                && !is_claim_line(line)
+                && !line.chars().any(char::is_whitespace)
+                && line.len() <= MAX_QUOTED_CHARS
+        })
         .map(str::to_owned);
     Some(Scores {
         version: version(text),
@@ -83,17 +106,21 @@ fn scores(text: &str) -> Option<Scores> {
 /// The version in the first line, `Geekbench 7.1.0 : https://www.geekbench.com/`, or
 /// `Geekbench 7.1.0 Preview : ...` for the build for aarch64.
 fn version(text: &str) -> Option<String> {
-    let (name, _) = text.lines().next()?.split_once(" : ")?;
+    let first = text
+        .split(['\n', '\r'])
+        .map(str::trim)
+        .find(|line| !line.is_empty())?;
+    let (name, _) = first.split_once(" : ")?;
     let version = name.strip_prefix("Geekbench ")?.trim();
-    version
-        .starts_with(|c: char| c.is_ascii_digit())
+    (version.starts_with(|c: char| c.is_ascii_digit()) && version.len() <= 128)
         .then(|| version.to_owned())
 }
 
 /// The last line with text, never the link that claims the result, to quote in a reason.
 fn last_line(text: &str) -> Option<&str> {
-    text.lines()
+    text.split(['\n', '\r'])
         .rev()
         .map(str::trim)
-        .find(|line| !line.is_empty() && !line.contains("claim?key="))
+        .find(|line| !line.is_empty() && !is_claim_line(line))
+        .map(bound_quoted)
 }

@@ -169,11 +169,24 @@ struct ActiveRun {
     handle: JoinHandle<()>,
 }
 
+struct AbortInner(tokio::task::AbortHandle);
+
+impl Drop for AbortInner {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
 async fn shutdown_active_run(active_run: &mut Option<ActiveRun>) {
     if let Some(mut run) = active_run.take() {
         run.cancel.cancel();
-        let _ = tokio::time::timeout(Duration::from_secs(5), &mut run.handle).await;
-        run.handle.abort();
+        let grace = app::GRACE
+            .saturating_mul(2)
+            .saturating_add(Duration::from_secs(2));
+        if tokio::time::timeout(grace, &mut run.handle).await.is_err() {
+            run.handle.abort();
+            let _ = tokio::time::timeout(Duration::from_secs(1), &mut run.handle).await;
+        }
     }
 }
 
@@ -496,6 +509,7 @@ fn launch_run(
             )
             .await
         });
+        let _abort_inner = AbortInner(inner.abort_handle());
         let outcome = match inner.await {
             Ok(res) => res.map_err(|err| report::terminal::strip_terminal_controls(&err, false)),
             Err(err) => Err(report::terminal::strip_terminal_controls(

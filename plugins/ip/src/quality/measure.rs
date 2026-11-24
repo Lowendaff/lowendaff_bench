@@ -79,10 +79,10 @@ pub async fn measure(
     };
 
     let targets = [
-        (IpFamily::Ipv4, v4_ip, ipv6_reachable, false),
-        (IpFamily::Ipv6, v6_ip, ipv4_reachable, true),
+        (IpFamily::Ipv4, v4_ip, v6_ip, ipv6_reachable, false),
+        (IpFamily::Ipv6, v6_ip, v4_ip, ipv4_reachable, true),
     ];
-    for (family, maybe_ip, other_reachable, ipv6) in targets {
+    for (family, maybe_ip, other_ip, other_reachable, ipv6) in targets {
         let Some(ip) = maybe_ip else {
             continue;
         };
@@ -102,10 +102,26 @@ pub async fn measure(
             (spec, res)
         });
         let cancel = ctx.cancel_token();
-        let intel_outcomes =
+        let mut intel_outcomes =
             bench_api::run_bounded(providers::ALL.len(), &cancel, intel_tasks).await;
         if cancel.is_cancelled() {
             return Err(Stop::Failed(Failure::Cancelled));
+        }
+        if let Some(peer_ip) = other_ip {
+            for (_, res) in &mut intel_outcomes {
+                match res {
+                    Ok(data) => {
+                        if let Some(super::result::ScoreVerdict::Unexpected(why)) = &mut data.score
+                        {
+                            *why = parse::scrub_ip(why, peer_ip);
+                        }
+                    }
+                    Err(ProviderFailure::Unexpected(why)) => {
+                        *why = parse::scrub_ip(why, peer_ip);
+                    }
+                    Err(_) => {}
+                }
+            }
         }
 
         let dnsbl_summary = if settings.dnsbl {
@@ -242,7 +258,13 @@ pub fn aggregate(
                 if spec.has_score
                     && let Some(score) = &data.score
                 {
-                    scores.push((spec.name, score.clone()));
+                    let scrubbed_score = match score {
+                        super::result::ScoreVerdict::Unexpected(why) => {
+                            super::result::ScoreVerdict::Unexpected(parse::scrub_ip(why, address))
+                        }
+                        other => other.clone(),
+                    };
+                    scores.push((spec.name, scrubbed_score));
                 }
             }
             Err(fail) => {

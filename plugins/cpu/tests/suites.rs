@@ -193,6 +193,12 @@ fn ycruncher_parses_pi_times_efficiency_and_enforces_spot_check() {
         ycruncher::parse::reading(&exited(0, bad), 25_000_000),
         Err(ycruncher::Fault::ValidationFailed)
     );
+
+    let sgr0_wrapped = fixture("ycruncher/x86_64-25m.txt").replace(
+        "Spot Check: Good",
+        "\x1b(B\x1b[mSpot Check: Good\x1b]0;unclosed",
+    );
+    assert!(ycruncher::parse::reading(&exited(0, sgr0_wrapped), 25_000_000).is_ok());
 }
 
 #[test]
@@ -219,6 +225,27 @@ fn prime95_parses_torture_summary_and_catches_hardware_rounding_errors() {
         prime95::parse::reading(&exited(0, hw_fail), 65),
         Err(prime95::Fault::HardwareError(_))
     ));
+
+    let unprefixed = "FATAL ERROR: Rounding was 0.5 [detail]\n";
+    assert_eq!(
+        prime95::parse::reading(&exited(0, unprefixed.to_owned()), 65),
+        Err(prime95::Fault::HardwareError(
+            "FATAL ERROR: Rounding was 0.5 [detail]".to_owned()
+        ))
+    );
+    let rel_job = prime95::measure::attempt(
+        Path::new("/tools/prime95/mprime"),
+        Path::new("rel/prime95"),
+        Duration::from_secs(65),
+    );
+    assert_eq!(
+        rel_job.args,
+        [
+            OsString::from("-t"),
+            OsString::from("-d"),
+            OsString::from("-W.")
+        ]
+    );
 }
 
 #[tokio::test]

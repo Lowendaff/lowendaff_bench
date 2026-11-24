@@ -576,11 +576,16 @@ fn json_format_is_structured_and_respects_show_ip_across_host_trace_and_ip_quali
             country: "AU".to_owned(),
         },
         usage: None,
-        scores: Vec::new(),
+        scores: vec![(
+            "Scamalytics",
+            plugin_ip::quality::ScoreVerdict::Unexpected(
+                "status 500 for 203.0.113.7 / 2001:db8::7".to_owned(),
+            ),
+        )],
         factors: Vec::new(),
         dnsbl: None,
         mail: Vec::new(),
-        notes: Vec::new(),
+        notes: vec![("ipinfo.io", "timeout on 2001:db8::7".to_owned())],
     };
     let v6_rep = FamilyReport {
         address: "2001:db8::7".parse().expect("ipv6"),
@@ -881,6 +886,57 @@ fn bgp_renders_text_imageupload_url_mermaid_and_json_svg_with_ip_masking() {
     assert_eq!(
         full_json["runs"][0]["output"]["ipv4"]["prefix"],
         "203.0.113.0/24"
+    );
+
+    // A BGP report constructed without `prefix_base` still masks `prefix` when `!show_ip`.
+    let raw_only_run = run(
+        "network.bgp",
+        Status::Completed,
+        Some(1.0),
+        Some(Measured::NetworkBgp(Report {
+            output: Some(bgp::Output {
+                settings: bgp::Settings {
+                    upload: false,
+                    ..bgp::Settings::default()
+                },
+                ipv4_reachable: true,
+                ipv6_reachable: false,
+                ipv4: Some(Box::new(FamilyBgp {
+                    address: "203.0.113.7".parse().expect("ipv4"),
+                    announced: true,
+                    prefix: Some("203.0.113.0/24".to_owned()),
+                    prefix_base: None,
+                    prefix_len: None,
+                    origin_asn: None,
+                    origins: Vec::new(),
+                    rpki: RpkiStatus::Unknown,
+                    total_peers: 0,
+                    distinct_paths: 0,
+                    upstreams: Vec::new(),
+                    paths: Vec::new(),
+                    asn_names: BTreeMap::new(),
+                    diagram_url: None,
+                })),
+                ipv6: None,
+                notes: Vec::new(),
+                upload_notes: Vec::new(),
+            }),
+            stop: None,
+        })),
+    );
+    let raw_only_runs = [raw_only_run];
+    let raw_only_json: serde_json::Value = serde_json::from_str(&report::render(
+        &Page {
+            runs: &raw_only_runs,
+            ..masked_page
+        },
+        Format::Json,
+        None,
+    ))
+    .expect("valid JSON");
+    assert_eq!(
+        raw_only_json["runs"][0]["output"]["ipv4"]["prefix"],
+        "203.0.*.*/24"
     );
 }
 

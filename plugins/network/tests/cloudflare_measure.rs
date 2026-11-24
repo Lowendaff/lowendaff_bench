@@ -314,6 +314,8 @@ async fn cloudflare_plugin_validates_endpoints_skips_offline_and_preserves_parti
         "stun.cloudflare.com:3478",
         "stun host.example",
         "0x7f000001",
+        "169.254.169.0xfe",
+        "stun.cloudflare.com..",
     ] {
         assert!(
             cloudflare::validate_stun_host(bad).is_err(),

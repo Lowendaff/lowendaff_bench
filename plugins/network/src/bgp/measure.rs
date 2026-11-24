@@ -87,6 +87,7 @@ pub async fn measure(
         upload_notes: Vec::new(),
     };
 
+    let host_ips: Vec<IpAddr> = [v4_ip, v6_ip].into_iter().flatten().collect();
     let targets = [
         (IpFamily::Ipv4, v4_ip, ipv6_reachable, false),
         (IpFamily::Ipv6, v6_ip, ipv4_reachable, true),
@@ -104,7 +105,7 @@ pub async fn measure(
         let fallback =
             other_reachable.then_some(if ipv6 { IpFamily::Ipv4 } else { IpFamily::Ipv6 });
 
-        match query_family(ctx, base, ip, family, fallback).await {
+        match query_family(ctx, base, ip, &host_ips, family, fallback).await {
             Ok(report) => {
                 if ipv6 {
                     output.ipv6 = Some(Box::new(report));
@@ -146,14 +147,19 @@ async fn query_family(
     ctx: &Context<Output>,
     base: &str,
     ip: IpAddr,
+    host_ips: &[IpAddr],
     family: IpFamily,
     fallback: Option<IpFamily>,
 ) -> Result<FamilyBgp, FamilyError> {
+    let mut redact_ips = host_ips.to_vec();
+    if !redact_ips.contains(&ip) {
+        redact_ips.push(ip);
+    }
     let state_url = format!("{base}/bgp-state/data.json?resource={ip}");
     let state_resp = fetch_with_fallback(
         ctx,
         &state_url,
-        ip,
+        &redact_ips,
         family,
         fallback,
         BGP_STATE_TIMEOUT,
@@ -166,7 +172,7 @@ async fn query_family(
         )));
     }
     let parsed = parse::parse_bgp_state(&state_resp.body)
-        .map_err(|err| FamilyError::Failed(scrub_query_error(err, ip)))?;
+        .map_err(|err| FamilyError::Failed(scrub_query_error(err, &redact_ips)))?;
 
     if !parsed.announced {
         return Ok(FamilyBgp {
@@ -224,6 +230,7 @@ async fn query_family(
         (Some(base_ip), Some(len)) => Some(format!("{base_ip}/{len}")),
         _ => parsed.prefix.as_deref().map(|s| s.trim().to_owned()),
     };
+    let redact_ref = redact_ips.as_slice();
     let rpki_fut = async {
         let (Some(origin), Some(prefix)) = (parsed.origin_asn, rpki_prefix.as_deref()) else {
             return Ok(RpkiStatus::Unknown);
@@ -232,7 +239,7 @@ async fn query_family(
         match fetch_with_fallback(
             ctx,
             &url,
-            ip,
+            redact_ref,
             family,
             fallback,
             ENRICH_TIMEOUT,
@@ -255,7 +262,7 @@ async fn query_family(
         let res = fetch_with_fallback(
             ctx,
             &url,
-            ip,
+            redact_ref,
             family,
             fallback,
             ENRICH_TIMEOUT,
@@ -309,7 +316,7 @@ async fn query_family(
 async fn fetch_with_fallback(
     ctx: &Context<Output>,
     url: &str,
-    ip: IpAddr,
+    ips: &[IpAddr],
     family: IpFamily,
     fallback: Option<IpFamily>,
     timeout: Duration,
@@ -332,79 +339,120 @@ async fn fetch_with_fallback(
                     Ok(resp) => return Ok(resp),
                     Err(HttpError::Cancelled) => return Err(FamilyError::Cancelled),
                     Err(fallback_err) if matches!(primary_err, HttpError::NoAddress) => {
-                        return Err(FamilyError::Failed(http_query_error(&fallback_err, ip)));
+                        return Err(FamilyError::Failed(http_query_error(&fallback_err, ips)));
                     }
                     Err(_) => {}
                 }
             }
-            Err(FamilyError::Failed(http_query_error(&primary_err, ip)))
+            Err(FamilyError::Failed(http_query_error(&primary_err, ips)))
         }
     }
 }
 
-fn http_query_error(err: &HttpError, ip: IpAddr) -> QueryError {
+fn http_query_error(err: &HttpError, ips: &[IpAddr]) -> QueryError {
     match err {
         HttpError::NoAddress => QueryError::NoAddress,
         HttpError::TimedOut => QueryError::TimedOut,
         HttpError::TooManyRedirects => QueryError::TooManyRedirects,
-        HttpError::InvalidRedirect(why) => QueryError::InvalidRedirect(scrub_detail(why, ip)),
-        HttpError::NotHttps(why) => QueryError::NotHttps(scrub_url_or_detail(why, ip)),
-        HttpError::Transport(why) => QueryError::Transport(scrub_detail(why, ip)),
+        HttpError::InvalidRedirect(why) => QueryError::InvalidRedirect(scrub_detail(why, ips)),
+        HttpError::NotHttps(why) => QueryError::NotHttps(scrub_url_or_detail(why, ips)),
+        HttpError::Transport(why) => QueryError::Transport(scrub_detail(why, ips)),
         HttpError::Cancelled => QueryError::NoData,
     }
 }
 
-fn scrub_query_error(err: QueryError, ip: IpAddr) -> QueryError {
+fn scrub_query_error(err: QueryError, ips: &[IpAddr]) -> QueryError {
     match err {
-        QueryError::InvalidRedirect(why) => QueryError::InvalidRedirect(scrub_detail(&why, ip)),
-        QueryError::NotHttps(why) => QueryError::NotHttps(scrub_url_or_detail(&why, ip)),
-        QueryError::Transport(why) => QueryError::Transport(scrub_detail(&why, ip)),
-        QueryError::InvalidJson(why) => QueryError::InvalidJson(scrub_detail(&why, ip)),
-        QueryError::ApiStatus(why) => QueryError::ApiStatus(scrub_detail(&why, ip)),
+        QueryError::InvalidRedirect(why) => QueryError::InvalidRedirect(scrub_detail(&why, ips)),
+        QueryError::NotHttps(why) => QueryError::NotHttps(scrub_url_or_detail(&why, ips)),
+        QueryError::Transport(why) => QueryError::Transport(scrub_detail(&why, ips)),
+        QueryError::InvalidJson(why) => QueryError::InvalidJson(scrub_detail(&why, ips)),
+        QueryError::ApiStatus(why) => QueryError::ApiStatus(scrub_detail(&why, ips)),
         other => other,
     }
 }
 
-fn scrub_url_or_detail(raw: &str, ip: IpAddr) -> String {
-    let trimmed = raw.trim();
+fn scrub_url_or_detail(raw: &str, ips: &[IpAddr]) -> String {
+    let cleaned = sanitize_error_text(raw);
+    let trimmed = cleaned.trim();
     for scheme in ["http://", "https://"] {
-        if let Some(rest) = trimmed.strip_prefix(scheme) {
+        if trimmed
+            .get(..scheme.len())
+            .is_some_and(|p| p.eq_ignore_ascii_case(scheme))
+        {
+            let rest = &trimmed[scheme.len()..];
             let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
             let host = authority
                 .rsplit_once('@')
                 .map_or(authority, |(_, h)| h)
                 .trim();
-            return scrub_detail(&format!("{scheme}{host}"), ip);
+            return scrub_detail(&format!("{scheme}{host}"), ips);
         }
     }
-    scrub_detail(trimmed, ip)
+    scrub_detail(trimmed, ips)
 }
 
-fn scrub_detail(raw: &str, ip: IpAddr) -> String {
-    let mut text = strip_for_url(raw);
+fn scrub_detail(raw: &str, ips: &[IpAddr]) -> String {
+    let mut text = sanitize_error_text(raw);
     for scheme in ["https://", "http://"] {
         text = redact_inline_urls(&text, scheme);
     }
-    let needle = ip.to_string();
-    if !needle.is_empty() {
-        text = replace_ascii_case_insensitive(&text, &needle, &mask_ip(ip));
+    text = strip_for_url(&text);
+    for &ip in ips {
+        let masked = mask_ip(ip);
+        match ip {
+            IpAddr::V4(v4) => {
+                let canon = v4.to_string();
+                let enc = canon.replace('.', "%2E");
+                text = replace_ascii_case_insensitive(&text, &enc, &masked);
+                text = replace_ascii_case_insensitive(&text, &canon, &masked);
+            }
+            IpAddr::V6(v6) => {
+                let segs = v6.segments();
+                let padded = format!(
+                    "{:04x}:{:04x}:{:04x}:{:04x}:{:04x}:{:04x}:{:04x}:{:04x}",
+                    segs[0], segs[1], segs[2], segs[3], segs[4], segs[5], segs[6], segs[7]
+                );
+                let full = format!(
+                    "{:x}:{:x}:{:x}:{:x}:{:x}:{:x}:{:x}:{:x}",
+                    segs[0], segs[1], segs[2], segs[3], segs[4], segs[5], segs[6], segs[7]
+                );
+                let canon = v6.to_string();
+                for form in [
+                    padded.replace(':', "%3A"),
+                    padded,
+                    full.replace(':', "%3A"),
+                    full,
+                    canon.replace(':', "%3A"),
+                    canon,
+                ] {
+                    text = replace_ascii_case_insensitive(&text, &form, &masked);
+                }
+            }
+        }
     }
-    let cleaned: String = text
-        .chars()
-        .filter(|&c| {
-            !c.is_control()
-                && !matches!(
+    let bounded: String = text.chars().take(256).collect();
+    bounded.trim().to_owned()
+}
+
+fn sanitize_error_text(raw: &str) -> String {
+    let mut out = String::with_capacity(raw.len());
+    for ch in raw.chars() {
+        match ch {
+            '\r' | '\n' | '\t' => out.push(' '),
+            c if c.is_control()
+                || matches!(
                     c,
                     '\u{061c}'
                         | '\u{200e}'
                         | '\u{200f}'
                         | '\u{202a}'..='\u{202e}'
                         | '\u{2066}'..='\u{2069}'
-                )
-        })
-        .take(256)
-        .collect();
-    cleaned.trim().to_owned()
+                ) => {}
+            c => out.push(c),
+        }
+    }
+    out
 }
 
 fn strip_for_url(raw: &str) -> String {
@@ -412,22 +460,59 @@ fn strip_for_url(raw: &str) -> String {
         return raw.to_owned();
     };
     let tail = &raw[start + " for url (".len()..];
-    if let Some(end) = tail.find(')') {
-        format!("{}{}", &raw[..start], &tail[end + 1..])
-    } else {
-        raw[..start].to_owned()
+    let mut depth = 1_usize;
+    for (idx, ch) in tail.char_indices() {
+        if ch == '(' {
+            depth += 1;
+        } else if ch == ')' {
+            depth -= 1;
+            if depth == 0 {
+                return format!("{}{}", &raw[..start], &tail[idx + 1..]);
+            }
+        }
     }
+    raw[..start].to_owned()
 }
 
 fn redact_inline_urls(text: &str, scheme: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut rest = text;
-    while let Some(pos) = rest.find(scheme) {
+    while let Some(pos) = find_ascii_case_insensitive(rest, scheme) {
         out.push_str(&rest[..pos]);
         let after = &rest[pos + scheme.len()..];
-        let end = after
-            .find(|c: char| c.is_whitespace() || matches!(c, ')' | ']' | '"' | '\'' | ',' | ';'))
-            .unwrap_or(after.len());
+        let mut paren_depth = 0_usize;
+        let mut bracket_depth = 0_usize;
+        let mut end = after.len();
+        for (idx, ch) in after.char_indices() {
+            if ch == '(' {
+                paren_depth += 1;
+                continue;
+            }
+            if ch == ')' {
+                if paren_depth > 0 {
+                    paren_depth -= 1;
+                    continue;
+                }
+                end = idx;
+                break;
+            }
+            if ch == '[' {
+                bracket_depth += 1;
+                continue;
+            }
+            if ch == ']' {
+                if bracket_depth > 0 {
+                    bracket_depth -= 1;
+                    continue;
+                }
+                end = idx;
+                break;
+            }
+            if ch.is_whitespace() || matches!(ch, '>' | '"' | '\'' | ',' | ';') {
+                end = idx;
+                break;
+            }
+        }
         let url_body = &after[..end];
         let authority = url_body.split(['/', '?', '#']).next().unwrap_or_default();
         let host = authority.rsplit_once('@').map_or(authority, |(_, h)| h);
@@ -437,6 +522,17 @@ fn redact_inline_urls(text: &str, scheme: &str) -> String {
     }
     out.push_str(rest);
     out
+}
+
+fn find_ascii_case_insensitive(haystack: &str, needle: &str) -> Option<usize> {
+    let h_bytes = haystack.as_bytes();
+    let n_bytes = needle.as_bytes();
+    if n_bytes.is_empty() || h_bytes.len() < n_bytes.len() {
+        return None;
+    }
+    (0..=h_bytes.len() - n_bytes.len()).find(|&i| {
+        haystack.is_char_boundary(i) && h_bytes[i..i + n_bytes.len()].eq_ignore_ascii_case(n_bytes)
+    })
 }
 
 fn replace_ascii_case_insensitive(haystack: &str, needle: &str, replacement: &str) -> String {

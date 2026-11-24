@@ -603,19 +603,23 @@ fn escape_md_text(text: &str) -> String {
 /// Escapes a standalone Markdown paragraph line, neutralizing leading CommonMark block markers
 /// (`#`, `>`, `-`, `+`, or ordered-list `1.`/`1)`) in addition to inline metacharacters.
 fn escape_md_line(trimmed: &str) -> String {
-    let escaped = escape_md_text(trimmed);
-    let needs_prefix = match escaped.as_bytes().first().copied() {
-        Some(b'#' | b'>' | b'-' | b'+') => true,
+    let mut escaped = escape_md_text(trimmed);
+    match escaped.as_bytes().first().copied() {
+        Some(b'#' | b'>' | b'-' | b'+') => format!("\\{escaped}"),
         Some(b'0'..=b'9') => {
             let digits = escaped.bytes().take_while(u8::is_ascii_digit).count();
-            matches!(escaped.as_bytes().get(digits), Some(b'.' | b')'))
+            let is_ordered_list = digits <= 9
+                && matches!(escaped.as_bytes().get(digits), Some(b'.' | b')'))
+                && matches!(
+                    escaped.as_bytes().get(digits + 1),
+                    None | Some(b' ' | b'\t')
+                );
+            if is_ordered_list {
+                escaped.insert(digits, '\\');
+            }
+            escaped
         }
-        _ => false,
-    };
-    if needs_prefix {
-        format!("\\{escaped}")
-    } else {
-        escaped
+        _ => escaped,
     }
 }
 
@@ -740,6 +744,8 @@ mod tests {
         md.field("  ", "DMI", "<OUT OF SPEC> ![img](https://evil.test)");
         md.line("# Fake heading");
         md.line("> Fake quote");
+        md.line("1. Fake list");
+        md.line("1.1.1.1 (Cloudflare)");
         assert!(
             md.text
                 .contains("- **DMI:** \\<OUT OF SPEC> !\\[img\\](https://evil.test)\n"),
@@ -748,5 +754,7 @@ mod tests {
         );
         assert!(md.text.contains("\n\\# Fake heading\n"), "{}", md.text);
         assert!(md.text.contains("\n\\> Fake quote\n"), "{}", md.text);
+        assert!(md.text.contains("\n1\\. Fake list\n"), "{}", md.text);
+        assert!(md.text.contains("\n1.1.1.1 (Cloudflare)\n"), "{}", md.text);
     }
 }

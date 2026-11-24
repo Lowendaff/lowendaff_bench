@@ -158,4 +158,12 @@ fn the_claim_link_is_never_the_result_link() {
             url: None
         })
     );
+
+    let cr_and_keyless_claim = "Uploading results\rUpload succeeded\r\
+                                https://browser.geekbench.com/v7/cpu/1/claim/secret_tok\n";
+    let cr_failed = verdict(Some(1), cr_and_keyless_claim);
+    assert!(
+        !format!("{cr_failed:?}").contains("secret_tok"),
+        "{cr_failed:?}"
+    );
 }

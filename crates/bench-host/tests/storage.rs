@@ -295,6 +295,10 @@ fn memory_and_zfs_are_told_apart_from_other_filesystems() {
     for (magic, kind) in [
         (0x0102_1994, FilesystemKind::Memory), // tmpfs
         (0x8584_58f6, FilesystemKind::Memory), // ramfs
+        (
+            i128::from(0x8584_58f6_u32.cast_signed()),
+            FilesystemKind::Memory,
+        ), // 32-bit signed statfs f_type for ramfs
         (0x2fc1_2fc1, FilesystemKind::Zfs),
         (0xef53, FilesystemKind::Other),      // ext4
         (0x5846_5342, FilesystemKind::Other), // xfs

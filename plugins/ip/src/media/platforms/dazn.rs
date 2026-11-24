@@ -51,11 +51,13 @@ pub fn parse(response: &HttpResponse) -> Verdict {
     if let Some(early) = parse::gate(response) {
         return early;
     }
-    if matches!(response.status, 403 | 451) {
-        return Verdict::no();
-    }
+    let blocked_status = matches!(response.status, 403 | 451);
     let Some(val) = parse::json(response) else {
-        return Verdict::Unexpected(format!("HTTP {}", response.status));
+        return if blocked_status {
+            Verdict::no()
+        } else {
+            Verdict::Unexpected(format!("HTTP {}", response.status))
+        };
     };
     let region_obj = val
         .get("Region")
@@ -78,12 +80,16 @@ pub fn parse(response: &HttpResponse) -> Verdict {
         return match allowed {
             Some(true) if (200..300).contains(&response.status) => Verdict::Yes { region: country },
             Some(false) => Verdict::no(),
+            _ if blocked_status => Verdict::no(),
             Some(true) => Verdict::Unexpected(format!("HTTP {}", response.status)),
             None => Verdict::Unexpected("missing DAZN isAllowed".to_owned()),
         };
     }
     if let Some(odata) = val.get("odata.error") {
-        let code = odata.get("code").and_then(serde_json::Value::as_i64);
+        let code = odata.get("code").and_then(|v| {
+            v.as_i64()
+                .or_else(|| v.as_str().and_then(|s| s.trim().parse().ok()))
+        });
         let msg = odata
             .pointer("/message/value")
             .and_then(serde_json::Value::as_str)
@@ -100,6 +106,9 @@ pub fn parse(response: &HttpResponse) -> Verdict {
         {
             return Verdict::no();
         }
+    }
+    if blocked_status {
+        return Verdict::no();
     }
     Verdict::Unexpected("unrecognized DAZN payload".to_owned())
 }

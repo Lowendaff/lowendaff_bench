@@ -185,11 +185,19 @@ fn serialize_measured(measured: &Measured, own: &[IpAddr], show_ip: bool) -> Opt
         Measured::IpQuality(r) => r.output.as_ref().map(|out| {
             let mut val = to_value(out);
             if !show_ip {
+                let mut redact_addrs = own.to_vec();
+                for maybe_rep in [out.ipv4.as_deref(), out.ipv6.as_deref()] {
+                    if let Some(rep) = maybe_rep
+                        && !redact_addrs.contains(&rep.address)
+                    {
+                        redact_addrs.push(rep.address);
+                    }
+                }
                 if let Some(rep) = &out.ipv4 {
-                    mask_quality_family(&mut val, "ipv4", rep.address);
+                    mask_quality_family(&mut val, "ipv4", rep.address, &redact_addrs);
                 }
                 if let Some(rep) = &out.ipv6 {
-                    mask_quality_family(&mut val, "ipv6", rep.address);
+                    mask_quality_family(&mut val, "ipv6", rep.address, &redact_addrs);
                 }
             }
             val
@@ -202,19 +210,24 @@ fn to_value<T: Serialize>(value: &T) -> Value {
     serde_json::to_value(value).expect("plugin output serializes to JSON")
 }
 
-fn mask_quality_family(root: &mut Value, key: &str, address: IpAddr) {
+fn mask_quality_family(root: &mut Value, key: &str, address: IpAddr, redact_addrs: &[IpAddr]) {
     let Some(family) = root.get_mut(key).and_then(Value::as_object_mut) else {
         return;
     };
     family.insert("address".to_owned(), Value::String(network::mask(address)));
     family.insert("hostname".to_owned(), Value::Null);
+    let scrub_all = |text: &str| {
+        redact_addrs.iter().fold(text.to_owned(), |acc, &ip| {
+            plugin_ip::quality::parse::scrub_ip(&acc, ip)
+        })
+    };
     if let Some(notes) = family.get_mut("notes").and_then(Value::as_array_mut) {
         for entry in notes {
             if let Some(pair) = entry.as_array_mut()
                 && let Some(reason) = pair.get_mut(1)
                 && let Some(text) = reason.as_str()
             {
-                *reason = Value::String(plugin_ip::quality::parse::scrub_ip(text, address));
+                *reason = Value::String(scrub_all(text));
             }
         }
     }
@@ -222,10 +235,17 @@ fn mask_quality_family(root: &mut Value, key: &str, address: IpAddr) {
         for entry in scores {
             if let Some(pair) = entry.as_array_mut()
                 && let Some(verdict) = pair.get_mut(1).and_then(Value::as_object_mut)
-                && let Some(detail) = verdict.get_mut("detail")
-                && let Some(text) = detail.as_str()
             {
-                *detail = Value::String(plugin_ip::quality::parse::scrub_ip(text, address));
+                let field = if verdict.contains_key("Unexpected") {
+                    "Unexpected"
+                } else {
+                    "detail"
+                };
+                if let Some(detail) = verdict.get_mut(field)
+                    && let Some(text) = detail.as_str()
+                {
+                    *detail = Value::String(scrub_all(text));
+                }
             }
         }
     }
@@ -255,12 +275,16 @@ fn enrich_and_mask_bgp(root: &mut Value, out: &plugin_network::bgp::Output, show
                 "address".to_owned(),
                 Value::String(network::mask(rep.address)),
             );
-            if let (Some(base), Some(plen)) = (rep.prefix_base, rep.prefix_len) {
-                family.insert(
-                    "prefix".to_owned(),
-                    Value::String(format!("{}/{plen}", network::mask(base))),
-                );
-            }
+            let parsed_prefix = rep.prefix_base.zip(rep.prefix_len).or_else(|| {
+                rep.prefix
+                    .as_deref()
+                    .and_then(plugin_network::bgp::parse::parse_cidr)
+            });
+            let masked_prefix = match parsed_prefix {
+                Some((base, plen)) => Value::String(format!("{}/{plen}", network::mask(base))),
+                None => Value::Null,
+            };
+            family.insert("prefix".to_owned(), masked_prefix);
         }
         let svg = bgp_graph::layout(rep, None)
             .map(|graph| Value::String(bgp_graph::render_svg(&graph)))

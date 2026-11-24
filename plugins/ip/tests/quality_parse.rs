@@ -211,6 +211,11 @@ fn all_nine_provider_modules_parse_scores_identities_flags_and_waf_gates() {
     );
     assert!(greynoise::parse(&response(404, &[], "<html>404</html>")).is_err());
     assert!(greynoise::parse(&response(200, &[], "{}")).is_err());
+    assert!(shodan::parse(&response(200, &[], "{}")).is_err());
+    assert_eq!(
+        shodan::parse(&response(200, &[], r#"{"detail":"Rate limit exceeded"}"#)),
+        Err(plugin_ip::quality::parse::ProviderFailure::RateLimited)
+    );
     let num_org = ipinfo::parse(&response(200, &[], r#"{"org":"1984 ehf"}"#)).expect("ipinfo");
     assert_eq!(num_org.asn, None);
     assert_eq!(num_org.org.as_deref(), Some("1984 ehf"));

@@ -77,10 +77,19 @@ pub fn parse(response: &HttpResponse) -> Result<ProviderData, ProviderFailure> {
         return Err(ProviderFailure::Unexpected("invalid JSON".to_owned()));
     };
 
-    let ports = val
-        .get("ports")
-        .and_then(Value::as_array)
-        .map_or(0, Vec::len);
+    let Some(ports) = val.get("ports").and_then(Value::as_array).map(Vec::len) else {
+        for key in ["detail", "message", "error"] {
+            if let Some(msg) = val.get(key).and_then(Value::as_str) {
+                let lower = msg.to_ascii_lowercase();
+                if lower.contains("limit") || lower.contains("rate") {
+                    return Err(ProviderFailure::RateLimited);
+                }
+            }
+        }
+        return Err(ProviderFailure::Unexpected(
+            "missing Shodan ports array".to_owned(),
+        ));
+    };
     let vulns = val
         .get("vulns")
         .and_then(Value::as_array)

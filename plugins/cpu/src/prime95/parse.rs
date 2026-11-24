@@ -48,16 +48,16 @@ pub fn reading(output: &job::Output, duration_secs: u64) -> Result<Output, Fault
         }
     }
 
+    if errors > 0 {
+        return Err(Fault::HardwareError(format!(
+            "Torture Test reported {errors} error(s)"
+        )));
+    }
     if completed_workers == 0 || completed_workers < started_workers {
         if let Some(fault) = output.fault() {
             return Err(Fault::Tool(fault));
         }
         return Err(Fault::NoSummary);
-    }
-    if errors > 0 {
-        return Err(Fault::HardwareError(format!(
-            "Torture Test reported {errors} error(s)"
-        )));
     }
 
     Ok(Output {
@@ -115,7 +115,12 @@ fn hardware_error_line(text: &str) -> Option<String> {
             || upper.contains("SUM(INPUTS) !=")
             || upper.contains("ROUND OFF (")
         {
-            let clean = line.split_once(']').map_or(line, |(_, rest)| rest.trim());
+            let clean = line
+                .strip_prefix('[')
+                .and_then(|rest| rest.split_once(']'))
+                .map(|(_, rest)| rest.trim())
+                .filter(|rest| !rest.is_empty())
+                .unwrap_or(line);
             return Some(clean.to_owned());
         }
     }

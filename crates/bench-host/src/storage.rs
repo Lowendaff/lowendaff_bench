@@ -296,6 +296,7 @@ impl FilesystemKind {
     /// Classifies the magic number that `statfs(2)` reports in `f_type`.
     #[must_use]
     pub fn from_magic(magic: i128) -> Self {
+        let magic = i32::try_from(magic).map_or(magic, |v| i128::from(v.cast_unsigned()));
         match magic {
             // TMPFS_MAGIC and RAMFS_MAGIC from <linux/magic.h>.
             0x0102_1994 | 0x8584_58f6 => Self::Memory,
