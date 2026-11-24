@@ -216,6 +216,8 @@ pub trait TuiWords {
     fn tui_state_queued(&self) -> &'static str;
     /// Status badge for a currently running item.
     fn tui_state_running(&self) -> &'static str;
+    /// Status badge for a selected item that does not apply on the current host.
+    fn tui_state_not_applicable(&self) -> &'static str;
     /// Banner shown after the first Ctrl-C while stopping the active test.
     fn tui_stopping_banner(&self) -> &'static str;
     /// Keybar help while running.

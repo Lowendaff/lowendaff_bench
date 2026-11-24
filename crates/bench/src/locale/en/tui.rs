@@ -485,6 +485,10 @@ impl TuiWords for English {
         "running"
     }
 
+    fn tui_state_not_applicable(&self) -> &'static str {
+        "not applicable here"
+    }
+
     fn tui_stopping_banner(&self) -> &'static str {
         "Stopping current test for partial report... Press Ctrl-C again to exit immediately"
     }

@@ -8,6 +8,7 @@ pub mod taier_picker;
 pub mod ui;
 
 use std::collections::VecDeque;
+use std::fs;
 use std::io;
 use std::io::IsTerminal;
 use std::io::Stdout;
@@ -36,12 +37,15 @@ use crossterm::event::KeyEvent;
 use crossterm::terminal;
 use crossterm::terminal::EnterAlternateScreen;
 use crossterm::terminal::LeaveAlternateScreen;
+use plugin_network::taier::nodes::Location as TaierLocation;
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use tokio::runtime;
+use tokio::signal;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::mpsc::UnboundedSender;
+use tokio::task::JoinHandle;
 use tokio::time::MissedTickBehavior;
 
 use crate::app;
@@ -121,6 +125,7 @@ pub fn run(registry: &[Entry]) -> ExitCode {
     let exit = runtime.block_on(event_loop(registry, &mut term.terminal, ev_rx, &logs));
     stop_reader.store(true, Ordering::Relaxed);
     drop(term);
+    runtime.shutdown_background();
 
     if let Some(report) = exit.printed_report {
         let mut stdout = io::stdout();
@@ -161,6 +166,103 @@ struct ActiveRun {
     started: Instant,
     cancel: CancellationToken,
     rx: UnboundedReceiver<WorkerEvent>,
+    handle: JoinHandle<()>,
+}
+
+async fn shutdown_active_run(active_run: &mut Option<ActiveRun>) {
+    if let Some(mut run) = active_run.take() {
+        run.cancel.cancel();
+        let _ = tokio::time::timeout(Duration::from_secs(5), &mut run.handle).await;
+        run.handle.abort();
+    }
+}
+
+async fn recv_taier_task(
+    task: &mut Option<JoinHandle<Result<Vec<TaierLocation>, String>>>,
+) -> Result<Vec<TaierLocation>, String> {
+    let Some(handle) = task.as_mut() else {
+        return std::future::pending().await;
+    };
+    let joined = handle.await;
+    *task = None;
+    match joined {
+        Ok(res) => res,
+        Err(err) => Err(err.to_string()),
+    }
+}
+
+#[cfg(unix)]
+struct OsSignals {
+    int: Option<signal::unix::Signal>,
+    term: Option<signal::unix::Signal>,
+    hup: Option<signal::unix::Signal>,
+}
+
+#[cfg(unix)]
+impl OsSignals {
+    fn new() -> Self {
+        use tokio::signal::unix::SignalKind;
+
+        Self {
+            int: signal::unix::signal(SignalKind::interrupt()).ok(),
+            term: signal::unix::signal(SignalKind::terminate()).ok(),
+            hup: signal::unix::signal(SignalKind::hangup()).ok(),
+        }
+    }
+
+    async fn recv(&mut self) {
+        let f_int = async {
+            match self.int.as_mut() {
+                Some(s) => s.recv().await,
+                None => std::future::pending().await,
+            }
+        };
+        let f_term = async {
+            match self.term.as_mut() {
+                Some(s) => s.recv().await,
+                None => std::future::pending().await,
+            }
+        };
+        let f_hup = async {
+            match self.hup.as_mut() {
+                Some(s) => s.recv().await,
+                None => std::future::pending().await,
+            }
+        };
+        tokio::select! {
+            r = f_int => {
+                if r.is_none() {
+                    std::future::pending::<()>().await;
+                }
+            }
+            r = f_term => {
+                if r.is_none() {
+                    std::future::pending::<()>().await;
+                }
+            }
+            r = f_hup => {
+                if r.is_none() {
+                    std::future::pending::<()>().await;
+                }
+            }
+        }
+    }
+}
+
+#[cfg(not(unix))]
+struct OsSignals;
+
+#[cfg(not(unix))]
+impl OsSignals {
+    fn new() -> Self {
+        Self
+    }
+
+    async fn recv(&mut self) {
+        if signal::ctrl_c().await.is_err() {
+            std::future::pending::<()>().await;
+        }
+    }
 }
 
 async fn event_loop(
@@ -171,8 +273,8 @@ async fn event_loop(
 ) -> LoopExit {
     let mut session = Session::new(registry);
     let mut active_run: Option<ActiveRun> = None;
-    let (taier_tx, mut taier_rx) = mpsc::unbounded_channel();
-    let mut taier_loading = false;
+    let mut taier_task: Option<JoinHandle<Result<Vec<TaierLocation>, String>>> = None;
+    let mut os_signals = OsSignals::new();
     let mut tick = tokio::time::interval(Duration::from_millis(80));
     tick.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
@@ -181,7 +283,27 @@ async fn event_loop(
     loop {
         tokio::select! {
             biased;
-            Some(ev) = ev_rx.recv() => {
+            () = os_signals.recv() => {
+                if let Some(prev) = taier_task.take() {
+                    prev.abort();
+                }
+                shutdown_active_run(&mut active_run).await;
+                return LoopExit {
+                    code: app::EXIT_INTERRUPTED,
+                    printed_report: None,
+                };
+            }
+            maybe_ev = ev_rx.recv() => {
+                let Some(ev) = maybe_ev else {
+                    if let Some(prev) = taier_task.take() {
+                        prev.abort();
+                    }
+                    shutdown_active_run(&mut active_run).await;
+                    return LoopExit {
+                        code: app::EXIT_INTERRUPTED,
+                        printed_report: None,
+                    };
+                };
                 let cmd = match ev {
                     TermEvent::Key(key) => session.handle_key(key),
                     TermEvent::Paste(text) => {
@@ -201,21 +323,19 @@ async fn event_loop(
                         }
                     }
                     Command::LoadTaierNodes => {
-                        if !taier_loading {
-                            match DownloadProxy::try_new(
-                                Some(&session.config.global.socks5_proxy),
-                                Some(&session.config.global.github_proxy),
-                            ) {
-                                Ok(proxy) => {
-                                    taier_loading = true;
-                                    let tx = taier_tx.clone();
-                                    tokio::spawn(async move {
-                                        let res = app::fetch_taier_locations(&proxy).await;
-                                        let _ = tx.send(res);
-                                    });
-                                }
-                                Err(err) => session.on_taier_catalog_loaded(Err(err)),
+                        if let Some(prev) = taier_task.take() {
+                            prev.abort();
+                        }
+                        match DownloadProxy::try_new(
+                            Some(&session.config.global.socks5_proxy),
+                            Some(&session.config.global.github_proxy),
+                        ) {
+                            Ok(proxy) => {
+                                taier_task = Some(tokio::spawn(async move {
+                                    app::fetch_taier_locations(&proxy).await
+                                }));
                             }
+                            Err(err) => session.on_taier_catalog_loaded(Err(err)),
                         }
                     }
                     Command::CancelRun => {
@@ -231,15 +351,20 @@ async fn event_loop(
                         }
                     }
                     Command::Quit(code) => {
-                        if let Some(run) = &active_run {
-                            run.cancel.cancel();
+                        if let Some(prev) = taier_task.take() {
+                            prev.abort();
                         }
+                        shutdown_active_run(&mut active_run).await;
                         return LoopExit {
                             code,
                             printed_report: None,
                         };
                     }
                     Command::PrintAndQuit { report, exit_code } => {
+                        if let Some(prev) = taier_task.take() {
+                            prev.abort();
+                        }
+                        shutdown_active_run(&mut active_run).await;
                         return LoopExit {
                             code: exit_code,
                             printed_report: Some(report),
@@ -249,8 +374,7 @@ async fn event_loop(
                 logs.drain_into(&mut session);
                 let _ = terminal.draw(|frame| ui::draw(frame, &mut session));
             }
-            Some(res) = taier_rx.recv() => {
-                taier_loading = false;
+            res = recv_taier_task(&mut taier_task) => {
                 session.on_taier_catalog_loaded(res);
                 logs.drain_into(&mut session);
                 let _ = terminal.draw(|frame| ui::draw(frame, &mut session));
@@ -275,6 +399,19 @@ async fn event_loop(
                             WorkerEvent::Finished { result, saved_note } => {
                                 finished = Some((result, saved_note));
                             }
+                        }
+                    }
+                    if finished.is_none() && run.handle.is_finished() {
+                        while let Ok(ev) = run.rx.try_recv() {
+                            if let WorkerEvent::Finished { result, saved_note } = ev {
+                                finished = Some((result, saved_note));
+                            }
+                        }
+                        if finished.is_none() {
+                            finished = Some((
+                                Err(locale::words().panic_without_text()),
+                                None,
+                            ));
                         }
                     }
                     if let Some((result, saved_note)) = finished {
@@ -319,15 +456,17 @@ fn launch_run(
         Some(&session.config.global.github_proxy),
     )?;
 
-    let custom_output = {
-        let trimmed = session.config.global.output.trim();
-        (!trimmed.is_empty()).then(|| PathBuf::from(trimmed))
+    let custom_output: Option<(PathBuf, fs::File)> = match session.config.global.output.trim() {
+        "" => None,
+        trimmed => {
+            let path = PathBuf::from(trimmed);
+            let file = app::create_output(&path)?;
+            Some((path, file))
+        }
     };
-    if let Some(path) = &custom_output {
-        let _file = app::create_output(path)?;
-    }
 
-    logs.clear();
+    let started = Instant::now();
+    logs.reset(started);
     logs.set_verbose(session.config.global.verbose);
 
     let selected_meta: Vec<(&'static str, &'static str)> = planned
@@ -343,25 +482,36 @@ fn launch_run(
     let cancel = CancellationToken::new();
     let worker_cancel = cancel.clone();
     let (tx, rx) = mpsc::unbounded_channel();
-    let started = Instant::now();
 
-    tokio::spawn(async move {
-        let outcome = run_worker(
-            planned,
-            work_dir,
-            connections,
-            proxy,
-            &worker_cancel,
-            tx.clone(),
-        )
-        .await;
+    let handle = tokio::spawn(async move {
+        let tx_inner = tx.clone();
+        let inner = tokio::spawn(async move {
+            run_worker(
+                planned,
+                work_dir,
+                connections,
+                proxy,
+                &worker_cancel,
+                tx_inner,
+            )
+            .await
+        });
+        let outcome = match inner.await {
+            Ok(res) => res.map_err(|err| report::terminal::strip_terminal_controls(&err, false)),
+            Err(err) => Err(report::terminal::strip_terminal_controls(
+                &err.to_string(),
+                false,
+            )),
+        };
         let saved_note = match &outcome {
             Ok(done) => {
                 let text = done.render(save_format, None, save_show_ip);
-                let saved_path = match &custom_output {
-                    Some(target_path) => {
-                        report_path::save_copy(target_path, &text).map(|()| target_path.clone())
-                    }
+                let saved_path = match custom_output {
+                    Some((target_path, mut file)) => file
+                        .write_all(text.as_bytes())
+                        .and_then(|()| file.flush())
+                        .map(|()| target_path.clone())
+                        .map_err(|err| locale::words().output_unwritable(&target_path, &err)),
                     None => {
                         let base = report_path::default_path(save_format);
                         report_path::save_archive(&base, &text)
@@ -370,9 +520,15 @@ fn launch_run(
                 match saved_path {
                     Ok(written) => Some((
                         session::NoteKind::Info,
-                        locale::words().tui_saved_to(&written),
+                        report::terminal::strip_terminal_controls(
+                            &locale::words().tui_saved_to(&written),
+                            false,
+                        ),
                     )),
-                    Err(err) => Some((session::NoteKind::Error, err)),
+                    Err(err) => Some((
+                        session::NoteKind::Error,
+                        report::terminal::strip_terminal_controls(&err, false),
+                    )),
                 }
             }
             Err(_) => None,
@@ -387,6 +543,7 @@ fn launch_run(
         started,
         cancel,
         rx,
+        handle,
     })
 }
 
@@ -412,10 +569,25 @@ async fn run_worker(
         progress::network(&host.network);
     }
 
+    let not_applicable_msg = locale::words().tui_state_not_applicable();
+    for item in &planned {
+        if !item.host_requirements(&host).applies_to(&host) {
+            let _ = tx.send(WorkerEvent::ItemFinish {
+                id: item.id(),
+                status: not_applicable_msg.to_owned(),
+                failed: false,
+                skipped: true,
+            });
+        }
+    }
+
     let platform = report::terminal::platform_text(host.platform);
     let v4 = report::terminal::family_text(&host.network.ipv4, "IPv4", false);
     let v6 = report::terminal::family_text(&host.network.ipv6, "IPv6", false);
-    let summary = format!("{platform}, {}  |  IPv4: {v4}  |  IPv6: {v6}", host.arch);
+    let summary = report::terminal::strip_terminal_controls(
+        &format!("{platform}, {}  |  IPv4: {v4}  |  IPv6: {v6}", host.arch),
+        false,
+    );
     let _ = tx.send(WorkerEvent::HostSummary(summary));
 
     let fetchers = Fetchers::try_new_with_proxy(&proxy)?;
@@ -456,10 +628,8 @@ impl Observer<Measured> for TuiObserver {
     fn on_progress(&mut self, id: &'static str, step: &Step) {
         self.log.on_progress(id, step);
         let full = locale::words().item_progress(id, step);
-        let short = full
-            .strip_prefix(id)
-            .map_or(full.as_str(), str::trim_start)
-            .to_owned();
+        let raw_short = full.strip_prefix(id).map_or(full.as_str(), str::trim_start);
+        let short = report::terminal::strip_terminal_controls(raw_short, false);
         let _ = self.tx.send(WorkerEvent::ItemStep(id, short));
     }
 
@@ -469,7 +639,8 @@ impl Observer<Measured> for TuiObserver {
 
     fn on_finish(&mut self, run: &Run<Measured>) {
         self.log.on_finish(run);
-        let status = report::terminal::run_status(run);
+        let status =
+            report::terminal::strip_terminal_controls(&report::terminal::run_status(run), false);
         let failed = matches!(run.status, Status::Failed(_) | Status::TimedOut);
         let skipped = matches!(run.status, Status::Skipped(_) | Status::Cancelled);
         let _ = self.tx.send(WorkerEvent::ItemFinish {
@@ -483,20 +654,33 @@ impl Observer<Measured> for TuiObserver {
 
 static PANIC_HOOK_ONCE: Once = Once::new();
 static ALT_SCREEN_ACTIVE: AtomicBool = AtomicBool::new(false);
+static TUI_OWNER_THREAD: Mutex<Option<thread::ThreadId>> = Mutex::new(None);
 
 fn ensure_panic_hook() {
     PANIC_HOOK_ONCE.call_once(|| {
         let prev = std::panic::take_hook();
         std::panic::set_hook(Box::new(move |info| {
-            if ALT_SCREEN_ACTIVE.swap(false, Ordering::SeqCst) {
-                restore_terminal_raw();
+            if !ALT_SCREEN_ACTIVE.load(Ordering::SeqCst) {
+                prev(info);
+                return;
             }
-            prev(info);
+            let is_owner = TUI_OWNER_THREAD
+                .lock()
+                .ok()
+                .and_then(|guard| *guard)
+                .is_some_and(|owner| owner == thread::current().id());
+            if is_owner {
+                restore_terminal();
+                prev(info);
+            }
         }));
     });
 }
 
 fn restore_terminal() {
+    if let Ok(mut guard) = TUI_OWNER_THREAD.lock() {
+        *guard = None;
+    }
     if ALT_SCREEN_ACTIVE.swap(false, Ordering::SeqCst) {
         restore_terminal_raw();
     }
@@ -520,6 +704,9 @@ impl TerminalGuard {
     fn try_new() -> Result<Self, String> {
         ensure_panic_hook();
         terminal::enable_raw_mode().map_err(|_| locale::words().tui_not_a_tty())?;
+        if let Ok(mut guard) = TUI_OWNER_THREAD.lock() {
+            *guard = Some(thread::current().id());
+        }
         ALT_SCREEN_ACTIVE.store(true, Ordering::SeqCst);
         let mut stdout = io::stdout();
         if crossterm::execute!(stdout, EnterAlternateScreen, EnableBracketedPaste).is_err() {
@@ -564,9 +751,11 @@ fn spawn_event_reader(stop: Arc<AtomicBool>) -> UnboundedReceiver<TermEvent> {
                         }
                     }
                     Ok(_) => {}
+                    Err(err) if err.kind() == io::ErrorKind::Interrupted => {}
                     Err(_) => break,
                 },
                 Ok(false) => {}
+                Err(err) if err.kind() == io::ErrorKind::Interrupted => {}
                 Err(_) => break,
             }
         }
@@ -583,6 +772,7 @@ struct LogSink {
 
 struct LogSinkInner {
     verbose: AtomicBool,
+    origin: Arc<Mutex<Instant>>,
     lines: Mutex<VecDeque<String>>,
     partial: Mutex<String>,
 }
@@ -592,6 +782,7 @@ impl LogSink {
         Self {
             inner: Arc::new(LogSinkInner {
                 verbose: AtomicBool::new(false),
+                origin: Arc::new(Mutex::new(Instant::now())),
                 lines: Mutex::new(VecDeque::with_capacity(256)),
                 partial: Mutex::new(String::new()),
             }),
@@ -599,7 +790,8 @@ impl LogSink {
     }
 
     fn install_global(&self) {
-        let sub = progress::subscriber(self.clone(), true);
+        let sub =
+            progress::subscriber_with_origin(self.clone(), true, Arc::clone(&self.inner.origin));
         let _ = tracing::subscriber::set_global_default(sub);
     }
 
@@ -607,7 +799,10 @@ impl LogSink {
         self.inner.verbose.store(verbose, Ordering::Relaxed);
     }
 
-    fn clear(&self) {
+    fn reset(&self, now: Instant) {
+        if let Ok(mut origin) = self.inner.origin.lock() {
+            *origin = now;
+        }
         if let Ok(mut lines) = self.inner.lines.lock() {
             lines.clear();
         }

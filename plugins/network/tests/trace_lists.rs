@@ -75,6 +75,7 @@ fn a_target_list_breaks_the_rule_that_its_name_says() {
         ("bad-id-capital", entry(Rule::Id)),
         ("bad-id-41-characters", entry(Rule::Id)),
         ("bad-id-empty", entry(Rule::Id)),
+        ("bad-id-final-newline", entry(Rule::Id)),
         ("bad-id-youtube", entry(Rule::Id)),
         ("bad-id-netflix", entry(Rule::Id)),
         ("bad-id-twice", ListError::Duplicate("pek-4809".to_owned())),
@@ -82,30 +83,38 @@ fn a_target_list_breaks_the_rule_that_its_name_says() {
         ("bad-group-word", entry(Rule::Group)),
         ("bad-name-empty", entry(Rule::Name)),
         ("bad-name-41-characters", entry(Rule::Name)),
+        ("bad-name-c1-control", entry(Rule::Name)),
         ("bad-name-newline", entry(Rule::Name)),
         ("bad-name-escape", entry(Rule::Name)),
         ("bad-asn-zero", entry(Rule::Asn)),
         ("bad-asn-too-large", entry(Rule::Asn)),
+        ("bad-ipv4-254-characters", entry(Rule::Ipv4)),
+        ("bad-ipv4-address-final-newline", entry(Rule::Ipv4)),
+        ("bad-ipv4-final-newline", entry(Rule::Ipv4)),
         ("bad-ipv4-ipv6-address", entry(Rule::Ipv4)),
+        ("bad-ipv4-label-64-characters", entry(Rule::Ipv4)),
         ("bad-ipv4-option", entry(Rule::Ipv4)),
         ("bad-ipv4-space", entry(Rule::Ipv4)),
         ("bad-ipv4-trailing-dot", entry(Rule::Ipv4)),
+        ("bad-ipv6-address-final-newline", entry(Rule::Ipv6)),
         ("bad-ipv6-ipv4-address", entry(Rule::Ipv6)),
+        ("bad-ipv6-group-of-five", entry(Rule::Ipv6)),
+        ("bad-ipv6-ipv4-part-before-cut", entry(Rule::Ipv6)),
         ("bad-ipv6-label-dash", entry(Rule::Ipv6)),
         ("bad-ipv6-empty", entry(Rule::Ipv6)),
         ("bad-version-0", ListError::Version(0)),
         ("bad-version-2", ListError::Newer(2)),
         ("bad-too-many-targets", ListError::TooMany(201)),
     ];
-    for (name, error) in cases {
+    for (name, error) in &cases {
         assert_eq!(
             targets::parse(&read("target-lists", name)),
-            Err(error),
+            Err(error.clone()),
             "{name}"
         );
     }
     // What is not JSON of the format, the parser names.
-    for name in [
+    let format_cases = [
         "bad-not-json",
         "bad-not-an-object",
         "bad-version-string",
@@ -118,7 +127,8 @@ fn a_target_list_breaks_the_rule_that_its_name_says() {
         "bad-asn-missing",
         "bad-ipv4-missing",
         "bad-default-word",
-    ] {
+    ];
+    for name in format_cases {
         assert!(
             matches!(
                 targets::parse(&read("target-lists", name)),
@@ -126,6 +136,15 @@ fn a_target_list_breaks_the_rule_that_its_name_says() {
             ),
             "{name}"
         );
+    }
+    let all_bad: Vec<String> = names("target-lists")
+        .into_iter()
+        .filter(|name| name.starts_with("bad-"))
+        .collect();
+    for bad in &all_bad {
+        let covered =
+            cases.iter().any(|(n, _)| *n == bad.as_str()) || format_cases.contains(&bad.as_str());
+        assert!(covered, "untested bad target-list fixture: {bad}");
     }
 }
 
@@ -147,32 +166,40 @@ fn an_exchange_list_breaks_the_rule_that_its_name_says() {
         ("bad-address-last-group-cut", entry(Rule::Address)),
         ("bad-address-three-groups", entry(Rule::Address)),
         ("bad-address-nine-groups", entry(Rule::Address)),
+        ("bad-address-five-octets", entry(Rule::Address)),
+        ("bad-address-group-of-five", entry(Rule::Address)),
+        ("bad-address-ipv4-final-newline", entry(Rule::Address)),
+        ("bad-address-ipv6-final-newline", entry(Rule::Address)),
+        ("bad-address-octet-256", entry(Rule::Address)),
+        ("bad-address-three-octets", entry(Rule::Address)),
         (
             "bad-address-twice",
             ListError::Duplicate("206.223.116.133".to_owned()),
         ),
         ("bad-exchange-empty", entry(Rule::Exchange)),
         ("bad-exchange-61-characters", entry(Rule::Exchange)),
+        ("bad-exchange-c1-control", entry(Rule::Exchange)),
         ("bad-exchange-newline", entry(Rule::Exchange)),
         ("bad-version-0", ListError::Version(0)),
         ("bad-version-2", ListError::Newer(2)),
         ("bad-too-many-ports", ListError::TooMany(1001)),
     ];
-    for (name, error) in cases {
+    for (name, error) in &cases {
         assert_eq!(
             exchanges::parse(&read("exchange-lists", name)),
-            Err(error),
+            Err(error.clone()),
             "{name}"
         );
     }
-    for name in [
+    let format_cases = [
         "bad-not-json",
         "bad-not-an-object",
         "bad-ports-missing",
         "bad-address-missing",
         "bad-exchange-missing",
         "bad-exchange-number",
-    ] {
+    ];
+    for name in format_cases {
         assert!(
             matches!(
                 exchanges::parse(&read("exchange-lists", name)),
@@ -180,6 +207,15 @@ fn an_exchange_list_breaks_the_rule_that_its_name_says() {
             ),
             "{name}"
         );
+    }
+    let all_bad: Vec<String> = names("exchange-lists")
+        .into_iter()
+        .filter(|name| name.starts_with("bad-"))
+        .collect();
+    for bad in &all_bad {
+        let covered =
+            cases.iter().any(|(n, _)| *n == bad.as_str()) || format_cases.contains(&bad.as_str());
+        assert!(covered, "untested bad exchange-list fixture: {bad}");
     }
 }
 
@@ -275,4 +311,52 @@ fn a_dns_name_never_starts_with_a_dash_nor_has_an_empty_or_long_label() {
         !lists::host(&longest[..254]),
         "254 characters, one too many"
     );
+}
+
+#[test]
+fn remote_safe_host_and_target_source_guard_loopback_and_private_v4_and_v6() {
+    for forbidden in [
+        "localhost",
+        "LOCALHOST",
+        "sub.localhost",
+        "ipv6.LocalHost",
+        "127.0.0.1",
+        "10.0.0.1",
+        "169.254.169.254",
+        "::1",
+        "fe80::1",
+        "fc00::1",
+    ] {
+        assert!(
+            !lists::is_remote_safe_host(forbidden),
+            "{forbidden} must be rejected"
+        );
+    }
+    for allowed in [
+        "notlocalhost",
+        "my-localhost.example",
+        "192.0.2.1",
+        "2001:db8::1",
+    ] {
+        assert!(
+            lists::is_remote_safe_host(allowed),
+            "{allowed} must be allowed"
+        );
+    }
+
+    for bad_v6 in ["::1", "fe80::1", "fc00::1", "ipv6.localhost"] {
+        let raw = format!(
+            "{{\"version\":1,\"targets\":[{{\"id\":\"t\",\"group\":\"international\",\
+             \"name\":\"T\",\"asn\":64496,\"ipv4\":\"192.0.2.1\",\"ipv6\":\"{bad_v6}\"}}]}}"
+        );
+        assert_eq!(
+            targets::parse_for_source(raw.as_bytes(), false),
+            Err(ListError::Entry(1, Rule::Ipv6)),
+            "remote list must reject IPv6 {bad_v6}"
+        );
+        assert!(
+            targets::parse_for_source(raw.as_bytes(), true).is_ok(),
+            "local override must allow {bad_v6}"
+        );
+    }
 }

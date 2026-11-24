@@ -393,7 +393,9 @@ async fn environment_proxy_variables_are_ignored_by_default_clients() {
             "environment_proxy_variables_are_ignored_by_default_clients",
             "--nocapture",
         ])
-        .env("BENCH_FETCHER_ENV_SUBTEST", "1");
+        .env("BENCH_FETCHER_ENV_SUBTEST", "1")
+        .env_remove("NO_PROXY")
+        .env_remove("no_proxy");
         for (name, val) in vars {
             cmd.env(name, val);
         }

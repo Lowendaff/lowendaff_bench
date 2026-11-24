@@ -3,6 +3,8 @@
 
 use std::fmt;
 use std::io;
+use std::sync::Arc;
+use std::sync::Mutex;
 use std::time::Instant;
 
 use bench_api::Step;
@@ -31,6 +33,17 @@ struct Elapsed(Instant);
 impl FormatTime for Elapsed {
     fn format_time(&self, w: &mut Writer<'_>) -> fmt::Result {
         write!(w, "{}", stamp(self.0.elapsed().as_secs()))
+    }
+}
+
+/// Resettable elapsed timer shared with interactive TUI runs so each new run starts at
+/// `[00:00:00]`.
+struct SharedElapsed(Arc<Mutex<Instant>>);
+
+impl FormatTime for SharedElapsed {
+    fn format_time(&self, w: &mut Writer<'_>) -> fmt::Result {
+        let secs = self.0.lock().map_or(0, |origin| origin.elapsed().as_secs());
+        write!(w, "{}", stamp(secs))
     }
 }
 
@@ -92,6 +105,27 @@ pub fn subscriber<W>(writer: W, verbose: bool) -> impl Subscriber + Send + Sync
 where
     W: for<'writer> MakeWriter<'writer> + Send + Sync + 'static,
 {
+    build_subscriber(writer, verbose, Elapsed(Instant::now()))
+}
+
+/// A subscriber whose `[hh:mm:ss]` elapsed timer reads from a shared, resettable `origin`.
+#[must_use]
+pub fn subscriber_with_origin<W>(
+    writer: W,
+    verbose: bool,
+    origin: Arc<Mutex<Instant>>,
+) -> impl Subscriber + Send + Sync
+where
+    W: for<'writer> MakeWriter<'writer> + Send + Sync + 'static,
+{
+    build_subscriber(writer, verbose, SharedElapsed(origin))
+}
+
+fn build_subscriber<W, T>(writer: W, verbose: bool, timer: T) -> impl Subscriber + Send + Sync
+where
+    W: for<'writer> MakeWriter<'writer> + Send + Sync + 'static,
+    T: FormatTime + Send + Sync + 'static,
+{
     use tracing_subscriber::layer::SubscriberExt;
 
     let level = if verbose {
@@ -106,7 +140,7 @@ where
         .with_target("lowendaff_bench", level);
     tracing_subscriber::fmt()
         .with_writer(SanitizedMakeWriter(writer))
-        .with_timer(Elapsed(Instant::now()))
+        .with_timer(timer)
         .with_level(false)
         .with_target(false)
         .with_max_level(level)

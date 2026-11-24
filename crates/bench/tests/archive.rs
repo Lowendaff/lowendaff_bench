@@ -171,6 +171,7 @@ fn good_archive() -> Vec<u8> {
     archive(&[
         file(&format!("{TOP}/"), 0o755, b""),
         file(&format!("{TOP}/geekbench7"), 0o755, b"#!/bin/sh\n"),
+        file(&format!("{TOP}/geekbench_x86_64"), 0o755, b"#!/bin/sh\n"),
         file(&format!("{TOP}/geekbench.plxr"), 0o644, b"workloads"),
         file(&format!("{TOP}/data/"), 0o755, b""),
         file(&format!("{TOP}/data/model.bin"), 0o644, b"weights"),
@@ -194,7 +195,10 @@ async fn an_archive_is_unpacked_without_its_top_directory_and_keeps_executable_b
         ["geekbench"],
         "no archive or staging left"
     );
-    assert_eq!(names(&tool), ["data", "geekbench.plxr", "geekbench7"]);
+    assert_eq!(
+        names(&tool),
+        ["data", "geekbench.plxr", "geekbench7", "geekbench_x86_64"]
+    );
     assert_eq!(
         std::fs::read(tool.join("data/model.bin")).unwrap(),
         b"weights"
@@ -206,6 +210,7 @@ async fn an_archive_is_unpacked_without_its_top_directory_and_keeps_executable_b
             .mode()
     };
     assert_ne!(mode("geekbench7") & 0o111, 0);
+    assert_ne!(mode("geekbench_x86_64") & 0o111, 0);
     assert_eq!(mode("geekbench.plxr") & 0o111, 0);
 }
 
@@ -499,6 +504,52 @@ async fn zip_archive_unpacks_per_architecture_and_verifies_crc() {
         std::fs::read(dir.path().join("passmark/readme.txt")).unwrap(),
         b"hello"
     );
+
+    let zip_x86 = build_zip(&[(
+        "PerformanceTest/PerformanceTest_Linux_x86-64",
+        b"#!/bin/sh\necho x86\n",
+        0o100_644,
+    )]);
+    let dir_x86 = tempfile::tempdir().unwrap();
+    let path_x86 = provision::install(
+        &zip_x86[..],
+        &PASSMARK,
+        &asset_arch(&zip_x86, "x86_64"),
+        dir_x86.path(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        path_x86,
+        dir_x86.path().join("passmark/PerformanceTest_Linux_x86-64")
+    );
+    assert_ne!(
+        std::fs::metadata(&path_x86).unwrap().permissions().mode() & 0o111,
+        0
+    );
+
+    let mut bad_zip = build_zip(&[(
+        "PerformanceTest/PerformanceTest_Linux_ARM64",
+        b"#!/bin/sh\necho bad\n",
+        0o100_644,
+    )]);
+    let eocd = bad_zip.len() - 22;
+    let cd_offset = usize::try_from(u32::from_le_bytes(
+        bad_zip[eocd + 16..eocd + 20].try_into().unwrap(),
+    ))
+    .unwrap();
+    bad_zip[cd_offset + 16] ^= 0xff;
+    let bad_dir = tempfile::tempdir().unwrap();
+    let bad_err = provision::install(
+        &bad_zip[..],
+        &PASSMARK,
+        &asset_arch(&bad_zip, "aarch64"),
+        bad_dir.path(),
+    )
+    .await
+    .expect_err("ZIP CRC-32 mismatch must be rejected");
+    assert!(bad_err.starts_with("damaged archive: "), "{bad_err}");
+    assert!(names(bad_dir.path()).is_empty());
 }
 
 #[tokio::test]

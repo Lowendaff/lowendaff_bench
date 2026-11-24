@@ -536,13 +536,13 @@ fn ratatui_test_backend_renders_configure_running_and_results_across_sizes() {
     ]);
     assert_eq!(session.screen, Screen::Running);
     session.set_elapsed(Duration::from_secs(42));
-    session.set_host_summary("KVM, x86_64  |  IPv4: 198.51.*.*".to_owned());
+    session.set_host_summary("KVM, x86_64  |  IPv4: 198.51.*.*");
     session.on_item_start("memory.sysbench");
-    session.on_item_step("memory.sysbench", "single-thread read".to_owned());
+    session.on_item_step("memory.sysbench", "single-thread read");
     for idx in 0..30 {
         session.push_log(format!("[00:00:{idx:02}] memory.sysbench step {idx}"));
     }
-    session.on_item_finish("memory.sysbench", "done in 20.1 s".to_owned(), false, false);
+    session.on_item_finish("memory.sysbench", "done in 20.1 s", false, false);
     session.on_item_start("cpu.bench");
 
     let running_frame = render_text(&mut session, 100, 28);
@@ -992,4 +992,176 @@ fn taier_hierarchical_picker_flattens_municipalities_drills_provinces_searches_a
     let _ = session.handle_key(press(KeyCode::Esc));
     assert!(session.taier_picker.is_none());
     assert!(session.config.items[taier_pos].params.is_default());
+}
+
+#[test]
+fn tui_hardening_guards_modifiers_sanitizes_controls_and_clamps_narrow_viewports() {
+    use plugin_network::taier::nodes;
+
+    let all = registry::all();
+    let mut session = Session::new(&all);
+
+    // 1. Single-token SOCKS5 credentials are redacted in Global Options, step delta=0 is a no-op,
+    //    and i32::MAX delta saturates without overflowing.
+    session.config.step_global_field(0, 0);
+    assert_eq!(session.config.global.format, Format::Text);
+    session.config.step_global_field(3, 0);
+    assert!(!session.config.global.show_ip);
+    session.config.step_global_field(4, i32::MAX);
+    assert_eq!(session.config.global.download_connections, 256);
+    session
+        .config
+        .apply_global_edit(5, "socks5h://s3crettoken@127.0.0.1:1080")
+        .unwrap();
+    let fields = session.config.fields_for_global();
+    assert_eq!(fields[5].value, "socks5h://***@127.0.0.1:1080");
+
+    // 2. Modified chords (Ctrl-D, Alt-R) must never reset config or launch a run.
+    assert_eq!(session.handle_key(ctrl('d')), Command::None);
+    assert_eq!(
+        session.handle_key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::ALT)),
+        Command::None
+    );
+    assert_eq!(session.config.global.download_connections, 256);
+
+    // 3. Editor strips ANSI CSI/OSC sequences & BiDi overrides and enforces MAX_EDITOR_CHARS.
+    let mut ed = tui::Editor::new(
+        "Edit".to_owned(),
+        String::new(),
+        tui::session::EditTarget::GlobalField(1),
+    );
+    ed.insert_str("\x1b[31m/tmp/\u{202e}report\x1b]8;;https://example.com\x07.txt\n");
+    assert_eq!(ed.buffer, "/tmp/report.txt");
+    let huge = "a".repeat(5000);
+    ed.insert_str(&huge);
+    assert_eq!(ed.buffer.chars().count(), 4096);
+
+    // 4. slice_columns strips full CSI/OSC/C1 sequences and BiDi controls.
+    assert_eq!(
+        tui::ui::slice_columns("\x1b[31mhello\u{202e}\u{009b}2J world", 0, 20),
+        "hello world"
+    );
+
+    // 5. Screen::Running: plain 'c' does NOT cancel, Ctrl-C repeat does NOT force-quit,
+    //    80x24 narrow layout sets exact log viewport_rows, and paused log_scroll shifts on cap.
+    session.begin_run(&[("cpu.bench", "CPU benchmark")]);
+    for idx in 0..30 {
+        session.push_log(format!("[00:00:{idx:02}] line {idx}"));
+    }
+    let _ = render_text(&mut session, 80, 24);
+    let log_page = session.viewport_rows;
+    assert!(
+        log_page < 15,
+        "80x24 vertical split log pane height: {log_page}"
+    );
+    assert_eq!(session.handle_key(press(KeyCode::Char('c'))), Command::None);
+    assert!(!session.running.as_ref().unwrap().stopping);
+
+    let _ = session.handle_key(press(KeyCode::Up));
+    assert!(!session.running.as_ref().unwrap().follow_log);
+    let paused_at = session.running.as_ref().unwrap().log_scroll;
+    let _ = session.handle_key(press(KeyCode::Down));
+    assert_eq!(
+        session.running.as_ref().unwrap().log_scroll,
+        paused_at + 1,
+        "pressing Down once after Up on 80x24 must step 1 line without snapping prematurely"
+    );
+
+    let _ = session.handle_key(press(KeyCode::Home));
+    session.running.as_mut().unwrap().log_scroll = 5;
+    for idx in 30..2005 {
+        session.push_log(format!("extra {idx}"));
+    }
+    assert_eq!(session.running.as_ref().unwrap().logs.len(), 2000);
+    assert_eq!(
+        session.running.as_ref().unwrap().log_scroll,
+        0,
+        "evicting oldest log lines while paused must decrement log_scroll"
+    );
+
+    assert_eq!(session.handle_key(ctrl('c')), Command::CancelRun);
+    let repeat_ctrl_c = KeyEvent {
+        code: KeyCode::Char('c'),
+        modifiers: KeyModifiers::CONTROL,
+        kind: KeyEventKind::Repeat,
+        state: KeyEventState::NONE,
+    };
+    assert_eq!(session.handle_key(repeat_ctrl_c), Command::None);
+
+    // 6. Screen::Results on narrow 80x24 terminal keeps focus on Right pane when sidebar is hidden,
+    //    rejects Ctrl-N / Ctrl-I chords, and clamps scroll_x when switching formats.
+    session.finish_run(sample_outcome(0), Some(72));
+    let _ = render_text(&mut session, 80, 24);
+    assert!(!session.results.as_ref().unwrap().sidebar_visible);
+    let _ = session.handle_key(press(KeyCode::Tab));
+    assert_eq!(session.results.as_ref().unwrap().focus, Pane::Right);
+    assert_eq!(session.handle_key(ctrl('n')), Command::None);
+    assert_eq!(session.screen, Screen::Results);
+    assert_eq!(session.handle_key(ctrl('i')), Command::None);
+    assert!(!session.results.as_ref().unwrap().show_ip);
+
+    let _ = session.handle_key(press(KeyCode::Char('w')));
+    session.results.as_mut().unwrap().scroll_x = 180;
+    let _ = session.handle_key(press(KeyCode::Char('f'))); // Markdown
+    let _ = session.handle_key(press(KeyCode::Char('f'))); // Json
+    let json_frame = render_text(&mut session, 104, 30);
+    assert!(
+        json_frame.contains("\"system\""),
+        "switching to narrower JSON format must reset/clamp scroll_x: {json_frame}"
+    );
+
+    // 7. TaierPicker classifies overseas city-states as Overseas, single-city provinces as
+    //    Province, steps out of Operators on '/', and handles 0-default catalogs cleanly.
+    let raw = br#"{
+        "version": 1,
+        "locations": [
+            {
+                "id": "hongkong",
+                "province": "Hong Kong",
+                "city": "Hong Kong",
+                "nodes": [
+                    {"operator": "other", "ip": "198.51.100.88", "port": 65499}
+                ]
+            },
+            {
+                "id": "jilin",
+                "province": "Jilin",
+                "city": "Jilin",
+                "nodes": [
+                    {"operator": "telecom", "ip": "198.51.100.99", "port": 65499}
+                ]
+            }
+        ]
+    }"#;
+    let locs = nodes::parse(raw).unwrap();
+    let mut picker = tui::TaierPicker::new(&locs, "", 4);
+    assert_eq!(picker.regions.len(), 2);
+    assert_eq!(picker.regions[0].name, "Jilin");
+    assert_eq!(
+        picker.regions[0].kind,
+        tui::taier_picker::RegionKind::Province
+    );
+    assert_eq!(picker.regions[1].name, "Hong Kong");
+    assert_eq!(
+        picker.regions[1].kind,
+        tui::taier_picker::RegionKind::Overseas
+    );
+    assert!(
+        !picker.is_default_selection(),
+        "0-default catalog with 0 selected slots must not claim default selection"
+    );
+    let _ = picker.handle_key(press(KeyCode::Enter), 10); // drill into Jilin cities
+    let _ = picker.handle_key(press(KeyCode::Enter), 10); // drill into Jilin operators
+    assert!(matches!(
+        picker.level,
+        tui::taier_picker::PickerLevel::Operators { .. }
+    ));
+    let _ = picker.handle_key(press(KeyCode::Char('/')), 10);
+    assert!(
+        !matches!(
+            picker.level,
+            tui::taier_picker::PickerLevel::Operators { .. }
+        ),
+        "pressing '/' from Operators must step up to filterable level"
+    );
 }
