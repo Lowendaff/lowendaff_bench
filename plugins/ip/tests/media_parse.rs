@@ -1280,18 +1280,18 @@ fn europe_americas_and_oceania_platform_modules_cover_every_regional_service() {
     assert_eq!(
         cbc_gem::parse(&response(
             200,
-            "https://www.cbc.ca/g/stats/js/cbc-stats-top.js",
+            "https://www.cbc.ca/network/includes/stats/geo.json",
             &[],
-            r#"CBC.APP.SC.LOCALGEO={"geo":{"country":"CA"}}"#
+            r#"{"geo":{"country":"CA"}}"#
         )),
         Verdict::yes_in("CA")
     );
     assert_eq!(
         cbc_gem::parse(&response(
             200,
-            "https://www.cbc.ca/g/stats/js/cbc-stats-top.js",
+            "https://www.cbc.ca/network/includes/stats/geo.json",
             &[],
-            r#"CBC.APP.SC.LOCALGEO={"geo":{"country":"HK"}}"#
+            r#"{"geo":{"country":"HK"}}"#
         )),
         Verdict::no()
     );

@@ -1,5 +1,5 @@
-//! TVer unlock probe: discovers a live catch-up episode via `callHome` and checks Brightcove
-//! playback geolocation (`CLIENT_GEO`).
+//! TVer unlock probe: discovers a live catch-up episode via `v2/callHome` and checks Streaks
+//! playback authorization (`playback.api.streaks.jp`).
 
 use bench_api::Context;
 use bench_api::HttpRequest;
@@ -50,7 +50,7 @@ pub fn probe<'a>(
         let home_url = match base_url {
             Some(base) => format!("{base}/tver/callapi"),
             None => format!(
-                "https://platform-api.tver.jp/service/api/v1/callHome\
+                "https://platform-api.tver.jp/service/api/v2/callHome\
                  ?platform_uid={uid}&platform_token={token}&require_data=mylist%2Cresume%2Clater"
             ),
         };
@@ -67,7 +67,7 @@ pub fn probe<'a>(
             return parse(&home_res);
         }
         let Some(ep_id) = episode_id(&home_res) else {
-            return parse(&home_res);
+            return Verdict::Unexpected("missing TVer episode in callHome".to_owned());
         };
 
         let ep_req = HttpRequest::get(
@@ -76,40 +76,37 @@ pub fn probe<'a>(
         )
         .with_header("origin", "https://tver.jp")
         .with_header("referer", "https://tver.jp/");
-        let ep_res = match parse::send(ctx, ep_req).await {
-            Ok(res) => res,
-            Err(verdict) => return verdict,
-        };
-        let Some((account_id, player_id, video_ref)) = episode_video(&ep_res) else {
-            return Verdict::Unexpected("missing TVer episode video metadata".to_owned());
-        };
-
-        let player_req = HttpRequest::get(
+        let info_req = HttpRequest::get(
             family,
-            format!("https://players.brightcove.net/{account_id}/{player_id}_default/index.min.js"),
+            "https://player.tver.jp/player/streaks_info_v2.json".to_owned(),
         )
-        .with_max_bytes(1024 * 1024);
-        let player_res = match parse::send(ctx, player_req).await {
+        .with_header("origin", "https://tver.jp")
+        .with_header("referer", "https://tver.jp/");
+        let (ep_out, info_out) = tokio::join!(parse::send(ctx, ep_req), parse::send(ctx, info_req));
+        let ep_res = match ep_out {
             Ok(res) => res,
             Err(verdict) => return verdict,
         };
-        let Some(policy_key) = parse::extract_between(&player_res.text(), "policyKey:\"", "\"")
-            .map(str::trim)
-            .filter(|pk| !pk.is_empty())
-            .map(str::to_owned)
-        else {
-            return Verdict::Unexpected("missing TVer Brightcove policyKey".to_owned());
+        let info_res = match info_out {
+            Ok(res) => res,
+            Err(verdict) => return verdict,
+        };
+        let Some((project_id, media_target)) = episode_streaks(&ep_res) else {
+            return Verdict::Unexpected("missing TVer Streaks metadata".to_owned());
+        };
+        let Some(api_key) = streaks_api_key(&info_res, &project_id) else {
+            return Verdict::Unexpected("missing TVer Streaks API key".to_owned());
         };
 
-        let edge_url = format!(
-            "https://edge.api.brightcove.com/playback/v1/accounts/{account_id}/videos/{video_ref}"
+        let play_url = format!(
+            "https://playback.api.streaks.jp/v1/projects/{project_id}/medias/{media_target}"
         );
-        let edge_req = HttpRequest::get(family, edge_url)
-            .with_header("accept", format!("application/json;pk={policy_key}"))
+        let play_req = HttpRequest::get(family, play_url)
+            .with_header("x-streaks-api-key", api_key)
             .with_header("origin", "https://tver.jp")
             .with_header("referer", "https://tver.jp/");
-        match parse::send(ctx, edge_req).await {
-            Ok(edge_res) => parse(&edge_res),
+        match parse::send(ctx, play_req).await {
+            Ok(play_res) => parse(&play_res),
             Err(verdict) => verdict,
         }
     })
@@ -174,9 +171,9 @@ fn episode_id(response: &HttpResponse) -> Option<String> {
     None
 }
 
-fn episode_video(response: &HttpResponse) -> Option<(String, String, String)> {
+fn episode_streaks(response: &HttpResponse) -> Option<(String, String)> {
     let val = parse::json(response)?;
-    let video = val.get("video")?;
+    let streaks = val.get("streaks")?;
     let safe = |raw: &str| {
         let trimmed = raw.trim();
         (!trimmed.is_empty()
@@ -185,22 +182,43 @@ fn episode_video(response: &HttpResponse) -> Option<(String, String, String)> {
                 .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_')))
         .then(|| trimmed.to_owned())
     };
-    let account = safe(video.get("accountID")?.as_str()?)?;
-    let player = safe(video.get("playerID")?.as_str()?)?;
-    let target = if let Some(vid) = video
-        .get("videoID")
+    let project = safe(streaks.get("projectID")?.as_str()?)?;
+    let target = if let Some(ref_id) = streaks
+        .get("videoRefID")
         .and_then(serde_json::Value::as_str)
         .and_then(safe)
     {
-        vid
-    } else {
-        let ref_id = safe(video.get("videoRefID")?.as_str()?)?;
         format!("ref:{ref_id}")
+    } else {
+        safe(streaks.get("mediaID")?.as_str()?)?
     };
-    Some((account, player, target))
+    Some((project, target))
 }
 
-/// Evaluates TVer's Brightcove playback or `callHome` response.
+fn streaks_api_key(response: &HttpResponse, project_id: &str) -> Option<String> {
+    let val = parse::json(response)?;
+    let key_node = val.get(project_id)?.get("api_key")?;
+    if let Some(s) = key_node.as_str().map(str::trim).filter(|s| !s.is_empty()) {
+        return Some(s.to_owned());
+    }
+    let map = key_node.as_object()?;
+    if let Some(k1) = map
+        .get("key01")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        return Some(k1.to_owned());
+    }
+    for v in map.values() {
+        if let Some(s) = v.as_str().map(str::trim).filter(|s| !s.is_empty()) {
+            return Some(s.to_owned());
+        }
+    }
+    None
+}
+
+/// Evaluates TVer's Streaks playback or mock `callHome` response.
 #[must_use]
 pub fn parse(response: &HttpResponse) -> Verdict {
     if let Some(early) = parse::gate(response) {
@@ -208,14 +226,16 @@ pub fn parse(response: &HttpResponse) -> Verdict {
     }
     let body = response.text();
     let lower = body.to_ascii_lowercase();
-    if lower.contains("client_geo") || lower.contains("outside japan") {
+    if lower.contains("client_geo") || lower.contains("outside japan") || lower.contains("p01002") {
         return Verdict::no();
     }
     if matches!(response.status, 403 | 451) {
         return Verdict::no();
     }
     if let Some(val) = parse::json(response) {
-        if val.get("account_id").is_some() && response.status == 200 {
+        if (val.get("sources").is_some() || val.get("account_id").is_some())
+            && response.status == 200
+        {
             return Verdict::yes_in("JP");
         }
         let err_geo = [

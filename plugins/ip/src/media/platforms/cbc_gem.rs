@@ -1,4 +1,4 @@
-//! CBC Gem Canadian `cbc-stats-top.js` geolocation probe.
+//! CBC Gem Canadian `/network/includes/stats/geo.json` geolocation probe.
 
 use bench_api::Context;
 use bench_api::HttpRequest;
@@ -28,7 +28,7 @@ pub fn probe<'a>(
         let url = |real: &str| parse::endpoint(base_url, SPEC.id, "check", real);
         let req = HttpRequest::get(
             family,
-            url("https://www.cbc.ca/g/stats/js/cbc-stats-top.js"),
+            url("https://www.cbc.ca/network/includes/stats/geo.json"),
         );
         match parse::send(ctx, req).await {
             Ok(res) => parse(&res),
@@ -60,7 +60,8 @@ pub fn parse(response: &HttpResponse) -> Verdict {
             return Verdict::no();
         }
         if let Some(code) = val
-            .get("country")
+            .pointer("/geo/country")
+            .or_else(|| val.get("country"))
             .and_then(serde_json::Value::as_str)
             .and_then(parse::country_code)
         {
