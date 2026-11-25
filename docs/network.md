@@ -138,30 +138,34 @@ sudo ./lowendaff-bench --only network.taier --taier-cities Jiangsu,guangdong-she
 | 适用平台 | 全平台（需具备公网连接且系统允许授予 `CAP_NET_RAW` 文件能力） |
 | 依赖工具 | 静态构建 `NextTrace 1.7.6`（Tiny 构建，内置根证书） |
 | 超时上限 | `60 分钟` |
+| 快捷参数 | `--trace-groups <services\|china\|international\|all>`、`--no-trace-tcp`、`--trace-packet-size <64..=1500>` |
 
 ### 测试逻辑
 1. **最小权限原始套接字（`cap_net_raw+ep` + `nobody`）**：
-   - 发送与接收原始 ICMP 报文需要 `CAP_NET_RAW`。主程序**绝不以 `root` 身份运行第三方追踪工具**，而是为临时目录中的 `nexttrace` 二进制单独写入文件能力 `cap_net_raw+ep`，然后切换为非特权用户 `65534`（`nobody`）并以 `/` 为工作目录执行。
+   - 发送与接收原始 ICMP 与 TCP 探针报文均只需 `CAP_NET_RAW`。主程序**绝不以 `root` 身份运行第三方追踪工具**，而是为临时目录中的 `nexttrace` 二进制单独写入文件能力 `cap_net_raw+ep`，然后切换为非特权用户 `65534`（`nobody`）并以 `/` 为工作目录执行。
    - 若宿主机开启了 `no_new_privs`、容器裁剪了 `CAP_NET_RAW` 能力边界集，或运行目录位于 `nosuid` 挂载分区上，插件会在启动前精准检测并以清晰原因安全跳过（提示可通过 `--work-dir` 换至非 `nosuid` 分区）。
 2. **三类追踪目标**：
    - **流媒体边缘缓存节点**：分别在 IPv4 与 IPv6 下直连请求 Google `redirector.googlevideo.com/report_mapping?di=no`（还原出 `r1---sn-<code>.googlevideo.com` 边缘域名）和 Netflix `fast.com` API，自动定位离当前主机最近的 YouTube 与 Netflix 缓存服务器（且不保存或展示接口响应中回显的本机 IP）。
-   - **中国大陆三网与精品网目标**：从 `Lowendaff/bench_data`（`servers/traceroute.json`）拉取北京、上海、广州等地的电信（163 / CN2 GT / CN2 GIA `AS4809`）、联通（169 / CUII `AS9929`）、移动（CMNET / CMIN2 `AS58807`）标准测试目标。
+   - **中国大陆三网与精品网目标**：从 `Lowendaff/bench_data`（`servers/traceroute.json`）拉取北京、上海、广州等地的电信（163 / CN2 GT / CN2 GIA `AS4809`）、联通（169 / CUII `AS9929`）、移动（CMNET / CMIN2 `AS58807`）共 18 个标准测试目标，每个目标除常规 ICMP 追踪外，还按 `tcp` 字段配置的目标端口（`443` / `22` / `8080`）自动追加一轮 **IPv4 TCP SYN 大包去程追踪**，直观检测回国线路是否存在“小包走精品网、大包绕普通网”的大小包分流现象。
    - **国际骨干与云服务目标**：涵盖 Telegram 数据中心、AWS、GCP 以及十大国际 Tier-1 骨干网运营商，共计 71 个预设目标（默认运行精简代表集或按配置展开）。
-3. **逐跳解析、独立 ASN 列与 Netflix IX 交换中心标注**：
-   - 执行参数：`nexttrace --traceroute -j -M -C -g en -q 3 -m 30 --timeout 1000 -4|-6 <target>`（每跳 3 探针、最多 30 跳、单探针超时 1 秒、始终禁用 `-M` 轨迹地图上传，单目标限时 60 秒）。
-   - **明确 6 列输出（`ASN` 与 `Network` 分离）**：路由表固定展示 `Hop | Address | ASN | Network | Place | Latency` 六列，将自治域号（如 `AS3462`、`AS2914`）单独拆分至 `ASN` 列，运营商/机构名称保留在 `Network` 列；超时无响应跳点直接输出字面量 `*`（在 Markdown 模式下采用上下文感知转义，不会误转义为 `\*`），并在 `-f markdown` 模式下按 `### Public services` / `### Mainland China` / `### International` 与 `#### <Target> (IPv4|IPv6)` 分级组织。
+3. **ICMP + 大陆目标 TCP 大包双轮探测、独立 ASN 列与 Netflix IX 标注**：
+   - **常规 ICMP 追踪**：`nexttrace --traceroute -j -M -C -g en -q 3 -m 30 --timeout 1000 -4|-6 <target>`（每跳 3 探针、最多 30 跳、单探针超时 1 秒、始终禁用 `-M` 轨迹地图上传，单目标限时 60 秒）；
+   - **中国大陆目标 TCP 大包追踪**：默认紧随 ICMP 之后执行 `nexttrace --traceroute -j -M -C -g en -q 3 -m 30 --timeout 1000 -T -p <port> --psize 1024 -4 <target>`（整包默认 `1024` 字节，含 IP + TCP 头部，可通过 `--trace-packet-size <64..=1500>` 调整或 `--no-trace-tcp` 关闭）；若沿途路由器因路径 MTU 受限返回 `!F` / `!F-<mtu>` 分片受阻标记，报告会自动指明受阻跳点号与路由器上报的最大 MTU 字节数；
+   - **明确 6 列输出（`ASN` 与 `Network` 分离）**：路由表固定展示 `Hop | Address | ASN | Network | Place | Latency` 六列，将自治域号（如 `AS3462`、`AS2914`）单独拆分至 `ASN` 列，运营商/机构名称保留在 `Network` 列；超时无响应跳点直接输出字面量 `*`（在 Markdown 模式下采用上下文感知转义，不会误转义为 `\*`），并在 `-f markdown` 模式下按 `### Public services` / `### Mainland China` / `### International` 与 `#### <Target> (IPv4|IPv6)` 分级组织，大陆目标在同一子标题下依次展示 ICMP 表与 TCP 大包表；
    - 结合 `Lowendaff/bench_data` 自动同步 PeeringDB 生成的 `servers/netflix-ix.json`（`net_id=457`），当路由经过 Netflix 在全球各大互联网交换中心（如 Equinix、DE-CIX、HKIX、BBIX 等）的对等互联端口 IP 时，自动在跳点 `Network` 列标注所属 IX 名称（如 `[HKIX]`）。
-   - **本机跳点脱敏**：未传入 `--show-ip` 时，路由路径中凡是匹配本机公网 IPv4 / IPv6 的跳点均自动打码（中间运营商路由器 IP 原样保留）。
+   - **本机跳点脱敏**：未传入 `--show-ip` 时，ICMP 与 TCP 大包路由路径中凡是匹配本机公网 IPv4 / IPv6 的跳点均自动打码（中间运营商路由器 IP 原样保留）。
 
-### `--trace-groups` 命令行枚举与示例
-- `services`：仅追踪距离最近的 YouTube 与 Netflix 边缘缓存服务器
-- `china`：中国大陆三网及精品网目标（163 / CN2 / 169 / 9929 / CMNET / CMIN2）
-- `international`：国际 Tier-1 骨干网、Telegram 数据中心、AWS 与 GCP 目标
-- `all`：同时追踪流媒体缓存节点与列表内的全部国内外目标
+### 命令行参数与示例
+- `--trace-groups <services|china|international|all>`：按分组筛选追踪目标
+- `--no-trace-tcp`：跳过中国大陆目标的 TCP 大包追踪（仅跑常规 ICMP）
+- `--trace-packet-size <64..=1500>`：自定义 TCP 大包整包字节数（默认 `1024`）
 
 ```sh
-# 仅追踪流媒体边缘缓存节点与中国大陆三网目标
+# 追踪流媒体边缘缓存节点与中国大陆三网目标（自动附带 1024 字节 IPv4 TCP 大包追踪）
 sudo ./lowendaff-bench --only network.trace --trace-groups services,china
+
+# 仅执行常规 ICMP 追踪，跳过 TCP 大包测试
+sudo ./lowendaff-bench --only network.trace --no-trace-tcp
 ```
 
 ---

@@ -386,6 +386,8 @@ pub(super) fn trace(
         targets: settings.targets.clone(),
         list: settings.list,
         geo: settings.geo,
+        tcp: settings.tcp,
+        large_packets: settings.large_packets,
     };
     out.line(&format!(
         "{indent}{}",
@@ -421,6 +423,15 @@ pub(super) fn trace(
             if let Route::Traced(trace) = &target.route {
                 let headers = words.trace_headers().map(str::to_owned);
                 out.table_left(indent, &headers, &hop_rows(trace, own, show_ip));
+            }
+            if let Some(tcp) = &target.tcp {
+                let tcp_outcome = route_outcome(&tcp.route);
+                let tcp_heading = words.trace_tcp_heading(tcp.port, tcp.packet_size, &tcp_outcome);
+                out.line(&format!("{indent}{tcp_heading}"));
+                if let Route::Traced(trace) = &tcp.route {
+                    let headers = words.trace_headers().map(str::to_owned);
+                    out.table_left(indent, &headers, &hop_rows(trace, own, show_ip));
+                }
             }
         }
     }
@@ -460,6 +471,13 @@ fn trace_markdown(
             if let Route::Traced(trace) = &target.route {
                 out.table_left(indent, &headers, &hop_rows(trace, own, show_ip));
             }
+            if let Some(tcp) = &target.tcp {
+                let tcp_outcome = route_outcome(&tcp.route);
+                out.line(&words.trace_tcp_heading(tcp.port, tcp.packet_size, &tcp_outcome));
+                if let Route::Traced(trace) = &tcp.route {
+                    out.table_left(indent, &headers, &hop_rows(trace, own, show_ip));
+                }
+            }
         }
     }
 }
@@ -468,7 +486,10 @@ fn route_outcome(route: &Route) -> String {
     let words = locale::words();
     match route {
         Route::Traced(trace) if trace.reached => words.reached(trace.hops.len()),
-        Route::Traced(trace) => words.not_reached(trace.hops.len()),
+        Route::Traced(trace) => match trace.fragmented {
+            Some(frag) => words.fragmented(frag.hop, frag.mtu),
+            None => words.not_reached(trace.hops.len()),
+        },
         Route::Unavailable(why) => words.unavailable_lookup(&unavailable(why)),
         Route::Failed(error) => trace_error(error),
     }
@@ -617,6 +638,7 @@ fn trace_list_problem(list: TraceList, error: &lists::ListError) -> String {
                 lists::Rule::Asn => TraceRule::Asn,
                 lists::Rule::Ipv4 => TraceRule::Ipv4,
                 lists::Rule::Ipv6 => TraceRule::Ipv6,
+                lists::Rule::Tcp => TraceRule::Tcp,
                 lists::Rule::Address => TraceRule::Address,
                 lists::Rule::Exchange => TraceRule::Exchange,
             };

@@ -3,7 +3,7 @@ source: crates/bench/tests/trace.rs
 expression: text
 ---
 [Network]
-  NextTrace 1.7.6: ICMP, 3 probes a hop, at most 30 hops
+  NextTrace 1.7.6: ICMP, 3 probes a hop, at most 30 hops; TCP to China with 1024-byte packets
   Note                no target in the list for xyz
   IPv4
   YouTube (r1---sn-npoldn7s.googlevideo.com): reached in 5 hops
@@ -19,6 +19,10 @@ expression: text
   Hop  Address         ASN     Network        Place          Latency
   1    10.0.0.1        —       —              —              0.40 ms
   2    219.142.211.23  AS4847  China Telecom  China Beijing  182 ms
+  TCP to port 443, 1024-byte packets: reached in 2 hops
+  Hop  Address        ASN      Network            Place          Latency
+  1    198.51.*.*     AS64496  Example Net        —              0.91 ms
+  2    59.43.181.241  AS4809   China Telecom CN2  China Beijing  168 ms
   Cogent Communications - Frankfurt, DE (t1.174.de.fra.jam114514.me): not reached after 30 hops
   Hop  Address  ASN  Network  Place  Latency
   1    *

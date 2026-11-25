@@ -270,6 +270,16 @@ async fn the_plan_traces_each_cache_server_by_its_answer_then_the_lists_targets(
             "{traced:?}"
         );
     }
+    assert_eq!(
+        published.ipv4[2]
+            .tcp
+            .as_ref()
+            .map(|t| (t.port, t.packet_size)),
+        Some((443, 1024)),
+        "pek-4809 runs its configured IPv4 TCP large-packet trace after ICMP"
+    );
+    assert!(published.ipv4[3].tcp.is_none());
+    assert!(published.ipv4[5].tcp.is_none());
 }
 
 #[tokio::test]

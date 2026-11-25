@@ -15,6 +15,15 @@ use super::lookup::LookupError;
 use super::targets::Choice;
 use super::targets::Group;
 
+/// Default total probe size in bytes (IP and TCP headers included) for TCP large-packet traces.
+pub const DEFAULT_LARGE_PACKETS: u16 = 1024;
+
+/// Smallest allowed total probe size in bytes (64 bytes, the minimum TCP SYN over IPv6).
+pub const MIN_LARGE_PACKETS: u16 = 64;
+
+/// Largest allowed total probe size in bytes (Ethernet's 1500-byte MTU).
+pub const MAX_LARGE_PACKETS: u16 = 1500;
+
 /// Route tracing's result.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Output {
@@ -32,11 +41,13 @@ pub struct Output {
 
 impl Measurement for Output {
     fn tools(&self) -> Vec<ToolVersion> {
-        let ran = self
-            .ipv4
-            .iter()
-            .chain(&self.ipv6)
-            .any(|traced| matches!(traced.route, Route::Traced(_)));
+        let ran = self.ipv4.iter().chain(&self.ipv6).any(|traced| {
+            matches!(traced.route, Route::Traced(_))
+                || traced
+                    .tcp
+                    .as_ref()
+                    .is_some_and(|tcp| matches!(tcp.route, Route::Traced(_)))
+        });
         if !ran {
             return Vec::new();
         }
@@ -48,7 +59,8 @@ impl Measurement for Output {
 }
 
 /// What the configuration chose; the defaults trace both cache servers and the list's defaults
-/// from this repository's list, with each hop's network and place.
+/// from this repository's list, with each hop's network and place, plus 1024-byte TCP SYN traces
+/// to mainland China targets.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Settings {
     /// The groups chosen; none for the default.
@@ -59,6 +71,10 @@ pub struct Settings {
     pub list: bool,
     /// Whether NextTrace looked up each hop's network and place.
     pub geo: bool,
+    /// Whether mainland China targets also run a TCP SYN large-packet trace.
+    pub tcp: bool,
+    /// Total probe size in bytes (IP and TCP headers included) for TCP traces (`64..=1500`).
+    pub large_packets: u16,
 }
 
 /// How the list of Netflix's exchange ports served, which only names exchanges.
@@ -81,7 +97,20 @@ pub struct Traced {
     pub target: Target,
     /// The DNS name or address that NextTrace traced; none when a cache server's lookup failed.
     pub host: Option<String>,
-    /// What came of it.
+    /// What came of its ICMP trace.
+    pub route: Route,
+    /// Optional TCP SYN large-packet trace run after the ICMP trace on mainland China targets.
+    pub tcp: Option<TcpTrace>,
+}
+
+/// Result of a TCP SYN large-packet trace to a mainland China target.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct TcpTrace {
+    /// Destination TCP port probed (`1..=65535`).
+    pub port: u16,
+    /// Total probe size in bytes, IP and TCP headers included (`64..=1500`).
+    pub packet_size: u16,
+    /// What came of the TCP trace.
     pub route: Route,
 }
 
@@ -157,11 +186,23 @@ pub enum TraceError {
     Fault(job::Fault),
 }
 
+/// Router hop that reported ICMP Fragmentation Needed (`!F` or `!F-<mtu>`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct Fragmented {
+    /// 1-based hop number where NextTrace stopped.
+    pub hop: usize,
+    /// Router's reported next-hop MTU in bytes when carried in `!F-<mtu>`.
+    pub mtu: Option<u16>,
+}
+
 /// A route, hop by hop.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Trace {
     /// Whether the target answered.
     pub reached: bool,
+    /// Present when a router along the path rejected the packet as needing fragmentation.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fragmented: Option<Fragmented>,
     /// The hops from the first, one for each TTL that NextTrace probed.
     pub hops: Vec<Hop>,
 }

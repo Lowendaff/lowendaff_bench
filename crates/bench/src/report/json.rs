@@ -374,28 +374,36 @@ fn mask_trace_value(root: &mut Value, own: &[IpAddr]) {
             continue;
         };
         for target in targets {
-            let Some(hops) = target
-                .get_mut("route")
-                .and_then(|route| route.get_mut("Traced"))
-                .and_then(|traced| traced.get_mut("hops"))
-                .and_then(Value::as_array_mut)
-            else {
+            if let Some(route) = target.get_mut("route") {
+                mask_route_hops(route, own);
+            }
+            if let Some(tcp_route) = target.get_mut("tcp").and_then(|tcp| tcp.get_mut("route")) {
+                mask_route_hops(tcp_route, own);
+            }
+        }
+    }
+}
+
+fn mask_route_hops(route: &mut Value, own: &[IpAddr]) {
+    let Some(hops) = route
+        .get_mut("Traced")
+        .and_then(|traced| traced.get_mut("hops"))
+        .and_then(Value::as_array_mut)
+    else {
+        return;
+    };
+    for hop in hops {
+        let Some(answers) = hop.get_mut("answers").and_then(Value::as_array_mut) else {
+            continue;
+        };
+        for answer in answers {
+            let Some(field) = answer.get_mut("address") else {
                 continue;
             };
-            for hop in hops {
-                let Some(answers) = hop.get_mut("answers").and_then(Value::as_array_mut) else {
-                    continue;
-                };
-                for answer in answers {
-                    let Some(field) = answer.get_mut("address") else {
-                        continue;
-                    };
-                    if let Some(ip) = field.as_str().and_then(|text| text.parse::<IpAddr>().ok())
-                        && own.contains(&ip)
-                    {
-                        *field = Value::String(network::mask(ip));
-                    }
-                }
+            if let Some(ip) = field.as_str().and_then(|text| text.parse::<IpAddr>().ok())
+                && own.contains(&ip)
+            {
+                *field = Value::String(network::mask(ip));
             }
         }
     }

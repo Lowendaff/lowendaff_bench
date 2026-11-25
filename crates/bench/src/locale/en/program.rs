@@ -141,6 +141,17 @@ impl ProgramWords for English {
             .to_owned()
     }
 
+    fn help_no_trace_tcp(&self) -> String {
+        "Skip TCP SYN large-packet route traces to mainland China targets in network.trace"
+            .to_owned()
+    }
+
+    fn help_trace_packet_size(&self) -> String {
+        "TCP probe packet size in bytes for mainland China targets in network.trace (64 to 1500, \
+         default 1024)"
+            .to_owned()
+    }
+
     fn help_media_groups(&self) -> String {
         "Regional groups for ip.media: comma-separated global, asia, europe, americas, oceania, \
          or all"

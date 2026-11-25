@@ -226,6 +226,8 @@ sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-
 | `--inetspeed-threads` | `<1..=64>` | `4` | Concurrent worker threads for multi-thread rounds inside `network.inetspeed` |
 | `--inetspeed-endpoint` | `<IP>` | Auto (Dual DoH) | Pin a specific Apple CDN IPv4 or IPv6 address inside `network.inetspeed`, skipping DoH discovery |
 | `--trace-groups` | `<GROUP,...>` | Caches + defaults | Choose which target groups `network.trace` traces routes to |
+| `--no-trace-tcp` | *(flag)* | Off | Skip TCP SYN large-packet route traces to mainland China targets in `network.trace` |
+| `--trace-packet-size` | `<64..=1500>` | `1024` | Total TCP probe packet size in bytes (IP + TCP headers included) for mainland China targets in `network.trace` |
 | `--media-groups` | `<GROUP,...>` | `all` | Choose which regional groups `ip.media` checks for streaming availability |
 | `--no-dnsbl` | *(flag)* | Off | Skip the 25 spam/abuse blacklist (DNSBL) lookups inside `ip.quality` |
 | `--no-mail` | *(flag)* | Off | Skip outbound port-25 mail server connectivity checks inside `ip.quality` |

@@ -26,6 +26,7 @@ use super::result::Output;
 use super::result::Route;
 use super::result::Settings;
 use super::result::Target;
+use super::result::TcpTrace;
 use super::result::TraceError;
 use super::result::Traced;
 use super::result::Unavailable;
@@ -78,13 +79,85 @@ pub fn job(program: &Path, host: &str, family: IpFamily, geo: bool) -> Job {
     job
 }
 
-/// A target to trace over one family: its name, or why the cache server's lookup gave none.
+/// The arguments of one TCP SYN large-packet trace of `host` to `port` with `packet_size` bytes
+/// (IP and TCP headers included) over `family`.
+#[must_use]
+pub fn tcp_args(
+    host: &str,
+    family: IpFamily,
+    geo: bool,
+    port: u16,
+    packet_size: u16,
+) -> Vec<OsString> {
+    let family_flag = match family {
+        IpFamily::Ipv4 => "-4",
+        IpFamily::Ipv6 => "-6",
+    };
+    let port_str = port.to_string();
+    let size_str = packet_size.to_string();
+    let mut out: Vec<OsString> = [
+        "--traceroute",
+        "-j",
+        "-M",
+        "-C",
+        "-g",
+        "en",
+        "-q",
+        "3",
+        "-m",
+        "30",
+        "--timeout",
+        "1000",
+    ]
+    .into_iter()
+    .map(OsString::from)
+    .collect();
+    if !geo {
+        out.push(OsString::from("-d"));
+        out.push(OsString::from("disable-geoip"));
+    }
+    out.push(OsString::from("-T"));
+    out.push(OsString::from("-p"));
+    out.push(OsString::from(port_str));
+    out.push(OsString::from("--psize"));
+    out.push(OsString::from(size_str));
+    out.push(OsString::from(family_flag));
+    out.push(OsString::from(host));
+    out
+}
+
+/// One TCP SYN large-packet trace by `program`: [`tcp_args`], run as `nobody` from `/` without
+/// quoting raw JSON output in logs.
+#[must_use]
+pub fn tcp_job(
+    program: &Path,
+    host: &str,
+    family: IpFamily,
+    geo: bool,
+    port: u16,
+    packet_size: u16,
+) -> Job {
+    let mut job = Job::new(
+        program,
+        tcp_args(host, family, geo, port, packet_size),
+        LIMIT,
+    );
+    job.dir = Some("/".into());
+    job.quotable = false;
+    job.user = Some(User::NOBODY);
+    job
+}
+
+/// A target to trace over one family: its name, or why the cache server's lookup gave none, plus
+/// an optional TCP port when the target list names one for that family.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Planned {
     /// Which target.
     pub target: Target,
     /// The DNS name or address to trace, or why there is none.
     pub host: Result<String, Unavailable>,
+    /// Destination TCP port for a large-packet trace after the ICMP trace, if configured.
+    pub tcp_port: Option<u16>,
 }
 
 /// What to trace, over each family, in order.
@@ -125,6 +198,8 @@ where
         return Err(Stop::Skipped(Failure::NoFamily));
     }
     let geo = about.settings.geo;
+    let tcp_enabled = about.settings.tcp;
+    let packet_size = about.settings.large_packets;
     let mut output = Output {
         settings: about.settings,
         unknown: about.unknown,
@@ -134,7 +209,12 @@ where
     };
     ctx.publish(&output);
     for (family, planned) in [(IpFamily::Ipv4, plan.ipv4), (IpFamily::Ipv6, plan.ipv6)] {
-        for Planned { target, host } in planned {
+        for Planned {
+            target,
+            host,
+            tcp_port,
+        } in planned
+        {
             let route = match &host {
                 Err(unavailable) => Route::Unavailable(unavailable.clone()),
                 Ok(host) => {
@@ -149,10 +229,30 @@ where
                     }
                 }
             };
+            let tcp = if tcp_enabled && let (Ok(host), Some(port)) = (&host, tcp_port) {
+                ctx.progress(Step::Trace {
+                    target: Cow::Owned(format!("{} (TCP)", name_of(&target))),
+                    ipv6: family == IpFamily::Ipv6,
+                });
+                let tcp_route =
+                    match run(tcp_job(program, host, family, geo, port, packet_size)).await {
+                        Ok(finished) => route_of(&finished, exchanges),
+                        Err(RunError::Fault(fault)) => Route::Failed(TraceError::Fault(fault)),
+                        Err(RunError::Cancelled) => return Err(Stop::Failed(Failure::Cancelled)),
+                    };
+                Some(TcpTrace {
+                    port,
+                    packet_size,
+                    route: tcp_route,
+                })
+            } else {
+                None
+            };
             let traced = Traced {
                 target,
                 host: host.ok(),
                 route,
+                tcp,
             };
             match family {
                 IpFamily::Ipv4 => output.ipv4.push(traced),
@@ -161,11 +261,13 @@ where
             ctx.publish(&output);
         }
     }
-    let traced = output
-        .ipv4
-        .iter()
-        .chain(&output.ipv6)
-        .any(|traced| matches!(traced.route, Route::Traced(_)));
+    let traced = output.ipv4.iter().chain(&output.ipv6).any(|traced| {
+        matches!(traced.route, Route::Traced(_))
+            || traced
+                .tcp
+                .as_ref()
+                .is_some_and(|tcp| matches!(tcp.route, Route::Traced(_)))
+    });
     if !traced {
         return Err(Stop::Failed(Failure::NoRoute));
     }

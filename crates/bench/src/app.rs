@@ -339,6 +339,18 @@ pub struct Cli {
     )]
     pub trace_groups: Vec<TraceGroup>,
 
+    // Skips TCP SYN large-packet route traces to mainland China targets in network.trace.
+    #[arg(long, help = locale::words().help_no_trace_tcp())]
+    pub no_trace_tcp: bool,
+
+    // TCP probe packet size in bytes (64..=1500) for mainland China targets in network.trace.
+    #[arg(
+        long,
+        value_parser = clap::value_parser!(u16).range(64..=1500),
+        help = locale::words().help_trace_packet_size()
+    )]
+    pub trace_packet_size: Option<u16>,
+
     // Regional groups for media unlock.
     #[arg(
         long,
@@ -532,8 +544,13 @@ pub fn prepare_with_proxy(
             inet_endpoint.as_deref(),
         );
     }
-    if !cli.trace_groups.is_empty() {
-        trace_groups(&mut settings, &cli.trace_groups);
+    if !cli.trace_groups.is_empty() || cli.no_trace_tcp || cli.trace_packet_size.is_some() {
+        trace_settings(
+            &mut settings,
+            &cli.trace_groups,
+            !cli.no_trace_tcp,
+            cli.trace_packet_size,
+        );
     }
     if !cli.media_groups.is_empty() {
         media_groups(&mut settings, &cli.media_groups);
@@ -1046,13 +1063,31 @@ pub fn inetspeed_settings(
 
 /// Sets `--trace-groups` in `network.trace`'s table.
 pub fn trace_groups(settings: &mut BTreeMap<String, serde_json::Value>, groups: &[TraceGroup]) {
+    trace_settings(settings, groups, true, None);
+}
+
+/// Sets `--trace-groups`, `--no-trace-tcp`, and `--trace-packet-size` in `network.trace`'s table.
+pub fn trace_settings(
+    settings: &mut BTreeMap<String, serde_json::Value>,
+    groups: &[TraceGroup],
+    tcp: bool,
+    large_packets: Option<u16>,
+) {
     let table = plugin_table(settings, Trace::DESCRIPTOR.id);
     if let Some(table) = table.as_object_mut() {
-        let values = groups
-            .iter()
-            .map(|group| serde_json::Value::String(group.code().to_owned()))
-            .collect();
-        table.insert("groups".to_owned(), serde_json::Value::Array(values));
+        if !groups.is_empty() {
+            let values = groups
+                .iter()
+                .map(|group| serde_json::Value::String(group.code().to_owned()))
+                .collect();
+            table.insert("groups".to_owned(), serde_json::Value::Array(values));
+        }
+        if !tcp {
+            table.insert("tcp".to_owned(), serde_json::Value::Bool(false));
+        }
+        if let Some(size) = large_packets {
+            table.insert("large_packets".to_owned(), serde_json::Value::from(size));
+        }
     }
 }
 

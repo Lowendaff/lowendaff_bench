@@ -12,6 +12,7 @@ use plugin_network::trace::lists::ListError;
 use plugin_network::trace::lists::Rule;
 use plugin_network::trace::targets;
 use plugin_network::trace::targets::Group;
+use plugin_network::trace::targets::TcpPorts;
 
 fn read(directory: &str, name: &str) -> Vec<u8> {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -102,6 +103,11 @@ fn a_target_list_breaks_the_rule_that_its_name_says() {
         ("bad-ipv6-ipv4-part-before-cut", entry(Rule::Ipv6)),
         ("bad-ipv6-label-dash", entry(Rule::Ipv6)),
         ("bad-ipv6-empty", entry(Rule::Ipv6)),
+        ("bad-tcp-empty", entry(Rule::Tcp)),
+        ("bad-tcp-ipv6-without-ipv6", entry(Rule::Tcp)),
+        ("bad-tcp-outside-china", entry(Rule::Tcp)),
+        ("bad-tcp-port-too-large", entry(Rule::Tcp)),
+        ("bad-tcp-port-zero", entry(Rule::Tcp)),
         ("bad-version-0", ListError::Version(0)),
         ("bad-version-2", ListError::Newer(2)),
         ("bad-too-many-targets", ListError::TooMany(201)),
@@ -127,6 +133,9 @@ fn a_target_list_breaks_the_rule_that_its_name_says() {
         "bad-asn-missing",
         "bad-ipv4-missing",
         "bad-default-word",
+        "bad-tcp-not-an-object",
+        "bad-tcp-port-fraction",
+        "bad-tcp-unknown-key",
     ];
     for name in format_cases {
         assert!(
@@ -232,6 +241,7 @@ fn a_target_list_reads_as_written() {
                 target.ipv4.as_str(),
                 target.ipv6.as_deref(),
                 target.default,
+                target.tcp,
             )
         })
         .collect();
@@ -244,7 +254,11 @@ fn a_target_list_reads_as_written() {
                 4809,
                 "ipv4.pek-4809.endpoint.nxtrace.org",
                 Some("ipv6.pek-4809.endpoint.nxtrace.org"),
-                true
+                true,
+                Some(TcpPorts {
+                    ipv4: Some(443),
+                    ipv6: Some(65535),
+                }),
             ),
             (
                 "gcp-sin",
@@ -252,7 +266,8 @@ fn a_target_list_reads_as_written() {
                 396_982,
                 "35.187.238.97",
                 None,
-                false
+                false,
+                None,
             ),
             (
                 "v6-literal",
@@ -260,9 +275,10 @@ fn a_target_list_reads_as_written() {
                 4_294_967_295,
                 "192.0.2.1",
                 Some("2001:db8::1"),
-                false
+                false,
+                None,
             ),
-            ("a", Group::China, 1, "a.example", None, true),
+            ("a", Group::China, 1, "a.example", None, true, None),
         ]
     );
     assert_eq!(read[3].name, "N".repeat(40));

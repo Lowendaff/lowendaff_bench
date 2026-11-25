@@ -29,6 +29,7 @@ use bench_api::Requirements;
 use bench_api::Stop;
 use bench_tool::NEXTTRACE;
 use serde::Deserialize;
+use serde::Deserializer;
 use tokio::fs::File;
 
 use exchanges::Exchanges;
@@ -43,7 +44,10 @@ use result::Target;
 use result::Unavailable;
 use targets::Chosen;
 
+pub use result::DEFAULT_LARGE_PACKETS;
 pub use result::Failure;
+pub use result::MAX_LARGE_PACKETS;
+pub use result::MIN_LARGE_PACKETS;
 pub use result::Output;
 pub use targets::Choice;
 
@@ -103,11 +107,29 @@ pub struct Trace {
     pub netflix_api: Option<String>,
     /// Whether NextTrace looks up each hop's network and place with its service.
     pub geo: bool,
+    /// Whether mainland China targets also run a TCP SYN large-packet trace after ICMP.
+    pub tcp: bool,
+    /// Total probe size in bytes (IP and TCP headers included) for TCP traces (`64..=1500`).
+    #[serde(deserialize_with = "deserialize_large_packets")]
+    pub large_packets: u16,
+}
+
+fn deserialize_large_packets<'de, D>(deserializer: D) -> Result<u16, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let size = u16::deserialize(deserializer)?;
+    if !(MIN_LARGE_PACKETS..=MAX_LARGE_PACKETS).contains(&size) {
+        return Err(serde::de::Error::custom(format!(
+            "large_packets must be between {MIN_LARGE_PACKETS} and {MAX_LARGE_PACKETS} bytes"
+        )));
+    }
+    Ok(size)
 }
 
 impl Default for Trace {
     /// Both cache servers and the default targets of this repository's list, with each hop's
-    /// network and place.
+    /// network and place, plus 1024-byte TCP SYN traces to mainland China targets.
     fn default() -> Self {
         Self {
             groups: Vec::new(),
@@ -117,6 +139,8 @@ impl Default for Trace {
             youtube_api: None,
             netflix_api: None,
             geo: true,
+            tcp: true,
+            large_packets: DEFAULT_LARGE_PACKETS,
         }
     }
 }
@@ -213,6 +237,8 @@ impl Plugin for Trace {
                 targets: self.targets.clone(),
                 list: self.list.is_some(),
                 geo: self.geo,
+                tcp: self.tcp,
+                large_packets: self.large_packets,
             },
             unknown: chosen.unknown,
             exchanges: served,
@@ -253,6 +279,7 @@ async fn planned(
         planned.push(Planned {
             target: Target::YouTube,
             host,
+            tcp_port: None,
         });
     }
     if chosen.netflix {
@@ -280,12 +307,16 @@ async fn planned(
             ),
             Err(unavailable) => (Target::Netflix(None), Err(unavailable)),
         };
-        planned.push(Planned { target, host });
+        planned.push(Planned {
+            target,
+            host,
+            tcp_port: None,
+        });
     }
     for target in &chosen.targets {
-        let host = match family {
-            IpFamily::Ipv4 => Some(&target.ipv4),
-            IpFamily::Ipv6 => target.ipv6.as_ref(),
+        let (host, tcp_port) = match family {
+            IpFamily::Ipv4 => (Some(&target.ipv4), target.tcp.and_then(|tcp| tcp.ipv4)),
+            IpFamily::Ipv6 => (target.ipv6.as_ref(), target.tcp.and_then(|tcp| tcp.ipv6)),
         };
         if let Some(host) = host {
             planned.push(Planned {
@@ -295,6 +326,7 @@ async fn planned(
                     name: target.name.clone(),
                 },
                 host: Ok(host.clone()),
+                tcp_port,
             });
         }
     }

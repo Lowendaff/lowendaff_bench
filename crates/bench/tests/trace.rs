@@ -25,11 +25,13 @@ use plugin_network::trace::lists::Rule;
 use plugin_network::trace::lookup::LookupError;
 use plugin_network::trace::result::Answer;
 use plugin_network::trace::result::ExchangeList;
+use plugin_network::trace::result::Fragmented;
 use plugin_network::trace::result::Hop;
 use plugin_network::trace::result::Place;
 use plugin_network::trace::result::Route;
 use plugin_network::trace::result::Settings;
 use plugin_network::trace::result::Target;
+use plugin_network::trace::result::TcpTrace;
 use plugin_network::trace::result::Trace;
 use plugin_network::trace::result::TraceError;
 use plugin_network::trace::result::Traced;
@@ -130,6 +132,7 @@ fn traced(target: Target, host: Option<&str>, route: Route) -> Traced {
         target,
         host: host.map(str::to_owned),
         route,
+        tcp: None,
     }
 }
 
@@ -139,6 +142,8 @@ fn defaults() -> Settings {
         targets: Vec::new(),
         list: false,
         geo: true,
+        tcp: true,
+        large_packets: 1024,
     }
 }
 
@@ -153,6 +158,7 @@ fn output() -> trace::Output {
     exchange.exchange = Some("Equinix San Jose".to_owned());
     let youtube = Trace {
         reached: true,
+        fragmented: None,
         hops: vec![
             hop(vec![answer("10.0.0.1", None, None, None, 412)]),
             hop(vec![answer(
@@ -184,10 +190,12 @@ fn output() -> trace::Output {
     };
     let silent = Trace {
         reached: false,
+        fragmented: None,
         hops: vec![hop(Vec::new()); 30],
     };
     let beijing = Trace {
         reached: true,
+        fragmented: None,
         hops: vec![
             hop(vec![answer("10.0.0.1", None, None, None, 404)]),
             hop(vec![answer(
@@ -196,6 +204,26 @@ fn output() -> trace::Output {
                 Some("China Telecom"),
                 Some("China Beijing"),
                 182_400,
+            )]),
+        ],
+    };
+    let beijing_tcp = Trace {
+        reached: true,
+        fragmented: None,
+        hops: vec![
+            hop(vec![answer(
+                OWN,
+                Some("AS64496"),
+                Some("Example Net"),
+                None,
+                910,
+            )]),
+            hop(vec![answer(
+                "59.43.181.241",
+                Some("AS4809"),
+                Some("China Telecom CN2"),
+                Some("China Beijing"),
+                168_200,
             )]),
         ],
     };
@@ -216,11 +244,16 @@ fn output() -> trace::Output {
                     "download failed: HTTP 404".to_owned(),
                 )),
             ),
-            traced(
-                listed("pek-4809", Group::China, "Beijing Telecom CN2"),
-                Some("ipv4.pek-4809.endpoint.nxtrace.org"),
-                Route::Traced(beijing.clone()),
-            ),
+            Traced {
+                target: listed("pek-4809", Group::China, "Beijing Telecom CN2"),
+                host: Some("ipv4.pek-4809.endpoint.nxtrace.org".to_owned()),
+                route: Route::Traced(beijing.clone()),
+                tcp: Some(TcpTrace {
+                    port: 443,
+                    packet_size: 1024,
+                    route: Route::Traced(beijing_tcp),
+                }),
+            },
             traced(
                 listed(
                     "cogent-fra",
@@ -263,10 +296,12 @@ fn each_target_has_its_line_and_the_table_of_its_hops() {
     let text = section(&[run(Status::Completed, Some(output()), None)], false);
     insta::assert_snapshot!(text);
     for line in [
-        "  NextTrace 1.7.6: ICMP, 3 probes a hop, at most 30 hops",
+        "  NextTrace 1.7.6: ICMP, 3 probes a hop, at most 30 hops; TCP to China with 1024-byte \
+         packets",
         "  YouTube (r1---sn-npoldn7s.googlevideo.com): reached in 5 hops",
         "  Netflix: unavailable: download failed: HTTP 404",
         "  Beijing Telecom CN2 (ipv4.pek-4809.endpoint.nxtrace.org): reached in 2 hops",
+        "  TCP to port 443, 1024-byte packets: reached in 2 hops",
         "  Cogent Communications - Frankfurt, DE (t1.174.de.fra.jam114514.me): not reached after \
          30 hops",
         "  GCP - Singapore, SG (35.187.238.97): DNS lookup failed: lookup x on 192.0.2.53:53: no \
@@ -317,6 +352,14 @@ fn each_target_has_its_line_and_the_table_of_its_hops() {
         ),
         "ASN is separated from Network and non-link brackets stay unescaped: {md}"
     );
+    assert!(
+        md.contains("\nTCP to port 443, 1024-byte packets: reached in 2 hops\n"),
+        "Markdown renders TCP large-packet heading and table under China target: {md}"
+    );
+    assert!(
+        !md.contains(OWN),
+        "Markdown TCP hop table masks own IP when show_ip=false: {md}"
+    );
 }
 
 #[test]
@@ -334,6 +377,8 @@ fn what_the_configuration_chose_shows_in_the_method() {
             targets: vec!["pek-4809".to_owned(), "youtube".to_owned()],
             list: true,
             geo: false,
+            tcp: false,
+            large_packets: 1024,
         },
         ..output()
     };
@@ -484,6 +529,7 @@ fn every_way_the_item_ends_shows_its_words() {
         rule(4, Rule::Asn),
         rule(5, Rule::Ipv4),
         rule(6, Rule::Ipv6),
+        rule(8, Rule::Tcp),
         list(ListError::Duplicate("pek-4809".to_owned())),
         skipped(trace::Failure::NoTarget(Vec::new())),
         skipped(trace::Failure::NoTarget(vec![
@@ -515,6 +561,8 @@ fn every_way_the_item_ends_shows_its_words() {
          IPv4 address",
         "    failed: target 6 of the target list breaks a rule: its ipv6 must be a DNS name or an \
          IPv6 address",
+        "    failed: target 8 of the target list breaks a rule: its tcp ports may appear on a \
+         china target only, with ipv4 and/or ipv6 (when ipv6 is set) from 1 to 65535",
         "    failed: two targets of the target list have the id pek-4809",
         "    skipped: no target of the list is chosen",
         "    skipped: no target in the list for xyz, abc",
@@ -543,5 +591,32 @@ fn a_port_rule_of_the_exchange_list_names_its_exchange() {
     assert!(
         text.contains("no target in the list for xyz"),
         "the note on unknown ids: {text}"
+    );
+}
+
+#[test]
+fn tcp_trace_fragmentation_needed_names_hop_and_router_mtu() {
+    let frag_trace = Trace {
+        reached: false,
+        fragmented: Some(Fragmented {
+            hop: 9,
+            mtu: Some(1400),
+        }),
+        hops: vec![hop(vec![answer("10.0.0.1", None, None, None, 400)])],
+    };
+    let mut out = output();
+    out.ipv4[2].tcp = Some(TcpTrace {
+        port: 443,
+        packet_size: 1500,
+        route: Route::Traced(frag_trace),
+    });
+    let text = section(&[run(Status::Completed, Some(out), None)], false);
+    assert!(
+        shows(
+            &text,
+            "  TCP to port 443, 1500-byte packets: stopped at hop 9, where a router takes at \
+             most 1400 bytes"
+        ),
+        "{text}"
     );
 }

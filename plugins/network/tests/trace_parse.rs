@@ -6,6 +6,7 @@ use std::net::IpAddr;
 
 use plugin_network::trace::parse;
 use plugin_network::trace::result::Answer;
+use plugin_network::trace::result::Fragmented;
 use plugin_network::trace::result::Hop;
 use plugin_network::trace::result::Trace;
 
@@ -84,6 +85,7 @@ fn a_reached_target_gives_each_hop_with_its_network_place_and_smallest_latency()
         parse::trace(&fixture("reached.json")),
         Some(Trace {
             reached: true,
+            fragmented: None,
             hops: reached_hops(),
         })
     );
@@ -104,6 +106,7 @@ fn a_hop_that_answers_from_two_addresses_shows_both_in_the_order_they_first_answ
         parse::trace(&fixture("load-balanced.json")),
         Some(Trace {
             reached: true,
+            fragmented: None,
             hops,
         })
     );
@@ -113,6 +116,7 @@ fn a_hop_that_answers_from_two_addresses_shows_both_in_the_order_they_first_answ
 fn a_target_that_no_router_answered_is_not_reached_after_its_30_silent_hops() {
     let trace = parse::trace(&fixture("not-reached.json")).expect("a trace");
     assert!(!trace.reached);
+    assert_eq!(trace.fragmented, None);
     assert_eq!(trace.hops, vec![hop(Vec::new()); 30]);
 }
 
@@ -120,6 +124,7 @@ fn a_target_that_no_router_answered_is_not_reached_after_its_30_silent_hops() {
 fn the_warning_before_the_json_is_skipped() {
     let loopback = Trace {
         reached: true,
+        fragmented: None,
         hops: vec![hop(vec![answer("127.0.0.1", None, None, None, 78)])],
     };
     assert_eq!(parse::trace(&fixture("loopback.json")), Some(loopback));
@@ -209,6 +214,7 @@ fn a_document_that_is_not_a_trace_gives_none() {
                 trace,
                 Some(Trace {
                     reached: false,
+                    fragmented: None,
                     hops: vec![hop(Vec::new())],
                 })
             );
@@ -230,6 +236,7 @@ fn names_lose_control_characters_and_runs_of_spaces_and_an_as_number_must_be_one
         parse::trace(text),
         Some(Trace {
             reached: true,
+            fragmented: None,
             hops: vec![hop(vec![answer(
                 "192.0.2.9",
                 None,
@@ -238,5 +245,33 @@ fn names_lose_control_characters_and_runs_of_spaces_and_an_as_number_must_be_one
                 1,
             )])],
         })
+    );
+}
+
+#[test]
+fn fragmentation_needed_stop_markers_record_hop_and_optional_router_mtu() {
+    let with_mtu = concat!(
+        "{\"Hops\": [[{\"Success\": true, \"Address\": {\"IP\": \"192.0.2.1\"}, \"RTT\": 1200}]],",
+        " \"StopReason\": {\"hop\": 9, \"reason\": \"unreachable\",",
+        " \"markers\": [\"!H\", \"!F-1400\"]}}\n"
+    );
+    let parsed = parse::trace(with_mtu).expect("trace with !F-1400");
+    assert!(!parsed.reached);
+    assert_eq!(
+        parsed.fragmented,
+        Some(Fragmented {
+            hop: 9,
+            mtu: Some(1400)
+        })
+    );
+
+    let without_mtu = concat!(
+        "{\"Hops\": [[{\"Success\": true, \"Address\": {\"IP\": \"192.0.2.1\"}, \"RTT\": 1200}]],",
+        " \"StopReason\": {\"hop\": 5, \"reason\": \"unreachable\", \"markers\": [\"!F\"]}}\n"
+    );
+    let parsed_bare = parse::trace(without_mtu).expect("trace with bare !F");
+    assert_eq!(
+        parsed_bare.fragmented,
+        Some(Fragmented { hop: 5, mtu: None })
     );
 }

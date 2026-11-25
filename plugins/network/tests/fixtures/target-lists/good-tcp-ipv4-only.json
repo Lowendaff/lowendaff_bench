@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "targets": [
+    {
+      "id": "sha-4134",
+      "group": "china",
+      "name": "Shanghai Telecom 163",
+      "asn": 4134,
+      "ipv4": "ipv4.sha-4134.endpoint.nxtrace.org",
+      "default": true,
+      "tcp": {
+        "ipv4": 1
+      }
+    }
+  ]
+}

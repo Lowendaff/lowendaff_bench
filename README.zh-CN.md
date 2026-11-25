@@ -170,6 +170,8 @@ sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-
 | `--inetspeed-threads` | `<1..=64>` | `4` | 设置 `network.inetspeed` 多线程轮次的并发工作线程数 |
 | `--inetspeed-endpoint` | `<节点 IP>` | 双 DoH 自动优选 | 在 `network.inetspeed` 中强制指定固定 Apple CDN 节点 IP（跳过 DoH 发现） |
 | `--trace-groups` | `<分组,...>` | 缓存节点 + 默认线路 | 选择 `network.trace` 要追踪哪些方向的路由目标 |
+| `--no-trace-tcp` | 无需带值 | 关闭 | 在 `network.trace` 中跳过中国大陆目标的 TCP SYN 大包去程追踪 |
+| `--trace-packet-size` | `<64..=1500>` | `1024` | 设置 `network.trace` 中国大陆目标 TCP 大包探测整包字节数（含 IP + TCP 头） |
 | `--media-groups` | `<区域,...>` | `all`（全部区域） | 选择 `ip.media` 要测试哪些地区的流媒体与在线服务 |
 | `--no-dnsbl` | 无需带值 | 关闭 | 在 `ip.quality` 中跳过 25 个邮件/垃圾信息黑名单（DNSBL）查询 |
 | `--no-mail` | 无需带值 | 关闭 | 在 `ip.quality` 中跳过 25 端口各大邮箱服务连通性测试 |

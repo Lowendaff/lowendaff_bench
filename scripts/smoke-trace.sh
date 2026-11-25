@@ -29,6 +29,17 @@ cat > "$dir/targets.json" <<LIST
       "asn": 64496,
       "ipv4": "127.0.0.1",
       "default": true
+    },
+    {
+      "id": "loopback-cn",
+      "group": "china",
+      "name": "Loopback China TCP",
+      "asn": 64496,
+      "ipv4": "127.0.0.1",
+      "default": true,
+      "tcp": {
+        "ipv4": 80
+      }
     }
   ]
 }

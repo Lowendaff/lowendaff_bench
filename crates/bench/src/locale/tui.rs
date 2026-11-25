@@ -114,6 +114,10 @@ pub trait TuiWords {
     fn tui_field_targets(&self) -> &'static str;
     /// `network.trace` field: hop ASN and geolocation lookup.
     fn tui_field_geo(&self) -> &'static str;
+    /// `network.trace` field: TCP large-packet trace toggle for mainland China targets.
+    fn tui_field_trace_tcp(&self) -> &'static str;
+    /// `network.trace` field: TCP probe packet size in bytes (`64..=1500`).
+    fn tui_field_trace_packet_size(&self) -> &'static str;
     /// `network.bgp` field: upload topology SVG to `imageupload.app` in `text` mode.
     fn tui_field_bgp_upload(&self) -> &'static str;
     /// `ip.quality` field: 25 DNSBL blacklist lookups.
