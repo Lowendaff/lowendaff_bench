@@ -57,12 +57,12 @@ sudo ./lowendaff-bench --only ip.quality --no-mail
 ### 测试逻辑
 1. **五大区域分组、68 个平台双栈直连检测**：
    - 平台名录按地理区域划分为五组：`global`（12）、`asia`（24）、`europe`（14）、`americas`（10）与 `oceania`（8），共 68 项；各组名录与平台 ID 定义见 [`plugins/ip/src/media/platforms/mod.rs`](../plugins/ip/src/media/platforms/mod.rs)。
-   - 每个区域内部以最多 **10 个平台并发** 推进，每完成一个大洲分组立即向编排器发布阶段性结果；每个平台均分别绑定 IPv4 客户端与 IPv6 客户端独立探测，互不串栈。
+   - 每个区域内部以最多 **10 个平台并发** 推进，每完成一个大洲分组立即向编排器发布阶段性结果；每个平台均分别绑定 IPv4 客户端与 IPv6 客户端独立探测（默认携带 `Accept-Encoding: gzip` 并在内存上限内透明解压），针对 SPA 平台优先调用官方匿名设备令牌、GraphQL 地区会话、Cloudflare `cdn-cgi/trace` 或免登直播/VOD 授权接口，互不串栈。
 2. **精细化解锁状态分类**：
    - `yes (XX)` / `yes`：完整解锁非自制版权内容，并在平台给出时附带两位地区代码（如 `yes (JP)`、`yes (US)`）。
    - `originals only (XX)`：如 Netflix 仅可观看自制剧集（非自制剧测试片源受限）。
-   - `no` / `no (CN)` / `no (coming soon)` / `no (proxy detected)`：平台明确不可用、中国大陆限制、即将上线或被平台识别为代理/机房节点。
-   - `blocked (WAF)`：平台返回 Cloudflare Turnstile、DataDome、Akamai 等人机验证或 WAF 质询，探针不尝试绕过。
+   - `no` / `no (CN)` / `no (coming soon)` / `no (proxy detected)`：平台明确不可用（含 Akamai EdgeScape 标准 `403 Access Denied` 地域封锁）、中国大陆限制、即将上线或被平台识别为代理/机房节点。
+   - `blocked (WAF)`：平台返回 Cloudflare Turnstile、DataDome、Akamai Bot Manager（`sec-cpt-if`）等人机验证或 WAF 质询，探针不尝试绕过。
    - `rate limited`：触发 `HTTP 429` 频率限制。
    - `no IPv4 address` / `no IPv6 address`：平台域名本身未配置该协议族的地址。
    - `timed out`：探针超时。

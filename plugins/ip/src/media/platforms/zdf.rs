@@ -43,11 +43,18 @@ pub fn parse(response: &HttpResponse) -> Verdict {
     if matches!(response.status, 403 | 451) {
         return Verdict::no();
     }
+    // ZDF's Akamai EdgeScape blocks non-DE IPs with 403 and forwards DE IPs to origin (404).
+    if response.status == 404 {
+        return Verdict::yes_in("DE");
+    }
     if response.status != 200 {
         return Verdict::Unexpected(format!("HTTP {}", response.status));
     }
     let body = response.text();
     let trimmed = body.trim();
+    if trimmed.is_empty() {
+        return Verdict::yes_in("DE");
+    }
     if trimmed.eq_ignore_ascii_case("XX") || trimmed.eq_ignore_ascii_case("NON-EU") {
         return Verdict::no();
     }

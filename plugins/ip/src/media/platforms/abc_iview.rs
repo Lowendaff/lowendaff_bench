@@ -1,4 +1,4 @@
-//! ABC iview Australian navigation API probe.
+//! ABC iview Australian live video playability probe.
 
 use bench_api::Context;
 use bench_api::HttpRequest;
@@ -28,7 +28,10 @@ pub fn probe<'a>(
         let url = |real: &str| parse::endpoint(base_url, SPEC.id, "check", real);
         let req = HttpRequest::get(
             family,
-            url("https://api.iview.abc.net.au/v2/navigation/mobile"),
+            url(concat!(
+                "https://api.iview.abc.net.au/v2/show/abc-kids-live-stream",
+                "/video/LS1604H001S00?embed=highlightVideo,selectedSeries"
+            )),
         );
         match parse::send(ctx, req).await {
             Ok(res) => parse(&res),
@@ -49,6 +52,17 @@ pub fn parse(response: &HttpResponse) -> Verdict {
         || body.contains("geoblocked")
     {
         return Verdict::no();
+    }
+    if let Some(val) = parse::json(response) {
+        let playable = val
+            .pointer("/_embedded/highlightVideo/playable")
+            .or_else(|| val.get("playable"))
+            .and_then(serde_json::Value::as_bool);
+        match playable {
+            Some(false) => return Verdict::no(),
+            Some(true) if (200..300).contains(&response.status) => return Verdict::yes_in("AU"),
+            _ => {}
+        }
     }
     parse::no_region()
 }

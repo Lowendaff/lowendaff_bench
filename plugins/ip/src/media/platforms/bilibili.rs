@@ -31,7 +31,11 @@ pub fn probe<'a>(
                 base_url,
                 SPEC.id,
                 "tw",
-                "https://api.bilibili.com/pgc/player/web/playurl?ep_id=507946&qn=80&fnval=16",
+                concat!(
+                    "https://api.bilibili.com/pgc/player/web/playurl",
+                    "?avid=50762638&cid=100279344&qn=0&type=&otype=json",
+                    "&ep_id=268176&fourk=1&fnver=0&fnval=16"
+                ),
             ),
         );
         let hmt_req = HttpRequest::get(
@@ -40,7 +44,11 @@ pub fn probe<'a>(
                 base_url,
                 SPEC.id,
                 "hmt",
-                "https://api.bilibili.com/pgc/player/web/playurl?ep_id=285145&qn=80&fnval=16",
+                concat!(
+                    "https://api.bilibili.com/pgc/player/web/playurl",
+                    "?avid=473502608&cid=845838026&qn=0&type=&otype=json",
+                    "&ep_id=678506&fourk=1&fnver=0&fnval=16"
+                ),
             ),
         );
         let (tw, hmt) = tokio::join!(ctx.probe(&tw_req), ctx.probe(&hmt_req));

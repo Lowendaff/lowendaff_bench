@@ -1,9 +1,10 @@
-//! MUBI `/v3/country` availability probe.
+//! MUBI storefront redirect and country availability probe.
 
 use bench_api::Context;
 use bench_api::HttpRequest;
 use bench_api::HttpResponse;
 use bench_api::IpFamily;
+use bench_api::RedirectPolicy;
 
 use super::super::parse;
 use super::super::result::Output;
@@ -26,8 +27,8 @@ pub fn probe<'a>(
 ) -> ProbeFuture<'a> {
     Box::pin(async move {
         let url = |real: &str| parse::endpoint(base_url, SPEC.id, "check", real);
-        let req = HttpRequest::get(family, url("https://api.mubi.com/v3/country"))
-            .with_header("client", "web");
+        let req = HttpRequest::get(family, url("https://mubi.com/"))
+            .with_redirect(RedirectPolicy::Follow { max: 5 });
         match parse::send(ctx, req).await {
             Ok(res) => parse(&res),
             Err(verdict) => verdict,
@@ -62,5 +63,42 @@ pub fn parse(response: &HttpResponse) -> Verdict {
             return Verdict::Yes { region: code };
         }
     }
+    if (200..300).contains(&response.status) {
+        let body = response.text();
+        if body
+            .to_ascii_lowercase()
+            .contains("not available in your country")
+        {
+            return Verdict::no();
+        }
+        if let Some(code) = mubi_url_country(&response.final_url).or_else(|| {
+            parse::extract_between(&body, "\"country\":\"", "\"").and_then(parse::country_code)
+        }) {
+            if matches!(code.as_str(), "CN" | "KP" | "IR" | "SY" | "CU") {
+                return Verdict::no();
+            }
+            return Verdict::yes_in(code);
+        }
+    }
     Verdict::Unexpected(format!("HTTP {}", response.status))
+}
+
+/// Extracts `<country>` from MUBI storefront URLs such as `https://mubi.com/en/hk` or
+/// `https://mubi.com/de`.
+fn mubi_url_country(raw_url: &str) -> Option<String> {
+    let clean = raw_url.trim().split(['?', '#']).next().unwrap_or_default();
+    let after_scheme = clean.split_once("://").map_or(clean, |(_, rest)| rest);
+    let path = after_scheme
+        .find('/')
+        .map_or("", |slash| &after_scheme[slash..]);
+    let segs: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
+    match segs.as_slice() {
+        [lang, country, ..] if (2..=3).contains(&lang.len()) && country.len() == 2 => {
+            parse::country_code(country)
+        }
+        [country] if country.len() == 2 && !country.eq_ignore_ascii_case("en") => {
+            parse::country_code(country)
+        }
+        _ => None,
+    }
 }

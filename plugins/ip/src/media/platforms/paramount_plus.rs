@@ -4,6 +4,7 @@ use bench_api::Context;
 use bench_api::HttpRequest;
 use bench_api::HttpResponse;
 use bench_api::IpFamily;
+use bench_api::RedirectPolicy;
 
 use super::super::parse;
 use super::super::result::Output;
@@ -27,7 +28,8 @@ pub fn probe<'a>(
 ) -> ProbeFuture<'a> {
     Box::pin(async move {
         let url = |real: &str| parse::endpoint(base_url, SPEC.id, "check", real);
-        let req = HttpRequest::get(family, url("https://www.paramountplus.com/"));
+        let req = HttpRequest::get(family, url("https://www.paramountplus.com/"))
+            .with_redirect(RedirectPolicy::Follow { max: 5 });
         match parse::send(ctx, req).await {
             Ok(res) => parse(&res),
             Err(verdict) => verdict,
@@ -41,7 +43,8 @@ pub fn parse(response: &HttpResponse) -> Verdict {
     if let Some(early) = parse::gate(response) {
         return early;
     }
-    if matches!(response.status, 403 | 451) {
+    // Paramount+'s OpenResty edge rejects unsupported regions with 406 Not Acceptable or 403/404.
+    if matches!(response.status, 403 | 404 | 406 | 451) {
         return Verdict::no();
     }
     if (300..=399).contains(&response.status)

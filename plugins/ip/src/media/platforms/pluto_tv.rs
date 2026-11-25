@@ -1,9 +1,10 @@
-//! Pluto TV `boot.pluto.tv` start probe.
+//! Pluto TV regional storefront redirect probe.
 
 use bench_api::Context;
 use bench_api::HttpRequest;
 use bench_api::HttpResponse;
 use bench_api::IpFamily;
+use bench_api::RedirectPolicy;
 
 use super::super::parse;
 use super::super::result::Output;
@@ -26,14 +27,8 @@ pub fn probe<'a>(
 ) -> ProbeFuture<'a> {
     Box::pin(async move {
         let url = |real: &str| parse::endpoint(base_url, SPEC.id, "check", real);
-        let req = HttpRequest::get(
-            family,
-            url(concat!(
-                "https://boot.pluto.tv/v4/start?appName=web&appVersion=7.0.0",
-                "&deviceVersion=131.0.0&deviceModel=web&deviceMake=chrome&deviceType=web",
-                "&clientID=00000000-0000-4000-8000-000000000000&clientModelNumber=1.0.0"
-            )),
-        );
+        let req = HttpRequest::get(family, url("https://pluto.tv/"))
+            .with_redirect(RedirectPolicy::Follow { max: 5 });
         match parse::send(ctx, req).await {
             Ok(res) => parse(&res),
             Err(verdict) => verdict,
@@ -50,6 +45,13 @@ pub fn parse(response: &HttpResponse) -> Verdict {
     if matches!(response.status, 403 | 451) {
         return Verdict::no();
     }
+    let final_lower = response.final_url.to_ascii_lowercase();
+    if final_lower.contains("/intl")
+        || final_lower.contains("plutotv-is-not-available")
+        || final_lower.contains("thanks-for-watching")
+    {
+        return Verdict::no();
+    }
     if let Some(val) = parse::json(response) {
         let has_error = match val.get("error") {
             None | Some(serde_json::Value::Null | serde_json::Value::Bool(false)) => false,
@@ -59,29 +61,13 @@ pub fn parse(response: &HttpResponse) -> Verdict {
             Some(_) => true,
         };
         if has_error {
-            let lower = response.text().to_ascii_lowercase();
-            let geo_err = response.status == 200
-                || lower.contains("forbidden")
-                || lower.contains("geo")
-                || lower.contains("country")
-                || lower.contains("region")
-                || lower.contains("unavailable")
-                || lower.contains("not available");
-            return if geo_err {
-                Verdict::no()
-            } else {
-                Verdict::Unexpected(format!("HTTP {}", response.status))
-            };
+            return Verdict::no();
         }
         let country = val
             .pointer("/session/countryCode")
+            .or_else(|| val.get("countryCode"))
             .and_then(serde_json::Value::as_str)
-            .and_then(parse::country_code)
-            .or_else(|| {
-                val.get("countryCode")
-                    .and_then(serde_json::Value::as_str)
-                    .and_then(parse::country_code)
-            });
+            .and_then(parse::country_code);
         let has_token = val
             .get("sessionToken")
             .and_then(serde_json::Value::as_str)
@@ -89,6 +75,17 @@ pub fn parse(response: &HttpResponse) -> Verdict {
         if (200..300).contains(&response.status) && (country.is_some() || has_token) {
             return Verdict::Yes { region: country };
         }
+    }
+    let lower_body = response.text().to_ascii_lowercase();
+    if lower_body.contains("plutotv-is-not-available")
+        || lower_body.contains("thanks-for-watching")
+        || lower_body.contains("not available in your")
+    {
+        return Verdict::no();
+    }
+    if response.status == 200 {
+        let region = parse::url_country(&response.final_url).or_else(|| Some("US".to_owned()));
+        return Verdict::Yes { region };
     }
     Verdict::Unexpected(format!("HTTP {}", response.status))
 }

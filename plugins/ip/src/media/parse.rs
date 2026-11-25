@@ -76,6 +76,113 @@ pub fn cookie(response: &HttpResponse, name: &str) -> Option<String> {
     found
 }
 
+/// Formats all non-expired `Set-Cookie` pairs set by `response` as a `Cookie` request header
+/// (`"k1=v1; k2=v2"`), keeping the latest value when a cookie name repeats.
+#[must_use]
+pub fn cookies_header(response: &HttpResponse) -> Option<String> {
+    let mut pairs: Vec<(String, String)> = Vec::new();
+    for value in response.header_values("set-cookie") {
+        let (pair, attrs) = value.split_once(';').unwrap_or((value, ""));
+        let Some((raw_key, raw_val)) = pair.split_once('=') else {
+            continue;
+        };
+        let key = raw_key.trim();
+        if key.is_empty() {
+            continue;
+        }
+        let val = raw_val.trim();
+        let expired = val.is_empty()
+            || attrs.split(';').any(|attr| {
+                attr.split_once('=').is_some_and(|(k, v)| {
+                    k.trim().eq_ignore_ascii_case("max-age")
+                        && v.trim().parse::<i64>().is_ok_and(|secs| secs <= 0)
+                })
+            });
+        if let Some(pos) = pairs.iter().position(|(k, _)| k.eq_ignore_ascii_case(key)) {
+            if expired {
+                pairs.remove(pos);
+            } else {
+                pairs[pos] = (key.to_owned(), val.to_owned());
+            }
+        } else if !expired {
+            pairs.push((key.to_owned(), val.to_owned()));
+        }
+    }
+    if pairs.is_empty() {
+        None
+    } else {
+        let joined = pairs
+            .into_iter()
+            .map(|(k, v)| format!("{k}={v}"))
+            .collect::<Vec<_>>()
+            .join("; ");
+        Some(joined)
+    }
+}
+
+/// Decodes standard or URL-safe Base64 (RFC 4648), ignoring ASCII whitespace and optional `=`
+/// padding.
+#[must_use]
+pub fn base64_decode(input: &str) -> Option<Vec<u8>> {
+    let mut out = Vec::with_capacity(input.len() * 3 / 4);
+    let mut buf = 0_u32;
+    let mut bits = 0_u8;
+    let mut pad_seen = false;
+    for byte in input.bytes() {
+        if byte.is_ascii_whitespace() {
+            continue;
+        }
+        if byte == b'=' {
+            pad_seen = true;
+            continue;
+        }
+        if pad_seen {
+            return None;
+        }
+        let sextet = match byte {
+            b'A'..=b'Z' => byte - b'A',
+            b'a'..=b'z' => byte - b'a' + 26,
+            b'0'..=b'9' => byte - b'0' + 52,
+            b'+' | b'-' => 62,
+            b'/' | b'_' => 63,
+            _ => return None,
+        };
+        buf = (buf << 6) | u32::from(sextet);
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push(((buf >> bits) & 0xff) as u8);
+        }
+    }
+    if bits >= 6 {
+        return None;
+    }
+    Some(out)
+}
+
+/// Decodes the JSON payload segment of a compact JWT (`header.payload.signature`) without
+/// verifying its signature.
+#[must_use]
+pub fn jwt_payload(token: &str) -> Option<Value> {
+    let mut segments = token.trim().split('.');
+    let _header = segments.next()?;
+    let payload = segments.next()?;
+    let _sig = segments.next()?;
+    if segments.next().is_some() {
+        return None;
+    }
+    let decoded = base64_decode(payload)?;
+    serde_json::from_slice(&decoded).ok()
+}
+
+/// Extracts the two-letter `loc=XX` country code from a Cloudflare `/cdn-cgi/trace` body.
+#[must_use]
+pub fn cf_trace_loc(body: &str) -> Option<String> {
+    body.lines()
+        .find_map(|line| line.trim().strip_prefix("loc="))
+        .and_then(country_code)
+}
+
 /// Checks universal rate-limit (`429`), anti-bot/WAF challenge, and `5xx` server errors before a
 /// platform's own rules run. Never attempts to solve or bypass a challenge.
 #[must_use]

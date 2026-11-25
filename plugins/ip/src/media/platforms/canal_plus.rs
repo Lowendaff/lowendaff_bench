@@ -1,4 +1,4 @@
-//! Canal+ French storefront availability probe.
+//! Canal+ French `boutique-tunnel` geo-redirect probe.
 
 use bench_api::Context;
 use bench_api::HttpRequest;
@@ -26,7 +26,7 @@ pub fn probe<'a>(
 ) -> ProbeFuture<'a> {
     Box::pin(async move {
         let url = |real: &str| parse::endpoint(base_url, SPEC.id, "check", real);
-        let req = HttpRequest::get(family, url("https://boutique.canalplus.com/"));
+        let req = HttpRequest::get(family, url("https://boutique-tunnel.canalplus.com/"));
         match parse::send(ctx, req).await {
             Ok(res) => parse(&res),
             Err(verdict) => verdict,
@@ -43,10 +43,25 @@ pub fn parse(response: &HttpResponse) -> Verdict {
     if matches!(response.status, 403 | 451) {
         return Verdict::no();
     }
-    if let Some(loc) = response.header("location")
-        && (loc.contains("unavailable") || loc.contains("geo"))
-    {
+    if let Some(loc) = response.header("location") {
+        let lower = loc.to_ascii_lowercase();
+        if lower.contains("othercountry")
+            || lower.contains("other-country")
+            || lower.contains("unavailable")
+            || lower.contains("geo")
+        {
+            return Verdict::no();
+        }
+        if (300..400).contains(&response.status) && lower.contains("canalplus.com") {
+            return Verdict::yes_in("FR");
+        }
+    }
+    let lower_body = response.text().to_ascii_lowercase();
+    if lower_body.contains("othercountry") || lower_body.contains("other-country-blocking") {
         return Verdict::no();
     }
-    parse::no_region()
+    if response.status == 200 {
+        return Verdict::yes_in("FR");
+    }
+    Verdict::Unexpected(format!("HTTP {}", response.status))
 }

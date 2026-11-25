@@ -1,4 +1,4 @@
-//! MyVideo Taiwan `serviceAreaBlock` probe.
+//! MyVideo Taiwan `login.do` redirect and `serviceAreaBlock` probe.
 
 use bench_api::Context;
 use bench_api::HttpRequest;
@@ -27,7 +27,7 @@ pub fn probe<'a>(
 ) -> ProbeFuture<'a> {
     Box::pin(async move {
         let url = |real: &str| parse::endpoint(base_url, SPEC.id, "check", real);
-        let req = HttpRequest::get(family, url("https://www.myvideo.net.tw/"))
+        let req = HttpRequest::get(family, url("https://www.myvideo.net.tw/login.do"))
             .with_redirect(RedirectPolicy::Follow { max: 5 });
         match parse::send(ctx, req).await {
             Ok(res) => parse(&res),
@@ -42,11 +42,25 @@ pub fn parse(response: &HttpResponse) -> Verdict {
     if let Some(early) = parse::gate(response) {
         return early;
     }
+    let body = response.text();
     if response.final_url.contains("serviceAreaBlock")
-        || response.text().contains("serviceAreaBlock")
+        || body.contains("serviceAreaBlock")
         || matches!(response.status, 403 | 451)
     {
         return Verdict::no();
     }
-    parse::no_region()
+    let lower_url = response.final_url.to_ascii_lowercase();
+    let lower_body = body.to_ascii_lowercase();
+    if response.status == 200
+        && (lower_url.contains("gologinpage")
+            || lower_url.contains("twmmobile")
+            || lower_body.contains("gologinpage")
+            || lower_body.contains("myvideo"))
+    {
+        return Verdict::yes_in("TW");
+    }
+    if (200..300).contains(&response.status) {
+        return parse::no_region();
+    }
+    Verdict::Unexpected(format!("HTTP {}", response.status))
 }

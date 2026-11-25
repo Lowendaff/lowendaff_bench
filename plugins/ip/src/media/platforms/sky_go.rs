@@ -1,9 +1,10 @@
-//! Sky Go UK/IE linear service probe.
+//! Sky Go UK/IE OAuth sign-in availability probe.
 
 use bench_api::Context;
 use bench_api::HttpRequest;
 use bench_api::HttpResponse;
 use bench_api::IpFamily;
+use bench_api::RedirectPolicy;
 
 use super::super::parse;
 use super::super::result::Output;
@@ -28,8 +29,12 @@ pub fn probe<'a>(
         let url = |real: &str| parse::endpoint(base_url, SPEC.id, "check", real);
         let req = HttpRequest::get(
             family,
-            url("https://awk.epgsky.com/hawk/linear/services/4097/1"),
-        );
+            url(concat!(
+                "https://skyid.sky.com/authorise/skygo",
+                "?response_type=token&client_id=sky&appearance=compact&redirect_uri=skygo://auth"
+            )),
+        )
+        .with_redirect(RedirectPolicy::Follow { max: 5 });
         match parse::send(ctx, req).await {
             Ok(res) => parse(&res),
             Err(verdict) => verdict,
@@ -46,9 +51,16 @@ pub fn parse(response: &HttpResponse) -> Verdict {
     let body = response.text().to_ascii_lowercase();
     if matches!(response.status, 403 | 451)
         || body.contains("access denied")
+        || body.contains("don't have permission to access")
         || body.contains("geoblocked")
     {
         return Verdict::no();
     }
-    parse::no_region()
+    if response.status == 200 && (body.contains("skygosignin") || body.contains("sign in</h3>")) {
+        return Verdict::yes_in("GB");
+    }
+    if (200..300).contains(&response.status) {
+        return parse::no_region();
+    }
+    Verdict::Unexpected(format!("HTTP {}", response.status))
 }

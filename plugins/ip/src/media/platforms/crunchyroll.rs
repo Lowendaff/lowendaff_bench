@@ -28,7 +28,7 @@ pub fn probe<'a>(
         let url = |real: &str| parse::endpoint(base_url, SPEC.id, "check", real);
         let req = HttpRequest::post(
             family,
-            url("https://www.crunchyroll.com/auth/v1/token"),
+            url("https://beta-api.crunchyroll.com/auth/v1/token"),
             b"grant_type=client_id".to_vec(),
         )
         .with_header("content-type", "application/x-www-form-urlencoded")
@@ -62,15 +62,30 @@ pub fn parse(response: &HttpResponse) -> Verdict {
             return Verdict::Unexpected(format!("OAuth error: {err_text}"));
         }
         if (200..300).contains(&response.status) {
+            let token = val
+                .get("access_token")
+                .and_then(serde_json::Value::as_str)
+                .map(str::trim)
+                .filter(|tok| !tok.is_empty());
             let country = val
                 .get("country")
                 .and_then(serde_json::Value::as_str)
-                .and_then(parse::country_code);
-            let has_token = val
-                .get("access_token")
-                .and_then(serde_json::Value::as_str)
-                .is_some_and(|tok| !tok.trim().is_empty());
-            if country.is_some() || has_token {
+                .and_then(parse::country_code)
+                .or_else(|| {
+                    token.and_then(parse::jwt_payload).and_then(|claims| {
+                        claims
+                            .get("country")
+                            .and_then(serde_json::Value::as_str)
+                            .and_then(parse::country_code)
+                    })
+                });
+            if matches!(
+                country.as_deref(),
+                Some("CN" | "CU" | "IR" | "JP" | "KP" | "SY")
+            ) {
+                return Verdict::no();
+            }
+            if country.is_some() || token.is_some() {
                 return Verdict::Yes { region: country };
             }
         }

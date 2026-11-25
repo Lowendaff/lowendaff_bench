@@ -31,7 +31,10 @@ pub fn probe<'a>(
             url("https://if.lemino.docomo.ne.jp/v1/user/delivery/watch/ready"),
             br#"{"CheckTarget":[{"kind":"1","cid":"0099999999","lid":"0099999999"}]}"#.to_vec(),
         )
-        .with_header("content-type", "application/json");
+        .with_header("content-type", "application/json")
+        .with_header("origin", "https://lemino.docomo.ne.jp")
+        .with_header("referer", "https://lemino.docomo.ne.jp/")
+        .with_header("x-service-token", "f365771afd91452fa279863f240c233d");
         match parse::send(ctx, req).await {
             Ok(res) => parse(&res),
             Err(verdict) => verdict,

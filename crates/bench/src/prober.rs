@@ -3,6 +3,7 @@
 
 use std::collections::HashMap;
 use std::io;
+use std::io::Read;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::net::Ipv6Addr;
@@ -20,6 +21,7 @@ use bench_api::HttpRequest;
 use bench_api::HttpResponse;
 use bench_api::IpFamily;
 use bench_api::RedirectPolicy;
+use flate2::read::GzDecoder;
 use reqwest::Client;
 use reqwest::Proxy;
 use reqwest::Url;
@@ -112,7 +114,7 @@ impl Resolve for SafeFamilyResolver {
                 .collect();
             if resolved.is_empty() {
                 return Err(Box::new(io::Error::new(
-                    io::ErrorKind::PermissionDenied,
+                    io::ErrorKind::AddrNotAvailable,
                     "DNS resolved to no public address for family",
                 ))
                     as Box<dyn std::error::Error + Send + Sync>);
@@ -226,6 +228,20 @@ async fn execute(
             HttpMethod::Get => client.get(url.clone()),
             HttpMethod::Post => client.post(url.clone()),
         };
+        let has_accept = request
+            .headers
+            .iter()
+            .any(|(name, _)| name.eq_ignore_ascii_case("accept"));
+        if !has_accept {
+            builder = builder.header(header::ACCEPT, "*/*");
+        }
+        let has_accept_encoding = request
+            .headers
+            .iter()
+            .any(|(name, _)| name.eq_ignore_ascii_case("accept-encoding"));
+        if !has_accept_encoding {
+            builder = builder.header(header::ACCEPT_ENCODING, "gzip");
+        }
         let has_accept_language = request
             .headers
             .iter()
@@ -292,23 +308,45 @@ async fn execute(
         }
 
         let mut headers = Vec::with_capacity(response.headers().len());
+        let mut is_gzip = false;
         for (name, value) in response.headers() {
             if let Ok(text) = value.to_str() {
-                headers.push((name.as_str().to_ascii_lowercase(), text.to_owned()));
+                let lower = name.as_str().to_ascii_lowercase();
+                if lower == "content-encoding" && text.trim().eq_ignore_ascii_case("gzip") {
+                    is_gzip = true;
+                }
+                headers.push((lower, text.to_owned()));
             }
         }
-        let mut bytes = Vec::new();
-        while bytes.len() < request.max_bytes {
+        let raw_cap = if is_gzip {
+            request.max_bytes.saturating_mul(2).max(64 * 1024)
+        } else {
+            request.max_bytes
+        };
+        let mut raw_bytes = Vec::new();
+        while raw_bytes.len() < raw_cap {
             match response.chunk().await {
                 Ok(Some(chunk)) => {
-                    let remaining = request.max_bytes - bytes.len();
+                    let remaining = raw_cap - raw_bytes.len();
                     let take = remaining.min(chunk.len());
-                    bytes.extend_from_slice(&chunk[..take]);
+                    raw_bytes.extend_from_slice(&chunk[..take]);
                 }
                 Ok(None) => break,
                 Err(err) => return Err(map_reqwest_err(err)),
             }
         }
+        let bytes = if is_gzip && !raw_bytes.is_empty() {
+            let mut decoded = Vec::new();
+            let mut decoder = GzDecoder::new(raw_bytes.as_slice()).take(request.max_bytes as u64);
+            if decoder.read_to_end(&mut decoded).is_ok() && !decoded.is_empty() {
+                decoded
+            } else {
+                raw_bytes.truncate(request.max_bytes);
+                raw_bytes
+            }
+        } else {
+            raw_bytes
+        };
         return Ok(HttpResponse {
             status,
             final_url: url.into(),
@@ -323,7 +361,11 @@ fn map_reqwest_err(err: reqwest::Error) -> HttpError {
         return HttpError::TimedOut;
     }
     let stripped = err.without_url();
-    HttpError::Transport(fetcher::causes(&stripped))
+    let detail = fetcher::causes(&stripped);
+    if detail.contains("DNS resolved to no public address for family") {
+        return HttpError::NoAddress;
+    }
+    HttpError::Transport(detail)
 }
 
 fn is_redirect(status: u16) -> bool {
@@ -474,6 +516,20 @@ mod tests {
                 let read = socket.read(&mut buf).await.unwrap_or(0);
                 let req = String::from_utf8_lossy(&buf[..read]);
                 let first_line = req.lines().next().unwrap_or_default();
+                if first_line.starts_with("GET /gzip ") {
+                    use std::io::Write;
+                    let mut encoder =
+                        flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
+                    encoder.write_all(b"{\"country\":\"HK\"}").expect("gzip");
+                    let compressed = encoder.finish().expect("finish gzip");
+                    let head = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Encoding: gzip\r\nContent-Length: {}\r\n\r\n",
+                        compressed.len()
+                    );
+                    let _ = socket.write_all(head.as_bytes()).await;
+                    let _ = socket.write_all(&compressed).await;
+                    continue;
+                }
                 let reply = if first_line.starts_with("POST /step1 ") {
                     "HTTP/1.1 302 Found\r\nLocation: /step2\r\nContent-Length: 0\r\n\r\n".to_owned()
                 } else if first_line.starts_with("GET /step2 ") {
@@ -567,6 +623,12 @@ mod tests {
         assert_eq!(res.status, 403);
         assert_eq!(res.header("cf-mitigated"), Some("challenge"));
         assert_eq!(Ipv4Addr::LOCALHOST.to_string(), "127.0.0.1");
+
+        // Transparently decompresses Content-Encoding: gzip responses within max_bytes.
+        let gz = HttpRequest::get(IpFamily::Ipv4, format!("http://{site}/gzip"));
+        let res = probers.probe(&gz).await.expect("gzip response");
+        assert_eq!(res.status, 200);
+        assert_eq!(res.text(), r#"{"country":"HK"}"#);
 
         // Initial HTTPS probes to private, loopback, or metadata IPs are refused before connect.
         for internal in [

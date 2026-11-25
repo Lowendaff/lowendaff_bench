@@ -26,10 +26,18 @@ pub fn probe<'a>(
 ) -> ProbeFuture<'a> {
     Box::pin(async move {
         let url = |real: &str| parse::endpoint(base_url, SPEC.id, "check", real);
-        let req = HttpRequest::get(
+        let req = HttpRequest::post(
             family,
             url("https://gizmo.rakuten.tv/v3/me/start?classification_id=5&device_identifier=web"),
-        );
+            concat!(
+                r#"{"affiliate_code":"","av1_support":false,"#,
+                r#""device_serial":"00000000-0000-4000-8000-000000000000","#,
+                r#""player":"web:PD-NONE"}"#
+            )
+            .as_bytes()
+            .to_vec(),
+        )
+        .with_header("content-type", "application/json");
         match parse::send(ctx, req).await {
             Ok(res) => parse(&res),
             Err(verdict) => verdict,
@@ -43,7 +51,7 @@ pub fn parse(response: &HttpResponse) -> Verdict {
     if let Some(early) = parse::gate(response) {
         return early;
     }
-    if matches!(response.status, 403 | 404 | 451) {
+    if matches!(response.status, 403 | 451) {
         return Verdict::no();
     }
     if let Some(val) = parse::json(response) {
@@ -69,15 +77,18 @@ pub fn parse(response: &HttpResponse) -> Verdict {
                 Verdict::Unexpected(format!("HTTP {}", response.status))
             };
         }
-        let market = val
-            .pointer("/data/market_code")
-            .and_then(serde_json::Value::as_str)
-            .and_then(parse::country_code)
-            .or_else(|| {
-                val.get("market_code")
-                    .and_then(serde_json::Value::as_str)
-                    .and_then(parse::country_code)
-            });
+        let market = [
+            "/data/market_code",
+            "/data/iso3166_code",
+            "/market_code",
+            "/iso3166_code",
+        ]
+        .into_iter()
+        .find_map(|ptr| {
+            val.pointer(ptr)
+                .and_then(serde_json::Value::as_str)
+                .and_then(parse::country_code)
+        });
         let has_data = val
             .get("data")
             .and_then(serde_json::Value::as_object)

@@ -1,4 +1,5 @@
-//! Bahamut Anime Crazy unlock probe: two-step `getdeviceid.php` + `token.php` check.
+//! Bahamut Anime Crazy unlock probe: `getdeviceid.php` + cookie-authenticated `token.php` +
+//! regional trace check.
 
 use bench_api::Context;
 use bench_api::HttpRequest;
@@ -18,7 +19,8 @@ pub const SPEC: Platform = Platform {
     probe,
 };
 
-/// Probes Bahamut Anime Crazy in two steps over `family`.
+/// Probes Bahamut Anime Crazy over `family`, forwarding session cookies from `getdeviceid.php` to
+/// `token.php` and resolving the unlocked region (`TW` vs `HK`/`MO`) via `cdn-cgi/trace`.
 pub fn probe<'a>(
     ctx: &'a Context<Output>,
     family: IpFamily,
@@ -33,7 +35,8 @@ pub fn probe<'a>(
                 "device",
                 "https://ani.gamer.com.tw/ajax/getdeviceid.php",
             ),
-        );
+        )
+        .with_header("x-custom-headers", "true");
         let dev_res = match parse::send(ctx, dev_req).await {
             Ok(res) => res,
             Err(verdict) => return verdict,
@@ -41,20 +44,43 @@ pub fn probe<'a>(
         let Some(dev_id) = device_id(&dev_res) else {
             return device_failure(&dev_res);
         };
+        let cookies = parse::cookies_header(&dev_res);
         let token_url = match base_url {
             Some(base) => format!("{base}/bahamut/token?device={dev_id}"),
             None => format!(
                 "https://ani.gamer.com.tw/ajax/token.php?adID=89422&sn=37783&device={dev_id}"
             ),
         };
-        let tok_req = HttpRequest::get(family, token_url).with_header(
-            "referer",
-            "https://ani.gamer.com.tw/animeVideo.php?sn=37783",
-        );
-        match parse::send(ctx, tok_req).await {
-            Ok(tok_res) => parse(&tok_res),
-            Err(verdict) => verdict,
+        let mut tok_req = HttpRequest::get(family, token_url)
+            .with_header("x-custom-headers", "true")
+            .with_header(
+                "referer",
+                "https://ani.gamer.com.tw/animeVideo.php?sn=37783",
+            );
+        if let Some(cookie_hdr) = cookies.as_deref() {
+            tok_req = tok_req.with_header("cookie", cookie_hdr);
         }
+        let verdict = match parse::send(ctx, tok_req).await {
+            Ok(tok_res) => parse(&tok_res),
+            Err(verdict) => return verdict,
+        };
+        if matches!(verdict, Verdict::Yes { .. }) {
+            let trace_req = HttpRequest::get(
+                family,
+                parse::endpoint(
+                    base_url,
+                    SPEC.id,
+                    "trace",
+                    "https://ani.gamer.com.tw/cdn-cgi/trace",
+                ),
+            );
+            if let Ok(trace_res) = ctx.probe(&trace_req).await
+                && let Some(loc) = parse::cf_trace_loc(&trace_res.text())
+            {
+                return Verdict::yes_in(loc);
+            }
+        }
+        verdict
     })
 }
 
@@ -127,7 +153,7 @@ pub fn parse(response: &HttpResponse) -> Verdict {
             .and_then(serde_json::Value::as_str)
             .unwrap_or_default()
             .to_ascii_lowercase();
-        let is_geo = code == Some(1007)
+        let is_geo = code == Some(1002)
             || msg.contains("region")
             || msg.contains("area")
             || msg.contains("country")

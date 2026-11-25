@@ -1,4 +1,4 @@
-//! 9Now Australian livestreams API probe.
+//! 9Now Australian login availability probe.
 
 use bench_api::Context;
 use bench_api::HttpRequest;
@@ -26,10 +26,7 @@ pub fn probe<'a>(
 ) -> ProbeFuture<'a> {
     Box::pin(async move {
         let url = |real: &str| parse::endpoint(base_url, SPEC.id, "check", real);
-        let req = HttpRequest::get(
-            family,
-            url("https://tv-api.9now.com.au/v2/pages/livestreams?device=web"),
-        );
+        let req = HttpRequest::get(family, url("https://login.nine.com.au/"));
         match parse::send(ctx, req).await {
             Ok(res) => parse(&res),
             Err(verdict) => verdict,
@@ -75,11 +72,17 @@ pub fn parse(response: &HttpResponse) -> Verdict {
         }
     } else {
         let lower = response.text().to_ascii_lowercase();
-        if lower.contains("geoblocked")
+        if lower.contains("geoblock")
             || lower.contains("geo_blocked")
+            || lower.contains("access denied")
             || lower.contains("outside australia")
         {
             return Verdict::no();
+        }
+        if response.status == 302
+            || (response.status == 200 && (lower.contains("log in to") || lower.contains("9now")))
+        {
+            return Verdict::yes_in("AU");
         }
     }
     if (200..300).contains(&response.status) {

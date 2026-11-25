@@ -1,9 +1,10 @@
-//! Spotify registration availability probe.
+//! Spotify regional market probe via `open.spotify.com` `appServerConfig`.
 
 use bench_api::Context;
 use bench_api::HttpRequest;
 use bench_api::HttpResponse;
 use bench_api::IpFamily;
+use bench_api::RedirectPolicy;
 
 use super::super::parse;
 use super::super::result::Output;
@@ -27,20 +28,9 @@ pub fn probe<'a>(
 ) -> ProbeFuture<'a> {
     Box::pin(async move {
         let url = |real: &str| parse::endpoint(base_url, SPEC.id, "check", real);
-        let req = HttpRequest::post(
-            family,
-            url("https://spclient.wg.spotify.com/signup/public/v1/account"),
-            concat!(
-                "birth_day=1&birth_month=1&birth_year=1995&collect_personal_info=undefined",
-                "&creation_flow=&creation_point=https%3A%2F%2Fwww.spotify.com%2F",
-                "&displayname=bench&gender=neutral&iagree=1",
-                "&key=a1e486e2729f46d6bb368d6b2bcda326&platform=www",
-                "&referrer=&send-email=0&thirdpartyemail=0"
-            )
-            .as_bytes()
-            .to_vec(),
-        )
-        .with_header("content-type", "application/x-www-form-urlencoded");
+        let req = HttpRequest::get(family, url("https://open.spotify.com/"))
+            .with_redirect(RedirectPolicy::Follow { max: 5 })
+            .with_max_bytes(512 * 1024);
         match parse::send(ctx, req).await {
             Ok(res) => parse(&res),
             Err(verdict) => verdict,
@@ -54,42 +44,60 @@ pub fn parse(response: &HttpResponse) -> Verdict {
     if let Some(early) = parse::gate(response) {
         return early;
     }
+    if matches!(response.status, 403 | 451) {
+        return Verdict::no();
+    }
+    let body = response.text();
+    if let Some(market) = extract_server_config_market(&body) {
+        return market_verdict(&market);
+    }
     if let Some(val) = parse::json(response) {
-        let status = val.get("status").and_then(serde_json::Value::as_i64);
-        let launched = val
-            .get("is_country_launched")
-            .and_then(serde_json::Value::as_bool);
-        let errors_proxy = val.get("errors").is_some_and(contains_proxy);
-        if status == Some(320) || errors_proxy {
+        if val.get("errors").is_some_and(contains_proxy) {
             return Verdict::No {
                 restriction: Some(Restriction::ProxyDetected),
             };
         }
-        if launched == Some(false)
-            || matches!(status, Some(311 | 120))
-            || matches!(response.status, 403 | 451)
-        {
+        let launched = val
+            .get("is_country_launched")
+            .and_then(serde_json::Value::as_bool);
+        if launched == Some(false) {
             return Verdict::no();
         }
-        if !(200..300).contains(&response.status) {
-            return Verdict::Unexpected(format!("HTTP {}", response.status));
+        if (200..300).contains(&response.status) {
+            let code = val
+                .get("market")
+                .or_else(|| val.get("country"))
+                .and_then(serde_json::Value::as_str)
+                .and_then(parse::country_code);
+            if let Some(code) = code {
+                return market_verdict(&code);
+            }
         }
-        let country = val
-            .get("country")
-            .and_then(serde_json::Value::as_str)
-            .and_then(parse::country_code);
-        let status_ok = status == Some(1)
-            || (matches!(status, None | Some(20 | 110 | 130 | 140)) && country.is_some());
-        return if launched == Some(true) || (launched.is_none() && status_ok) {
-            Verdict::Yes { region: country }
-        } else {
-            Verdict::Unexpected("unrecognized Spotify response".to_owned())
-        };
     }
-    if matches!(response.status, 403 | 451) {
-        return Verdict::no();
+    if response.status != 200 {
+        return Verdict::Unexpected(format!("HTTP {}", response.status));
     }
-    Verdict::Unexpected(format!("HTTP {}", response.status))
+    Verdict::Unexpected("missing Spotify market".to_owned())
+}
+
+fn extract_server_config_market(html: &str) -> Option<String> {
+    let (_, after_id) = html.split_once("id=\"appServerConfig\"")?;
+    let (_, after_gt) = after_id.split_once('>')?;
+    let (encoded, _) = after_gt.split_once("</script>")?;
+    let decoded = parse::base64_decode(encoded.trim())?;
+    let val: serde_json::Value = serde_json::from_slice(&decoded).ok()?;
+    val.get("market")
+        .or_else(|| val.get("countryCode"))
+        .and_then(serde_json::Value::as_str)
+        .and_then(parse::country_code)
+}
+
+fn market_verdict(code: &str) -> Verdict {
+    if matches!(code, "CN" | "CU" | "IR" | "KP" | "RU" | "SY") {
+        Verdict::no()
+    } else {
+        Verdict::yes_in(code)
+    }
 }
 
 fn contains_proxy(value: &serde_json::Value) -> bool {

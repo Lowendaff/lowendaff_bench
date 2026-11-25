@@ -1,4 +1,4 @@
-//! Starz `/api/v4/User/geolocation` US probe.
+//! Starz two-step `AuthTokenAuthorization` + `/api/v4/User/geolocation` US probe.
 
 use bench_api::Context;
 use bench_api::HttpRequest;
@@ -19,19 +19,55 @@ pub const SPEC: Platform = Platform {
     probe,
 };
 
-/// Probes Starz over `family`.
+/// Probes Starz in two steps over `family`.
 pub fn probe<'a>(
     ctx: &'a Context<Output>,
     family: IpFamily,
     base_url: Option<&'a str>,
 ) -> ProbeFuture<'a> {
     Box::pin(async move {
-        let url = |real: &str| parse::endpoint(base_url, SPEC.id, "check", real);
-        let req = HttpRequest::get(
+        let tok_req = HttpRequest::get(
             family,
-            url("https://auth.starz.com/api/v4/User/geolocation"),
-        );
-        match parse::send(ctx, req).await {
+            parse::endpoint(
+                base_url,
+                SPEC.id,
+                "token",
+                "https://www.starz.com/sapi/header/v1/starz/us/109448574b2147ccbc494b429ff5ef1b",
+            ),
+        )
+        .with_header("referer", "https://www.starz.com/us/en/");
+        let tok_res = match parse::send(ctx, tok_req).await {
+            Ok(res) => res,
+            Err(verdict) => return verdict,
+        };
+        if let Some(early) = parse::gate(&tok_res) {
+            return early;
+        }
+        let auth_token = tok_res.text().trim().to_owned();
+        if matches!(tok_res.status, 403 | 451)
+            || auth_token.to_ascii_lowercase().contains("accessdenied")
+        {
+            return Verdict::no();
+        }
+        if tok_res.status != 200 || auth_token.is_empty() {
+            return Verdict::Unexpected(format!("HTTP {}", tok_res.status));
+        }
+
+        let geo_req = HttpRequest::get(
+            family,
+            parse::endpoint(
+                base_url,
+                SPEC.id,
+                "check",
+                "https://auth.starz.com/api/v4/User/geolocation",
+            ),
+        )
+        .with_header("authtokenauthorization", auth_token)
+        .with_header("bestavailabletoken", "true")
+        .with_header("origin", "https://www.starz.com")
+        .with_header("referer", "https://www.starz.com/")
+        .with_header("x-client-features", "DeviceCount");
+        match parse::send(ctx, geo_req).await {
             Ok(res) => parse(&res),
             Err(verdict) => verdict,
         }

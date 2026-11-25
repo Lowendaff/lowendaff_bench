@@ -1,10 +1,9 @@
-//! Apple TV+ unlock probe.
+//! Apple TV+ unlock probe via Apple's geolocation country service.
 
 use bench_api::Context;
 use bench_api::HttpRequest;
 use bench_api::HttpResponse;
 use bench_api::IpFamily;
-use bench_api::RedirectPolicy;
 
 use super::super::parse;
 use super::super::result::Output;
@@ -27,8 +26,7 @@ pub fn probe<'a>(
 ) -> ProbeFuture<'a> {
     Box::pin(async move {
         let url = |real: &str| parse::endpoint(base_url, SPEC.id, "check", real);
-        let req = HttpRequest::get(family, url("https://tv.apple.com/"))
-            .with_redirect(RedirectPolicy::Follow { max: 5 });
+        let req = HttpRequest::get(family, url("https://gspe1-ssl.ls.apple.com/pep/gcc"));
         match parse::send(ctx, req).await {
             Ok(res) => parse(&res),
             Err(verdict) => verdict,
@@ -56,24 +54,18 @@ pub fn parse(response: &HttpResponse) -> Verdict {
     {
         return Verdict::no();
     }
-    let region = parse::url_country(&response.final_url).or_else(|| {
-        body.split("https://tv.apple.com/")
-            .skip(1)
-            .find_map(|rest| {
-                let path = rest
-                    .split(['"', '\'', '?', '#', ' ', '<', '>'])
-                    .next()
-                    .unwrap_or_default();
-                parse::url_country(path.split('/').next().unwrap_or_default())
-            })
-    });
+    let region =
+        parse::country_code(body.trim()).or_else(|| parse::url_country(&response.final_url));
     if let Some(code) = region.as_deref()
-        && matches!(code, "CN" | "CU" | "IR" | "KP" | "SY")
+        && matches!(code, "CN" | "CU" | "IR" | "KP" | "RU" | "SY")
     {
         return Verdict::no();
     }
     if response.status == 200 {
-        Verdict::Yes { region }
+        match region {
+            Some(code) => Verdict::yes_in(code),
+            None => parse::no_region(),
+        }
     } else {
         Verdict::Unexpected(format!("HTTP {}", response.status))
     }

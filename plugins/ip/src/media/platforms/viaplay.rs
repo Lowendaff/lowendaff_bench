@@ -4,6 +4,7 @@ use bench_api::Context;
 use bench_api::HttpRequest;
 use bench_api::HttpResponse;
 use bench_api::IpFamily;
+use bench_api::RedirectPolicy;
 
 use super::super::parse;
 use super::super::result::Output;
@@ -26,7 +27,8 @@ pub fn probe<'a>(
 ) -> ProbeFuture<'a> {
     Box::pin(async move {
         let url = |real: &str| parse::endpoint(base_url, SPEC.id, "check", real);
-        let req = HttpRequest::get(family, url("https://checkout.viaplay.com/"));
+        let req = HttpRequest::get(family, url("https://viaplay.com/"))
+            .with_redirect(RedirectPolicy::Follow { max: 5 });
         match parse::send(ctx, req).await {
             Ok(res) => parse(&res),
             Err(verdict) => verdict,
@@ -43,6 +45,13 @@ pub fn parse(response: &HttpResponse) -> Verdict {
     if matches!(response.status, 403 | 451) {
         return Verdict::no();
     }
+    let lower_body = response.text().to_ascii_lowercase();
+    if lower_body.contains("en-unavailability")
+        || lower_body.contains("region-blocked")
+        || lower_body.contains("not available in your")
+    {
+        return Verdict::no();
+    }
     if (300..=399).contains(&response.status)
         && let Some(loc) = response.header("location")
     {
@@ -53,10 +62,6 @@ pub fn parse(response: &HttpResponse) -> Verdict {
         if let Some(code) = parse::url_country(loc) {
             return Verdict::yes_in(code);
         }
-    }
-    let lower_body = response.text().to_ascii_lowercase();
-    if lower_body.contains("region-blocked") || lower_body.contains("not available in your") {
-        return Verdict::no();
     }
     if response.status == 200 {
         return match parse::url_country(&response.final_url) {

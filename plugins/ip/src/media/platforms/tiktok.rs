@@ -27,9 +27,8 @@ pub fn probe<'a>(
 ) -> ProbeFuture<'a> {
     Box::pin(async move {
         let url = |real: &str| parse::endpoint(base_url, SPEC.id, "check", real);
-        let req = HttpRequest::get(family, url("https://www.tiktok.com/explore"))
-            .with_redirect(RedirectPolicy::Follow { max: 5 })
-            .with_max_bytes(1024 * 1024);
+        let req = HttpRequest::get(family, url("https://www.tiktok.com/cdn-cgi/trace"))
+            .with_redirect(RedirectPolicy::Follow { max: 5 });
         match parse::send(ctx, req).await {
             Ok(res) => parse(&res),
             Err(verdict) => verdict,
@@ -46,19 +45,24 @@ pub fn parse(response: &HttpResponse) -> Verdict {
     if matches!(response.status, 403 | 451) {
         return Verdict::no();
     }
+    let lower_url = response.final_url.to_ascii_lowercase();
+    if lower_url.contains("/about") || lower_url.contains("/notfound") {
+        return Verdict::no();
+    }
     if response.status != 200 {
         return Verdict::Unexpected(format!("HTTP {}", response.status));
     }
     let body = response.text();
-    let region = body
-        .find("\"webapp.app-context\"")
-        .and_then(|start| extract_json_object(&body[start + "\"webapp.app-context\"".len()..]))
-        .and_then(|obj| serde_json::from_str::<serde_json::Value>(obj).ok())
-        .and_then(|val| {
-            val.get("region")
-                .and_then(serde_json::Value::as_str)
-                .and_then(parse::country_code)
-        });
+    let region = parse::cf_trace_loc(&body).or_else(|| {
+        body.find("\"webapp.app-context\"")
+            .and_then(|start| extract_json_object(&body[start + "\"webapp.app-context\"".len()..]))
+            .and_then(|obj| serde_json::from_str::<serde_json::Value>(obj).ok())
+            .and_then(|val| {
+                val.get("region")
+                    .and_then(serde_json::Value::as_str)
+                    .and_then(parse::country_code)
+            })
+    });
     match region.as_deref() {
         Some("CN" | "HK" | "IN" | "IR" | "KP" | "AF") => Verdict::no(),
         Some(code) => Verdict::yes_in(code),
