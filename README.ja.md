@@ -170,6 +170,8 @@ sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-
 | `--inetspeed-threads` | `<1..=64>` | `4` | `network.inetspeed` のマルチスレッド測定で使用する並列スレッド数 |
 | `--inetspeed-endpoint` | `<IP>` | 自動（Dual DoH） | `network.inetspeed` で特定の Apple CDN エッジ IP を固定します |
 | `--trace-groups` | `<グループ,...>` | キャッシュ + 既定拠点 | `network.trace` で追跡する宛先グループを選びます |
+| `--no-trace-tcp` | 値なし | オフ | `network.trace` 内の中国本土拠点向け TCP SYN 大容量パケット経路追跡を省略します |
+| `--trace-packet-size` | `<64..=1500>` | `1024` | `network.trace` の中国本土拠点向け TCP 調査パケット長（バイト、IP + TCP ヘッダ込み） |
 | `--media-groups` | `<地域,...>` | `all`（全地域） | `ip.media` でチェックする動画配信サービスの地域を選びます |
 | `--no-dnsbl` | 値なし | オフ | `ip.quality` 内の 25 カ所のブラックリスト（DNSBL）照会を省略します |
 | `--no-mail` | 値なし | オフ | `ip.quality` 内の 25 番メールポート接続テストを省略します |

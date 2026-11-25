@@ -57,6 +57,10 @@ pub trait ProgramWords {
     fn invalid_inetspeed_endpoint(&self, raw: &str) -> String;
     /// The help of `--trace-groups`.
     fn help_trace_groups(&self) -> String;
+    /// The help of `--no-trace-tcp`.
+    fn help_no_trace_tcp(&self) -> String;
+    /// The help of `--trace-packet-size`.
+    fn help_trace_packet_size(&self) -> String;
     /// The help of `--media-groups`.
     fn help_media_groups(&self) -> String;
     /// The help of `--no-dnsbl`.

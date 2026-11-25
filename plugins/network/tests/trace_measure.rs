@@ -76,6 +76,7 @@ fn planned(target: Target, host: &str) -> Planned {
     Planned {
         target,
         host: Ok(host.to_owned()),
+        tcp_port: None,
     }
 }
 
@@ -86,6 +87,8 @@ fn about(geo: bool) -> About {
             targets: Vec::new(),
             list: false,
             geo,
+            tcp: true,
+            large_packets: 1024,
         },
         unknown: vec!["xyz".to_owned()],
         exchanges: ExchangeList::Read(1),
@@ -174,6 +177,7 @@ fn plan() -> Plan {
             Planned {
                 target: Target::Netflix(None),
                 host: Err(Unavailable::Answer(LookupError::NoTarget)),
+                tcp_port: None,
             },
             planned(beijing(), "ipv4.pek-4809.endpoint.nxtrace.org"),
         ],
@@ -463,4 +467,64 @@ fn a_trace_over_ipv6_asks_for_ipv6() {
     let args: Vec<OsString> = measure::args("a.example", IpFamily::Ipv6, true);
     assert_eq!(args[args.len() - 2], "-6");
     assert_eq!(args[args.len() - 1], "a.example");
+}
+
+#[tokio::test]
+async fn china_target_with_tcp_port_runs_tcp_large_packet_trace_after_icmp_unless_disabled() {
+    let china_plan = || Plan {
+        ipv4: vec![Planned {
+            target: listed("pek-4809", "Beijing Telecom CN2"),
+            host: Ok("ipv4.pek-4809.endpoint.nxtrace.org".to_owned()),
+            tcp_port: Some(443),
+        }],
+        ipv6: Vec::new(),
+    };
+    let exchanges = Exchanges::from([(
+        "59.43.19.93".parse().expect("address"),
+        "ChinaIX".to_owned(),
+    )]);
+    let measured = measure_with(
+        china_plan(),
+        about(true),
+        &exchanges,
+        vec![
+            finished(Some(0), &fixture("reached.json")),
+            finished(Some(0), &fixture("not-reached.json")),
+        ],
+        None,
+    )
+    .await;
+    assert_eq!(measured.jobs.len(), 2);
+    let tcp_ran = args(&measured.jobs[1]);
+    assert_eq!(
+        &tcp_ran[tcp_ran.len() - 7..],
+        [
+            "-T",
+            "-p",
+            "443",
+            "--psize",
+            "1024",
+            "-4",
+            "ipv4.pek-4809.endpoint.nxtrace.org"
+        ]
+    );
+    let output = measured.result.expect("traced");
+    let tcp = output.ipv4[0].tcp.as_ref().expect("tcp trace recorded");
+    assert_eq!(tcp.port, 443);
+    assert_eq!(tcp.packet_size, 1024);
+    assert!(matches!(tcp.route, Route::Traced(_)));
+
+    // When `tcp` is disabled in settings, only the ICMP job runs.
+    let mut no_tcp = about(true);
+    no_tcp.settings.tcp = false;
+    let disabled = measure_with(
+        china_plan(),
+        no_tcp,
+        &Exchanges::new(),
+        vec![finished(Some(0), &fixture("reached.json"))],
+        None,
+    )
+    .await;
+    assert_eq!(disabled.jobs.len(), 1);
+    assert!(disabled.result.expect("traced").ipv4[0].tcp.is_none());
 }

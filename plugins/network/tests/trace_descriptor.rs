@@ -122,8 +122,18 @@ fn each_file_can_come_from_a_path_or_another_https_address() {
 #[test]
 fn the_configuration_knows_its_fields_and_its_groups_and_looks_hops_up_by_default() {
     assert!(Trace::default().geo);
+    assert!(Trace::default().tcp);
+    assert_eq!(Trace::default().large_packets, trace::DEFAULT_LARGE_PACKETS);
     assert!(configured(json!({})).geo);
+    assert!(configured(json!({})).tcp);
+    assert_eq!(configured(json!({})).large_packets, 1024);
     assert!(!configured(json!({ "geo": false })).geo);
+    assert!(!configured(json!({ "tcp": false })).tcp);
+    assert_eq!(configured(json!({ "large_packets": 64 })).large_packets, 64);
+    assert_eq!(
+        configured(json!({ "large_packets": 1500 })).large_packets,
+        1500
+    );
     assert_eq!(
         configured(json!({ "groups": ["services", "china", "international", "all"] })).groups,
         [
@@ -139,6 +149,9 @@ fn the_configuration_knows_its_fields_and_its_groups_and_looks_hops_up_by_defaul
         json!({ "groups": ["China"] }),
         json!({ "groups": "china" }),
         json!({ "geo": "no" }),
+        json!({ "tcp": "yes" }),
+        json!({ "large_packets": 63 }),
+        json!({ "large_packets": 1501 }),
         json!({ "targets": "pek-4809" }),
     ] {
         assert!(

@@ -706,6 +706,8 @@ fn json_format_is_structured_and_respects_show_ip_across_host_trace_and_ip_quali
                     targets: Vec::new(),
                     list: false,
                     geo: true,
+                    tcp: true,
+                    large_packets: 1024,
                 },
                 unknown: Vec::new(),
                 exchanges: ExchangeList::Read(0),
@@ -714,6 +716,7 @@ fn json_format_is_structured_and_respects_show_ip_across_host_trace_and_ip_quali
                     host: Some("r1.googlevideo.com".to_owned()),
                     route: Route::Traced(Trace {
                         reached: true,
+                        fragmented: None,
                         hops: vec![
                             Hop {
                                 answers: vec![Answer {
@@ -736,6 +739,24 @@ fn json_format_is_structured_and_respects_show_ip_across_host_trace_and_ip_quali
                                 }],
                             },
                         ],
+                    }),
+                    tcp: Some(trace::result::TcpTrace {
+                        port: 443,
+                        packet_size: 1024,
+                        route: Route::Traced(Trace {
+                            reached: true,
+                            fragmented: None,
+                            hops: vec![Hop {
+                                answers: vec![Answer {
+                                    address: "203.0.113.7".parse().expect("own tcp hop"),
+                                    asn: None,
+                                    network: None,
+                                    exchange: None,
+                                    place: None,
+                                    latency: 600,
+                                }],
+                            }],
+                        }),
                     }),
                 }],
                 ipv6: Vec::new(),
@@ -785,6 +806,8 @@ fn json_format_is_structured_and_respects_show_ip_across_host_trace_and_ip_quali
         hops[1]["answers"][0]["address"], "198.51.100.1",
         "third-party router hops remain unmasked"
     );
+    let tcp_hops = &masked["runs"][1]["output"]["ipv4"][0]["tcp"]["route"]["Traced"]["hops"];
+    assert_eq!(tcp_hops[0]["answers"][0]["address"], "203.0.*.*");
     assert_eq!(masked["summary"]["completed"], 2);
 
     let full_page = Page {

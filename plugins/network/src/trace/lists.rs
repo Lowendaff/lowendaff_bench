@@ -49,6 +49,9 @@ pub enum Rule {
     Ipv4,
     /// A target's IPv6 name: a DNS name or an IPv6 address.
     Ipv6,
+    /// A target's TCP ports: on a China target only, `ipv4` and/or `ipv6` (when `ipv6` is set)
+    /// from 1 to 65535.
+    Tcp,
     /// A port's address: an IPv4 address, or an IPv6 address without an IPv4 part, in its
     /// canonical form (RFC 5952): in lowercase, without leading zeros, its longest run of zeros
     /// cut short.

@@ -7,6 +7,7 @@ use std::net::IpAddr;
 use serde::Deserialize;
 
 use super::result::Answer;
+use super::result::Fragmented;
 use super::result::Hop;
 use super::result::Trace;
 
@@ -55,7 +56,11 @@ struct Geo {
 /// Why NextTrace stopped.
 #[derive(Deserialize)]
 struct StopReason {
+    #[serde(default)]
+    hop: usize,
     reason: String,
+    #[serde(default)]
+    markers: Vec<String>,
 }
 
 /// The trace in what NextTrace printed: the JSON document that starts at the first line that
@@ -102,11 +107,48 @@ pub fn trace(text: &str) -> Option<Trace> {
             }
             Hop { answers }
         })
-        .collect();
+        .collect::<Vec<_>>();
     let reached = report
         .stop
+        .as_ref()
         .is_some_and(|stop| stop.reason == "destination_reached");
-    Some(Trace { reached, hops })
+    let fragmented = if reached {
+        None
+    } else {
+        report
+            .stop
+            .as_ref()
+            .and_then(|stop| parse_fragmented(stop, hops.len()))
+    };
+    Some(Trace {
+        reached,
+        fragmented,
+        hops,
+    })
+}
+
+fn parse_fragmented(stop: &StopReason, hop_count: usize) -> Option<Fragmented> {
+    for marker in &stop.markers {
+        let trimmed = marker.trim();
+        if trimmed == "!F" {
+            let hop = if stop.hop > 0 {
+                stop.hop
+            } else {
+                hop_count.max(1)
+            };
+            return Some(Fragmented { hop, mtu: None });
+        }
+        if let Some(rest) = trimmed.strip_prefix("!F-") {
+            let hop = if stop.hop > 0 {
+                stop.hop
+            } else {
+                hop_count.max(1)
+            };
+            let mtu = rest.parse::<u16>().ok().filter(|&m| m > 0);
+            return Some(Fragmented { hop, mtu });
+        }
+    }
+    None
 }
 
 /// Where the first line that opens a JSON document starts.

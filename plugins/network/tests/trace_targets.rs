@@ -17,6 +17,7 @@ fn target(id: &str, group: Group, default: bool) -> Target {
         ipv4: format!("{id}.example"),
         ipv6: None,
         default,
+        tcp: None,
     }
 }
 

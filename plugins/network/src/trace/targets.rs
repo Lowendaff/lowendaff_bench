@@ -35,6 +35,15 @@ pub enum Group {
     International,
 }
 
+/// Per-family destination ports for TCP large-packet route traces on mainland China targets.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+pub struct TcpPorts {
+    /// Destination TCP port over IPv4 (`1..=65535`), if configured.
+    pub ipv4: Option<u16>,
+    /// Destination TCP port over IPv6 (`1..=65535`), if configured.
+    pub ipv6: Option<u16>,
+}
+
 /// A target of the list, checked.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Target {
@@ -52,12 +61,24 @@ pub struct Target {
     pub ipv6: Option<String>,
     /// Whether the item traces it unless told otherwise.
     pub default: bool,
+    /// Optional TCP ports for large-packet traces (China targets only).
+    pub tcp: Option<TcpPorts>,
 }
 
 /// The list as it is written, after its version.
 #[derive(Deserialize)]
 struct Written {
     targets: Vec<WrittenTarget>,
+}
+
+/// Optional `tcp` port map as written in JSON.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WrittenTcp {
+    #[serde(default)]
+    ipv4: Option<u64>,
+    #[serde(default)]
+    ipv6: Option<u64>,
 }
 
 /// A target as it is written.
@@ -72,6 +93,8 @@ struct WrittenTarget {
     ipv6: Option<String>,
     #[serde(default)]
     default: bool,
+    #[serde(default)]
+    tcp: Option<WrittenTcp>,
 }
 
 /// Reads a list, and checks every schema rule.
@@ -143,6 +166,31 @@ fn check(target: WrittenTarget, allow_local: bool) -> Result<Target, Rule> {
     {
         return Err(Rule::Ipv6);
     }
+    let tcp = match target.tcp {
+        None => None,
+        Some(written_tcp) => {
+            if group != Group::China {
+                return Err(Rule::Tcp);
+            }
+            let v4 = match written_tcp.ipv4 {
+                None => None,
+                Some(raw) => Some(check_port(raw).ok_or(Rule::Tcp)?),
+            };
+            let v6 = match written_tcp.ipv6 {
+                None => None,
+                Some(raw) => {
+                    if target.ipv6.is_none() {
+                        return Err(Rule::Tcp);
+                    }
+                    Some(check_port(raw).ok_or(Rule::Tcp)?)
+                }
+            };
+            if v4.is_none() && v6.is_none() {
+                return Err(Rule::Tcp);
+            }
+            Some(TcpPorts { ipv4: v4, ipv6: v6 })
+        }
+    };
     Ok(Target {
         id: target.id,
         group,
@@ -151,7 +199,12 @@ fn check(target: WrittenTarget, allow_local: bool) -> Result<Target, Rule> {
         ipv4: target.ipv4,
         ipv6: target.ipv6,
         default: target.default,
+        tcp,
     })
+}
+
+fn check_port(raw: u64) -> Option<u16> {
+    u16::try_from(raw).ok().filter(|&port| port >= 1)
 }
 
 /// A DNS name, or an address of the family that the name is traced over: IPv6 when `ipv6` is set.

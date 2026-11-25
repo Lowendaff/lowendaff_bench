@@ -907,6 +907,12 @@ impl NetworkWords for English {
 impl TraceWords for English {
     fn trace_method(&self, version: &str, choice: &TraceChoice) -> String {
         let mut method = format!("NextTrace {version}: ICMP, 3 probes a hop, at most 30 hops");
+        if choice.tcp {
+            method.push_str(&format!(
+                "; TCP to China with {}-byte packets",
+                choice.large_packets
+            ));
+        }
         if !choice.groups.is_empty() {
             method.push_str(&format!("; groups {}", choice.groups.join(", ")));
         }
@@ -929,6 +935,10 @@ impl TraceWords for English {
         }
     }
 
+    fn trace_tcp_heading(&self, port: u16, packet_size: u16, outcome: &str) -> String {
+        format!("TCP to port {port}, {packet_size}-byte packets: {outcome}")
+    }
+
     fn youtube(&self) -> &'static str {
         "YouTube"
     }
@@ -946,6 +956,19 @@ impl TraceWords for English {
 
     fn not_reached(&self, hops: usize) -> String {
         format!("not reached after {}", super::count(hops, "hop", "hops"))
+    }
+
+    fn fragmented(&self, hop: usize, mtu: Option<u16>) -> String {
+        match mtu {
+            Some(mtu) => format!(
+                "stopped at hop {hop}, where a router takes at most {}",
+                super::count(usize::from(mtu), "byte", "bytes")
+            ),
+            None => format!(
+                "stopped at hop {hop}, where a router could not pass the packet without \
+                 fragmentation"
+            ),
+        }
     }
 
     fn trace_headers(&self) -> [&'static str; 6] {
@@ -1045,6 +1068,10 @@ impl TraceWords for English {
                     TraceRule::Asn => "its AS number must be from 1 to 4294967295",
                     TraceRule::Ipv4 => "its ipv4 must be a DNS name or an IPv4 address",
                     TraceRule::Ipv6 => "its ipv6 must be a DNS name or an IPv6 address",
+                    TraceRule::Tcp => {
+                        "its tcp ports may appear on a china target only, with ipv4 and/or ipv6 \
+                         (when ipv6 is set) from 1 to 65535"
+                    }
                     TraceRule::Address => {
                         "its address must be an IP address as it prints, an IPv6 address \
                          without an IPv4 part"

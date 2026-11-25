@@ -845,6 +845,15 @@ fn config_flag_is_rejected_and_enum_parameters_configure_plugins() {
     assert!(parsed.no_mail);
     assert!(parsed.no_bgp_upload);
 
+    assert!(
+        app::prepare(
+            &cli(&["-a", "--no-trace-tcp", "--trace-packet-size", "1280",]),
+            &registry::all(),
+        )
+        .is_ok(),
+        "--no-trace-tcp and --trace-packet-size prepare cleanly"
+    );
+
     let planned = app::prepare(&parsed, &registry::all()).expect("valid enum flags prepare");
     assert_eq!(planned.len(), registry::all().len());
 

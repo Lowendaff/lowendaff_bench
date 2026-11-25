@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "targets": [
+    {
+      "id": "gcp-sin",
+      "group": "international",
+      "name": "GCP - Singapore, SG",
+      "asn": 396982,
+      "ipv4": "35.187.238.97",
+      "tcp": {
+        "ipv4": 443
+      }
+    }
+  ]
+}

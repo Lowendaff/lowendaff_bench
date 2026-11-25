@@ -261,6 +261,14 @@ impl TuiWords for English {
         "Hop ASN & geolocation"
     }
 
+    fn tui_field_trace_tcp(&self) -> &'static str {
+        "TCP large-packet (China)"
+    }
+
+    fn tui_field_trace_packet_size(&self) -> &'static str {
+        "TCP packet size (bytes)"
+    }
+
     fn tui_field_bgp_upload(&self) -> &'static str {
         "Upload topology image"
     }

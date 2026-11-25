@@ -8,7 +8,11 @@
       "asn": 4809,
       "ipv4": "ipv4.pek-4809.endpoint.nxtrace.org",
       "default": true,
-      "ipv6": "ipv6.pek-4809.endpoint.nxtrace.org"
+      "ipv6": "ipv6.pek-4809.endpoint.nxtrace.org",
+      "tcp": {
+        "ipv4": 443,
+        "ipv6": 65535
+      }
     },
     {
       "id": "gcp-sin",

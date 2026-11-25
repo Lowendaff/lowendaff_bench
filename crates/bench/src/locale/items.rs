@@ -413,6 +413,8 @@ pub trait TraceWords {
     fn trace_method(&self, version: &str, choice: &TraceChoice) -> String;
     /// A target's line: its name, the name traced when there is one, and what came of it.
     fn trace_heading(&self, name: &str, host: Option<&str>, outcome: &str) -> String;
+    /// A TCP SYN large-packet trace's line: destination port, packet size in bytes, and outcome.
+    fn trace_tcp_heading(&self, port: u16, packet_size: u16, outcome: &str) -> String;
     /// YouTube's nearest cache server.
     fn youtube(&self) -> &'static str;
     /// Netflix's nearest cache server, with its city and country when its lookup named them.
@@ -421,6 +423,8 @@ pub trait TraceWords {
     fn reached(&self, hops: usize) -> String;
     /// A trace that did not reach its target after `hops` hops.
     fn not_reached(&self, hops: usize) -> String;
+    /// A trace stopped by ICMP Fragmentation Needed (`!F` / `!F-<mtu>`) at `hop`.
+    fn fragmented(&self, hop: usize, mtu: Option<u16>) -> String;
     /// The table's headers: the hop, the address, the ASN, the network, the place and the latency.
     fn trace_headers(&self) -> [&'static str; 6];
     /// Group subheading for Markdown route-tracing sections (`services`, `china`, `international`).
@@ -466,6 +470,10 @@ pub struct TraceChoice {
     pub list: bool,
     /// Whether NextTrace looked up each hop's network and place.
     pub geo: bool,
+    /// Whether mainland China targets also run a TCP SYN large-packet trace.
+    pub tcp: bool,
+    /// Total probe size in bytes (IP and TCP headers included) for TCP traces.
+    pub large_packets: u16,
 }
 
 /// One of route tracing's lists.
@@ -513,6 +521,8 @@ pub enum TraceRule {
     Ipv4,
     /// A target's IPv6 name.
     Ipv6,
+    /// A target's TCP ports.
+    Tcp,
     /// A port's address.
     Address,
     /// A port's exchange.

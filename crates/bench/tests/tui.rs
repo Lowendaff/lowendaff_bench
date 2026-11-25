@@ -227,6 +227,10 @@ fn defaults_match_standard_cli_and_every_customized_plugin_builds_cleanly() {
         .unwrap();
     assert_eq!(cfg.activate_item_field(trace_idx, 2), None); // china
     assert_eq!(cfg.activate_item_field(trace_idx, 6), None); // geo -> false
+    assert_eq!(cfg.activate_item_field(trace_idx, 7), None); // tcp -> false
+    cfg.apply_item_edit(trace_idx, 8, "1280").unwrap();
+    assert!(cfg.apply_item_edit(trace_idx, 8, "63").is_err());
+    assert!(cfg.apply_item_edit(trace_idx, 8, "1501").is_err());
 
     let quality_idx = cfg
         .items
@@ -376,6 +380,8 @@ fn defaults_match_standard_cli_and_every_customized_plugin_builds_cleanly() {
         serde_json::json!({
             "groups": ["china"],
             "geo": false,
+            "tcp": false,
+            "large_packets": 1280,
         })
     );
     assert_eq!(
@@ -699,6 +705,8 @@ fn disabling_items_clears_sub_selections_and_editing_sub_options_re_enables_bidi
             groups: [false; 4],
             targets: String::new(),
             geo: false,
+            tcp: false,
+            large_packets: 1024,
         }
     );
     assert!(
@@ -717,6 +725,8 @@ fn disabling_items_clears_sub_selections_and_editing_sub_options_re_enables_bidi
             groups: [false, true, false, false],
             targets: String::new(),
             geo: true,
+            tcp: true,
+            large_packets: 1024,
         }
     );
 
@@ -729,6 +739,8 @@ fn disabling_items_clears_sub_selections_and_editing_sub_options_re_enables_bidi
             groups: [true; 4],
             targets: String::new(),
             geo: true,
+            tcp: true,
+            large_packets: 1024,
         }
     );
     assert_eq!(
@@ -742,6 +754,8 @@ fn disabling_items_clears_sub_selections_and_editing_sub_options_re_enables_bidi
             groups: [true, false, true, false],
             targets: String::new(),
             geo: true,
+            tcp: true,
+            large_packets: 1024,
         }
     );
     cfg.apply_item_edit(trace_idx, 5, "youtube").unwrap();
@@ -751,6 +765,8 @@ fn disabling_items_clears_sub_selections_and_editing_sub_options_re_enables_bidi
             groups: [false; 4],
             targets: "youtube".to_owned(),
             geo: true,
+            tcp: true,
+            large_packets: 1024,
         },
         "entering target override clears group checkboxes"
     );
@@ -761,6 +777,8 @@ fn disabling_items_clears_sub_selections_and_editing_sub_options_re_enables_bidi
             groups: [true; 4],
             targets: String::new(),
             geo: true,
+            tcp: true,
+            large_packets: 1024,
         }
     );
 

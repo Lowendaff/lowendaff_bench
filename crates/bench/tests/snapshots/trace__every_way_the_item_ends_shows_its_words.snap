@@ -28,6 +28,8 @@ expression: text
   Route tracing
     failed: target 6 of the target list breaks a rule: its ipv6 must be a DNS name or an IPv6 address
   Route tracing
+    failed: target 8 of the target list breaks a rule: its tcp ports may appear on a china target only, with ipv4 and/or ipv6 (when ipv6 is set) from 1 to 65535
+  Route tracing
     failed: two targets of the target list have the id pek-4809
   Route tracing
     skipped: no target of the list is chosen

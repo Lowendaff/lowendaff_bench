@@ -13,6 +13,7 @@ use plugin_network::inetspeed::parse as inetspeed_parse;
 use plugin_network::iperf3::result::Settings as IperfSettings;
 use plugin_network::taier::Selector as TaierSelector;
 use plugin_network::taier::Settings as TaierSettings;
+use plugin_network::trace;
 
 use crate::app;
 use crate::fetcher::GithubProxy;
@@ -99,6 +100,10 @@ pub enum ItemParams {
         targets: String,
         /// Whether NextTrace resolves hop ASNs and geolocation.
         geo: bool,
+        /// Whether mainland China targets also run a TCP SYN large-packet trace.
+        tcp: bool,
+        /// Total TCP probe packet size in bytes (`64..=1500`).
+        large_packets: u16,
     },
     /// `network.bgp` routing topology parameters.
     Bgp {
@@ -157,6 +162,8 @@ impl ItemParams {
                 groups: [false; 4],
                 targets: String::new(),
                 geo: true,
+                tcp: true,
+                large_packets: trace::DEFAULT_LARGE_PACKETS,
             },
             "network.bgp" => Self::Bgp { upload: true },
             "ip.quality" => Self::IpQuality {
@@ -204,6 +211,8 @@ impl ItemParams {
                 groups: [false; 4],
                 targets: String::new(),
                 geo: false,
+                tcp: false,
+                large_packets: trace::DEFAULT_LARGE_PACKETS,
             },
             "network.bgp" => Self::Bgp { upload: false },
             "ip.quality" => Self::IpQuality {
@@ -274,7 +283,15 @@ impl ItemParams {
                 groups,
                 targets,
                 geo,
-            } => !groups.iter().any(|on| *on) && split_csv(targets).is_empty() && *geo,
+                tcp,
+                large_packets,
+            } => {
+                !groups.iter().any(|on| *on)
+                    && split_csv(targets).is_empty()
+                    && *geo
+                    && *tcp
+                    && *large_packets == trace::DEFAULT_LARGE_PACKETS
+            }
             Self::Bgp { upload } => *upload,
             Self::IpQuality { dnsbl, mail } => *dnsbl && *mail,
             Self::IpMedia { groups, services } => {
@@ -397,6 +414,8 @@ impl ItemParams {
                 groups,
                 targets,
                 geo,
+                tcp,
+                large_packets,
             } => {
                 let chosen: Vec<String> = if groups[3] {
                     vec!["all".to_owned()]
@@ -417,6 +436,15 @@ impl ItemParams {
                 }
                 if !geo {
                     map.insert("geo".to_owned(), serde_json::Value::Bool(false));
+                }
+                if !tcp {
+                    map.insert("tcp".to_owned(), serde_json::Value::Bool(false));
+                }
+                if *large_packets != trace::DEFAULT_LARGE_PACKETS {
+                    map.insert(
+                        "large_packets".to_owned(),
+                        serde_json::Value::from(*large_packets),
+                    );
                 }
             }
             Self::Bgp { upload } => {
@@ -904,6 +932,8 @@ impl TuiConfig {
                 groups,
                 targets,
                 geo,
+                tcp,
+                large_packets,
             } => {
                 let group_rows = TRACE_GROUPS.iter().zip(groups.iter());
                 for (code, on) in group_rows {
@@ -918,6 +948,20 @@ impl TuiConfig {
                 ));
                 rows.push(sub_row(
                     bool_row(words.tui_field_geo(), *geo, true),
+                    inactive,
+                ));
+                rows.push(sub_row(
+                    bool_row(words.tui_field_trace_tcp(), *tcp, true),
+                    inactive,
+                ));
+                rows.push(sub_row(
+                    FieldRow {
+                        label: words.tui_field_trace_packet_size().to_owned(),
+                        value: large_packets.to_string(),
+                        customized: *large_packets != trace::DEFAULT_LARGE_PACKETS,
+                        dimmed: !*tcp,
+                        edit_raw: Some(large_packets.to_string()),
+                    },
                     inactive,
                 ));
             }
@@ -1156,6 +1200,27 @@ impl TuiConfig {
                 _ => {}
             }
         }
+        if let ItemParams::Trace {
+            geo,
+            tcp,
+            large_packets,
+            ..
+        } = &mut item.params
+            && field_idx == 8
+        {
+            *large_packets = step_u16(
+                *large_packets,
+                delta.saturating_mul(32),
+                trace::MIN_LARGE_PACKETS,
+                trace::MAX_LARGE_PACKETS,
+            );
+            if !item.enabled {
+                item.enabled = true;
+                *geo = true;
+                *tcp = true;
+            }
+            return;
+        }
         self.toggle_item_boolean(item_idx, field_idx);
     }
 
@@ -1193,11 +1258,14 @@ impl TuiConfig {
                 groups,
                 targets,
                 geo,
+                tcp,
+                ..
             } => match field_idx {
                 1..=4 => {
                     if was_disabled {
                         item.enabled = true;
                         *geo = true;
+                        *tcp = true;
                     }
                     toggle_trace_group(groups, field_idx - 1);
                     if groups.iter().any(|on| *on) {
@@ -1208,8 +1276,18 @@ impl TuiConfig {
                     if was_disabled {
                         item.enabled = true;
                         *geo = true;
+                        *tcp = true;
                     } else {
                         *geo = !*geo;
+                    }
+                }
+                7 => {
+                    if was_disabled {
+                        item.enabled = true;
+                        *geo = true;
+                        *tcp = true;
+                    } else {
+                        *tcp = !*tcp;
                     }
                 }
                 _ => {}
@@ -1494,19 +1572,40 @@ impl TuiConfig {
                 groups,
                 targets,
                 geo,
-            } => {
-                if field_idx == 5 {
+                tcp,
+                large_packets,
+            } => match field_idx {
+                5 => {
                     let norm = normalize_csv(trimmed);
                     if !norm.is_empty() {
                         if was_disabled {
                             item.enabled = true;
                             *geo = true;
+                            *tcp = true;
                         }
                         *groups = [false; 4];
                     }
                     *targets = norm;
                 }
-            }
+                8 => {
+                    if trimmed.is_empty() {
+                        *large_packets = trace::DEFAULT_LARGE_PACKETS;
+                    } else {
+                        let min = u32::from(trace::MIN_LARGE_PACKETS);
+                        let max = u32::from(trace::MAX_LARGE_PACKETS);
+                        let val = parse_range(trimmed, min, max).ok_or_else(|| {
+                            words.tui_invalid_number(words.tui_field_trace_packet_size(), min, max)
+                        })?;
+                        *large_packets = u16::try_from(val).unwrap_or(trace::DEFAULT_LARGE_PACKETS);
+                        if was_disabled {
+                            item.enabled = true;
+                            *geo = true;
+                            *tcp = true;
+                        }
+                    }
+                }
+                _ => {}
+            },
             ItemParams::IpMedia { groups, services } => {
                 if field_idx == 7 {
                     let norm = normalize_csv(trimmed);
