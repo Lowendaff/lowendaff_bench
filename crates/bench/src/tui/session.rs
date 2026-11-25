@@ -351,6 +351,8 @@ pub struct Session {
     pub taier_catalog: Option<Arc<Vec<TaierLocation>>>,
     /// Active hierarchical `network.taier` node picker modal, if open.
     pub taier_picker: Option<TaierPickerModal>,
+    /// Active language picker modal cursor (`0..Language::ALL.len()`), if open.
+    pub lang_picker: Option<usize>,
     /// Optional status banner message.
     pub note: Option<(NoteKind, String)>,
     /// Active live dashboard state while [`Screen::Running`].
@@ -374,6 +376,7 @@ impl Session {
             editor: None,
             taier_catalog: None,
             taier_picker: None,
+            lang_picker: None,
             note: None,
             running: None,
             results: None,
@@ -434,6 +437,7 @@ impl Session {
         self.screen = Screen::Running;
         self.editor = None;
         self.taier_picker = None;
+        self.lang_picker = None;
         self.note = None;
         self.running = Some(RunningState {
             elapsed: Duration::ZERO,
@@ -541,7 +545,31 @@ impl Session {
         self.running = None;
         self.editor = None;
         self.taier_picker = None;
+        self.lang_picker = None;
         self.results = Some(results);
+    }
+
+    /// Opens the language picker modal positioned on the currently active [`locale::Language`].
+    pub fn open_lang_picker(&mut self) {
+        self.note = None;
+        let current = locale::current_language();
+        let idx = locale::Language::ALL
+            .iter()
+            .position(|lang| *lang == current)
+            .unwrap_or(0);
+        self.lang_picker = Some(idx);
+    }
+
+    /// Switches the active interface and report language, refreshing configuration metadata and
+    /// live-rerendering any open report in [`Screen::Results`].
+    pub fn apply_language(&mut self, lang: locale::Language) {
+        locale::set_language(lang);
+        self.config.refresh_locale();
+        self.note = None;
+        if let Some(results) = &mut self.results {
+            let width = results.rendered_wrap_width;
+            results.rerender(width);
+        }
     }
 
     /// Ensures the cached report text matches `pane_inner_width` when wrapping is enabled.
@@ -631,11 +659,47 @@ impl Session {
         if self.taier_picker.is_some() {
             return self.handle_taier_picker_key(key);
         }
+        if self.lang_picker.is_some() {
+            return self.handle_lang_picker_key(key);
+        }
         match self.screen {
             Screen::Configure => self.handle_configure_key(key),
             Screen::Running => self.handle_running_key(key),
             Screen::Results => self.handle_results_key(key),
         }
+    }
+
+    fn handle_lang_picker_key(&mut self, key: KeyEvent) -> Command {
+        let Some(mut cursor) = self.lang_picker.take() else {
+            return Command::None;
+        };
+        let plain = !has_ctrl_or_alt(key);
+        let len = locale::Language::ALL.len();
+        if is_ctrl_c(key)
+            || matches!(key.code, KeyCode::Esc | KeyCode::F(2))
+            || (plain && matches!(key.code, KeyCode::Char('q' | 'Q' | 'L')))
+        {
+            return Command::None;
+        }
+        match key.code {
+            KeyCode::Up => cursor = cursor.saturating_sub(1),
+            KeyCode::Char('k') if plain => cursor = cursor.saturating_sub(1),
+            KeyCode::Down => cursor = (cursor + 1).min(len - 1),
+            KeyCode::Char('j') if plain => cursor = (cursor + 1).min(len - 1),
+            KeyCode::Home => cursor = 0,
+            KeyCode::End => cursor = len - 1,
+            KeyCode::Enter => {
+                self.apply_language(locale::Language::ALL[cursor]);
+                return Command::None;
+            }
+            KeyCode::Char(' ') if plain => {
+                self.apply_language(locale::Language::ALL[cursor]);
+                return Command::None;
+            }
+            _ => {}
+        }
+        self.lang_picker = Some(cursor);
+        Command::None
     }
 
     fn handle_taier_picker_key(&mut self, key: KeyEvent) -> Command {
@@ -800,6 +864,10 @@ impl Session {
             return Command::Quit(0);
         }
         if matches!(key.code, KeyCode::Char(_)) && has_ctrl_or_alt(key) {
+            return Command::None;
+        }
+        if matches!(key.code, KeyCode::F(2) | KeyCode::Char('L')) {
+            self.open_lang_picker();
             return Command::None;
         }
         if matches!(key.code, KeyCode::F(5) | KeyCode::Char('r' | 'R')) {
@@ -994,6 +1062,10 @@ impl Session {
         if self.is_taier_browse_row() {
             return self.open_taier_picker();
         }
+        if self.current_target() == NavTarget::Global && self.param_index == 0 {
+            self.open_lang_picker();
+            return Command::None;
+        }
         self.note = None;
         let words = locale::words();
         match self.current_target() {
@@ -1121,6 +1193,10 @@ impl Session {
         }
         if matches!(key.code, KeyCode::Char('q' | 'Q')) {
             return Command::Quit(results.outcome.exit_code);
+        }
+        if matches!(key.code, KeyCode::F(2) | KeyCode::Char('L')) {
+            self.open_lang_picker();
+            return Command::None;
         }
         match key.code {
             KeyCode::Char('p' | 'P') => {

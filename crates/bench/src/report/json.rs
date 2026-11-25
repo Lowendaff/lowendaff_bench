@@ -63,36 +63,38 @@ pub fn render(page: &Page) -> String {
 /// Renders `page` and optional virtual-machine `%si`/`%st` samples as pretty-printed JSON.
 #[must_use]
 pub fn render_with_vm_cpu(page: &Page, vm_cpu_samples: &[VmCpuSample]) -> String {
-    let own = terminal::collect_own_addresses(page.host, page.runs);
-    let totals = terminal::totals(page);
-    let vm_cpu_telemetry = (page.host.platform.kind() == PlatformKind::Vm)
-        .then(|| build_vm_cpu_telemetry(vm_cpu_samples))
-        .flatten();
-    let document = Document {
-        version: page.version,
-        environment: terminal::platform_text(page.host.platform),
-        show_ip: page.show_ip,
-        system: build_system(page.host, page.show_ip),
-        runs: page
-            .runs
-            .iter()
-            .map(|run| build_run(run, &own, page.show_ip))
-            .collect(),
-        vm_cpu_telemetry,
-        not_applicable: page.not_applicable,
-        summary: SummaryJson {
-            items: totals.items,
-            completed: totals.completed,
-            skipped: totals.skipped,
-            failed: totals.failed,
-            timed_out: totals.timed_out,
-            interrupted: totals.interrupted,
-            total_seconds: totals.seconds,
-        },
-    };
-    let mut out = serde_json::to_string_pretty(&document).expect("report serializes to JSON");
-    out.push('\n');
-    out
+    locale::with_language(locale::Language::En, || {
+        let own = terminal::collect_own_addresses(page.host, page.runs);
+        let totals = terminal::totals(page);
+        let vm_cpu_telemetry = (page.host.platform.kind() == PlatformKind::Vm)
+            .then(|| build_vm_cpu_telemetry(vm_cpu_samples))
+            .flatten();
+        let document = Document {
+            version: page.version,
+            environment: terminal::platform_text(page.host.platform),
+            show_ip: page.show_ip,
+            system: build_system(page.host, page.show_ip),
+            runs: page
+                .runs
+                .iter()
+                .map(|run| build_run(run, &own, page.show_ip))
+                .collect(),
+            vm_cpu_telemetry,
+            not_applicable: page.not_applicable,
+            summary: SummaryJson {
+                items: totals.items,
+                completed: totals.completed,
+                skipped: totals.skipped,
+                failed: totals.failed,
+                timed_out: totals.timed_out,
+                interrupted: totals.interrupted,
+                total_seconds: totals.seconds,
+            },
+        };
+        let mut out = serde_json::to_string_pretty(&document).expect("report serializes to JSON");
+        out.push('\n');
+        out
+    })
 }
 
 #[derive(Serialize)]
@@ -199,10 +201,14 @@ struct RunJson<'a> {
 
 fn build_run<'a>(run: &'a Run<Measured>, own: &[IpAddr], show_ip: bool) -> RunJson<'a> {
     let (status, reason) = status_fields(run);
+    let title = locale::words()
+        .item_name(run.id)
+        .or(run.title)
+        .unwrap_or(run.id);
     RunJson {
         id: run.id,
         group: run.group,
-        title: run.title.unwrap_or(run.id),
+        title,
         status,
         status_text: terminal::run_status(run),
         reason,

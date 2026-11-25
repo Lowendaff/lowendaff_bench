@@ -240,6 +240,10 @@ pub struct Cli {
     )]
     pub format: Format,
 
+    // Interface and text/markdown report language (`en` by default; JSON always stays English).
+    #[arg(long, value_enum, help = locale::words().help_lang())]
+    pub lang: Option<locale::Language>,
+
     // Where the run directory goes.
     #[arg(long, default_value = ".", help = locale::words().help_work_dir())]
     pub work_dir: PathBuf,
@@ -383,6 +387,78 @@ pub const fn should_enter_tui(os_arg_count: usize) -> bool {
     os_arg_count <= 1
 }
 
+/// Pre-scans raw process arguments for `--lang <VAL>` or `--lang=<VAL>` before `clap` runs, so
+/// `--lang zh-cn --help` and `clap` usage errors render in the requested language immediately.
+#[must_use]
+pub fn preparse_lang<I, S>(args: I) -> Option<locale::Language>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<std::ffi::OsStr>,
+{
+    let mut iter = args.into_iter().skip(1);
+    let mut found = None;
+    while let Some(arg) = iter.next() {
+        let Some(text) = arg.as_ref().to_str() else {
+            continue;
+        };
+        if text == "--" {
+            break;
+        }
+        if text == "--lang" {
+            let Some(next) = iter.next() else {
+                break;
+            };
+            if let Some(val) = next.as_ref().to_str() {
+                if val == "--" {
+                    break;
+                }
+                if let Some(lang) = locale::parse_language(val) {
+                    found = Some(lang);
+                }
+            }
+        } else if let Some(val) = text.strip_prefix("--lang=")
+            && let Some(lang) = locale::parse_language(val)
+        {
+            found = Some(lang);
+        }
+    }
+    found
+}
+
+/// Whether `args` (starting with `argv[0]`) should launch the interactive TUI: `true` when given
+/// no flags or only `--lang <VAL>` / `--lang=<VAL>`.
+#[must_use]
+pub fn should_enter_tui_args<I, S>(args: I) -> bool
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<std::ffi::OsStr>,
+{
+    let mut iter = args.into_iter().skip(1);
+    while let Some(arg) = iter.next() {
+        let Some(text) = arg.as_ref().to_str() else {
+            return false;
+        };
+        if text == "--lang" {
+            let Some(next) = iter.next() else {
+                return false;
+            };
+            let Some(val) = next.as_ref().to_str() else {
+                return false;
+            };
+            if val.is_empty() || val == "--" {
+                return false;
+            }
+        } else if let Some(val) = text.strip_prefix("--lang=") {
+            if val.is_empty() {
+                return false;
+            }
+        } else {
+            return false;
+        }
+    }
+    true
+}
+
 impl Cli {
     /// Parses the process arguments; exits with usage help on errors.
     #[must_use]
@@ -422,7 +498,10 @@ fn item(entry: &Entry, out: &mut impl Write) {
         .iter()
         .map(|tool| format!("{} {}", tool.name, tool.version))
         .collect();
-    let name = entry.title.unwrap_or(entry.id);
+    let name = locale::words()
+        .item_name(entry.id)
+        .or(entry.title)
+        .unwrap_or(entry.id);
     let line = locale::words().item_line(entry.id, name, &platforms, entry.requires.numa, &tools);
     let _ = writeln!(out, "{line}");
 }

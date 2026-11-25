@@ -106,11 +106,12 @@ sudo ./lowendaff-bench-x86_64 --all  # 非対話 CLI モードで全項目を実
 # 1. 利用できる全 15 項目のテスト一覧を確認する（root 権限不要）
 ./lowendaff-bench --list
 
-# 2. 対話型 TUI モードを起動する（引数なしの既定動作：項目・サブ項目の連動切替、設定、進捗・レポート閲覧）
+# 2. 対話型 TUI モードを起動する（既定は英語表示；画面内で L または F2 で言語切替、または --lang ja で日本語起動）
 sudo ./lowendaff-bench
+sudo ./lowendaff-bench --lang ja
 
 # 2b. 非対話 CLI モードですべての項目をまとめて測定する
-sudo ./lowendaff-bench --all
+sudo ./lowendaff-bench --all --lang ja
 
 # 3. 手早くチェックする：軽量な CPU サブスイートのみ実行し（UnixBench と Geekbench 7 を省略）、経路追跡もスキップ
 sudo ./lowendaff-bench --cpu-bench sysbench,7zip,hpl,passmark --skip network.trace
@@ -159,6 +160,7 @@ sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-
 | `--skip` | `<項目名,...>` | スキップなし | 指定したカテゴリ・個別 ID・`all` を除外します（`--all` や `--only` と併用可能） |
 | `-o, --output` | `<ファイル>` | 画面 + `/tmp` 保存 | 最終レポートを指定ファイルのみに出力します（未指定時は画面/ビューア表示に加え `/tmp/lowendaff-bench-<タイムスタンプ>.<ext>` に自動保存） |
 | `-f, --format` | `<形式>` | `text` | 出力形式を選びます：`text`（テキスト表）、`markdown`（別名 `md`）、`json` |
+| `--lang` | `<言語>` | `en` | 画面および `text`/`markdown` レポートの言語：`en`（既定・環境変数は参照しません）、`zh-cn`、`zh-tw`、`ja`（`--lang ja` のみで日本語 TUI を起動、TUI 内で `L` / `F2` で即時切替可能；`json` 出力は常に英語） |
 | `--work-dir` | `<ディレクトリ>` | カレント `.` | 一時ファイルの作成先（終了時に自動削除）。測定したいディスクのパスを指定します（`/tmp` は不可） |
 | `--cpu-bench` | `<スイート,...>` | 既定の 6 種 | `cpu.bench` で実行する CPU サブスイートを選びます（`sysbench`、`7zip`、`unixbench`、`hpl`、`passmark`、`ycruncher`、`prime95`、`geekbench`、または `all`） |
 | `--countries` | `<国コード,...>` | 既定の 5 拠点 | `network.iperf3` の測定先を 2 文字の国コード（`JP,US,SG` など）または `all` で絞り込みます |
@@ -197,7 +199,8 @@ sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-
 | `--only` / `--skip` *（個別 ID）* | `disk.health`, `memory.sysbench`, `memory.stream`, `memory.latency`, `memory.numa`, `disk.fio`, `network.iperf3`, `network.taier`, `network.cloudflare`, `network.inetspeed`, `network.trace`, `network.bgp`, `ip.quality`, `ip.media`, `cpu.bench` | 個別のテスト項目をピンポイントで選択・除外します |
 | `-f, --format` | `text` | ターミナルで読みやすい整形済みテキスト表 |
 | | `markdown` *（または `md`）* | `lowendaff.com` 互換の GitHub 形式 Markdown（2 列属性表・引用ブロック・文脈に応じたエスケープ、および BGP トポロジーと VM `%si`/`%st` の Mermaid 図） |
-| | `json` | スクリプトでの自動集計や保存に便利な JSON 形式 |
+| | `json` | スクリプトでの自動集計や保存に便利な JSON 形式（常に英語で出力） |
+| `--lang` | `en`, `zh-cn` *（別名 `zh-hans`）*, `zh-tw` *（別名 `zh-hant`, `zh-hk`）*, `ja` | 英語（既定）、簡体字中国語、繁体字中国語、日本語から表示・レポート言語を選択します |
 | `--cpu-bench` | `sysbench` | 1 スレッドおよび全スレッドでの 20 秒間素数計算 *（既定）* |
 | | `7zip` | 7-Zip LZMA2 圧縮・展開 MIPS（1 スレッド / 全スレッド）*（既定）* |
 | | `unixbench` | Byte-UnixBench 6.0.1 全 12 種システム総合指数（1 並列 / 全コア並列）*（既定）* |

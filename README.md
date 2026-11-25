@@ -162,8 +162,9 @@ Assuming the binary is named `lowendaff-bench`:
 # 1. See all 15 available test items and what they require (no root needed)
 ./lowendaff-bench --list
 
-# 2. Launch the interactive TUI (default when run with no options: toggle items, edit params, view report)
+# 2. Launch the interactive TUI (default when run with no options; press L or F2 to switch language)
 sudo ./lowendaff-bench
+sudo ./lowendaff-bench --lang zh-cn
 
 # 2b. Run the full suite non-interactively in CLI mode (CPU, memory, disk, network, IP, streaming)
 sudo ./lowendaff-bench --all
@@ -215,6 +216,7 @@ sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-
 | `--skip` | `<ITEM,...>` | None | Skip the listed categories, test IDs, or `all` (can be combined with `--all` or `--only`) |
 | `-o, --output` | `<FILE>` | Terminal + `/tmp` | Write the final report only to `<FILE>` (when omitted, prints to terminal/viewer and saves an unwrapped copy to `/tmp/lowendaff-bench-<timestamp>.<ext>`) |
 | `-f, --format` | `<FORMAT>` | `text` | Choose report format: `text`, `markdown` (or `md`), or `json` |
+| `--lang` | `<LANG>` | `en` | Interface and `text`/`markdown` report language: `en`, `zh-cn`, `zh-tw`, or `ja` (`json` always stays English; passing only `--lang <LANG>` opens the TUI in that language, and `L` / `F2` switches languages live) |
 | `--work-dir` | `<DIR>` | `.` | Directory used for temporary test files, cleaned up on exit (point this at the disk you want to test; avoid `/tmp`) |
 | `--cpu-bench` | `<SUITE,...>` | 6 default suites | Choose which sub-suites `cpu.bench` runs (`sysbench`, `7zip`, `unixbench`, `hpl`, `passmark`, `ycruncher`, `prime95`, `geekbench`, or `all`) |
 | `--countries` | `<CODE,...>` | Default locations | Limit `network.iperf3` to two-letter country codes (such as `JP,US,DE`) or `all` |
@@ -254,6 +256,7 @@ sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-
 | `-f, --format` | `text` | Aligned plain-text tables formatted for terminal viewing |
 | | `markdown` *(or `md`)* | `lowendaff.com`-compatible GitHub-Flavored Markdown (`Item \| Value` tables, blockquotes, context-aware escaping, and Mermaid BGP / VM CPU diagrams) |
 | | `json` | Structured JSON output for scripts, dashboards, or automated archiving |
+| `--lang` | `en`, `zh-cn` *(or `zh-hans`)*, `zh-tw` *(or `zh-hant`, `zh-hk`)*, `ja` | Select English (default; `LC_*` / `LANG` env vars are ignored), Simplified Chinese, Traditional Chinese, or Japanese for the TUI, CLI messages, and `text`/`markdown` reports (`json` output stays English) |
 | `--cpu-bench` | `sysbench` | 20-second prime sieve on 1 thread and all threads *(default)* |
 | | `7zip` | 7-Zip LZMA2 compression & decompression MIPS on 1 thread and all threads *(default)* |
 | | `unixbench` | Byte-UnixBench 6.0.1 full 12-item System Index at 1 copy and N copies *(default)* |

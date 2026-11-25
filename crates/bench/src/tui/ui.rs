@@ -84,6 +84,10 @@ pub fn draw(frame: &mut Frame<'_>, session: &mut Session) {
     if let Some(editor) = &session.editor {
         draw_editor_modal(frame, editor, session.note.as_ref(), area);
     }
+
+    if let Some(cursor) = session.lang_picker {
+        draw_lang_picker_modal(frame, cursor, area);
+    }
 }
 
 fn draw_configure(frame: &mut Frame<'_>, session: &mut Session, area: Rect) {
@@ -97,7 +101,9 @@ fn draw_configure(frame: &mut Frame<'_>, session: &mut Session, area: Rect) {
     .split(area);
 
     let title = words.tui_config_title(env!("CARGO_PKG_VERSION"));
-    let badge = words.tui_enabled_badge(session.config.enabled_count(), session.config.items.len());
+    let enabled =
+        words.tui_enabled_badge(session.config.enabled_count(), session.config.items.len());
+    let badge = format!("[{}]  {enabled}", locale::current_language().endonym());
     draw_header(frame, chunks[0], &title, &badge, Color::Cyan);
 
     let panes = if chunks[1].width >= 88 {
@@ -120,8 +126,10 @@ fn draw_configure(frame: &mut Frame<'_>, session: &mut Session, area: Rect) {
 
 fn draw_config_left(frame: &mut Frame<'_>, session: &Session, area: Rect) {
     let words = locale::words();
-    let active =
-        session.focus == Pane::Left && session.editor.is_none() && session.taier_picker.is_none();
+    let active = session.focus == Pane::Left
+        && session.editor.is_none()
+        && session.taier_picker.is_none()
+        && session.lang_picker.is_none();
     let block = pane_block(words.tui_items_pane(), active);
 
     let total = session.nav_len();
@@ -226,8 +234,10 @@ fn draw_config_left(frame: &mut Frame<'_>, session: &Session, area: Rect) {
 
 fn draw_config_right(frame: &mut Frame<'_>, session: &Session, area: Rect) {
     let words = locale::words();
-    let active =
-        session.focus == Pane::Right && session.editor.is_none() && session.taier_picker.is_none();
+    let active = session.focus == Pane::Right
+        && session.editor.is_none()
+        && session.taier_picker.is_none()
+        && session.lang_picker.is_none();
 
     match session.current_target() {
         NavTarget::Start => {
@@ -479,60 +489,63 @@ fn draw_running_items(frame: &mut Frame<'_>, run: &RunningState, area: Rect, don
     let items: Vec<ListItem<'_>> = run
         .items
         .iter()
-        .map(|item| match &item.state {
-            ItemRunState::Queued => ListItem::new(Line::from(vec![
-                Span::styled("[ ] ", Style::default().add_modifier(Modifier::DIM)),
-                Span::styled(item.title, Style::default().add_modifier(Modifier::DIM)),
-                Span::styled(
-                    format!(" ({})", words.tui_state_queued()),
-                    Style::default().add_modifier(Modifier::DIM),
-                ),
-            ])),
-            ItemRunState::Running { step } => {
-                let raw_detail = step.as_deref().unwrap_or_else(|| words.tui_state_running());
-                let detail = report::terminal::strip_terminal_controls(raw_detail, false);
-                ListItem::new(Line::from(vec![
+        .map(|item| {
+            let item_title = words.item_name(item.id).unwrap_or(item.title);
+            match &item.state {
+                ItemRunState::Queued => ListItem::new(Line::from(vec![
+                    Span::styled("[ ] ", Style::default().add_modifier(Modifier::DIM)),
+                    Span::styled(item_title, Style::default().add_modifier(Modifier::DIM)),
                     Span::styled(
-                        "[>] ",
-                        Style::default()
-                            .fg(Color::Yellow)
-                            .add_modifier(Modifier::BOLD),
-                    ),
-                    Span::styled(
-                        item.title,
-                        Style::default()
-                            .fg(Color::Yellow)
-                            .add_modifier(Modifier::BOLD),
-                    ),
-                    Span::styled(format!(" ({detail})"), Style::default().fg(Color::Yellow)),
-                ]))
-            }
-            ItemRunState::Done {
-                status,
-                failed,
-                skipped,
-            } => {
-                let clean_status = report::terminal::strip_terminal_controls(status, false);
-                let (icon, color, dim) = if *failed {
-                    ("[!] ", Color::Red, false)
-                } else if *skipped {
-                    ("[-] ", Color::Reset, true)
-                } else {
-                    ("[\u{2713}] ", Color::Green, false)
-                };
-                let style = if dim {
-                    Style::default().add_modifier(Modifier::DIM)
-                } else {
-                    Style::default().fg(color)
-                };
-                ListItem::new(Line::from(vec![
-                    Span::styled(icon, style),
-                    Span::styled(item.title, style),
-                    Span::styled(
-                        format!(" ({clean_status})"),
+                        format!(" ({})", words.tui_state_queued()),
                         Style::default().add_modifier(Modifier::DIM),
                     ),
-                ]))
+                ])),
+                ItemRunState::Running { step } => {
+                    let raw_detail = step.as_deref().unwrap_or_else(|| words.tui_state_running());
+                    let detail = report::terminal::strip_terminal_controls(raw_detail, false);
+                    ListItem::new(Line::from(vec![
+                        Span::styled(
+                            "[>] ",
+                            Style::default()
+                                .fg(Color::Yellow)
+                                .add_modifier(Modifier::BOLD),
+                        ),
+                        Span::styled(
+                            item_title,
+                            Style::default()
+                                .fg(Color::Yellow)
+                                .add_modifier(Modifier::BOLD),
+                        ),
+                        Span::styled(format!(" ({detail})"), Style::default().fg(Color::Yellow)),
+                    ]))
+                }
+                ItemRunState::Done {
+                    status,
+                    failed,
+                    skipped,
+                } => {
+                    let clean_status = report::terminal::strip_terminal_controls(status, false);
+                    let (icon, color, dim) = if *failed {
+                        ("[!] ", Color::Red, false)
+                    } else if *skipped {
+                        ("[-] ", Color::Reset, true)
+                    } else {
+                        ("[\u{2713}] ", Color::Green, false)
+                    };
+                    let style = if dim {
+                        Style::default().add_modifier(Modifier::DIM)
+                    } else {
+                        Style::default().fg(color)
+                    };
+                    ListItem::new(Line::from(vec![
+                        Span::styled(icon, style),
+                        Span::styled(item_title, style),
+                        Span::styled(
+                            format!(" ({clean_status})"),
+                            Style::default().add_modifier(Modifier::DIM),
+                        ),
+                    ]))
+                }
             }
         })
         .collect();
@@ -643,13 +656,14 @@ fn draw_results(frame: &mut Frame<'_>, session: &mut Session, area: Rect) {
     let title = words.tui_results_title(env!("CARGO_PKG_VERSION"));
     let total_lines = results.lines.len().max(1);
     let badge = format!(
-        "L{}/{total_lines} C{}",
+        "[{}]  L{}/{total_lines} C{}",
+        locale::current_language().endonym(),
         results.scroll_y + 1,
         results.scroll_x + 1
     );
     draw_header(frame, chunks[0], &title, &badge, Color::Green);
 
-    let modal_free = session.editor.is_none();
+    let modal_free = session.editor.is_none() && session.lang_picker.is_none();
     if let Some(side_rect) = sidebar_area {
         draw_results_sidebar(frame, results, modal_free, side_rect);
     }
@@ -848,6 +862,85 @@ fn draw_editor_modal(
             );
         }
     }
+}
+
+fn draw_lang_picker_modal(frame: &mut Frame<'_>, cursor: usize, area: Rect) {
+    let words = locale::words();
+    let modal_w = area.width.saturating_sub(8).clamp(38, 56).min(area.width);
+    let modal_h = 9_u16.min(area.height);
+    let rect = centered_rect(modal_w, modal_h, area);
+
+    frame.render_widget(Clear, rect);
+    let block = Block::bordered()
+        .border_type(BorderType::Rounded)
+        .title(format!(" {} ", words.tui_lang_picker_title()))
+        .border_style(
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        );
+    let inner = block.inner(rect).inner(Margin {
+        vertical: 0,
+        horizontal: 1,
+    });
+    frame.render_widget(block, rect);
+    if inner.width < 8 || inner.height < 3 {
+        return;
+    }
+
+    let sections = Layout::vertical([Constraint::Min(1), Constraint::Length(1)]).split(inner);
+    let active_lang = locale::current_language();
+    let items: Vec<ListItem<'_>> = locale::Language::ALL
+        .iter()
+        .map(|&lang| {
+            let selected = lang == active_lang;
+            let (mark, mark_style, name_style) = if selected {
+                (
+                    "[x] ",
+                    Style::default()
+                        .fg(Color::Green)
+                        .add_modifier(Modifier::BOLD),
+                    Style::default().add_modifier(Modifier::BOLD),
+                )
+            } else {
+                (
+                    "[ ] ",
+                    Style::default().add_modifier(Modifier::DIM),
+                    Style::default(),
+                )
+            };
+            ListItem::new(Line::from(vec![
+                Span::styled(mark, mark_style),
+                Span::styled(lang.endonym(), name_style),
+                Span::styled(
+                    format!(" ({})", lang.code()),
+                    Style::default().add_modifier(Modifier::DIM),
+                ),
+            ]))
+        })
+        .collect();
+
+    let list = List::new(items)
+        .highlight_style(
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD | Modifier::REVERSED),
+        )
+        .highlight_symbol("> ")
+        .highlight_spacing(HighlightSpacing::Always);
+    let clamped = cursor.min(locale::Language::ALL.len() - 1);
+    let mut state = ListState::default().with_selected(Some(clamped));
+    frame.render_stateful_widget(list, sections[0], &mut state);
+
+    let clipped_keys = slice_columns(
+        words.tui_lang_picker_keys(),
+        0,
+        usize::from(sections[1].width),
+    );
+    frame.render_widget(
+        Paragraph::new(clipped_keys).style(Style::default().add_modifier(Modifier::DIM)),
+        sections[1],
+    );
 }
 
 fn draw_taier_picker_modal(frame: &mut Frame<'_>, modal: &TaierPickerModal, area: Rect) {

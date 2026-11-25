@@ -11,8 +11,8 @@ use bench_api::Requirements;
 use bench_api::ToolForm;
 use bench_api::ToolSpec;
 
+use crate::locale;
 use crate::orchestrator::Planned;
-use crate::report;
 use crate::results::Measured;
 use crate::results::Report;
 
@@ -88,7 +88,7 @@ impl Entry {
 #[must_use]
 pub fn entry<P: Plugin>(wrap: fn(Report<P::Output, P::Failure>) -> Measured) -> Entry {
     let descriptor = P::DESCRIPTOR;
-    let title = report::terminal::name(descriptor.id);
+    let title = locale::catalog_for(locale::Language::En).item_name(descriptor.id);
     let build = move |config: Option<&serde_json::Value>| {
         let plugin: P = match config {
             None => P::default(),

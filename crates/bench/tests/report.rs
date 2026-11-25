@@ -1611,3 +1611,105 @@ fn ip_quality_notes_redact_own_and_prefix_overlapping_ips_across_all_formats() {
         }
     }
 }
+
+#[test]
+fn multilingual_text_and_markdown_localize_while_json_stays_strictly_english() {
+    use bench::locale;
+    use bench::locale::Language;
+    use bench::vm_cpu::VmCpuSample;
+
+    let host = host();
+    let runs = vec![
+        run(
+            "cpu.bench",
+            Status::Completed,
+            Some(2.0),
+            Some(Measured::cpu_bench(Report {
+                output: Some(cpu_bench::Output {
+                    sysbench: Some(cpu_bench::SuiteOutcome::Done {
+                        output: sysbench::Output {
+                            version: Some("1.0.20".to_owned()),
+                            single: sysbench_run(1, 1500.0),
+                            multi: Some(sysbench_run(2, 2950.0)),
+                        },
+                    }),
+                    ..cpu_bench::Output::default()
+                }),
+                stop: None,
+            })),
+        ),
+        run(
+            "disk.fio",
+            Status::Skipped(Some(Unmet::Network(Net::Ipv6))),
+            None,
+            None,
+        ),
+    ];
+    let vm_samples = vec![VmCpuSample {
+        elapsed: Duration::from_secs(5),
+        item: Some("cpu.bench"),
+        si_pct: 0.4,
+        st_pct: 1.8,
+    }];
+    let page = Page {
+        version: "0.1.2",
+        host: &host,
+        show_ip: false,
+        not_applicable: &["Disk health"],
+        runs: &runs,
+        total: Duration::from_secs(5),
+    };
+
+    let en_text = locale::with_language(Language::En, || {
+        report::render_with_vm_cpu(&page, &vm_samples, Format::Text, None)
+    });
+    let en_json = locale::with_language(Language::En, || {
+        report::render_with_vm_cpu(&page, &vm_samples, Format::Json, None)
+    });
+    assert!(en_json.contains("\"title\": \"CPU benchmark\""));
+    assert!(en_json.contains("\"peak_title\": \"CPU benchmark\""));
+    assert!(en_json.contains("needs an IPv6 connection"));
+
+    for (lang, expected_sys, expected_item) in [
+        (
+            Language::ZhCn,
+            "\u{7cfb}\u{7edf}\u{4fe1}\u{606f}",
+            "CPU \u{7efc}\u{5408}\u{57fa}\u{51c6}",
+        ),
+        (
+            Language::ZhTw,
+            "\u{7cfb}\u{7d71}\u{8cc7}\u{8a0a}",
+            "CPU \u{7d9c}\u{5408}\u{57fa}\u{6e96}",
+        ),
+        (
+            Language::Ja,
+            "\u{30b7}\u{30b9}\u{30c6}\u{30e0}\u{6982}\u{8981}",
+            "CPU \u{7d71}\u{5408}\u{30d9}\u{30f3}\u{30c1}\u{30de}\u{30fc}\u{30af}",
+        ),
+    ] {
+        locale::with_language(lang, || {
+            let text = report::render_with_vm_cpu(&page, &vm_samples, Format::Text, None);
+            let md = report::render_with_vm_cpu(&page, &vm_samples, Format::Markdown, None);
+            let json = report::render_with_vm_cpu(&page, &vm_samples, Format::Json, None);
+
+            assert_ne!(text, en_text, "{lang:?} text report must localize");
+            assert!(
+                text.contains(&format!("[{expected_sys}]")),
+                "{lang:?} text missing [{expected_sys}]:\n{text}"
+            );
+            assert!(
+                text.contains(expected_item),
+                "{lang:?} text missing {expected_item}:\n{text}"
+            );
+            assert!(
+                md.contains(&format!("## {expected_sys}"))
+                    && md.contains(&format!("## {expected_item}")),
+                "{lang:?} markdown missing localized headings:\n{md}"
+            );
+            assert_eq!(
+                json, en_json,
+                "{lang:?} JSON output must stay byte-for-byte identical to English"
+            );
+        });
+    }
+}

@@ -128,6 +128,12 @@ pub trait TuiWords {
     fn tui_field_media_group(&self, group: &str) -> String;
     /// `ip.media` field: specific service IDs.
     fn tui_field_services(&self) -> &'static str;
+    /// Global field: interface and report language.
+    fn tui_field_language(&self) -> &'static str;
+    /// Language picker modal title.
+    fn tui_lang_picker_title(&self) -> &'static str;
+    /// Language picker modal keybar help.
+    fn tui_lang_picker_keys(&self) -> &'static str;
     /// Global field: report format.
     fn tui_field_format(&self) -> &'static str;
     /// Global field: optional output file path.
