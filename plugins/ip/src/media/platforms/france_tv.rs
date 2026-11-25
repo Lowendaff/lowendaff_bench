@@ -1,4 +1,4 @@
-//! france.tv video validation probe.
+//! france.tv EdgeScape country probe.
 
 use bench_api::Context;
 use bench_api::HttpRequest;
@@ -26,7 +26,7 @@ pub fn probe<'a>(
 ) -> ProbeFuture<'a> {
     Box::pin(async move {
         let url = |real: &str| parse::endpoint(base_url, SPEC.id, "check", real);
-        let req = HttpRequest::get(family, url("https://k7.ftven.fr/videos/195392964"));
+        let req = HttpRequest::get(family, url("https://geo-info.ftven.fr/ws/edgescape.json"));
         match parse::send(ctx, req).await {
             Ok(res) => parse(&res),
             Err(verdict) => verdict,
@@ -50,6 +50,26 @@ pub fn parse(response: &HttpResponse) -> Verdict {
         if code_blocked {
             return Verdict::no();
         }
+        let cc = [
+            "/reponse/geo_info/country_code",
+            "/geo_info/country_code",
+            "/country_code",
+        ]
+        .into_iter()
+        .find_map(|ptr| {
+            val.pointer(ptr)
+                .and_then(serde_json::Value::as_str)
+                .and_then(parse::country_code)
+        });
+        if let Some(code) = cc {
+            return if matches!(code.as_str(), "FR" | "GF" | "GP" | "MQ" | "RE" | "YT")
+                && (200..300).contains(&response.status)
+            {
+                Verdict::yes_in(code)
+            } else {
+                Verdict::no()
+            };
+        }
     }
     let body = response.text().to_lowercase();
     if body.contains("geoblocage")
@@ -58,8 +78,8 @@ pub fn parse(response: &HttpResponse) -> Verdict {
     {
         return Verdict::no();
     }
-    if response.status == 200 {
-        return Verdict::yes_in("FR");
+    if (200..300).contains(&response.status) {
+        return parse::no_region();
     }
     Verdict::Unexpected(format!("HTTP {}", response.status))
 }

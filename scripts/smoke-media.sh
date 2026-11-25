@@ -32,7 +32,8 @@ RESPONSES = {
     "/netflix/original": (200, b"ok"),
     "/abema/check": (200, b'{"isoCountryCode":"JP"}'),
     "/bbc-iplayer/check": (200, b'{"media":[]}'),
-    "/starz/check": (401, b'{"errorDetails":null,"errorCode":0,"properties":{}}'),
+    "/starz/token": (200, b"PLAYAUTH1.0 token"),
+    "/starz/check": (200, b'{"isAllowedCountry":true,"country":"US"}'),
     "/stan/check": (403, b'{"errors":["StreamCo.Concurrency.GeoBlocked"]}'),
 }
 

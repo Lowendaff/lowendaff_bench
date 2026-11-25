@@ -1,4 +1,4 @@
-//! NHK+ domestic Japan IP probe.
+//! NHK+ domestic Japan `area.json` probe.
 
 use bench_api::Context;
 use bench_api::HttpRequest;
@@ -26,7 +26,7 @@ pub fn probe<'a>(
 ) -> ProbeFuture<'a> {
     Box::pin(async move {
         let url = |real: &str| parse::endpoint(base_url, SPEC.id, "check", real);
-        let req = HttpRequest::get(family, url("https://plus.nhk.jp/api/v1/ipcheck"));
+        let req = HttpRequest::get(family, url("https://location-plus.nhk.jp/geoip/area.json"));
         match parse::send(ctx, req).await {
             Ok(res) => parse(&res),
             Err(verdict) => verdict,
@@ -57,18 +57,15 @@ pub fn parse(response: &HttpResponse) -> Verdict {
                     .and_then(serde_json::Value::as_bool)
             })
             .or_else(|| val.get("allowed").and_then(serde_json::Value::as_bool));
-        let country = val
+        let raw_cc = val
             .get("country_code")
+            .or_else(|| val.pointer("/data/country_code"))
             .and_then(serde_json::Value::as_str)
-            .and_then(parse::country_code)
-            .or_else(|| {
-                val.pointer("/data/country_code")
-                    .and_then(serde_json::Value::as_str)
-                    .and_then(parse::country_code)
-            });
-        if allowed == Some(false) {
+            .map(str::trim);
+        if allowed == Some(false) || raw_cc.is_some_and(|raw| raw.eq_ignore_ascii_case("other")) {
             return Verdict::no();
         }
+        let country = raw_cc.and_then(parse::country_code);
         if (200..300).contains(&response.status) {
             return match (allowed, country.as_deref()) {
                 (Some(true), _) | (None, Some("JP")) => Verdict::yes_in("JP"),

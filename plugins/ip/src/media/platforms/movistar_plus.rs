@@ -1,4 +1,4 @@
-//! Movistar Plus+ Spanish availability probe.
+//! Movistar Plus+ Spanish login geo-block probe.
 
 use bench_api::Context;
 use bench_api::HttpRequest;
@@ -26,7 +26,7 @@ pub fn probe<'a>(
 ) -> ProbeFuture<'a> {
     Box::pin(async move {
         let url = |real: &str| parse::endpoint(base_url, SPEC.id, "check", real);
-        let req = HttpRequest::get(family, url("https://contratar.movistarplus.es/"));
+        let req = HttpRequest::get(family, url("https://login.movistarplus.es/"));
         match parse::send(ctx, req).await {
             Ok(res) => parse(&res),
             Err(verdict) => verdict,
@@ -52,11 +52,15 @@ pub fn parse(response: &HttpResponse) -> Verdict {
         "no disponible en tu pa&iacute;s",
         "no disponible en tu pa&#237;s",
         "no disponible en tu pa&#xed;s",
+        "access denied",
     ]
     .iter()
     .any(|marker| body.contains(marker));
     if matches!(response.status, 403 | 451) || geo_blocked {
         return Verdict::no();
     }
-    parse::no_region()
+    if (200..400).contains(&response.status) {
+        return Verdict::yes_in("ES");
+    }
+    Verdict::Unexpected(format!("HTTP {}", response.status))
 }

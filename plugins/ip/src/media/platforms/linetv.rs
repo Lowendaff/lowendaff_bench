@@ -1,4 +1,4 @@
-//! LINE TV Taiwan episode metadata probe.
+//! LINE TV Taiwan `/api/geo` probe.
 
 use bench_api::Context;
 use bench_api::HttpRequest;
@@ -26,10 +26,7 @@ pub fn probe<'a>(
 ) -> ProbeFuture<'a> {
     Box::pin(async move {
         let url = |real: &str| parse::endpoint(base_url, SPEC.id, "check", real);
-        let req = HttpRequest::get(
-            family,
-            url("https://www.linetv.tw/api/part/11829/eps/1/part?chocomemberId="),
-        );
+        let req = HttpRequest::get(family, url("https://www.linetv.tw/api/geo"));
         match parse::send(ctx, req).await {
             Ok(res) => parse(&res),
             Err(verdict) => verdict,
@@ -47,6 +44,17 @@ pub fn parse(response: &HttpResponse) -> Verdict {
         return Verdict::no();
     }
     if let Some(val) = parse::json(response) {
+        if let Some(code) = val
+            .get("country")
+            .and_then(serde_json::Value::as_str)
+            .and_then(parse::country_code)
+        {
+            return if code == "TW" && (200..300).contains(&response.status) {
+                Verdict::yes_in("TW")
+            } else {
+                Verdict::no()
+            };
+        }
         if val
             .get("inSupportedLocation")
             .and_then(serde_json::Value::as_bool)

@@ -1,4 +1,4 @@
-//! HOY TV Hong Kong channel availability probe.
+//! HOY TV Hong Kong free-to-air live HLS availability probe.
 
 use bench_api::Context;
 use bench_api::HttpRequest;
@@ -26,7 +26,10 @@ pub fn probe<'a>(
 ) -> ProbeFuture<'a> {
     Box::pin(async move {
         let url = |real: &str| parse::endpoint(base_url, SPEC.id, "check", real);
-        let req = HttpRequest::get(family, url("https://api2.hoy.tv/api/v3/a/channel"));
+        let req = HttpRequest::get(
+            family,
+            url("https://hoytv-live-stream.hoy.tv/ch78/index-fhd.m3u8"),
+        );
         match parse::send(ctx, req).await {
             Ok(res) => parse(&res),
             Err(verdict) => verdict,
@@ -51,17 +54,22 @@ pub fn parse(response: &HttpResponse) -> Verdict {
             return Verdict::no();
         }
     }
-    let body = response.text().to_ascii_lowercase();
-    if body.contains("geoblock")
-        || body.contains("geo-block")
-        || body.contains("geo_block")
-        || body.contains("geolocation")
-        || body.contains("georestrict")
-        || body.contains("not available")
-        || body.contains("outside hong kong")
-        || body.contains("\"code\":403")
+    let body = response.text();
+    let lower = body.to_ascii_lowercase();
+    if lower.contains("geoblock")
+        || lower.contains("geo-block")
+        || lower.contains("geo_block")
+        || lower.contains("geolocation")
+        || lower.contains("georestrict")
+        || lower.contains("not available")
+        || lower.contains("outside hong kong")
+        || lower.contains("access denied")
+        || lower.contains("\"code\":403")
     {
         return Verdict::no();
+    }
+    if (200..300).contains(&response.status) && lower.contains("#extm3u") {
+        return Verdict::yes_in("HK");
     }
     if (200..300).contains(&response.status) {
         return parse::no_region();

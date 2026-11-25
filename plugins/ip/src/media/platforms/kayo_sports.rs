@@ -1,4 +1,4 @@
-//! Kayo Sports Australian landing API probe.
+//! Kayo Sports Australian Streamotion billing offers probe.
 
 use bench_api::Context;
 use bench_api::HttpRequest;
@@ -28,8 +28,10 @@ pub fn probe<'a>(
         let url = |real: &str| parse::endpoint(base_url, SPEC.id, "check", real);
         let req = HttpRequest::get(
             family,
-            url("https://api.kayosports.com.au/v3/content/types/landing/names/home"),
-        );
+            url("https://billingapi.streamotion.com.au/v2/offers/kayo/"),
+        )
+        .with_header("origin", "https://kayosports.com.au")
+        .with_header("referer", "https://kayosports.com.au/");
         match parse::send(ctx, req).await {
             Ok(res) => parse(&res),
             Err(verdict) => verdict,
@@ -43,6 +45,10 @@ pub fn parse(response: &HttpResponse) -> Verdict {
     parse::status_verdict(
         response,
         "AU",
-        &["geoblocked", "not available in your region"],
+        &[
+            "geoblocked",
+            "access denied",
+            "not available in your region",
+        ],
     )
 }

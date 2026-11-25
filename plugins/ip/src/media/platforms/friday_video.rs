@@ -30,7 +30,7 @@ pub fn probe<'a>(
             family,
             url(concat!(
                 "https://video.friday.tw/api2/streaming/get",
-                "?streamingId=132287&streamingType=2&contentType=4&contentId=1&clientId="
+                "?streamingId=122581&streamingType=2&contentType=4&contentId=1&clientId="
             )),
         );
         match parse::send(ctx, req).await {
@@ -53,6 +53,8 @@ pub fn parse(response: &HttpResponse) -> Verdict {
         text.contains("\u{6d77}\u{5916}")
             || text.contains("\u{5730}\u{533a}")
             || text.contains("\u{5730}\u{5340}")
+            || text.contains("\u{975e}\u{53f0}\u{7063}")
+            || text.contains("\u{975e}\u{53f0}\u{6e7e}")
     };
     if let Some(val) = parse::json(response) {
         let code = val.get("code").and_then(|value| {
@@ -67,7 +69,7 @@ pub fn parse(response: &HttpResponse) -> Verdict {
             .trim();
         match code {
             Some(0) if (200..300).contains(&response.status) => return Verdict::yes_in("TW"),
-            Some(1003) => return Verdict::no(),
+            Some(1003 | 1006) => return Verdict::no(),
             _ if has_geo_marker(message) => return Verdict::no(),
             Some(code) if message.is_empty() => {
                 return Verdict::Unexpected(format!("streaming code {code}"));
@@ -79,7 +81,8 @@ pub fn parse(response: &HttpResponse) -> Verdict {
         }
     }
     let body = response.text();
-    if body.contains("\"code\":1003") || has_geo_marker(&body) {
+    if body.contains("\"code\":1003") || body.contains("\"code\":\"1006\"") || has_geo_marker(&body)
+    {
         return Verdict::no();
     }
     if (200..300).contains(&response.status) {

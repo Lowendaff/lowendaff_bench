@@ -1,4 +1,4 @@
-//! CBC Gem Canadian `radio-canada` validation probe.
+//! CBC Gem Canadian `/network/includes/stats/geo.json` geolocation probe.
 
 use bench_api::Context;
 use bench_api::HttpRequest;
@@ -28,11 +28,7 @@ pub fn probe<'a>(
         let url = |real: &str| parse::endpoint(base_url, SPEC.id, "check", real);
         let req = HttpRequest::get(
             family,
-            url(concat!(
-                "https://services.radio-canada.ca/media/validation/v2/",
-                "?appCode=medianetlive&connectionType=hd&deviceType=ipad",
-                "&idMedia=cbuft&multibitrate=true&output=json"
-            )),
+            url("https://www.cbc.ca/network/includes/stats/geo.json"),
         );
         match parse::send(ctx, req).await {
             Ok(res) => parse(&res),
@@ -63,6 +59,29 @@ pub fn parse(response: &HttpResponse) -> Verdict {
         {
             return Verdict::no();
         }
+        if let Some(code) = val
+            .pointer("/geo/country")
+            .or_else(|| val.get("country"))
+            .and_then(serde_json::Value::as_str)
+            .and_then(parse::country_code)
+        {
+            return if code == "CA" && (200..300).contains(&response.status) {
+                Verdict::yes_in("CA")
+            } else {
+                Verdict::no()
+            };
+        }
+    }
+    let body = response.text();
+    if let Some(cc) = parse::extract_between(&body, "\"country\":\"", "\"")
+        .or_else(|| parse::extract_between(&body, "\"country\": \"", "\""))
+        .and_then(parse::country_code)
+    {
+        return if cc == "CA" && (200..300).contains(&response.status) {
+            Verdict::yes_in("CA")
+        } else {
+            Verdict::no()
+        };
     }
     parse::no_region()
 }

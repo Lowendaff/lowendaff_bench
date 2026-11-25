@@ -56,10 +56,15 @@ pub fn parse(response: &HttpResponse) -> Verdict {
     }
     if lower.contains("geoblocked")
         || lower.contains("accessdenied")
+        || lower.contains("access denied")
         || lower.contains("outside australia")
-        || matches!(response.status, 403 | 451)
+        || matches!(response.status, 403 | 404 | 451)
     {
         return Verdict::no();
     }
-    parse::no_region()
+    // Inside Australia, empty credentials pass the geo-gate and return 400 validation error.
+    if matches!(response.status, 200 | 400) {
+        return Verdict::yes_in("AU");
+    }
+    Verdict::Unexpected(format!("HTTP {}", response.status))
 }

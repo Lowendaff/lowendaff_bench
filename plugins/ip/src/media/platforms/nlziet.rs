@@ -1,4 +1,4 @@
-//! NLZIET Dutch availability probe.
+//! NLZIET Dutch and EU portability availability probe.
 
 use bench_api::Context;
 use bench_api::HttpRequest;
@@ -10,6 +10,11 @@ use super::super::result::Output;
 use super::super::result::Verdict;
 use super::Platform;
 use super::ProbeFuture;
+
+const EU_PORTABILITY_COUNTRIES: [&str; 28] = [
+    "AT", "BE", "BG", "CY", "CZ", "DE", "DK", "EE", "EL", "ES", "FI", "FR", "GR", "HR", "HU", "IE",
+    "IT", "LT", "LU", "LV", "MT", "NL", "PL", "PT", "RO", "SE", "SI", "SK",
+];
 
 /// Platform specification for NLZIET.
 pub const SPEC: Platform = Platform {
@@ -26,7 +31,7 @@ pub fn probe<'a>(
 ) -> ProbeFuture<'a> {
     Box::pin(async move {
         let url = |real: &str| parse::endpoint(base_url, SPEC.id, "check", real);
-        let req = HttpRequest::get(family, url("https://app.nlziet.nl/"));
+        let req = HttpRequest::get(family, url("https://nlziet.nl/cdn-cgi/trace"));
         match parse::send(ctx, req).await {
             Ok(res) => parse(&res),
             Err(verdict) => verdict,
@@ -49,11 +54,25 @@ pub fn parse(response: &HttpResponse) -> Verdict {
             return Verdict::no();
         }
     }
-    let body = response.text().to_ascii_lowercase();
-    if body.contains("geoblock") || body.contains("not available in your country") {
+    let body = response.text();
+    let lower = body.to_ascii_lowercase();
+    if lower.contains("countrynotallowed")
+        || lower.contains("geoblock")
+        || lower.contains("not available in your country")
+    {
         return Verdict::no();
     }
-    if (200..300).contains(&response.status) {
+    if response.status == 200 {
+        if lower.contains("streamsessionid") {
+            return Verdict::yes_in("NL");
+        }
+        if let Some(loc) = parse::cf_trace_loc(&body) {
+            return if EU_PORTABILITY_COUNTRIES.contains(&loc.as_str()) {
+                Verdict::yes_in(loc)
+            } else {
+                Verdict::no()
+            };
+        }
         return parse::no_region();
     }
     Verdict::Unexpected(format!("HTTP {}", response.status))

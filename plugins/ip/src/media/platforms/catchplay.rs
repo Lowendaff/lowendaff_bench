@@ -30,7 +30,7 @@ pub fn probe<'a>(
             "authorization",
             concat!(
                 "Basic NTQ3MzM0NDgtYTU3Yi00MjU2LWE4MTEt",
-                "MzdlYzNkNjJmM2E0Ok90QzR3elJRR2hLQ01sSDc="
+                "MzdlYzNkNjJmM2E0Ok90QzR3elJRR2hLQ01sSDc2VEoy"
             ),
         );
         match parse::send(ctx, req).await {
@@ -49,19 +49,40 @@ pub fn parse(response: &HttpResponse) -> Verdict {
     if matches!(response.status, 403 | 451) {
         return Verdict::no();
     }
-    if (200..300).contains(&response.status)
-        && let Some(val) = parse::json(response)
-    {
-        let code = ["isoCode", "country", "code"].into_iter().find_map(|key| {
-            val.get(key)
-                .and_then(serde_json::Value::as_str)
-                .and_then(parse::country_code)
+    if let Some(val) = parse::json(response) {
+        let err_code = val.get("code").and_then(|v| {
+            v.as_str()
+                .map(str::to_owned)
+                .or_else(|| v.as_i64().map(|n| n.to_string()))
         });
-        return match code.as_deref() {
-            Some("TW" | "ID" | "SG") => Verdict::Yes { region: code },
-            Some(_) => Verdict::no(),
-            None => Verdict::Unexpected("missing CATCHPLAY country".to_owned()),
-        };
+        let msg = val
+            .get("message")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        if err_code.as_deref() == Some("100016") || msg.contains("not allowed") {
+            return Verdict::no();
+        }
+        if (200..300).contains(&response.status) {
+            let code = [
+                "/data/isoCode",
+                "/data/country",
+                "/isoCode",
+                "/country",
+                "/code",
+            ]
+            .into_iter()
+            .find_map(|ptr| {
+                val.pointer(ptr)
+                    .and_then(serde_json::Value::as_str)
+                    .and_then(parse::country_code)
+            });
+            return match code.as_deref() {
+                Some("TW" | "ID" | "SG") => Verdict::Yes { region: code },
+                Some(_) => Verdict::no(),
+                None => Verdict::Unexpected("missing CATCHPLAY country".to_owned()),
+            };
+        }
     }
     Verdict::Unexpected(format!("HTTP {}", response.status))
 }

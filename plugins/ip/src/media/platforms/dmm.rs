@@ -1,4 +1,4 @@
-//! DMM TV Japan foreign IP check probe.
+//! DMM TV Japan GraphQL `isForeignAccess` probe.
 
 use bench_api::Context;
 use bench_api::HttpRequest;
@@ -26,10 +26,12 @@ pub fn probe<'a>(
 ) -> ProbeFuture<'a> {
     Box::pin(async move {
         let url = |real: &str| parse::endpoint(base_url, SPEC.id, "check", real);
-        let req = HttpRequest::get(
+        let req = HttpRequest::post(
             family,
-            url("https://api.dmm.com/service/digitalapi/-/ip_check/"),
-        );
+            url("https://api.tv.dmm.com/graphql"),
+            br#"{"query":"query FetchClient { client { isForeignAccess } }"}"#.to_vec(),
+        )
+        .with_header("content-type", "application/json");
         match parse::send(ctx, req).await {
             Ok(res) => parse(&res),
             Err(verdict) => verdict,
@@ -51,23 +53,18 @@ pub fn parse(response: &HttpResponse) -> Verdict {
         return Verdict::no();
     }
     if let Some(val) = parse::json(response) {
-        let is_foreign = val
-            .get("is_foreign")
-            .and_then(serde_json::Value::as_bool)
-            .or_else(|| {
-                val.pointer("/result/is_foreign")
-                    .and_then(serde_json::Value::as_bool)
-            })
-            .or_else(|| {
-                val.pointer("/data/is_foreign")
-                    .and_then(serde_json::Value::as_bool)
-            });
-        let country = val
-            .get("country_code")
-            .and_then(serde_json::Value::as_str)
-            .and_then(parse::country_code)
-            .or_else(|| {
-                val.pointer("/result/country_code")
+        let is_foreign = [
+            "/data/client/isForeignAccess",
+            "/is_foreign",
+            "/result/is_foreign",
+            "/data/is_foreign",
+        ]
+        .into_iter()
+        .find_map(|ptr| val.pointer(ptr).and_then(serde_json::Value::as_bool));
+        let country = ["/country_code", "/result/country_code"]
+            .into_iter()
+            .find_map(|ptr| {
+                val.pointer(ptr)
                     .and_then(serde_json::Value::as_str)
                     .and_then(parse::country_code)
             });

@@ -2,7 +2,7 @@
 
 use bench_api::HttpResponse;
 
-const CHALLENGE_MARKERS: [&str; 9] = [
+const CHALLENGE_MARKERS: [&str; 8] = [
     "challenges.cloudflare.com/turnstile",
     "/cdn-cgi/challenge-platform/",
     "<title>just a moment...</title>",
@@ -10,8 +10,7 @@ const CHALLENGE_MARKERS: [&str; 9] = [
     "_incapsula_resource",
     "px-captcha",
     "captcha-delivery.com",
-    "errors.edgesuite.net",
-    "errors&#46;edgesuite&#46;net",
+    "sec-cpt-if",
 ];
 
 /// Detects Cloudflare Turnstile, Cloudflare JS challenge, AWS WAF, DataDome, PerimeterX,
@@ -138,6 +137,23 @@ mod tests {
             403,
             &[],
             r#"{"errors":["GeoBlocked"]}"#
+        )));
+        assert!(!super::is_challenge(&resp(
+            403,
+            &[],
+            concat!(
+                "<HTML><HEAD><TITLE>Access Denied</TITLE></HEAD>",
+                "<BODY>Reference #18.1 https://errors.edgesuite.net/18.1</BODY></HTML>"
+            )
+        )));
+        assert!(!super::is_challenge(&resp(
+            403,
+            &[],
+            concat!(
+                "<HTML><BODY>",
+                "https&#58;&#47;&#47;errors&#46;edgesuite&#46;net&#47;18&#46;1",
+                "</BODY></HTML>"
+            )
         )));
     }
 }

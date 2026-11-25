@@ -1,4 +1,4 @@
-//! Molotov French `fapi` startup config probe.
+//! Molotov French `fapi` `is-france` probe.
 
 use bench_api::Context;
 use bench_api::HttpRequest;
@@ -26,7 +26,10 @@ pub fn probe<'a>(
 ) -> ProbeFuture<'a> {
     Box::pin(async move {
         let url = |real: &str| parse::endpoint(base_url, SPEC.id, "check", real);
-        let req = HttpRequest::get(family, url("https://fapi.molotov.tv/v2/startup/config"));
+        let req = HttpRequest::get(
+            family,
+            url("https://fapi.molotov.tv/v1/open-europe/is-france"),
+        );
         match parse::send(ctx, req).await {
             Ok(res) => parse(&res),
             Err(verdict) => verdict,

@@ -50,24 +50,25 @@ pub fn parse(response: &HttpResponse) -> Verdict {
         return early;
     }
     let body = response.text();
+    let lower = body.to_ascii_lowercase();
+    if lower.contains("vpn") || lower.contains("proxy") {
+        return Verdict::No {
+            restriction: Some(Restriction::ProxyDetected),
+        };
+    }
     if let Some(val) = parse::json(response) {
         let warn = val
             .get("warning_kr")
             .and_then(serde_json::Value::as_str)
             .map(str::trim)
             .unwrap_or_default();
-        let proxy_json = !warn.is_empty()
-            || contains_wavve_marker(&val, "\u{bd88}\u{bc95}\u{c801}\u{c73c}\u{b85c}");
-        if proxy_json || body.contains("\u{bd88}\u{bc95}\u{c801}\u{c73c}\u{b85c}") {
-            return Verdict::No {
-                restriction: Some(Restriction::ProxyDetected),
-            };
-        }
         let code = val.get("resultcode").and_then(|v| {
             v.as_i64()
                 .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
         });
-        let geo_json = code == Some(551)
+        let geo_json = !warn.is_empty()
+            || code == Some(551)
+            || contains_wavve_marker(&val, "\u{bd88}\u{bc95}\u{c801}\u{c73c}\u{b85c}")
             || contains_wavve_marker(&val, "\u{d574}\u{c678}")
             || contains_wavve_ascii(&val, "overseas");
         if geo_json || matches!(response.status, 403 | 451) {
@@ -81,15 +82,11 @@ pub fn parse(response: &HttpResponse) -> Verdict {
         }
         return Verdict::Unexpected(format!("HTTP {}", response.status));
     }
-    if body.contains("\u{bd88}\u{bc95}\u{c801}\u{c73c}\u{b85c}") {
-        return Verdict::No {
-            restriction: Some(Restriction::ProxyDetected),
-        };
-    }
     if matches!(response.status, 403 | 451)
         || body.contains("\"resultcode\":\"551\"")
+        || body.contains("\u{bd88}\u{bc95}\u{c801}\u{c73c}\u{b85c}")
         || body.contains("\u{d574}\u{c678}")
-        || body.to_ascii_lowercase().contains("overseas")
+        || lower.contains("overseas")
     {
         return Verdict::no();
     }

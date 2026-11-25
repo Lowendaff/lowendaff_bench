@@ -1,4 +1,5 @@
-//! TVer unlock probe: creates an anonymous browser token and checks `callHome` availability.
+//! TVer unlock probe: discovers a live catch-up episode via `v2/callHome` and checks Streaks
+//! playback authorization (`playback.api.streaks.jp`).
 
 use bench_api::Context;
 use bench_api::HttpRequest;
@@ -18,7 +19,7 @@ pub const SPEC: Platform = Platform {
     probe,
 };
 
-/// Probes TVer in two steps over `family`.
+/// Probes TVer dynamically over `family`.
 pub fn probe<'a>(
     ctx: &'a Context<Output>,
     family: IpFamily,
@@ -45,16 +46,67 @@ pub fn probe<'a>(
         let Some((uid, token)) = credentials(&create_res) else {
             return create_failure(&create_res);
         };
-        let home = "https://platform-api.tver.jp/service/api/v1/callHome";
-        let check_url = match base_url {
+
+        let home_url = match base_url {
             Some(base) => format!("{base}/tver/callapi"),
-            None => format!("{home}?platform_uid={uid}&platform_token={token}&require_data=mylist"),
+            None => format!(
+                "https://platform-api.tver.jp/service/api/v2/callHome\
+                 ?platform_uid={uid}&platform_token={token}&require_data=mylist%2Cresume%2Clater"
+            ),
         };
-        let check_req = HttpRequest::get(family, check_url)
+        let home_req = HttpRequest::get(family, home_url)
+            .with_header("origin", "https://tver.jp")
+            .with_header("referer", "https://tver.jp/")
             .with_header("x-tver-platform-type", "web")
             .with_max_bytes(2 * 1024 * 1024);
-        match parse::send(ctx, check_req).await {
-            Ok(res) => parse(&res),
+        let home_res = match parse::send(ctx, home_req).await {
+            Ok(res) => res,
+            Err(verdict) => return verdict,
+        };
+        if base_url.is_some() {
+            return parse(&home_res);
+        }
+        let Some(ep_id) = episode_id(&home_res) else {
+            return Verdict::Unexpected("missing TVer episode in callHome".to_owned());
+        };
+
+        let ep_req = HttpRequest::get(
+            family,
+            format!("https://statics.tver.jp/content/episode/{ep_id}.json"),
+        )
+        .with_header("origin", "https://tver.jp")
+        .with_header("referer", "https://tver.jp/");
+        let info_req = HttpRequest::get(
+            family,
+            "https://player.tver.jp/player/streaks_info_v2.json".to_owned(),
+        )
+        .with_header("origin", "https://tver.jp")
+        .with_header("referer", "https://tver.jp/");
+        let (ep_out, info_out) = tokio::join!(parse::send(ctx, ep_req), parse::send(ctx, info_req));
+        let ep_res = match ep_out {
+            Ok(res) => res,
+            Err(verdict) => return verdict,
+        };
+        let info_res = match info_out {
+            Ok(res) => res,
+            Err(verdict) => return verdict,
+        };
+        let Some((project_id, media_target)) = episode_streaks(&ep_res) else {
+            return Verdict::Unexpected("missing TVer Streaks metadata".to_owned());
+        };
+        let Some(api_key) = streaks_api_key(&info_res, &project_id) else {
+            return Verdict::Unexpected("missing TVer Streaks API key".to_owned());
+        };
+
+        let play_url = format!(
+            "https://playback.api.streaks.jp/v1/projects/{project_id}/medias/{media_target}"
+        );
+        let play_req = HttpRequest::get(family, play_url)
+            .with_header("x-streaks-api-key", api_key)
+            .with_header("origin", "https://tver.jp")
+            .with_header("referer", "https://tver.jp/");
+        match parse::send(ctx, play_req).await {
+            Ok(play_res) => parse(&play_res),
             Err(verdict) => verdict,
         }
     })
@@ -94,16 +146,98 @@ pub fn create_failure(response: &HttpResponse) -> Verdict {
     Verdict::Unexpected(format!("HTTP {}", response.status))
 }
 
-/// Evaluates TVer's `callHome` response.
+fn episode_id(response: &HttpResponse) -> Option<String> {
+    let val = parse::json(response)?;
+    let components = val.pointer("/result/components")?.as_array()?;
+    for comp in components {
+        let Some(contents) = comp.get("contents").and_then(serde_json::Value::as_array) else {
+            continue;
+        };
+        for item in contents {
+            let candidate = item
+                .pointer("/content/id")
+                .or_else(|| item.get("id"))
+                .and_then(serde_json::Value::as_str)
+                .map(str::trim);
+            if let Some(id) = candidate
+                && id.starts_with("ep")
+                && (8..=16).contains(&id.len())
+                && id.bytes().all(|b| b.is_ascii_alphanumeric())
+            {
+                return Some(id.to_owned());
+            }
+        }
+    }
+    None
+}
+
+fn episode_streaks(response: &HttpResponse) -> Option<(String, String)> {
+    let val = parse::json(response)?;
+    let streaks = val.get("streaks")?;
+    let safe = |raw: &str| {
+        let trimmed = raw.trim();
+        (!trimmed.is_empty()
+            && trimmed
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_')))
+        .then(|| trimmed.to_owned())
+    };
+    let project = safe(streaks.get("projectID")?.as_str()?)?;
+    let target = if let Some(ref_id) = streaks
+        .get("videoRefID")
+        .and_then(serde_json::Value::as_str)
+        .and_then(safe)
+    {
+        format!("ref:{ref_id}")
+    } else {
+        safe(streaks.get("mediaID")?.as_str()?)?
+    };
+    Some((project, target))
+}
+
+fn streaks_api_key(response: &HttpResponse, project_id: &str) -> Option<String> {
+    let val = parse::json(response)?;
+    let key_node = val.get(project_id)?.get("api_key")?;
+    if let Some(s) = key_node.as_str().map(str::trim).filter(|s| !s.is_empty()) {
+        return Some(s.to_owned());
+    }
+    let map = key_node.as_object()?;
+    if let Some(k1) = map
+        .get("key01")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        return Some(k1.to_owned());
+    }
+    for v in map.values() {
+        if let Some(s) = v.as_str().map(str::trim).filter(|s| !s.is_empty()) {
+            return Some(s.to_owned());
+        }
+    }
+    None
+}
+
+/// Evaluates TVer's Streaks playback or mock `callHome` response.
 #[must_use]
 pub fn parse(response: &HttpResponse) -> Verdict {
     if let Some(early) = parse::gate(response) {
         return early;
     }
+    let body = response.text();
+    let lower = body.to_ascii_lowercase();
+    if lower.contains("client_geo") || lower.contains("outside japan") || lower.contains("p01002") {
+        return Verdict::no();
+    }
     if matches!(response.status, 403 | 451) {
         return Verdict::no();
     }
     if let Some(val) = parse::json(response) {
+        if (val.get("sources").is_some() || val.get("account_id").is_some())
+            && response.status == 200
+        {
+            return Verdict::yes_in("JP");
+        }
         let err_geo = [
             val.get("message"),
             val.get("error"),
@@ -113,8 +247,8 @@ pub fn parse(response: &HttpResponse) -> Verdict {
         .flatten()
         .filter_map(serde_json::Value::as_str)
         .any(|msg| {
-            let lower = msg.to_ascii_lowercase();
-            lower.contains("forbidden") || lower.contains("outside japan")
+            let m = msg.to_ascii_lowercase();
+            m.contains("forbidden") || m.contains("outside japan") || m.contains("client_geo")
         });
         if err_geo {
             return Verdict::no();
@@ -131,8 +265,7 @@ pub fn parse(response: &HttpResponse) -> Verdict {
             return Verdict::yes_in("JP");
         }
     }
-    let body = response.text().to_ascii_lowercase();
-    if body.contains("forbidden") || body.contains("outside japan") {
+    if lower.contains("forbidden") {
         return Verdict::no();
     }
     if (200..300).contains(&response.status) {

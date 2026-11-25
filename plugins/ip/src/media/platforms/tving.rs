@@ -89,6 +89,9 @@ pub fn parse(response: &HttpResponse) -> Verdict {
         if (200..300).contains(&response.status) && populated {
             return Verdict::yes_in("KR");
         }
+        if (200..300).contains(&response.status) && val.get("body").is_some() {
+            return Verdict::no();
+        }
     }
     let body = response.text();
     if body.contains("\"code\":\"024\"") || is_geo_msg(&body) {
