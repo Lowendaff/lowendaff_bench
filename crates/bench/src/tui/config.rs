@@ -485,7 +485,7 @@ impl ItemParams {
 }
 
 /// Configuration of one registered benchmark item.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct ItemConfig {
     /// Plugin identifier (`<group>.<name>`).
     pub id: &'static str,
@@ -497,6 +497,8 @@ pub struct ItemConfig {
     pub group_title: &'static str,
     /// Worst-case timeout in whole minutes (at least 1).
     pub timeout_mins: u64,
+    /// Static host requirements descriptor, used to refresh `requires_text` on language switch.
+    pub requires: Requirements,
     /// Formatted host requirement summary.
     pub requires_text: String,
     /// Whether this item will run.
@@ -598,7 +600,7 @@ pub struct FieldRow {
 }
 
 /// Complete user configuration managed by the TUI.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct TuiConfig {
     /// Per-item toggle and parameters, in registry execution order.
     pub items: Vec<ItemConfig>,
@@ -617,12 +619,17 @@ impl TuiConfig {
                 let group = group_static(entry.id);
                 let group_title = words.group_title(group).unwrap_or(group);
                 let timeout_mins = entry.timeout.as_secs().div_ceil(60).max(1);
+                let title = words
+                    .item_name(entry.id)
+                    .or(entry.title)
+                    .unwrap_or(entry.id);
                 ItemConfig {
                     id: entry.id,
-                    title: entry.title.unwrap_or(entry.id),
+                    title,
                     group,
                     group_title,
                     timeout_mins,
+                    requires: entry.requires,
                     requires_text: describe_requirements(&entry.requires),
                     enabled: true,
                     params: ItemParams::default_for(entry.id),
@@ -632,6 +639,17 @@ impl TuiConfig {
         Self {
             items,
             global: GlobalConfig::default(),
+        }
+    }
+
+    /// Re-populates localized item titles, group titles, and host requirement summaries from the
+    /// currently active [`locale::words`] catalog.
+    pub fn refresh_locale(&mut self) {
+        let words = locale::words();
+        for item in &mut self.items {
+            item.title = words.item_name(item.id).unwrap_or(item.id);
+            item.group_title = words.group_title(item.group).unwrap_or(item.group);
+            item.requires_text = describe_requirements(&item.requires);
         }
     }
 
@@ -1025,7 +1043,15 @@ impl TuiConfig {
                 edit_raw: Some(out_trimmed.to_owned()),
             }
         };
+        let active_lang = locale::current_language();
         vec![
+            FieldRow {
+                label: words.tui_field_language().to_owned(),
+                value: format!("{} ({})", active_lang.endonym(), active_lang.code()),
+                customized: active_lang != locale::Language::En,
+                dimmed: false,
+                edit_raw: None,
+            },
             FieldRow {
                 label: words.tui_field_format().to_owned(),
                 value: format_name(g.format).to_owned(),
@@ -1628,9 +1654,14 @@ impl TuiConfig {
             return Some((row.label.clone(), raw.clone()));
         }
         match field_idx {
-            0 => self.global.format = cycle_format(self.global.format, 1),
-            3 => self.global.show_ip = !self.global.show_ip,
-            7 => self.global.verbose = !self.global.verbose,
+            0 => {
+                let next = cycle_language(locale::current_language(), 1);
+                locale::set_language(next);
+                self.refresh_locale();
+            }
+            1 => self.global.format = cycle_format(self.global.format, 1),
+            4 => self.global.show_ip = !self.global.show_ip,
+            8 => self.global.verbose = !self.global.verbose,
             _ => {}
         }
         None
@@ -1642,13 +1673,18 @@ impl TuiConfig {
             return;
         }
         match field_idx {
-            0 => self.global.format = cycle_format(self.global.format, delta),
-            3 => self.global.show_ip = !self.global.show_ip,
-            4 => {
+            0 => {
+                let next = cycle_language(locale::current_language(), delta);
+                locale::set_language(next);
+                self.refresh_locale();
+            }
+            1 => self.global.format = cycle_format(self.global.format, delta),
+            4 => self.global.show_ip = !self.global.show_ip,
+            5 => {
                 self.global.download_connections =
                     step_u16(self.global.download_connections, delta, 1, 256);
             }
-            7 => self.global.verbose = !self.global.verbose,
+            8 => self.global.verbose = !self.global.verbose,
             _ => {}
         }
     }
@@ -1658,15 +1694,15 @@ impl TuiConfig {
         let words = locale::words();
         let trimmed = input.trim();
         match field_idx {
-            1 => self.global.output = trimmed.to_owned(),
-            2 => {
+            2 => self.global.output = trimmed.to_owned(),
+            3 => {
                 if trimmed.is_empty() {
                     self.global.work_dir = ".".to_owned();
                 } else {
                     self.global.work_dir = trimmed.to_owned();
                 }
             }
-            4 => {
+            5 => {
                 if trimmed.is_empty() {
                     self.global.download_connections = app::DOWNLOAD_CONNECTIONS;
                 } else {
@@ -1677,7 +1713,7 @@ impl TuiConfig {
                         u16::try_from(val).unwrap_or(app::DOWNLOAD_CONNECTIONS);
                 }
             }
-            5 => {
+            6 => {
                 if trimmed.is_empty() {
                     self.global.socks5_proxy.clear();
                 } else {
@@ -1685,7 +1721,7 @@ impl TuiConfig {
                     self.global.socks5_proxy = trimmed.to_owned();
                 }
             }
-            6 => {
+            7 => {
                 if trimmed.is_empty() {
                     self.global.github_proxy.clear();
                 } else {
@@ -1739,6 +1775,23 @@ fn sub_row(mut row: FieldRow, inactive: bool) -> FieldRow {
         row.dimmed = true;
     }
     row
+}
+
+/// Cycles interface [`locale::Language`] forward or backward.
+#[must_use]
+pub fn cycle_language(lang: locale::Language, delta: i32) -> locale::Language {
+    if delta == 0 {
+        return lang;
+    }
+    let all = locale::Language::ALL;
+    let idx = all.iter().position(|item| *item == lang).unwrap_or(0);
+    let len = all.len();
+    let next = if delta > 0 {
+        (idx + 1) % len
+    } else {
+        (idx + len - 1) % len
+    };
+    all[next]
 }
 
 /// Canonical lowercase name of a [`Format`].

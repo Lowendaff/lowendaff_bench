@@ -68,11 +68,16 @@ fn render_text(session: &mut Session, cols: u16, rows: u16) -> String {
     let mut lines = Vec::with_capacity(usize::from(rows));
     for y in 0..rows {
         let mut row = String::with_capacity(usize::from(cols));
-        for x in 0..cols {
+        let mut x = 0;
+        while x < cols {
             let symbol = buf[(x, y)].symbol();
             if !symbol.is_empty() {
                 row.push_str(symbol);
             }
+            let step = u16::try_from(unicode_width::UnicodeWidthStr::width(symbol))
+                .unwrap_or(1)
+                .max(1);
+            x = x.saturating_add(step);
         }
         lines.push(row.trim_end().to_owned());
     }
@@ -151,7 +156,8 @@ fn release_events_and_stray_pastes_are_ignored_while_editor_supports_cursor_and_
     // Open Global -> work_dir editor and exercise cursor movement, Delete, Backspace, and Paste.
     let _ = session.handle_key(press(KeyCode::End));
     let _ = session.handle_key(press(KeyCode::Enter));
-    let _ = session.handle_key(press(KeyCode::Down));
+    let _ = session.handle_key(press(KeyCode::Down)); // Report format
+    let _ = session.handle_key(press(KeyCode::Down)); // Save report to file
     let _ = session.handle_key(press(KeyCode::Down)); // Work directory
     let _ = session.handle_key(press(KeyCode::Enter));
     assert!(session.editor.is_some());
@@ -453,6 +459,7 @@ fn keyboard_navigation_drives_item_switches_groups_params_and_global_options() {
     let _ = session.handle_key(press(KeyCode::End));
     let _ = session.handle_key(press(KeyCode::Enter));
     assert_eq!(session.focus, Pane::Right);
+    let _ = session.handle_key(press(KeyCode::Down)); // move past Language (0) to Report format (1)
     let _ = session.handle_key(press(KeyCode::Right));
     assert_eq!(session.config.global.format, Format::Markdown);
 
@@ -1099,18 +1106,18 @@ fn tui_hardening_guards_modifiers_sanitizes_controls_and_clamps_narrow_viewports
 
     // 1. Single-token SOCKS5 credentials are redacted in Global Options, step delta=0 is a no-op,
     //    and i32::MAX delta saturates without overflowing.
-    session.config.step_global_field(0, 0);
+    session.config.step_global_field(1, 0);
     assert_eq!(session.config.global.format, Format::Text);
-    session.config.step_global_field(3, 0);
+    session.config.step_global_field(4, 0);
     assert!(!session.config.global.show_ip);
-    session.config.step_global_field(4, i32::MAX);
+    session.config.step_global_field(5, i32::MAX);
     assert_eq!(session.config.global.download_connections, 256);
     session
         .config
-        .apply_global_edit(5, "socks5h://s3crettoken@127.0.0.1:1080")
+        .apply_global_edit(6, "socks5h://s3crettoken@127.0.0.1:1080")
         .unwrap();
     let fields = session.config.fields_for_global();
-    assert_eq!(fields[5].value, "socks5h://***@127.0.0.1:1080");
+    assert_eq!(fields[6].value, "socks5h://***@127.0.0.1:1080");
 
     // 2. Modified chords (Ctrl-D, Alt-R) must never reset config or launch a run.
     assert_eq!(session.handle_key(ctrl('d')), Command::None);
@@ -1267,4 +1274,138 @@ fn tui_hardening_guards_modifiers_sanitizes_controls_and_clamps_narrow_viewports
         ),
         "pressing '/' from Operators must step up to filterable level"
     );
+}
+
+#[test]
+fn tui_language_switcher_updates_configure_and_results_live_while_preserving_english_json() {
+    use bench::locale;
+    use bench::locale::Language;
+
+    locale::with_language(Language::En, || {
+        let all = registry::all();
+        let mut session = Session::new(&all);
+
+        // 1. Default startup shows [English] badge; pressing 'L' opens the 4-language picker modal.
+        let initial_frame = render_text(&mut session, 110, 28);
+        assert!(initial_frame.contains("[English]"), "{initial_frame}");
+
+        assert_eq!(session.handle_key(press(KeyCode::Char('L'))), Command::None);
+        assert_eq!(session.lang_picker, Some(0));
+        let picker_frame = render_text(&mut session, 110, 28);
+        assert!(picker_frame.contains("Select Language"), "{picker_frame}");
+        assert!(picker_frame.contains("English (en)"), "{picker_frame}");
+        assert!(
+            picker_frame.contains("\u{7b80}\u{4f53}\u{4e2d}\u{6587} (zh-cn)"),
+            "{picker_frame}"
+        );
+        assert!(
+            picker_frame.contains("\u{7e41}\u{9ad4}\u{4e2d}\u{6587} (zh-tw)"),
+            "{picker_frame}"
+        );
+        assert!(
+            picker_frame.contains("\u{65e5}\u{672c}\u{8a9e} (ja)"),
+            "{picker_frame}"
+        );
+
+        // 2. Select Simplified Chinese (zh-cn) -> items & badges refresh immediately; 'd' keeps it.
+        let _ = session.handle_key(press(KeyCode::Down));
+        let _ = session.handle_key(press(KeyCode::Enter));
+        assert!(session.lang_picker.is_none());
+        assert_eq!(locale::current_language(), Language::ZhCn);
+        let cn_config = render_text(&mut session, 110, 28);
+        assert!(
+            cn_config.contains("[\u{7b80}\u{4f53}\u{4e2d}\u{6587}]"),
+            "{cn_config}"
+        );
+        assert!(
+            cn_config.contains("\u{786c}\u{76d8}\u{5065}\u{5eb7}\u{4f53}\u{68c0}"),
+            "{cn_config}"
+        );
+        let _ = session.handle_key(press(KeyCode::Char('d')));
+        assert_eq!(
+            locale::current_language(),
+            Language::ZhCn,
+            "resetting defaults with 'd' must preserve the chosen UI language"
+        );
+
+        // 3. Global options row 0 cycles language with Right and opens the picker modal on Space.
+        let _ = session.handle_key(press(KeyCode::End));
+        let _ = session.handle_key(press(KeyCode::Enter));
+        assert_eq!(session.focus, Pane::Right);
+        assert_eq!(session.param_index, 0);
+        let _ = session.handle_key(press(KeyCode::Right));
+        assert_eq!(locale::current_language(), Language::ZhTw);
+        let tw_config = render_text(&mut session, 110, 28);
+        assert!(
+            tw_config.contains("[\u{7e41}\u{9ad4}\u{4e2d}\u{6587}]")
+                && tw_config.contains("\u{8a18}\u{61b6}\u{9ad4}\u{9023}\u{7e8c}\u{8b80}\u{5beb}"),
+            "{tw_config}"
+        );
+        let _ = session.handle_key(press(KeyCode::Char(' ')));
+        assert_eq!(session.lang_picker, Some(2));
+        let _ = session.handle_key(press(KeyCode::End));
+        let _ = session.handle_key(press(KeyCode::Enter));
+        assert_eq!(locale::current_language(), Language::Ja);
+
+        // 4. Results viewer renders in Japanese, live-switches to ZhCn via F2, and keeps JSON
+        //    strictly in English.
+        session.finish_run(sample_outcome(0), Some(72));
+        let ja_results = render_text(&mut session, 110, 28);
+        assert!(
+            ja_results.contains("[\u{65e5}\u{672c}\u{8a9e}]")
+                && ja_results.contains("\u{30b7}\u{30b9}\u{30c6}\u{30e0}\u{6982}\u{8981}"),
+            "{ja_results}"
+        );
+
+        let _ = session.handle_key(press(KeyCode::F(2)));
+        assert_eq!(session.lang_picker, Some(3));
+        let _ = session.handle_key(press(KeyCode::Home));
+        let _ = session.handle_key(press(KeyCode::Down));
+        let _ = session.handle_key(press(KeyCode::Enter));
+        assert_eq!(locale::current_language(), Language::ZhCn);
+        let cn_results = render_text(&mut session, 110, 28);
+        assert!(
+            cn_results.contains("[\u{7b80}\u{4f53}\u{4e2d}\u{6587}]")
+                && cn_results.contains("[\u{7cfb}\u{7edf}\u{4fe1}\u{606f}]")
+                && cn_results.contains("\u{9876}\u{90e8} / \u{6982}\u{89c8}"),
+            "{cn_results}"
+        );
+
+        // Cycle to Markdown -> localized; cycle to JSON -> strictly English!
+        let _ = session.handle_key(press(KeyCode::Char('f')));
+        assert_eq!(session.results.as_ref().unwrap().format, Format::Markdown);
+        let _ = session.handle_key(press(KeyCode::Char(']')));
+        let _ = session.handle_key(press(KeyCode::Char(']')));
+        let cn_md = render_text(&mut session, 110, 28);
+        assert!(
+            cn_md.contains("## CPU \u{7efc}\u{5408}\u{57fa}\u{51c6}"),
+            "{cn_md}"
+        );
+
+        let _ = session.handle_key(press(KeyCode::Char('f')));
+        assert_eq!(session.results.as_ref().unwrap().format, Format::Json);
+        let _ = session.handle_key(press(KeyCode::Home));
+        let json_top = render_text(&mut session, 110, 28);
+        assert!(
+            json_top.contains("[\u{7b80}\u{4f53}\u{4e2d}\u{6587}]")
+                && json_top.contains("\"environment\": \"no virtualization detected\""),
+            "JSON preview must remain English even when UI language is ZhCn: {json_top}"
+        );
+        let _ = session.handle_key(press(KeyCode::Char(']')));
+        let _ = session.handle_key(press(KeyCode::Char(']')));
+        let json_runs = render_text(&mut session, 110, 28);
+        assert!(
+            json_runs.contains("\"title\": \"CPU benchmark\""),
+            "{json_runs}"
+        );
+
+        let _ = session.handle_key(press(KeyCode::Char('s')));
+        match session.handle_key(press(KeyCode::Enter)) {
+            Command::SaveReport { contents, .. } => {
+                assert!(contents.contains("\"title\": \"CPU benchmark\""));
+                assert!(contents.contains("\"environment\": \"no virtualization detected\""));
+            }
+            other => panic!("expected SaveReport command, got {other:?}"),
+        }
+    });
 }

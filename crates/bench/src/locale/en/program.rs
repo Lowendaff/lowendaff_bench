@@ -38,6 +38,11 @@ impl ProgramWords for English {
         "Report format: text, markdown (or md), or json".to_owned()
     }
 
+    fn help_lang(&self) -> String {
+        "Interface and report language: en (default), zh-cn, zh-tw, or ja (JSON stays English)"
+            .to_owned()
+    }
+
     fn help_work_dir(&self) -> String {
         "Create the run directory under this directory, and remove it at the end (avoid /tmp)"
             .to_owned()

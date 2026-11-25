@@ -2108,3 +2108,81 @@ async fn vm_cpu_sampler_collects_only_on_vms_and_ignores_dedicated_and_container
     assert!((samples[0].si_pct - 2.0).abs() < 1e-6);
     assert!((samples[0].st_pct - 8.0).abs() < 1e-6);
 }
+
+#[test]
+fn cli_lang_flag_preparses_aliases_routes_tui_and_localizes_list_output() {
+    use bench::locale;
+    use bench::locale::Language;
+    use clap::Parser;
+
+    assert_eq!(app::preparse_lang(["lowendaff-bench"]), None);
+    assert_eq!(
+        app::preparse_lang(["lowendaff-bench", "--lang", "zh-cn"]),
+        Some(Language::ZhCn)
+    );
+    assert_eq!(
+        app::preparse_lang(["lowendaff-bench", "--lang=ZH-HANT"]),
+        Some(Language::ZhTw)
+    );
+    assert_eq!(
+        app::preparse_lang(["lowendaff-bench", "--lang", "ja"]),
+        Some(Language::Ja)
+    );
+    assert_eq!(
+        app::preparse_lang(["lowendaff-bench", "--", "--lang", "ja"]),
+        None
+    );
+    assert_eq!(
+        app::preparse_lang(["lowendaff-bench", "--lang", "unknown"]),
+        None
+    );
+
+    assert!(app::should_enter_tui_args(["lowendaff-bench"]));
+    assert!(app::should_enter_tui_args([
+        "lowendaff-bench",
+        "--lang",
+        "zh-cn"
+    ]));
+    assert!(app::should_enter_tui_args(["lowendaff-bench", "--lang=ja"]));
+    assert!(!app::should_enter_tui_args([
+        "lowendaff-bench",
+        "--lang",
+        "zh-cn",
+        "--list"
+    ]));
+    assert!(!app::should_enter_tui_args([
+        "lowendaff-bench",
+        "--lang",
+        "zh-cn",
+        "--all"
+    ]));
+    assert!(!app::should_enter_tui_args(["lowendaff-bench", "--lang"]));
+    assert!(!app::should_enter_tui_args(["lowendaff-bench", "--lang="]));
+
+    assert_eq!(cli(&[]).lang, None);
+    assert_eq!(cli(&["--lang", "zh-hans"]).lang, Some(Language::ZhCn));
+    assert_eq!(cli(&["--lang", "zh-hk"]).lang, Some(Language::ZhTw));
+    assert_eq!(cli(&["--lang=ja"]).lang, Some(Language::Ja));
+    assert!(
+        Cli::try_parse_from(["lowendaff-bench", "--lang", "klingon"]).is_err(),
+        "unknown --lang code must be rejected by clap"
+    );
+
+    let all = registry::all();
+    let render_list = |lang: Language| -> String {
+        locale::with_language(lang, || {
+            let mut out = Vec::new();
+            app::list(&all, &mut out);
+            String::from_utf8(out).expect("UTF-8 --list output")
+        })
+    };
+    let en_list = render_list(Language::En);
+    let cn_list = render_list(Language::ZhCn);
+    let tw_list = render_list(Language::ZhTw);
+    let ja_list = render_list(Language::Ja);
+
+    assert!(en_list.contains("15 test items") && en_list.contains("Disk health"));
+    assert!(cn_list.contains("15") && cn_list.contains("\u{786c}\u{76d8}\u{5065}\u{5eb7}"));
+    assert!(tw_list.contains("15") && tw_list.contains("\u{786c}\u{789f}\u{5065}\u{5eb7}"));
+    assert!(ja_list.contains("15") && ja_list.contains("\u{30c7}\u{30a3}\u{30b9}\u{30af}"));
+}

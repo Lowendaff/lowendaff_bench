@@ -66,8 +66,13 @@ fn print_stderr(message: &str) {
 }
 
 fn main() -> ExitCode {
-    let default_tui = app::should_enter_tui(std::env::args_os().len());
+    let raw_args: Vec<std::ffi::OsString> = std::env::args_os().collect();
+    if let Some(lang) = app::preparse_lang(&raw_args) {
+        locale::set_language(lang);
+    }
+    let default_tui = app::should_enter_tui_args(&raw_args);
     let cli = Cli::from_env();
+    locale::set_language(cli.lang.unwrap_or_default());
     let registry = registry::all();
     if cli.list {
         app::list(&registry, &mut io::stdout());

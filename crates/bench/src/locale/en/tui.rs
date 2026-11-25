@@ -289,6 +289,18 @@ impl TuiWords for English {
         "Service IDs (override)"
     }
 
+    fn tui_field_language(&self) -> &'static str {
+        "Language"
+    }
+
+    fn tui_lang_picker_title(&self) -> &'static str {
+        "Select Language"
+    }
+
+    fn tui_lang_picker_keys(&self) -> &'static str {
+        "Up/Down: move  Enter/Space: select  Esc/q: cancel"
+    }
+
     fn tui_field_format(&self) -> &'static str {
         "Report format"
     }
@@ -460,13 +472,13 @@ impl TuiWords for English {
     }
 
     fn tui_keys_config_list(&self) -> &'static str {
-        "Up/Down: move  Space: toggle  Right/Tab: edit params  g: group  a: all  d: reset  \
+        "Up/Down: move  Space: toggle  Right/Tab: edit  g: group  a: all  d: reset  L: lang  \
          r: run  q: quit"
     }
 
     fn tui_keys_config_params(&self) -> &'static str {
         "Up/Down: field  Space/Enter: toggle/edit  Left/Right: adjust  Esc/Tab: back  \
-         d: reset  r: run"
+         d: reset  L: lang  r: run"
     }
 
     fn tui_progress_pane(&self, done: usize, total: usize) -> String {
@@ -532,7 +544,7 @@ impl TuiWords for English {
     }
 
     fn tui_keys_results(&self) -> &'static str {
-        "Arrows/PgUp/PgDn: scroll  [/]: section  b: sidebar  f: format  w: wrap  i: IP  \
-         s: save  p: print & quit  n: new  q: quit"
+        "Arrows/PgUp/PgDn: scroll  [/]: section  b: sidebar  f: format  w: wrap  i: IP  L: lang  \
+         s: save  p: print  n: new  q: quit"
     }
 }

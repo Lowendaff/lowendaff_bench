@@ -17,6 +17,8 @@ pub trait ProgramWords {
     fn help_output(&self) -> String;
     /// The help of `-f` / `--format`.
     fn help_format(&self) -> String;
+    /// The help of `--lang`.
+    fn help_lang(&self) -> String;
     /// The help of `--work-dir`.
     fn help_work_dir(&self) -> String;
     /// The help of `--list`.

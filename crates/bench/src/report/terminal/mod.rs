@@ -206,13 +206,16 @@ fn write_page(out: &mut Out, page: &Page, vm_cpu_samples: &[VmCpuSample]) {
     let platform = host::platform_text(page.host.platform);
     out.line(&words.environment(&platform));
     host::section(out, page.host, page.show_ip);
+    let item_title = |run: &Run<Measured>| -> &'static str {
+        words.item_name(run.id).or(run.title).unwrap_or(run.id)
+    };
     let groups: Vec<&str> = page.runs.iter().map(|run| run.group).collect();
     if out.is_markdown() {
         for (group, _) in sections(&groups) {
             let runs: Vec<&Run<Measured>> =
                 page.runs.iter().filter(|run| run.group == group).collect();
             for run in runs {
-                out.section_unique(run.title.unwrap_or(run.id));
+                out.section_unique(item_title(run));
                 plugin(out, run, "  ", page);
             }
         }
@@ -224,7 +227,7 @@ fn write_page(out: &mut Out, page: &Page, vm_cpu_samples: &[VmCpuSample]) {
             let several = runs.len() > 1;
             for run in runs {
                 let indent = if several {
-                    out.subsection(run.title.unwrap_or(run.id));
+                    out.subsection(item_title(run));
                     "    "
                 } else {
                     "  "

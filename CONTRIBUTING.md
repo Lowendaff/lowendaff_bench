@@ -10,14 +10,15 @@ recorded in design documents outside the repository.
   `CONTRIBUTING.md`, `.github/pull_request_template.md`, `.github/workflows/`) are English;
   localized user documentation lives in `README.zh-CN.md`, `README.ja.md` and `docs/*.md`, and
   `.github/ISSUE_TEMPLATE/` holds bilingual English/Chinese issue forms.
-- Text that the program shows its users is English, and comes from the message catalog in
-  `crates/bench/src/locale/`: a trait per part of the program, which each language implements
-  in a module of its own. Messages for developers, such as the registry checks, are English and
-  written in place.
+- Text that the program shows its users comes from the message catalog in
+  `crates/bench/src/locale/`: a trait per part of the program, which each language (`en/`,
+  `zh_cn/`, `zh_tw/`, `ja/`) implements in a module of its own. Messages for developers, such as
+  the registry checks, are English and written in place.
 - Another language is one more module, `crates/bench/src/locale/<language>/`, that implements
-  every trait, listed in `LOCALES`; the compiler names each text it still lacks. The locale comes
-  from `LC_ALL`, `LC_MESSAGES` or `LANG`. The tests expect the English catalog, which
-  `LC_ALL=C` selects.
+  every trait and is wired into `Language` and `catalog_for`; the compiler names each text it
+  still lacks. The active language defaults to `Language::En` without reading `LC_ALL`,
+  `LC_MESSAGES` or `LANG`, and changes only when `--lang` or the interactive TUI (`L` / `F2` or
+  Global options) asks for one; `Format::Json` always renders with `Language::En`.
 - Outside localized Markdown documents (`README.zh-CN.md`, `README.ja.md`, `docs/*.md`),
   bilingual issue templates (`.github/ISSUE_TEMPLATE/`) and catalogs of other languages, no
   tracked file holds a CJK character, so that code, tests, fixtures, scripts and comments stay

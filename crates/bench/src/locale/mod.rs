@@ -1,18 +1,24 @@
-//! Every word that the program shows: its report, its progress log, its errors and the help of
-//! its command line. Code asks [`words`] for each text instead of writing it, so that a language
-//! is one catalog: a module that implements the traits below, listed in `LOCALES`. The compiler
-//! names every text that a new catalog still lacks. The tests expect the English catalog.
+//! Every word that the program shows: its report, its progress log, its errors, its TUI, and the
+//! help of its command line. Code asks [`words`] for each text instead of writing it, so that a
+//! language is one catalog: a module that implements the traits below. The compiler names every
+//! text that a new catalog still lacks. Unless `--lang` or the TUI selects another language, the
+//! active catalog is always English (`Language::En`), regardless of `LC_*` / `LANG` variables.
 
 mod download;
 mod en;
 mod host;
 mod items;
+mod ja;
 mod log;
 mod program;
 mod report;
 mod tui;
+mod zh_cn;
+mod zh_tw;
 
-use std::sync::OnceLock;
+use std::cell::Cell;
+use std::sync::atomic::AtomicU8;
+use std::sync::atomic::Ordering;
 
 pub use download::Download;
 pub use download::DownloadWords;
@@ -71,6 +77,75 @@ pub use report::Totals;
 pub use report::Unit;
 pub use tui::TuiWords;
 
+/// Supported interface and report languages (`--lang` and the interactive TUI selector).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, clap::ValueEnum)]
+pub enum Language {
+    /// English (`en`, default).
+    #[default]
+    En,
+    /// Simplified Chinese (`zh-cn`).
+    #[value(name = "zh-cn", alias = "zh-hans")]
+    ZhCn,
+    /// Traditional Chinese (`zh-tw`).
+    #[value(name = "zh-tw", alias = "zh-hant", alias = "zh-hk")]
+    ZhTw,
+    /// Japanese (`ja`).
+    Ja,
+}
+
+impl Language {
+    /// All supported languages in UI display order.
+    pub const ALL: [Self; 4] = [Self::En, Self::ZhCn, Self::ZhTw, Self::Ja];
+
+    /// Canonical CLI code (`en`, `zh-cn`, `zh-tw`, `ja`).
+    #[must_use]
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::En => "en",
+            Self::ZhCn => "zh-cn",
+            Self::ZhTw => "zh-tw",
+            Self::Ja => "ja",
+        }
+    }
+
+    /// Native language name shown in the TUI header badge and language picker modal.
+    #[must_use]
+    pub const fn endonym(self) -> &'static str {
+        match self {
+            Self::En => "English",
+            Self::ZhCn => "\u{7b80}\u{4f53}\u{4e2d}\u{6587}",
+            Self::ZhTw => "\u{7e41}\u{9ad4}\u{4e2d}\u{6587}",
+            Self::Ja => "\u{65e5}\u{672c}\u{8a9e}",
+        }
+    }
+
+    const fn to_u8(self) -> u8 {
+        match self {
+            Self::En => 0,
+            Self::ZhCn => 1,
+            Self::ZhTw => 2,
+            Self::Ja => 3,
+        }
+    }
+
+    const fn from_u8(raw: u8) -> Self {
+        match raw {
+            1 => Self::ZhCn,
+            2 => Self::ZhTw,
+            3 => Self::Ja,
+            _ => Self::En,
+        }
+    }
+}
+
+/// Parses a CLI `--lang` value (case-insensitively, including `zh-hans`, `zh-hant`, `zh-hk`).
+#[must_use]
+pub fn parse_language(raw: &str) -> Option<Language> {
+    use clap::ValueEnum;
+
+    Language::from_str(raw.trim(), true).ok()
+}
+
 /// The texts of one language: every trait of the catalog.
 pub trait Words:
     ProgramWords
@@ -116,32 +191,72 @@ impl<T> Words for T where
 {
 }
 
-/// The catalogs, by the language code that a locale such as `en_US.UTF-8` starts with. The first
-/// is the one for every other locale.
-const LOCALES: &[(&str, &dyn Words)] = &[("en", &en::English)];
+static ACTIVE: AtomicU8 = AtomicU8::new(0);
 
-/// The catalog of the language that the environment names, chosen at the first call.
-pub fn words() -> &'static dyn Words {
-    static ACTIVE: OnceLock<&'static dyn Words> = OnceLock::new();
-    *ACTIVE.get_or_init(|| {
-        let locale = locale(|name| std::env::var(name).ok()).unwrap_or_default();
-        catalog(&locale).1
-    })
+thread_local! {
+    static OVERRIDE: Cell<Option<Language>> = const { Cell::new(None) };
 }
 
-/// The locale that the environment names: the first of `LC_ALL`, `LC_MESSAGES` and `LANG` that
-/// `lookup` finds set and not empty, as POSIX orders them.
-pub fn locale(lookup: impl Fn(&str) -> Option<String>) -> Option<String> {
-    ["LC_ALL", "LC_MESSAGES", "LANG"]
-        .into_iter()
-        .find_map(|name| lookup(name).filter(|value| !value.is_empty()))
+struct OverrideGuard(Option<Language>);
+
+impl Drop for OverrideGuard {
+    fn drop(&mut self) {
+        OVERRIDE.with(|slot| slot.set(self.0));
+    }
 }
 
-/// The catalog for a locale such as `en_US.UTF-8`, with its language code: the catalog of the
-/// locale's language, or the first one when there is none for it, as for `C` and `POSIX`.
+/// Returns the active [`Language`] on the current thread (or the process-wide selection when no
+/// [`with_language`] override is active).
 #[must_use]
-pub fn catalog(locale: &str) -> (&'static str, &'static dyn Words) {
-    let language = locale.split(['_', '.', '@']).next().unwrap_or_default();
-    let chosen = LOCALES.iter().find(|(code, _)| *code == language);
-    *chosen.unwrap_or(&LOCALES[0])
+pub fn current_language() -> Language {
+    OVERRIDE
+        .with(Cell::get)
+        .unwrap_or_else(|| Language::from_u8(ACTIVE.load(Ordering::Relaxed)))
+}
+
+/// Sets the active [`Language`]. When called inside a [`with_language`] scope (such as parallel
+/// tests), updates only the current thread's scoped language; otherwise updates the process-wide
+/// active language for all threads.
+pub fn set_language(lang: Language) {
+    let scoped = OVERRIDE.with(|slot| {
+        if slot.get().is_some() {
+            slot.set(Some(lang));
+            true
+        } else {
+            false
+        }
+    });
+    if !scoped {
+        ACTIVE.store(lang.to_u8(), Ordering::Relaxed);
+    }
+}
+
+/// Runs `f` with `lang` active on the current thread, restoring the previous thread-local state
+/// afterward even if `f` unwinds. Used by JSON report rendering (`Language::En`) and parallel
+/// multi-language tests.
+pub fn with_language<R>(lang: Language, f: impl FnOnce() -> R) -> R {
+    let prev = OVERRIDE.with(|slot| {
+        let old = slot.get();
+        slot.set(Some(lang));
+        old
+    });
+    let _guard = OverrideGuard(prev);
+    f()
+}
+
+/// Returns the static [`Words`] catalog for `lang`.
+#[must_use]
+pub fn catalog_for(lang: Language) -> &'static dyn Words {
+    match lang {
+        Language::En => &en::English,
+        Language::ZhCn => &zh_cn::SimplifiedChinese,
+        Language::ZhTw => &zh_tw::TraditionalChinese,
+        Language::Ja => &ja::Japanese,
+    }
+}
+
+/// Returns the [`Words`] catalog of the currently active language.
+#[must_use]
+pub fn words() -> &'static dyn Words {
+    catalog_for(current_language())
 }

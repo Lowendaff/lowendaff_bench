@@ -106,11 +106,12 @@ sudo ./lowendaff-bench-x86_64 --all  # 非交互命令行直接运行全套检�
 # 1. 查看支持的所有 15 个测试项目列表（无需 root 权限）
 ./lowendaff-bench --list
 
-# 2. 启动全交互式终端界面（不带任何参数时的默认模式：勾选项目与子项联动、改参数、看实时进度与报告）
+# 2. 启动全交互式终端界面（不带参数默认进入英文 TUI，可按 L 或 F2 实时切换简中/繁中/日文/英文，或直接传入 --lang）
 sudo ./lowendaff-bench
+sudo ./lowendaff-bench --lang zh-cn
 
 # 2b. 以命令行非交互方式直接跑全套完整体检（CPU 套件 + 内存 + 硬盘 + 测速 + 路由 + BGP + IP + 流媒体）
-sudo ./lowendaff-bench --all
+sudo ./lowendaff-bench --all --lang zh-cn
 
 # 3. 日常快速验机：CPU 只跑轻量快速的 4 个子项（不跑耗时较长的 UnixBench 与 Geekbench 7），并跳过路由追踪
 sudo ./lowendaff-bench --cpu-bench sysbench,7zip,hpl,passmark --skip network.trace
@@ -159,6 +160,7 @@ sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-
 | `--skip` | `<名称,...>` | 不跳过任何项 | 跳过指定的分类、单项 ID 或 `all`（可与 `--all` 或 `--only` 搭配做减法） |
 | `-o, --output` | `<文件路径>` | 屏幕 + `/tmp` 归档 | 将最终报告仅写入指定文件（未指定 `-o` 时，输出到终端/预览器并自动归档保存至 `/tmp/lowendaff-bench-<时间戳>.<ext>`） |
 | `-f, --format` | `<格式>` | `text` | 报告格式：可选 `text`（纯文本表格）、`markdown`（或简写 `md`）、`json` |
+| `--lang` | `<语言>` | `en` | 界面与 `text`/`markdown` 报告语言：可选 `en`（默认，不随系统环境变量自动切换）、`zh-cn`、`zh-tw`、`ja`（单独传 `--lang zh-cn` 直接进入中文 TUI，TUI 内按 `L` 或 `F2` 可实时切换；`json` 输出始终保持英文） |
 | `--work-dir` | `<目录路径>` | 当前目录 `.` | 存放临时测试文件的目录，跑完会自动清理。测哪块盘就指到哪块盘的挂载目录（请避开 `/tmp`） |
 | `--cpu-bench` | `<子套件,...>` | 默认启用 6 项 | 选择 `cpu.bench` 要运行的 CPU 子测试（可选 `sysbench`、`7zip`、`unixbench`、`hpl`、`passmark`、`ycruncher`、`prime95`、`geekbench` 或 `all`） |
 | `--countries` | `<国家代码,...>` | 默认精选节点 | 限制 `network.iperf3` 只测指定国家/地区的节点（如 `JP,SG,US`），填 `all` 测全部节点 |
@@ -197,7 +199,8 @@ sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-
 | `--only` / `--skip` *（按单项）* | `disk.health`、`memory.sysbench`、`memory.stream`、`memory.latency`、`memory.numa`、`disk.fio`、`network.iperf3`、`network.taier`、`network.cloudflare`、`network.inetspeed`、`network.trace`、`network.bgp`、`ip.quality`、`ip.media`、`cpu.bench` | 精确指定某一个测试项目（无论怎么填，都会按固定的合理顺序依次执行） |
 | `-f, --format` | `text` | 适合直接在 SSH 终端阅读的对齐纯文本表格 |
 | | `markdown` *（或 `md`）* | 对齐 `lowendaff.com` 测评规范的 GitHub 风格 Markdown（双列属性表、引用块、上下文感知转义，以及 BGP 拓扑与虚拟机 `%si`/`%st` 的 Mermaid 图表） |
-| | `json` | 结构化 JSON 数据，适合自动化汇总、监控脚本或二次开发读取 |
+| | `json` | 结构化 JSON 数据，适合自动化汇总、监控脚本或二次开发读取（始终固定英文输出） |
+| `--lang` | `en`、`zh-cn` *（别名 `zh-hans`）*、`zh-tw` *（别名 `zh-hant`、`zh-hk`）*、`ja` | 选择英文（默认）、简体中文、繁体中文或日文界面与报告语言 |
 | `--cpu-bench` | `sysbench` | 单线程与满线程 20 秒素数筛查运算 *（默认启用）* |
 | | `7zip` | 7-Zip LZMA2 单线程与满线程压缩/解压 MIPS 吞吐率 *（默认启用）* |
 | | `unixbench` | Byte-UnixBench 6.0.1 完整 12 项系统综合指数（1 并发与满核并发）*（默认启用）* |
