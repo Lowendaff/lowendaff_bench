@@ -1,10 +1,15 @@
 //! Continent-level selection and bounded-concurrency probe orchestration across IPv4 and IPv6.
 
+use std::sync::Arc;
+
 use bench_api::Context;
+use bench_api::HttpClient;
 use bench_api::IpFamily;
 use bench_api::Step;
 use bench_api::Stop;
 
+use super::dns::FamilyDnsState;
+use super::dns::HostRecorder;
 use super::platforms;
 use super::platforms::Platform;
 use super::result::Choice;
@@ -113,6 +118,8 @@ pub async fn measure(
             group: entry.group,
             ipv4: None,
             ipv6: None,
+            ipv4_unlock: None,
+            ipv6_unlock: None,
         })
         .collect();
     let mut output = Output {
@@ -132,6 +139,7 @@ pub async fn measure(
         if !reachable {
             continue;
         }
+        let mut dns_state = FamilyDnsState::default();
         for group in Group::ALL {
             let indices: Vec<(usize, Platform)> = chosen
                 .scheduled
@@ -151,18 +159,52 @@ pub async fn measure(
                 ipv6,
             });
             let tasks = indices.iter().copied().map(|(idx, platform)| async move {
-                (idx, (platform.probe)(ctx, family, base_url).await)
+                if base_url.is_none() {
+                    let mut slot_recorder: Option<Arc<HostRecorder>> = None;
+                    let wrapped = ctx.map_http(|inner| {
+                        let rec = HostRecorder::new(inner);
+                        slot_recorder = Some(Arc::clone(&rec));
+                        rec as Arc<dyn HttpClient>
+                    });
+                    let verdict = (platform.probe)(&wrapped, family, base_url).await;
+                    let hosts = slot_recorder
+                        .map(|rec| rec.take_hosts())
+                        .unwrap_or_default();
+                    (idx, verdict, hosts)
+                } else {
+                    let verdict = (platform.probe)(ctx, family, base_url).await;
+                    (idx, verdict, Vec::new())
+                }
             });
             let cancel = ctx.cancel_token();
             let verdicts = bench_api::run_bounded(CONCURRENCY, &cancel, tasks).await;
             if cancel.is_cancelled() {
                 return Err(Stop::Failed(Failure::Cancelled));
             }
-            for (idx, verdict) in verdicts {
+            let mut unlocked_targets = Vec::new();
+            for (idx, verdict, hosts) in verdicts {
+                if base_url.is_none() && verdict.is_unlocked() && !hosts.is_empty() {
+                    unlocked_targets.push((idx, hosts));
+                }
                 if ipv6 {
                     slots[idx].ipv6 = Some(verdict);
                 } else {
                     slots[idx].ipv4 = Some(verdict);
+                }
+            }
+            if !unlocked_targets.is_empty() {
+                dns_state
+                    .classify_unlocked(
+                        ctx,
+                        family,
+                        ipv4_reachable,
+                        ipv6_reachable,
+                        &unlocked_targets,
+                        &mut slots,
+                    )
+                    .await;
+                if cancel.is_cancelled() {
+                    return Err(Stop::Failed(Failure::Cancelled));
                 }
             }
             output.results = slots

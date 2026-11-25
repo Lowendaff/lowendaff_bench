@@ -1093,17 +1093,31 @@ impl MediaWords for Japanese {
         ["サービス", "IPv4", "IPv6"]
     }
 
-    fn media_yes(&self, region: Option<&str>) -> String {
-        match region {
-            Some(region) => format!("視聴可 ({region})"),
-            None => "視聴可".to_owned(),
+    fn media_yes(&self, region: Option<&str>, unlock: Option<&str>) -> String {
+        let mode = match unlock {
+            Some("native") => Some("ネイティブ"),
+            Some("dns") => Some("DNS"),
+            _ => None,
+        };
+        match (region, mode) {
+            (Some(reg), Some(how)) => format!("視聴可 ({reg}, {how})"),
+            (Some(reg), None) => format!("視聴可 ({reg})"),
+            (None, Some(how)) => format!("視聴可 ({how})"),
+            (None, None) => "視聴可".to_owned(),
         }
     }
 
-    fn media_originals(&self, region: Option<&str>) -> String {
-        match region {
-            Some(region) => format!("オリジナルのみ ({region})"),
-            None => "オリジナルのみ".to_owned(),
+    fn media_originals(&self, region: Option<&str>, unlock: Option<&str>) -> String {
+        let mode = match unlock {
+            Some("native") => Some("ネイティブ"),
+            Some("dns") => Some("DNS"),
+            _ => None,
+        };
+        match (region, mode) {
+            (Some(reg), Some(how)) => format!("オリジナルのみ ({reg}, {how})"),
+            (Some(reg), None) => format!("オリジナルのみ ({reg})"),
+            (None, Some(how)) => format!("オリジナルのみ ({how})"),
+            (None, None) => "オリジナルのみ".to_owned(),
         }
     }
 
@@ -1208,7 +1222,10 @@ impl IpWords for Japanese {
             IpField::Organization => "組織名",
             IpField::Registry => "レジストリ",
             IpField::Origin => "IP 種別",
-            IpField::UsageType => "利用区分",
+            IpField::Location => "都市・地域",
+            IpField::Timezone => "タイムゾーン",
+            IpField::AsnType => "ASN 区分",
+            IpField::CompanyType => "組織区分",
             IpField::GeoIp => "所在地 (GeoIP)",
         }
     }
@@ -1232,6 +1249,10 @@ impl IpWords for Japanese {
             "cdn" => "CDN",
             _ => "不明",
         }
+    }
+
+    fn ip_dual_isp(&self, usage: &str) -> String {
+        format!("{usage}（デュアル ISP）")
     }
 
     fn ip_risk_level(&self, code: &str) -> &'static str {

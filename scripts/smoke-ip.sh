@@ -37,7 +37,8 @@ PAYLOADS = {
         200,
         b'{"rir":"ARIN","is_proxy":false,"is_vpn":false,"is_tor":false,'
         b'"is_datacenter":true,"is_abuser":false,"is_crawler":false,'
-        b'"location":{"country_code":"US"},'
+        b'"location":{"country_code":"US","city":"Ashburn","state":"Virginia",'
+        b'"timezone":"America/New_York"},'
         b'"company":{"name":"Smoke Host","type":"hosting","abuser_score":"0.0010 (Low)"},'
         b'"asn":{"asn":64500,"org":"Smoke Host","country":"US","type":"hosting"}}',
     ),

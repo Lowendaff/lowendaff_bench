@@ -49,9 +49,10 @@ fn all_nine_provider_modules_parse_scores_identities_flags_and_waf_gates() {
         concat!(
             r#"{"ip":"198.51.100.7","rir":"APNIC","is_proxy":false,"is_vpn":true,"#,
             r#""is_tor":false,"is_datacenter":true,"is_abuser":false,"is_crawler":false,"#,
-            r#""is_bogon":false,"location":{"country_code":"SG"},"#,
+            r#""is_bogon":false,"location":{"country_code":"SG","city":"Singapore","#,
+            r#""state":"Singapore","timezone":"Asia/Singapore"},"#,
             r#""company":{"name":"Example Cloud","type":"hosting","abuser_score":"0.0039 (Low)"},"#,
-            r#""asn":{"asn":13335,"org":"Cloudflare, Inc.","country":"US","type":"hosting"}}"#
+            r#""asn":{"asn":13335,"org":"Cloudflare, Inc.","country":"US","type":"isp"}}"#
         ),
     );
     let ipapi_data = ipapi::parse(&ipapi_res).expect("ipapi parse");
@@ -59,7 +60,11 @@ fn all_nine_provider_modules_parse_scores_identities_flags_and_waf_gates() {
     assert_eq!(ipapi_data.rir.as_deref(), Some("APNIC"));
     assert_eq!(ipapi_data.registered_country.as_deref(), Some("US"));
     assert_eq!(ipapi_data.geo_country.as_deref(), Some("SG"));
-    assert_eq!(ipapi_data.usage, Some(UsageType::Hosting));
+    assert_eq!(ipapi_data.city.as_deref(), Some("Singapore"));
+    assert_eq!(ipapi_data.region.as_deref(), Some("Singapore"));
+    assert_eq!(ipapi_data.timezone.as_deref(), Some("Asia/Singapore"));
+    assert_eq!(ipapi_data.asn_usage, Some(UsageType::Residential));
+    assert_eq!(ipapi_data.company_usage, Some(UsageType::Hosting));
     assert_eq!(
         ipapi_data.score,
         Some(ScoreVerdict::Ratio {
@@ -117,7 +122,7 @@ fn all_nine_provider_modules_parse_scores_identities_flags_and_waf_gates() {
     assert_eq!(pc_data.asn, Some(13335));
     assert_eq!(pc_data.org.as_deref(), Some("Cloudflare"));
     assert_eq!(pc_data.geo_country.as_deref(), Some("SG"));
-    assert_eq!(pc_data.usage, Some(UsageType::Hosting));
+    assert_eq!(pc_data.asn_usage, Some(UsageType::Hosting));
     assert!(pc_data.flags.contains(&(RiskFactor::Vpn, false)));
     assert_eq!(
         pc_data.score,
@@ -187,22 +192,29 @@ fn all_nine_provider_modules_parse_scores_identities_flags_and_waf_gates() {
         200,
         &[],
         concat!(
-            r#"{"ip":"198.51.100.7","hostname":"ptr.example","#,
-            r#""country":"SG","org":"AS13335 Cloudflare, Inc."}"#
+            r#"{"ip":"198.51.100.7","hostname":"ptr.example","city":"Tokyo","region":"Tokyo","#,
+            r#""timezone":"Asia/Tokyo","country":"SG","org":"AS13335 Cloudflare, Inc."}"#
         ),
     );
     let info_data = ipinfo::parse(&info_res).expect("ipinfo parse");
     assert_eq!(info_data.asn, Some(13335));
     assert_eq!(info_data.org.as_deref(), Some("Cloudflare, Inc."));
     assert_eq!(info_data.geo_country.as_deref(), Some("SG"));
+    assert_eq!(info_data.city.as_deref(), Some("Tokyo"));
+    assert_eq!(info_data.region.as_deref(), Some("Tokyo"));
+    assert_eq!(info_data.timezone.as_deref(), Some("Asia/Tokyo"));
     assert_eq!(info_data.hostname.as_deref(), Some("ptr.example"));
 
     // 8. DB-IP
-    let dbip_res = response(200, &[], r#"{"countryCode":"SG"}"#);
-    assert_eq!(
-        dbip::parse(&dbip_res).expect("dbip").geo_country.as_deref(),
-        Some("SG")
+    let dbip_res = response(
+        200,
+        &[],
+        r#"{"countryCode":"SG","city":"Singapore","stateProv":"N/A"}"#,
     );
+    let dbip_parsed = dbip::parse(&dbip_res).expect("dbip");
+    assert_eq!(dbip_parsed.geo_country.as_deref(), Some("SG"));
+    assert_eq!(dbip_parsed.city.as_deref(), Some("Singapore"));
+    assert_eq!(dbip_parsed.region, None);
     assert_eq!(
         dbip::parse(&response(200, &[], r#"{"countryCode":"ZZ"}"#))
             .expect("dbip placeholder")
@@ -238,12 +250,16 @@ fn all_nine_provider_modules_parse_scores_identities_flags_and_waf_gates() {
         200,
         &[],
         concat!(
-            r#"{"success":true,"country_code":"SG","#,
+            r#"{"success":true,"country_code":"SG","city":"Singapore","region":"Central","#,
+            r#""timezone":{"id":"Asia/Singapore"},"#,
             r#""connection":{"asn":13335,"org":"","isp":"Cloudflare"}}"#
         ),
     );
     let whois_data = ipwhois::parse(&whois_res).expect("ipwhois");
     assert_eq!(whois_data.geo_country.as_deref(), Some("SG"));
+    assert_eq!(whois_data.city.as_deref(), Some("Singapore"));
+    assert_eq!(whois_data.region.as_deref(), Some("Central"));
+    assert_eq!(whois_data.timezone.as_deref(), Some("Asia/Singapore"));
     assert_eq!(whois_data.asn, Some(13335));
     assert_eq!(whois_data.org.as_deref(), Some("Cloudflare"));
 }

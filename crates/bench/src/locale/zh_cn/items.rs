@@ -1078,17 +1078,31 @@ impl MediaWords for SimplifiedChinese {
         ["流媒体 / 服务", "IPv4", "IPv6"]
     }
 
-    fn media_yes(&self, region: Option<&str>) -> String {
-        match region {
-            Some(region) => format!("解锁 ({region})"),
-            None => "解锁".to_owned(),
+    fn media_yes(&self, region: Option<&str>, unlock: Option<&str>) -> String {
+        let mode = match unlock {
+            Some("native") => Some("原生"),
+            Some("dns") => Some("DNS"),
+            _ => None,
+        };
+        match (region, mode) {
+            (Some(reg), Some(how)) => format!("解锁 ({reg}, {how})"),
+            (Some(reg), None) => format!("解锁 ({reg})"),
+            (None, Some(how)) => format!("解锁 ({how})"),
+            (None, None) => "解锁".to_owned(),
         }
     }
 
-    fn media_originals(&self, region: Option<&str>) -> String {
-        match region {
-            Some(region) => format!("仅自制剧 ({region})"),
-            None => "仅自制剧".to_owned(),
+    fn media_originals(&self, region: Option<&str>, unlock: Option<&str>) -> String {
+        let mode = match unlock {
+            Some("native") => Some("原生"),
+            Some("dns") => Some("DNS"),
+            _ => None,
+        };
+        match (region, mode) {
+            (Some(reg), Some(how)) => format!("仅自制剧 ({reg}, {how})"),
+            (Some(reg), None) => format!("仅自制剧 ({reg})"),
+            (None, Some(how)) => format!("仅自制剧 ({how})"),
+            (None, None) => "仅自制剧".to_owned(),
         }
     }
 
@@ -1192,7 +1206,10 @@ impl IpWords for SimplifiedChinese {
             IpField::Organization => "所属机构",
             IpField::Registry => "注册局",
             IpField::Origin => "IP 来源",
-            IpField::UsageType => "使用类型",
+            IpField::Location => "所在城市",
+            IpField::Timezone => "时区",
+            IpField::AsnType => "ASN 类型",
+            IpField::CompanyType => "机构类型",
             IpField::GeoIp => "地理位置",
         }
     }
@@ -1216,6 +1233,10 @@ impl IpWords for SimplifiedChinese {
             "cdn" => "CDN 节点",
             _ => "未知",
         }
+    }
+
+    fn ip_dual_isp(&self, usage: &str) -> String {
+        format!("{usage}（双 ISP）")
     }
 
     fn ip_risk_level(&self, code: &str) -> &'static str {

@@ -1,6 +1,7 @@
 //! Streaming media unlock (`ip.media`): probes individual OTT platforms arranged by continent
 //! over IPv4 and IPv6 directly from the host, without proxies or anti-bot bypasses.
 
+pub mod dns;
 pub mod measure;
 pub mod parse;
 pub mod platforms;
@@ -23,6 +24,7 @@ pub use result::Output;
 pub use result::Restriction;
 pub use result::ServiceResult;
 pub use result::Settings;
+pub use result::UnlockMode;
 pub use result::Verdict;
 
 /// Streaming media unlock plugin, configured from `[plugins."ip.media"]`.

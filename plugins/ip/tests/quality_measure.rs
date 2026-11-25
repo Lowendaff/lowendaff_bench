@@ -355,4 +355,54 @@ async fn quality_skips_when_offline_or_without_public_address_and_rejects_bad_en
     assert_eq!(agg.asn, Some(64500));
     assert_eq!(agg.org.as_deref(), Some("Downstream ISP"));
     assert_eq!(agg.notes[0].1, "query failed for 198.51.*.*");
+
+    // Verify dual-ISP detection and consensus-filtered geolocation:
+    // ipinfo claims US / San Jose (minority), while ipapi + ipwhois + dbip agree on HK / Hong Kong.
+    let dual_isp_outcomes = [
+        (
+            plugin_ip::quality::providers::ipinfo::SPEC,
+            Ok(plugin_ip::quality::parse::ProviderData {
+                geo_country: Some("US".to_owned()),
+                city: Some("San Jose".to_owned()),
+                region: Some("California".to_owned()),
+                timezone: Some("America/Los_Angeles".to_owned()),
+                ..Default::default()
+            }),
+        ),
+        (
+            plugin_ip::quality::providers::ipapi::SPEC,
+            Ok(plugin_ip::quality::parse::ProviderData {
+                geo_country: Some("HK".to_owned()),
+                city: Some("Hong Kong".to_owned()),
+                region: Some("Central and Western".to_owned()),
+                timezone: Some("Asia/Hong_Kong".to_owned()),
+                asn_usage: Some(UsageType::Residential),
+                company_usage: Some(UsageType::Residential),
+                ..Default::default()
+            }),
+        ),
+        (
+            plugin_ip::quality::providers::ipwhois::SPEC,
+            Ok(plugin_ip::quality::parse::ProviderData {
+                geo_country: Some("HK".to_owned()),
+                ..Default::default()
+            }),
+        ),
+        (
+            plugin_ip::quality::providers::dbip::SPEC,
+            Ok(plugin_ip::quality::parse::ProviderData {
+                geo_country: Some("HK".to_owned()),
+                ..Default::default()
+            }),
+        ),
+    ];
+    let dual_agg =
+        plugin_ip::quality::measure::aggregate(addr, &dual_isp_outcomes, None, Vec::new());
+    assert_eq!(dual_agg.geo_country.as_deref(), Some("HK"));
+    assert_eq!(dual_agg.city.as_deref(), Some("Hong Kong"));
+    assert_eq!(dual_agg.region.as_deref(), Some("Central and Western"));
+    assert_eq!(dual_agg.timezone.as_deref(), Some("Asia/Hong_Kong"));
+    assert_eq!(dual_agg.asn_usage, Some(UsageType::Residential));
+    assert_eq!(dual_agg.company_usage, Some(UsageType::Residential));
+    assert_eq!(dual_agg.dual_isp, Some(true));
 }

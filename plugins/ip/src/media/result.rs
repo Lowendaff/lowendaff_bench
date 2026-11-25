@@ -105,6 +105,17 @@ impl fmt::Display for Choice {
     }
 }
 
+/// How a streaming service's regional unlock was achieved on this host.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum UnlockMode {
+    /// Resolved directly to the platform's canonical CDN without DNS hijacking.
+    Native,
+    /// Unlocked through a local `/etc/hosts` entry, wildcard DNS hijack, CNAME-stripping override,
+    /// or shared SNI-proxy address.
+    Dns,
+}
+
 /// Additional detail when a streaming service refuses playback.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum Restriction {
@@ -166,6 +177,12 @@ impl Verdict {
     pub const fn no() -> Self {
         Self::No { restriction: None }
     }
+
+    /// Whether this verdict represents an unlocked outcome (`Yes` or `OriginalsOnly`).
+    #[must_use]
+    pub const fn is_unlocked(&self) -> bool {
+        matches!(self, Self::Yes { .. } | Self::OriginalsOnly { .. })
+    }
 }
 
 /// Result of one streaming service across IPv4 and IPv6.
@@ -181,6 +198,12 @@ pub struct ServiceResult {
     pub ipv4: Option<Verdict>,
     /// IPv6 verdict, or `None` when IPv6 was not reachable or not yet probed.
     pub ipv6: Option<Verdict>,
+    /// Native vs DNS unlock classification when `ipv4` is unlocked and DNS verification ran.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ipv4_unlock: Option<UnlockMode>,
+    /// Native vs DNS unlock classification when `ipv6` is unlocked and DNS verification ran.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ipv6_unlock: Option<UnlockMode>,
 }
 
 /// Configuration snapshot recorded in [`Output`].

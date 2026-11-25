@@ -73,8 +73,19 @@ pub fn parse(response: &HttpResponse) -> Result<ProviderData, ProviderFailure> {
         ));
     };
 
+    let city = val
+        .get("city")
+        .and_then(Value::as_str)
+        .and_then(parse::clean_place);
+    let region = val
+        .get("stateProv")
+        .and_then(Value::as_str)
+        .and_then(parse::clean_place);
+
     Ok(ProviderData {
         geo_country: parse::country_code(raw_country),
+        city,
+        region,
         ..ProviderData::default()
     })
 }

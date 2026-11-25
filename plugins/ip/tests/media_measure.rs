@@ -8,14 +8,20 @@ use std::time::Duration;
 
 use bench_api::CancellationToken;
 use bench_api::Context;
+use bench_api::DnsAnswer;
+use bench_api::DnsRecords;
 use bench_api::HttpClient;
 use bench_api::HttpError;
 use bench_api::HttpFuture;
 use bench_api::HttpRequest;
 use bench_api::HttpResponse;
 use bench_api::IpFamily;
+use bench_api::NetClient;
+use bench_api::NetError;
+use bench_api::NetFuture;
 use bench_api::Plugin;
 use bench_api::Progress;
+use bench_api::SmtpBanner;
 use bench_api::Step;
 use bench_api::Stop;
 use bench_host::network::Address;
@@ -26,6 +32,7 @@ use bench_host::profile::HostProfile;
 use plugin_ip::media::Failure;
 use plugin_ip::media::Media;
 use plugin_ip::media::Output;
+use plugin_ip::media::UnlockMode;
 use plugin_ip::media::Verdict;
 use tokio::time::Instant;
 
@@ -352,4 +359,161 @@ async fn mid_run_cancellation_publishes_only_completed_continents() {
     assert_eq!(published.results.len(), 1);
     assert_eq!(published.results[0].id, "netflix");
     assert_eq!(published.results[0].ipv4, Some(Verdict::yes_in("US")));
+}
+
+#[tokio::test]
+async fn dns_unlock_classifier_distinguishes_native_wildcard_cname_strip_hosts_and_convergence() {
+    struct LiveUrlHttp;
+    impl HttpClient for LiveUrlHttp {
+        fn send<'a>(&'a self, request: &'a HttpRequest) -> HttpFuture<'a> {
+            Box::pin(async move {
+                let body = if request.url.contains("abema") {
+                    br#"{"isoCountryCode":"JP"}"#.to_vec()
+                } else if request.url.contains("dazn") {
+                    br#"{"Region":{"isAllowed":true,"GeolocatedCountry":"JP"}}"#.to_vec()
+                } else {
+                    br#"{"media":[]}"#.to_vec()
+                };
+                let final_url = if request.url.contains("netflix.com") {
+                    "https://www.netflix.com/jp/title/81280792".to_owned()
+                } else {
+                    request.url.clone()
+                };
+                Ok(HttpResponse {
+                    status: 200,
+                    final_url,
+                    headers: Vec::new(),
+                    body,
+                })
+            })
+        }
+    }
+
+    struct MockDns;
+    impl NetClient for MockDns {
+        fn dns_a<'a>(
+            &'a self,
+            _qname: &'a str,
+            _server: Option<std::net::SocketAddr>,
+            _timeout: Duration,
+        ) -> NetFuture<'a, DnsAnswer> {
+            Box::pin(async { Ok(DnsAnswer::NotFound) })
+        }
+
+        fn smtp_banner<'a>(
+            &'a self,
+            _family: IpFamily,
+            _host: &'a str,
+            _port: u16,
+            _timeout: Duration,
+        ) -> NetFuture<'a, SmtpBanner> {
+            Box::pin(async { Err(NetError::TimedOut) })
+        }
+
+        fn dns_lookup<'a>(
+            &'a self,
+            family: IpFamily,
+            qname: &'a str,
+            server: Option<std::net::SocketAddr>,
+            _timeout: Duration,
+        ) -> NetFuture<'a, DnsRecords> {
+            Box::pin(async move {
+                let is_public = server.is_some();
+                let ip = |s: &str| -> std::net::IpAddr { s.parse().expect("ip") };
+                if family == IpFamily::Ipv6 {
+                    // Simulate /etc/hosts override on IPv6 for Netflix, clean native CNAME for BBC.
+                    if qname.starts_with("lowendaff-nx-check.") {
+                        return Ok(DnsRecords::default());
+                    }
+                    if !is_public && qname == "www.netflix.com" {
+                        return Ok(DnsRecords {
+                            addresses: vec![ip("2001:db8:99::1")],
+                            has_cname: false,
+                            from_hosts: true,
+                        });
+                    }
+                    return Ok(DnsRecords {
+                        addresses: vec![ip("2001:db8:10::1")],
+                        has_cname: true,
+                        from_hosts: false,
+                    });
+                }
+
+                // IPv4 scenarios:
+                // 1) www.netflix.com: GeoDNS (different /24, BOTH preserve CNAME) -> Native!
+                if qname == "www.netflix.com" {
+                    return Ok(DnsRecords {
+                        addresses: vec![if is_public {
+                            ip("198.51.100.10")
+                        } else {
+                            ip("203.0.113.10")
+                        }],
+                        has_cname: true,
+                        from_hosts: false,
+                    });
+                }
+                // 2) open.bbc.co.uk: CNAME stripped by SNI proxy on system DNS -> Dns!
+                if qname.ends_with("bbc.co.uk") && !qname.starts_with("lowendaff-nx-check.") {
+                    return Ok(DnsRecords {
+                        addresses: vec![if is_public {
+                            ip("198.51.100.20")
+                        } else {
+                            ip("192.0.2.50")
+                        }],
+                        has_cname: is_public,
+                        from_hosts: false,
+                    });
+                }
+                // 3) dazn + abema apex domains: no CNAME in public DNS, both hijacked to 192.0.2.88
+                //    across Global and Asia continents -> convergence upgrades both to Dns.
+                if (qname.contains("dazn") || qname.contains("abema"))
+                    && !qname.starts_with("lowendaff-nx-check.")
+                {
+                    return Ok(DnsRecords {
+                        addresses: vec![if is_public {
+                            if qname.contains("dazn") {
+                                ip("198.51.100.30")
+                            } else {
+                                ip("203.0.113.40")
+                            }
+                        } else {
+                            ip("192.0.2.88")
+                        }],
+                        has_cname: false,
+                        from_hosts: false,
+                    });
+                }
+                Ok(DnsRecords::default())
+            })
+        }
+    }
+
+    let (ctx, _, _) = make_context(true, true, Arc::new(LiveUrlHttp));
+    let ctx = ctx.with_net(Arc::new(MockDns));
+    let plugin = Media {
+        groups: Vec::new(),
+        services: vec![
+            "netflix".to_owned(),
+            "dazn".to_owned(),
+            "abema".to_owned(),
+            "bbc-iplayer".to_owned(),
+        ],
+        base_url: None,
+    };
+
+    let out = plugin.run(&ctx).await.expect("media succeeds");
+    assert_eq!(out.results.len(), 4);
+    // Netflix: GeoDNS with CNAME preserved -> Native on IPv4; /etc/hosts -> Dns on IPv6.
+    assert_eq!(out.results[0].id, "netflix");
+    assert_eq!(out.results[0].ipv4_unlock, Some(UnlockMode::Native));
+    assert_eq!(out.results[0].ipv6_unlock, Some(UnlockMode::Dns));
+    // DAZN (Global) + Abema (Asia): divergent apex domains converging on 192.0.2.88 -> both Dns!
+    assert_eq!(out.results[1].id, "dazn");
+    assert_eq!(out.results[1].ipv4_unlock, Some(UnlockMode::Dns));
+    assert_eq!(out.results[2].id, "abema");
+    assert_eq!(out.results[2].ipv4_unlock, Some(UnlockMode::Dns));
+    // BBC iPlayer: CNAME stripped on system DNS -> Dns on IPv4, Native on IPv6.
+    assert_eq!(out.results[3].id, "bbc-iplayer");
+    assert_eq!(out.results[3].ipv4_unlock, Some(UnlockMode::Dns));
+    assert_eq!(out.results[3].ipv6_unlock, Some(UnlockMode::Native));
 }

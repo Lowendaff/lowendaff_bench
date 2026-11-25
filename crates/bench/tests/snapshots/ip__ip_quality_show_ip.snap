@@ -12,7 +12,10 @@ expression: full
     Organization  Cloudflare, Inc.                Cloudflare, Inc.
     Registry      APNIC (SG)                      ARIN (US)
     Origin        native (SG)                     broadcast (US -> SG)
-    Usage type    hosting                         hosting
+    Location      Singapore                       Singapore, Central
+    Timezone      Asia/Singapore                  Asia/Singapore
+    ASN type      residential                     residential (ProxyCheck: hosting)
+    Company type  residential (dual ISP)          hosting
     GeoIP         SG (5/5)                        SG (4/5), US (1/5)
   Risk scores
     Source       IPv4                       IPv6

@@ -62,6 +62,18 @@ pub fn parse(response: &HttpResponse) -> Result<ProviderData, ProviderFailure> {
         .get("country")
         .and_then(Value::as_str)
         .and_then(parse::country_code);
+    let city = val
+        .get("city")
+        .and_then(Value::as_str)
+        .and_then(parse::clean_place);
+    let region = val
+        .get("region")
+        .and_then(Value::as_str)
+        .and_then(parse::clean_place);
+    let timezone = val
+        .get("timezone")
+        .and_then(Value::as_str)
+        .and_then(parse::clean_timezone);
     let hostname = val
         .get("hostname")
         .and_then(Value::as_str)
@@ -82,6 +94,9 @@ pub fn parse(response: &HttpResponse) -> Result<ProviderData, ProviderFailure> {
         org,
         hostname,
         geo_country,
+        city,
+        region,
+        timezone,
         flags,
         ..ProviderData::default()
     })

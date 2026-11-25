@@ -22,6 +22,7 @@ use plugin_ip::media::Output;
 use plugin_ip::media::Restriction;
 use plugin_ip::media::ServiceResult;
 use plugin_ip::media::Settings;
+use plugin_ip::media::UnlockMode;
 use plugin_ip::media::Verdict;
 
 fn run(status: Status, output: Option<Output>, stop: Option<Stop<Failure>>) -> Run<Measured> {
@@ -87,6 +88,8 @@ fn regional_tables_show_every_verdict_and_notes_follow_each_group() {
                 ipv6: Some(Verdict::OriginalsOnly {
                     region: Some("US".to_owned()),
                 }),
+                ipv4_unlock: Some(UnlockMode::Native),
+                ipv6_unlock: Some(UnlockMode::Dns),
             },
             ServiceResult {
                 id: "youtube",
@@ -96,6 +99,8 @@ fn regional_tables_show_every_verdict_and_notes_follow_each_group() {
                 ipv6: Some(Verdict::No {
                     restriction: Some(Restriction::ChinaMainland),
                 }),
+                ipv4_unlock: None,
+                ipv6_unlock: None,
             },
             ServiceResult {
                 id: "disney",
@@ -103,6 +108,8 @@ fn regional_tables_show_every_verdict_and_notes_follow_each_group() {
                 group: Group::Global,
                 ipv4: Some(Verdict::BlockedWaf),
                 ipv6: Some(Verdict::RateLimited),
+                ipv4_unlock: None,
+                ipv6_unlock: None,
             },
             ServiceResult {
                 id: "bilibili",
@@ -112,6 +119,8 @@ fn regional_tables_show_every_verdict_and_notes_follow_each_group() {
                     region: Some("HK/MO".to_owned()),
                 }),
                 ipv6: Some(Verdict::NoAddress),
+                ipv4_unlock: Some(UnlockMode::Dns),
+                ipv6_unlock: None,
             },
             ServiceResult {
                 id: "abema",
@@ -119,16 +128,18 @@ fn regional_tables_show_every_verdict_and_notes_follow_each_group() {
                 group: Group::Asia,
                 ipv4: Some(Verdict::TimedOut),
                 ipv6: Some(Verdict::Unexpected("HTTP 503".to_owned())),
+                ipv4_unlock: None,
+                ipv6_unlock: None,
             },
         ],
     };
     let shown = section(&[run(Status::Completed, Some(output), None)]);
     assert!(shown.contains("HTTPS probes, direct (no proxy); groups global, asia\n"));
     assert!(shown.contains("no streaming service in the catalog for mystery-tv\n"));
-    assert!(shown.contains("Netflix          yes (US)       originals only (US)\n"));
-    assert!(shown.contains("YouTube Premium  yes (US)       no (CN)\n"));
-    assert!(shown.contains("Disney+          blocked (WAF)  rate limited\n"));
-    assert!(shown.contains("Bilibili  yes (HK/MO)  no IPv6 address\n"));
+    assert!(shown.contains("Netflix          yes (US, native)  originals only (US, DNS)\n"));
+    assert!(shown.contains("YouTube Premium  yes (US)          no (CN)\n"));
+    assert!(shown.contains("Disney+          blocked (WAF)     rate limited\n"));
+    assert!(shown.contains("Bilibili  yes (HK/MO, DNS)  no IPv6 address\n"));
     assert!(shown.contains("Abema over IPv6: HTTP 503\n"));
     insta::assert_snapshot!(shown);
 }

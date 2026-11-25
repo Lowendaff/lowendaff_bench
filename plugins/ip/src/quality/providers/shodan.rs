@@ -147,7 +147,7 @@ pub fn parse(response: &HttpResponse) -> Result<ProviderData, ProviderFailure> {
 
     Ok(ProviderData {
         hostname,
-        usage,
+        asn_usage: usage,
         score: Some(ScoreVerdict::Shodan {
             ports,
             vulns,

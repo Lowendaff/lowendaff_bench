@@ -9,6 +9,7 @@ use plugin_ip::media;
 use plugin_ip::media::Group;
 use plugin_ip::media::Restriction;
 use plugin_ip::media::ServiceResult;
+use plugin_ip::media::UnlockMode;
 use plugin_ip::media::Verdict;
 use plugin_ip::quality;
 use plugin_ip::quality::DnsblSummary;
@@ -252,14 +253,62 @@ fn build_summary_rows(
     }));
     rows.push(pair(IpField::Registry, &registry_cell));
     rows.push(pair(IpField::Origin, &origin_cell));
-    rows.push(pair(IpField::UsageType, &|rep| {
-        rep.usage.map_or_else(
-            || words.unknown(),
-            |u| words.ip_usage(usage_code(u)).to_owned(),
-        )
+    rows.push(pair(IpField::Location, &location_cell));
+    rows.push(pair(IpField::Timezone, &|rep| {
+        rep.timezone.clone().unwrap_or_else(|| words.unknown())
     }));
+    rows.push(pair(IpField::AsnType, &asn_type_cell));
+    rows.push(pair(IpField::CompanyType, &company_type_cell));
     rows.push(pair(IpField::GeoIp, &geo_cell));
     rows
+}
+
+fn location_cell(rep: &FamilyReport) -> String {
+    match (rep.city.as_deref(), rep.region.as_deref()) {
+        (Some(city), Some(region)) if city.eq_ignore_ascii_case(region) => city.to_owned(),
+        (Some(city), Some(region)) => format!("{city}, {region}"),
+        (Some(city), None) => city.to_owned(),
+        (None, Some(region)) => region.to_owned(),
+        (None, None) => locale::words().unknown(),
+    }
+}
+
+fn asn_type_cell(rep: &FamilyReport) -> String {
+    let words = locale::words();
+    let Some(primary) = rep.asn_usage else {
+        return words.unknown();
+    };
+    let primary_label = words.ip_usage(usage_code(primary));
+    let mut diffs = Vec::new();
+    for entry in &rep.usage_sources {
+        if let Some(other) = entry.asn_usage
+            && other != primary
+        {
+            diffs.push(format!(
+                "{}: {}",
+                entry.source,
+                words.ip_usage(usage_code(other))
+            ));
+        }
+    }
+    if diffs.is_empty() {
+        primary_label.to_owned()
+    } else {
+        format!("{primary_label} ({})", diffs.join(", "))
+    }
+}
+
+fn company_type_cell(rep: &FamilyReport) -> String {
+    let words = locale::words();
+    let Some(comp) = rep.company_usage else {
+        return words.unknown();
+    };
+    let label = words.ip_usage(usage_code(comp));
+    if rep.dual_isp == Some(true) {
+        words.ip_dual_isp(label)
+    } else {
+        label.to_owned()
+    }
 }
 
 fn registry_cell(rep: &FamilyReport) -> String {
@@ -576,12 +625,27 @@ pub(super) fn media(out: &mut Out, report: &Report<media::Output, media::Failure
 fn media_row(service: &ServiceResult, ipv4_reachable: bool, ipv6_reachable: bool) -> Vec<String> {
     vec![
         service.name.to_owned(),
-        media_cell(service.ipv4.as_ref(), ipv4_reachable, false),
-        media_cell(service.ipv6.as_ref(), ipv6_reachable, true),
+        media_cell(
+            service.ipv4.as_ref(),
+            service.ipv4_unlock,
+            ipv4_reachable,
+            false,
+        ),
+        media_cell(
+            service.ipv6.as_ref(),
+            service.ipv6_unlock,
+            ipv6_reachable,
+            true,
+        ),
     ]
 }
 
-fn media_cell(verdict: Option<&Verdict>, reachable: bool, ipv6: bool) -> String {
+fn media_cell(
+    verdict: Option<&Verdict>,
+    unlock: Option<UnlockMode>,
+    reachable: bool,
+    ipv6: bool,
+) -> String {
     if !reachable {
         return MISSING.to_owned();
     }
@@ -589,9 +653,14 @@ fn media_cell(verdict: Option<&Verdict>, reachable: bool, ipv6: bool) -> String 
         return MISSING.to_owned();
     };
     let words = locale::words();
+    let mode_code = match unlock {
+        Some(UnlockMode::Native) => Some("native"),
+        Some(UnlockMode::Dns) => Some("dns"),
+        None => None,
+    };
     match verdict {
-        Verdict::Yes { region } => words.media_yes(region.as_deref()),
-        Verdict::OriginalsOnly { region } => words.media_originals(region.as_deref()),
+        Verdict::Yes { region } => words.media_yes(region.as_deref(), mode_code),
+        Verdict::OriginalsOnly { region } => words.media_originals(region.as_deref(), mode_code),
         Verdict::No { restriction } => {
             let kind = match restriction {
                 None => MediaCell::No,

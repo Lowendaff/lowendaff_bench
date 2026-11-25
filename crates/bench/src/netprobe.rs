@@ -16,6 +16,7 @@ use bench_api::CloudflareStunSpec;
 use bench_api::CloudflareTransfer;
 use bench_api::CloudflareTransferSpec;
 use bench_api::DnsAnswer;
+use bench_api::DnsRecords;
 use bench_api::FamilyFilter;
 use bench_api::InetspeedTarget;
 use bench_api::InetspeedTransfer;
@@ -83,7 +84,54 @@ impl NetProbers {
         server: Option<SocketAddr>,
         timeout: Duration,
     ) -> Result<DnsAnswer, NetError> {
+        let records = self
+            .query_dns(IpFamily::Ipv4, qname, server, timeout, false)
+            .await?;
+        let mut v4_addrs = Vec::new();
+        for addr in records.addresses {
+            if let IpAddr::V4(v4) = addr {
+                v4_addrs.push(v4);
+            }
+        }
+        if v4_addrs.is_empty() {
+            Ok(DnsAnswer::NotFound)
+        } else {
+            Ok(DnsAnswer::Addresses(v4_addrs))
+        }
+    }
+
+    /// Queries `A` (`IpFamily::Ipv4`) or `AAAA` (`IpFamily::Ipv6`) records for `qname` against
+    /// `server` (when set) or `/etc/hosts` followed by `/etc/resolv.conf`.
+    pub async fn query_records(
+        &self,
+        family: IpFamily,
+        qname: &str,
+        server: Option<SocketAddr>,
+        timeout: Duration,
+    ) -> Result<DnsRecords, NetError> {
+        self.query_dns(family, qname, server, timeout, server.is_none())
+            .await
+    }
+
+    async fn query_dns(
+        &self,
+        family: IpFamily,
+        qname: &str,
+        server: Option<SocketAddr>,
+        timeout: Duration,
+        check_hosts: bool,
+    ) -> Result<DnsRecords, NetError> {
         let deadline = tokio::time::Instant::now() + timeout;
+        if check_hosts
+            && let Ok(Some(hosts)) =
+                tokio::time::timeout_at(deadline, lookup_etc_hosts(family, qname)).await
+        {
+            return Ok(DnsRecords {
+                addresses: hosts,
+                has_cname: false,
+                from_hosts: true,
+            });
+        }
         let resolvers = match server {
             Some(addr) => vec![addr],
             None => tokio::time::timeout_at(deadline, read_resolv_conf())
@@ -93,6 +141,10 @@ impl NetProbers {
         if resolvers.is_empty() {
             return Err(NetError::NoResolver);
         }
+        let qtype = match family {
+            IpFamily::Ipv4 => 1_u16,
+            IpFamily::Ipv6 => 28_u16,
+        };
         let per_try = (timeout / u32::try_from(resolvers.len()).unwrap_or(1))
             .max(Duration::from_millis(800))
             .min(timeout);
@@ -105,9 +157,13 @@ impl NetProbers {
                 return Err(NetError::TimedOut);
             };
             let tx_id = next_tx_id(qname, resolver);
-            let query = encode_query(tx_id, qname)?;
+            let query = encode_query(tx_id, qname, qtype)?;
             let attempt_limit = per_try.min(remaining);
-            match tokio::time::timeout(attempt_limit, query_resolver(resolver, &query, tx_id)).await
+            match tokio::time::timeout(
+                attempt_limit,
+                query_resolver(resolver, &query, tx_id, qtype),
+            )
+            .await
             {
                 Ok(Ok(answer)) => return Ok(answer),
                 Ok(Err(err)) => last_err = err,
@@ -149,6 +205,16 @@ impl NetClient for NetProbers {
         timeout: Duration,
     ) -> NetFuture<'a, DnsAnswer> {
         Box::pin(async move { self.query_a(qname, server, timeout).await })
+    }
+
+    fn dns_lookup<'a>(
+        &'a self,
+        family: IpFamily,
+        qname: &'a str,
+        server: Option<SocketAddr>,
+        timeout: Duration,
+    ) -> NetFuture<'a, DnsRecords> {
+        Box::pin(async move { self.query_records(family, qname, server, timeout).await })
     }
 
     fn smtp_banner<'a>(
@@ -337,11 +403,58 @@ fn parse_resolv_conf_with_zone(
     servers
 }
 
+async fn lookup_etc_hosts(family: IpFamily, qname: &str) -> Option<Vec<IpAddr>> {
+    let target = qname.trim().trim_end_matches('.');
+    if target.is_empty() {
+        return None;
+    }
+    let file = tokio::fs::File::open("/etc/hosts").await.ok()?;
+    let mut raw = Vec::new();
+    file.take(MAX_RESOLV_CONF)
+        .read_to_end(&mut raw)
+        .await
+        .ok()?;
+    let text = String::from_utf8_lossy(&raw);
+    let hits = parse_etc_hosts(&text, family, target);
+    (!hits.is_empty()).then_some(hits)
+}
+
+fn parse_etc_hosts(text: &str, family: IpFamily, qname: &str) -> Vec<IpAddr> {
+    let want_v6 = family == IpFamily::Ipv6;
+    let target = qname.trim().trim_end_matches('.');
+    let mut out = Vec::new();
+    for raw_line in text.lines() {
+        let line = raw_line.split('#').next().unwrap_or_default().trim();
+        let mut tokens = line.split_whitespace();
+        let Some(addr_tok) = tokens.next() else {
+            continue;
+        };
+        let Ok(ip) = addr_tok.parse::<IpAddr>() else {
+            continue;
+        };
+        if ip.is_ipv6() != want_v6 {
+            continue;
+        }
+        let mut matched = false;
+        for alias in tokens {
+            if alias.trim_end_matches('.').eq_ignore_ascii_case(target) {
+                matched = true;
+                break;
+            }
+        }
+        if matched && !out.contains(&ip) {
+            out.push(ip);
+        }
+    }
+    out
+}
+
 async fn query_resolver(
     resolver: SocketAddr,
     query: &[u8],
     tx_id: u16,
-) -> Result<DnsAnswer, NetError> {
+    qtype: u16,
+) -> Result<DnsRecords, NetError> {
     let bind_addr = if resolver.is_ipv6() {
         SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 0)
     } else {
@@ -363,9 +476,9 @@ async fn query_resolver(
         .recv(&mut buf)
         .await
         .map_err(|err| NetError::Transport(err.to_string()))?;
-    match decode_answer(&buf[..len], tx_id)? {
+    match decode_answer(&buf[..len], tx_id, qtype)? {
         DecodeOutcome::Answer(answer) => Ok(answer),
-        DecodeOutcome::Truncated => query_resolver_tcp(resolver, query, tx_id).await,
+        DecodeOutcome::Truncated => query_resolver_tcp(resolver, query, tx_id, qtype).await,
     }
 }
 
@@ -373,7 +486,8 @@ async fn query_resolver_tcp(
     resolver: SocketAddr,
     query: &[u8],
     tx_id: u16,
-) -> Result<DnsAnswer, NetError> {
+    qtype: u16,
+) -> Result<DnsRecords, NetError> {
     let mut stream = TcpStream::connect(resolver)
         .await
         .map_err(|err| NetError::Transport(err.to_string()))?;
@@ -401,7 +515,7 @@ async fn query_resolver_tcp(
         .read_exact(&mut reply)
         .await
         .map_err(|err| NetError::Transport(err.to_string()))?;
-    match decode_answer(&reply, tx_id)? {
+    match decode_answer(&reply, tx_id, qtype)? {
         DecodeOutcome::Answer(answer) => Ok(answer),
         DecodeOutcome::Truncated => Err(NetError::Transport("TCP DNS reply truncated".to_owned())),
     }
@@ -409,10 +523,10 @@ async fn query_resolver_tcp(
 
 enum DecodeOutcome {
     Truncated,
-    Answer(DnsAnswer),
+    Answer(DnsRecords),
 }
 
-fn encode_query(tx_id: u16, qname: &str) -> Result<Vec<u8>, NetError> {
+fn encode_query(tx_id: u16, qname: &str, qtype: u16) -> Result<Vec<u8>, NetError> {
     let trimmed = qname.trim_end_matches('.');
     if trimmed.is_empty() || trimmed.len() > 253 || !trimmed.is_ascii() {
         return Err(NetError::Transport("invalid DNS query name".to_owned()));
@@ -433,12 +547,16 @@ fn encode_query(tx_id: u16, qname: &str) -> Result<Vec<u8>, NetError> {
         buf.extend_from_slice(label.as_bytes());
     }
     buf.push(0);
-    buf.extend_from_slice(&1_u16.to_be_bytes());
+    buf.extend_from_slice(&qtype.to_be_bytes());
     buf.extend_from_slice(&1_u16.to_be_bytes());
     Ok(buf)
 }
 
-fn decode_answer(packet: &[u8], expected_id: u16) -> Result<DecodeOutcome, NetError> {
+fn decode_answer(
+    packet: &[u8],
+    expected_id: u16,
+    expected_qtype: u16,
+) -> Result<DecodeOutcome, NetError> {
     if packet.len() < 12 {
         return Err(NetError::Transport(
             "DNS packet shorter than header".to_owned(),
@@ -461,7 +579,7 @@ fn decode_answer(packet: &[u8], expected_id: u16) -> Result<DecodeOutcome, NetEr
     }
     let rcode = flags & 0x000f;
     if rcode == 3 {
-        return Ok(DecodeOutcome::Answer(DnsAnswer::NotFound));
+        return Ok(DecodeOutcome::Answer(DnsRecords::default()));
     }
     if rcode != 0 {
         return Err(NetError::Transport(format!("DNS RCODE {rcode}")));
@@ -476,7 +594,8 @@ fn decode_answer(packet: &[u8], expected_id: u16) -> Result<DecodeOutcome, NetEr
         }
         pos += 4;
     }
-    let mut addrs = Vec::new();
+    let mut addresses = Vec::new();
+    let mut has_cname = false;
     for _ in 0..ancount {
         pos = skip_name(packet, pos)?;
         if pos + 10 > packet.len() {
@@ -491,22 +610,30 @@ fn decode_answer(packet: &[u8], expected_id: u16) -> Result<DecodeOutcome, NetEr
         if pos + rdlen > packet.len() {
             return Err(NetError::Transport("truncated DNS RDATA".to_owned()));
         }
-        if rtype == 1 && rclass == 1 && rdlen == 4 {
-            addrs.push(Ipv4Addr::new(
-                packet[pos],
-                packet[pos + 1],
-                packet[pos + 2],
-                packet[pos + 3],
-            ));
+        if rclass == 1 {
+            if rtype == 5 {
+                has_cname = true;
+            } else if expected_qtype == 1 && rtype == 1 && rdlen == 4 {
+                addresses.push(IpAddr::V4(Ipv4Addr::new(
+                    packet[pos],
+                    packet[pos + 1],
+                    packet[pos + 2],
+                    packet[pos + 3],
+                )));
+            } else if expected_qtype == 28
+                && rtype == 28
+                && let Ok(octets) = <[u8; 16]>::try_from(&packet[pos..pos + rdlen])
+            {
+                addresses.push(IpAddr::V6(Ipv6Addr::from(octets)));
+            }
         }
         pos += rdlen;
     }
-    let answer = if addrs.is_empty() {
-        DnsAnswer::NotFound
-    } else {
-        DnsAnswer::Addresses(addrs)
-    };
-    Ok(DecodeOutcome::Answer(answer))
+    Ok(DecodeOutcome::Answer(DnsRecords {
+        addresses,
+        has_cname,
+        from_hosts: false,
+    }))
 }
 
 fn skip_name(packet: &[u8], mut pos: usize) -> Result<usize, NetError> {
@@ -770,6 +897,45 @@ mod tests {
                 .await,
             Ok(DnsAnswer::Addresses(vec![Ipv4Addr::new(127, 0, 0, 4)]))
         );
+    }
+
+    #[test]
+    fn hosts_parser_and_aaaa_cname_decoder_handle_dual_stack_records() {
+        let hosts = "\
+            127.0.0.1 localhost\n\
+            198.51.100.77 www.netflix.com netflix.com # custom sni proxy\n\
+            2001:db8::77 www.netflix.com.\n";
+        let v4 = super::parse_etc_hosts(hosts, IpFamily::Ipv4, "WWW.NETFLIX.COM.");
+        assert_eq!(
+            v4,
+            ["198.51.100.77".parse::<std::net::IpAddr>().expect("v4")]
+        );
+        let v6 = super::parse_etc_hosts(hosts, IpFamily::Ipv6, "www.netflix.com");
+        assert_eq!(
+            v6,
+            ["2001:db8::77".parse::<std::net::IpAddr>().expect("v6")]
+        );
+
+        // Construct a packet with 1 question (`a.example` AAAA) and 2 answers: CNAME + AAAA.
+        let mut pkt = super::encode_query(0x1234, "a.example", 28).expect("encode");
+        pkt[2] = 0x81;
+        pkt[3] = 0x80;
+        pkt[6] = 0x00;
+        pkt[7] = 0x02;
+        // Answer 1: CNAME (type 5) with 2-byte compressed target 0xc00c
+        pkt.extend_from_slice(&[0xc0, 0x0c, 0, 5, 0, 1, 0, 0, 0, 60, 0, 2, 0xc0, 0x0c]);
+        // Answer 2: AAAA (type 28) -> 2001:db8::1
+        pkt.extend_from_slice(&[0xc0, 0x0c, 0, 28, 0, 1, 0, 0, 0, 60, 0, 16]);
+        let v6_addr: std::net::Ipv6Addr = "2001:db8::1".parse().expect("aaaa");
+        pkt.extend_from_slice(&v6_addr.octets());
+        let super::DecodeOutcome::Answer(rec) =
+            super::decode_answer(&pkt, 0x1234, 28).expect("decode aaaa")
+        else {
+            panic!("expected non-truncated AAAA answer");
+        };
+        assert!(rec.has_cname);
+        assert!(!rec.from_hosts);
+        assert_eq!(rec.addresses, [std::net::IpAddr::V6(v6_addr)]);
     }
 
     #[tokio::test]
