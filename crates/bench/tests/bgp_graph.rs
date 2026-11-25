@@ -1,7 +1,8 @@
 //! Layout and vector-renderer regression tests for `bench::report::bgp_graph`: dense
 //! multi-upstream × multi-Tier-1 meshes (unique `(col, row)` placement and main-path ordering),
-//! heavy `AS_PATH` prepending (`×9` clean-hop column compression and dashed SVG/Mermaid spans),
-//! CJK carrier-name escaping in SVG and Mermaid, and 7-layer deep hierarchy layout preservation.
+//! heavy `AS_PATH` prepending (`×9` capped-span hop columns, unobstructed waypoint routing, and
+//! pill badges), vertical fork centering, CJK carrier-name escaping in SVG and Mermaid, and
+//! 7-layer deep hierarchy layout preservation.
 
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
@@ -102,7 +103,7 @@ fn crisscrossing_mesh_has_unique_cells_and_clean_svg_and_mermaid_edges() {
 }
 
 #[test]
-fn heavy_prepending_uses_clean_hop_columns_and_renders_all_badges() {
+fn heavy_prepending_caps_column_span_routes_around_boxes_and_renders_all_badges() {
     let mut names = BTreeMap::new();
     names.insert(64510, "Example Host".to_owned());
 
@@ -120,14 +121,21 @@ fn heavy_prepending_uses_clean_hop_columns_and_renders_all_badges() {
         rpki: RpkiStatus::Valid,
         total_peers: 100,
         distinct_paths: 6,
-        upstreams: vec![UpstreamShare {
-            asn: 6461,
-            peers: 40,
-        }],
+        upstreams: vec![
+            UpstreamShare {
+                asn: 6461,
+                peers: 40,
+            },
+            UpstreamShare {
+                asn: 9002,
+                peers: 12,
+            },
+        ],
         paths: vec![
             path(&[6461, 64510], 40, true),
             path(&[3491, 3356, 64510, 64510, 64510], 20, false),
             path(&[1299, 64510, 64510, 64510, 64510], 15, false),
+            path(&[65001, 9002, 64510], 12, false),
             path(&[6762, 64510, 64510, 64510, 64510, 64510], 10, false),
             path(
                 &[
@@ -144,9 +152,34 @@ fn heavy_prepending_uses_clean_hop_columns_and_renders_all_badges() {
 
     let g = report::bgp_graph::layout(&fam, None).expect("layout");
     assert_eq!(
-        g.max_col, 2,
-        "×9 prepending must not inflate clean-hop column count beyond 2"
+        g.max_col, 4,
+        "×9 prepending advances by MAX_PREPEND_SPAN (4) while preserving outer Tier-1 hops"
     );
+    assert!(
+        g.boxes.iter().any(|b| b.asn == 9002 && b.col == 1),
+        "uncovered non-Tier-1 direct upstream (>=5% share) must be supplemented in the graph"
+    );
+    assert!(
+        g.boxes.iter().any(|b| b.asn == 3491 && b.col == 4),
+        "collector-nearest Tier-1 hop AS3491 must be preserved beyond AS3356"
+    );
+
+    // Every intermediate waypoint on a multi-column edge must clear every real box in that column.
+    for edge in &g.edges {
+        for &(wp_col, wp_slot) in &edge.waypoints {
+            for b in &g.boxes {
+                if b.col == wp_col {
+                    assert!(
+                        (b.y_slot - wp_slot).abs() >= 0.60,
+                        "waypoint at col={wp_col} slot={wp_slot:.2} collides with box AS{} at \
+                         slot={:.2}",
+                        b.asn,
+                        b.y_slot
+                    );
+                }
+            }
+        }
+    }
 
     let svg = report::bgp_graph::render_svg(&g);
     for mult in [3, 4, 5, 9] {
@@ -159,6 +192,59 @@ fn heavy_prepending_uses_clean_hop_columns_and_renders_all_badges() {
         let edge = format!("-. \"×{mult}\" .->");
         assert!(mermaid.contains(&edge), "missing Mermaid badge {edge}");
     }
+    assert!(
+        mermaid.contains("linkStyle "),
+        "Mermaid highlights main vs secondary edges via linkStyle"
+    );
+}
+
+#[test]
+fn single_transit_fork_centers_origin_vertically_between_two_branches() {
+    let mut names = BTreeMap::new();
+    names.insert(209642, "Mejiro Network".to_owned());
+    names.insert(38008, "Aperture Science".to_owned());
+
+    let fam = FamilyBgp {
+        address: "198.51.100.8".parse().expect("ip"),
+        announced: true,
+        prefix: Some("198.51.100.0/24".to_owned()),
+        prefix_base: Some("198.51.100.0".parse().expect("base")),
+        prefix_len: Some(24),
+        origin_asn: Some(209642),
+        origins: vec![OriginSummary {
+            asn: 209642,
+            peers: 127,
+        }],
+        rpki: RpkiStatus::Valid,
+        total_peers: 127,
+        distinct_paths: 2,
+        upstreams: vec![UpstreamShare {
+            asn: 38008,
+            peers: 127,
+        }],
+        paths: vec![
+            path(&[3356, 38008, 209642, 209642], 70, true),
+            path(&[174, 38008, 209642, 209642], 57, false),
+        ],
+        asn_names: names,
+        diagram_url: None,
+    };
+
+    let g = report::bgp_graph::layout(&fam, None).expect("layout");
+    let origin_box = g.boxes.iter().find(|b| b.asn == 209642).expect("origin");
+    let transit_box = g.boxes.iter().find(|b| b.asn == 38008).expect("transit");
+    assert_eq!(origin_box.col, 0);
+    assert_eq!(transit_box.col, 2, "×2 prepend places AS38008 at column 2");
+    assert!(
+        origin_box.y_slot > 0.2 && origin_box.y_slot < 0.8,
+        "origin y_slot={} must sit between row 0.0 and row 1.0 instead of hugging the bottom",
+        origin_box.y_slot
+    );
+    let svg = report::bgp_graph::render_svg(&g);
+    assert!(
+        svg.contains("Aperture Science</text>"),
+        "16-char subtitle fits untruncated inside 18-column display budget:\n{svg}"
+    );
 }
 
 #[test]

@@ -90,27 +90,37 @@ fn rpki_and_holder_parsers_cover_expected_variants() {
         "SAKURA Internet"
     );
     assert_eq!(
+        asns::clean_holder("MEJIRONETWORK Mejiro Network Limited"),
+        "Mejiro Network"
+    );
+    assert_eq!(asns::clean_holder("AS-CHOOPA Choopa, LLC"), "Choopa");
+    assert_eq!(
         asns::trunc_to_tier1(&[65001, 3356, 174, 64500]),
-        vec![174, 64500]
+        vec![3356, 174, 64500]
     );
     assert_eq!(
         asns::trunc_to_tier1(&[65001, 3356, 1299, 6939]),
-        vec![1299, 6939]
+        vec![3356, 1299, 6939]
     );
     assert_eq!(
         asns::trunc_to_tier1(&[3356, 1299, 6939, 6939, 6939]),
-        vec![1299, 6939, 6939, 6939],
-        "prepended Tier-1 origin keeps upstream Tier-1 hop"
+        vec![3356, 1299, 6939, 6939, 6939],
+        "prepended Tier-1 origin keeps full Tier-1 chain from collector side"
     );
     assert_eq!(
-        asns::trunc_to_tier1(&[65001, 3356, 174, 174, 64500]),
-        vec![174, 174, 64500],
-        "prepended cutoff Tier-1 retains its full prepend run"
+        asns::trunc_to_tier1(&[65001, 3356, 3356, 174, 64500]),
+        vec![3356, 3356, 174, 64500],
+        "prepended outermost Tier-1 retains its full prepend run"
     );
     assert_eq!(
         asns::trunc_to_tier1(&[65001, 65001, 9002, 64500]),
         vec![9002, 64500],
         "non-Tier-1 path drops entire prepended collector run"
+    );
+    assert_eq!(
+        asns::trunc_to_tier1(&[24482, 906]),
+        vec![24482, 906],
+        "direct 1-hop non-Tier-1 peer adjacent to origin is preserved"
     );
 }
 

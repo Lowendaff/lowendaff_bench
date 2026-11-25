@@ -14,10 +14,9 @@ pub fn is_tier1(asn: u32) -> bool {
 }
 
 /// Truncates an `AS_PATH` (ordered from collector side at index `0` to origin at the end) at the
-/// first Tier-1 backbone reached from the origin side, keeping that Tier-1 hop and every
-/// downstream hop to the origin while stripping collector-side Tier-1-to-Tier-1 handoffs. When the
-/// origin itself is a Tier-1, keeps one upstream Tier-1 peer hop. When no hop is Tier-1, drops
-/// only the collector-peer hop when there is more than one ASN.
+/// first Tier-1 backbone encountered from the collector side before the trailing origin run,
+/// matching `peer.as`. When no upstream hop is a Tier-1, strips the collector-peer run if at least
+/// one intermediate transit hop remains, or preserves the direct peer hop adjacent to the origin.
 #[must_use]
 pub fn trunc_to_tier1(asns: &[u32]) -> Vec<u32> {
     let Some(&origin) = asns.last() else {
@@ -27,22 +26,20 @@ pub fn trunc_to_tier1(asns: &[u32]) -> Vec<u32> {
         .iter()
         .rposition(|&asn| asn != origin)
         .map_or(0, |idx| idx + 1);
-    if let Some(mut idx) = asns[..non_origin_end]
-        .iter()
-        .rposition(|asn| is_tier1(*asn))
-    {
-        while idx > 0 && asns[idx - 1] == asns[idx] {
-            idx -= 1;
-        }
+    if let Some(idx) = asns[..non_origin_end].iter().position(|&asn| is_tier1(asn)) {
         return asns[idx..].to_vec();
     }
-    if is_tier1(origin) {
+    if non_origin_end == 0 {
         return asns.to_vec();
     }
-    if let Some(first_after_collector) = asns.iter().position(|&asn| asn != asns[0]) {
+    let first_after_collector = asns
+        .iter()
+        .position(|&asn| asn != asns[0])
+        .unwrap_or(asns.len());
+    if first_after_collector < non_origin_end {
         asns[first_after_collector..].to_vec()
     } else {
-        asns.to_vec()
+        asns[(non_origin_end - 1)..].to_vec()
     }
 }
 
@@ -196,9 +193,44 @@ pub fn clean_holder(raw: &str) -> String {
             left_clean
         }
     } else {
-        strip_corporate_suffix(without_cc)
+        let stripped = strip_corporate_suffix(without_cc);
+        strip_leading_handle(&stripped)
     };
     collapse_spaces(&candidate)
+}
+
+fn strip_leading_handle(s: &str) -> String {
+    let trimmed = s.trim();
+    let Some((first, rest)) = trimmed.split_once(char::is_whitespace) else {
+        return trimmed.to_owned();
+    };
+    let rest = rest.trim_start();
+    let is_handle_token = first.len() >= 3
+        && first
+            .bytes()
+            .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'-' || b == b'_');
+    if !is_handle_token || !rest.bytes().any(|b| b.is_ascii_lowercase()) {
+        return trimmed.to_owned();
+    }
+    let first_alnum = ascii_alnum_lower(first);
+    let rest_alnum = ascii_alnum_lower(rest);
+    let matches_org_prefix = !first_alnum.is_empty() && rest_alnum.starts_with(&first_alnum);
+    let punctuated_handle = first.contains('-') || first.contains('_');
+    if matches_org_prefix || punctuated_handle {
+        rest.to_owned()
+    } else {
+        trimmed.to_owned()
+    }
+}
+
+fn ascii_alnum_lower(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for b in s.bytes() {
+        if b.is_ascii_alphanumeric() {
+            out.push(char::from(b.to_ascii_lowercase()));
+        }
+    }
+    out
 }
 
 fn strip_country_suffix(s: &str) -> &str {
@@ -218,34 +250,51 @@ fn strip_country_suffix(s: &str) -> &str {
 
 fn strip_corporate_suffix(s: &str) -> String {
     let mut cur = s.trim();
-    for suffix in [
-        " Co., Ltd.",
-        " Co., Ltd",
-        ", Inc.",
-        " Inc.",
-        ", Inc",
-        " Inc",
-        ", LLC.",
-        " LLC.",
-        ", LLC",
-        " LLC",
-        ", Ltd.",
-        " Ltd.",
-        ", Ltd",
-        " Ltd",
-        " Corporation",
-        " Corp.",
-        " GmbH",
-        " S.A.",
-        " B.V.",
-        " AG",
-    ] {
-        if let Some(stripped) = cur.strip_suffix(suffix) {
-            let trimmed = stripped.trim_end_matches(',').trim();
-            if !trimmed.is_empty() {
-                cur = trimmed;
-                break;
+    loop {
+        let mut changed = false;
+        for suffix in [
+            ", Limited.",
+            " Limited.",
+            ", Limited",
+            " Limited",
+            " Pte. Ltd.",
+            " Pte Ltd",
+            " Co., Ltd.",
+            " Co., Ltd",
+            ", Inc.",
+            " Inc.",
+            ", Inc",
+            " Inc",
+            ", LLC.",
+            " LLC.",
+            ", LLC",
+            " LLC",
+            ", Ltd.",
+            " Ltd.",
+            ", Ltd",
+            " Ltd",
+            " Corporation",
+            " Corp.",
+            " Corp",
+            " GmbH",
+            " S.A.",
+            " B.V.",
+            " PLC",
+            " Plc",
+            " SAS",
+            " AG",
+        ] {
+            if let Some(stripped) = cur.strip_suffix(suffix) {
+                let trimmed = stripped.trim_end_matches(',').trim();
+                if !trimmed.is_empty() {
+                    cur = trimmed;
+                    changed = true;
+                    break;
+                }
             }
+        }
+        if !changed {
+            break;
         }
     }
     cur.to_owned()

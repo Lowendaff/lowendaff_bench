@@ -183,9 +183,10 @@ sudo ./lowendaff-bench --only network.trace --trace-groups services,china
 2. **RPKI 路由起源签名校验与 ASN 简称补齐**：
    - 调用 `rpki-validation` 验证 `(Origin ASN, 宣告前缀)` 是否具备合法的 ROA 签名（区分 `valid`、`invalid`、`not found`）；
    - 内置 23 个全球 Tier-1 骨干网（如 `3356` Lumen、`1299` Arelion、`174` Cogent、`2914` NTT 等）与常见国内外运营商简称表，并对图中其余未知 ASN 并发查询 `as-overview` 提取机构简称。
-3. **Sugiyama 紧凑跳数分层与重心降交叉布局**：
-   - **起源侧首跳 Tier-1 截断与去重跳数分列**：优先筛选经过 Tier-1 骨干网的路径，并在自 Origin 向外到达的**首个** Tier-1 骨干网处截断（剔除采集点侧冗余的 Tier-1 互联跳数，同时保证高扇出上游如 `AS6939` 不会挤占多层级备份上游路径）；按去重后的真实 AS 跳数（`origin, 1, 2, ...`）划分纵向列，连续重复的同一 ASN（AS-PATH Prepend）折叠为单框并在连线上以虚线与 `×N` 标注；
-   - **主干居中 DFS + 重心法（Barycenter）降交叉 + 邻接对齐行分配**：先将子树规模最大的主干排在纵向中心，再经多轮正反向重心扫掠最小化多上游网状交叉，最后以最密列为锚点向两侧做邻接吸附单调行号投影，消除同列重叠与悬空绕线。
+3. **Sugiyama 真实跳数分层、虚拟航道防遮挡与重心居中布局**：
+   - **采集侧首跳 Tier-1 截断与非 Tier-1 直连上游补全**：对齐 `peer.as`，优先筛选经过 Tier-1 骨干网的路径并从采集点侧到达的**首个** Tier-1 骨干网起保留完整骨干互联链路；若摘要表中的重要直连上游（占比 `>= 5%` 或精简前缀下的多票上游）无任何 Tier-1 路径覆盖，自动补充其最高票代表路径以免漏画关键上游；
+   - **真实 BGP 跳数分列与 Prepend 跨列封顶**：横向列号（`origin, 1, 2, ...`）对应真实 BGP `AS_PATH` 跳数，连续重复的同一 ASN（AS-PATH Prepend）按跳数跨列拉开并以虚线加独立底色胶囊徽章 `×N` 标注（对极端高频如 `> 4` 次 Prepend 做单跳最多跨 `4` 列的宽度封顶，同时保留精确的 `×N` 倍数）；
+   - **权重主干居中 DFS + 虚拟路点绕障 + 保序回归纵向居中**：按分支累计 Peer 观测权重将主干排在纵向中心，为跨多列连线插入虚拟路点（Dummy Waypoints）开辟无遮挡水平通道，并通过带间距约束的保序回归（Pool Adjacent Violators）求得连续对称纵坐标，使单节点分叉严格垂直居中、主路径自然平直且不穿过任何中间节点框。
 4. **三种报告格式的拓扑图输出**：
    - **`text` 终端模式**：输出 IPv4 / IPv6 双栈路由摘要表与主要观测 `AS_PATH` 列表，并将生成的匿名 SVG 矢量拓扑图以 `unlisted`（不公开收录）方式上传至 `imageupload.app`，直接在终端展示不折行的可点击图床链接（如 `https://imageupload.app/i/<key>`）；若图床上传超时或限流，仅追加一行 `Note` 说明而不会影响测试成功状态，也可通过 `--no-bgp-upload`（或交互式 TUI 中的 `Upload topology image` 开关）关闭上传；
    - **`markdown` 模式**：输出原生 ```` ```mermaid ````（`flowchart LR`）代码块（不触发外部图床上传），在 GitHub、GitLab、Obsidian 等平台可直接渲染为矢量图；
