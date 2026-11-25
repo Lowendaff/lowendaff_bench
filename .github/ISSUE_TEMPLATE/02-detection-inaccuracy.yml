@@ -55,7 +55,7 @@ body:
     id: version
     attributes:
       label: "Version / 程序版本"
-      placeholder: "lowendaff-bench 0.1.1"
+      placeholder: "lowendaff-bench 0.1.2"
     validations:
       required: true
 

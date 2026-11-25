@@ -93,7 +93,7 @@ checksum = "ac07cdecf99051d9a5238b80f35af32cdeba5b336e55d957b318b50137e18da5"
 
 [[package]]
 name = "bench"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "bench-api",
  "bench-host",
@@ -130,7 +130,7 @@ dependencies = [
 
 [[package]]
 name = "bench-api"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "bench-host",
  "serde",
@@ -140,7 +140,7 @@ dependencies = [
 
 [[package]]
 name = "bench-host"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "insta",
  "rustix",
@@ -150,7 +150,7 @@ dependencies = [
 
 [[package]]
 name = "bench-tool"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "bench-api",
  "bench-host",
@@ -1272,7 +1272,7 @@ checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
 
 [[package]]
 name = "plugin-cpu"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "bench-api",
  "bench-host",
@@ -1287,7 +1287,7 @@ dependencies = [
 
 [[package]]
 name = "plugin-disk"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "bench-api",
  "bench-host",
@@ -1300,7 +1300,7 @@ dependencies = [
 
 [[package]]
 name = "plugin-ip"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "bench-api",
  "bench-host",
@@ -1311,7 +1311,7 @@ dependencies = [
 
 [[package]]
 name = "plugin-memory"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "bench-api",
  "bench-host",
@@ -1322,7 +1322,7 @@ dependencies = [
 
 [[package]]
 name = "plugin-network"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "bench-api",
  "bench-host",
@@ -1878,7 +1878,7 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "swap-file"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "libc",
  "rustix",
