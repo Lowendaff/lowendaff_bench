@@ -41,7 +41,7 @@ const BGP_STATE_TIMEOUT: Duration = Duration::from_secs(15);
 const ENRICH_TIMEOUT: Duration = Duration::from_secs(6);
 
 /// Maximum unknown ASNs looked up dynamically via `as-overview` per family.
-const MAX_ASN_LOOKUPS: usize = 16;
+const MAX_ASN_LOOKUPS: usize = 24;
 
 /// Concurrency cap for `as-overview` lookups.
 const ASN_LOOKUP_CONCURRENCY: usize = 8;
@@ -194,7 +194,8 @@ async fn query_family(
     }
 
     // Collect candidate ASNs in priority order: origins first, then top direct upstreams, then
-    // truncated graph hops ordered by peer share so high-numbered origin ASNs are never starved.
+    // truncated graph hops ordered by aggregated peer weight so high-numbered origin/transit ASNs
+    // are never starved under `MAX_ASN_LOOKUPS`.
     let mut seen_asns = BTreeSet::new();
     let mut ordered_asns = Vec::new();
     let mut push_asn = |asn: u32| {
@@ -205,14 +206,22 @@ async fn query_family(
     for origin in &parsed.origins {
         push_asn(origin.asn);
     }
-    let top_upstreams = parsed.upstreams.iter().take(12);
+    let top_upstreams = parsed.upstreams.iter().take(16);
     for up in top_upstreams {
         push_asn(up.asn);
     }
+    let mut hop_weights: BTreeMap<u32, u32> = BTreeMap::new();
     for path in &parsed.paths {
+        let w = path.peers.max(1);
         for asn in asns::trunc_to_tier1(&path.asns) {
-            push_asn(asn);
+            let entry = hop_weights.entry(asn).or_insert(0);
+            *entry = entry.saturating_add(w);
         }
+    }
+    let mut weighted_hops: Vec<(u32, u32)> = hop_weights.into_iter().collect();
+    weighted_hops.sort_by(|(asn_a, w_a), (asn_b, w_b)| w_b.cmp(w_a).then_with(|| asn_a.cmp(asn_b)));
+    for (asn, _) in weighted_hops {
+        push_asn(asn);
     }
 
     let mut asn_names = BTreeMap::new();
@@ -259,24 +268,30 @@ async fn query_family(
     let saw_cancel_ref = &saw_cancel;
     let asn_tasks = unknown_asns.into_iter().map(|asn| async move {
         let url = format!("{base}/as-overview/data.json?resource=AS{asn}");
-        let res = fetch_with_fallback(
-            ctx,
-            &url,
-            redact_ref,
-            family,
-            fallback,
-            ENRICH_TIMEOUT,
-            DEFAULT_HTTP_LIMIT,
-        )
-        .await;
-        let name = match res {
-            Ok(resp) if resp.status == 200 => parse::parse_as_overview(&resp.body),
-            Err(FamilyError::Cancelled) => {
-                saw_cancel_ref.store(true, Ordering::Relaxed);
-                None
+        let mut name = None;
+        for _ in 0..2 {
+            let res = fetch_with_fallback(
+                ctx,
+                &url,
+                redact_ref,
+                family,
+                fallback,
+                ENRICH_TIMEOUT,
+                DEFAULT_HTTP_LIMIT,
+            )
+            .await;
+            match res {
+                Ok(resp) if resp.status == 200 => {
+                    name = parse::parse_as_overview(&resp.body);
+                    break;
+                }
+                Err(FamilyError::Cancelled) => {
+                    saw_cancel_ref.store(true, Ordering::Relaxed);
+                    break;
+                }
+                _ => {}
             }
-            _ => None,
-        };
+        }
         (asn, name)
     });
 

@@ -1,6 +1,8 @@
 //! BGP `AS_PATH` topology layout and vector renderers:
-//! - Sugiyama clean-hop layered layout with Tier-1-deduplicated path selection, centered-trunk
-//!   DFS, barycenter crossing reduction, and neighbor-snapped monotonic row assignment;
+//! - Sugiyama layered layout aligned with `peer.as` (collector-nearest Tier-1 truncation with
+//!   uncovered direct-upstream supplementation, raw BGP hop columns capped per prepend span,
+//!   peer-weighted centered-trunk DFS, dummy-waypoint routing around intermediate boxes, and
+//!   Pool-Adjacent-Violators continuous vertical centering);
 //! - self-contained inline-styled SVG renderer (uploaded to `imageupload.app` in `--format text`
 //!   and embedded directly in `--format json`);
 //! - GitHub-Flavored Markdown `mermaid` `flowchart LR` renderer (for `--format markdown`).
@@ -15,25 +17,44 @@ use plugin_network::bgp::BgpPath;
 use plugin_network::bgp::FamilyBgp;
 use plugin_network::bgp::asns;
 
-/// Maximum distinct Tier-1-collapsed paths included in Markdown `mermaid` diagrams so wide
-/// anycast networks stay readable inline. SVG keeps every distinct collapsed path.
-pub const COMPACT_MAX_PATHS: usize = 14;
+/// Maximum distinct collapsed paths included in Markdown `mermaid` diagrams so wide anycast
+/// networks stay readable inline. SVG keeps every distinct collapsed path.
+pub const COMPACT_MAX_PATHS: usize = 16;
 
-/// Maximum clean hops kept when a prefix has no Tier-1 transit path at all (e.g. pure IXP peering).
+/// Maximum column jump added by a single prepended hop (`×2`..=`×4` advance 2..=4 columns matching
+/// `peer.as`; extreme `×5`..=`×9` prepends cap at 4 columns while preserving their exact `×N`
+/// badge).
+pub const MAX_PREPEND_SPAN: usize = 4;
+
+/// Maximum clean hops kept when a path contains no Tier-1 transit hop.
 const FALLBACK_MAX_HOPS: usize = 5;
 
-/// Number of alternating left-to-right / right-to-left barycenter sweeps for crossing reduction.
-const BARYCENTER_SWEEPS: usize = 3;
+/// Number of alternating right-to-left / left-to-right barycenter sweeps for crossing reduction.
+const BARYCENTER_SWEEPS: usize = 6;
+
+/// Minimum vertical slot separation between two real ASN boxes in the same column (`48 px`).
+const GAP_BOX_BOX: f64 = 1.0;
+
+/// Minimum vertical slot separation between a real ASN box and a pass-through wire waypoint.
+const GAP_BOX_DUMMY: f64 = 0.68;
+
+/// Minimum vertical slot separation between two parallel pass-through wire waypoints.
+const GAP_DUMMY_DUMMY: f64 = 0.45;
+
+/// Display-width budget (ASCII = 1, CJK = 2) for carrier subtitles inside `120 px` diagram boxes.
+const BOX_SUBTITLE_WIDTH: usize = 18;
 
 /// One positioned `(asn, column)` node box in [`PositionedGraph`].
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct GraphBox {
     /// Autonomous System number.
     pub asn: u32,
-    /// Clean AS-hop distance column from origin (`0` = origin on the left, increasing rightward).
+    /// BGP hop distance column from origin (`0` = origin on the left, increasing rightward).
     pub col: usize,
-    /// Quantized integer row (`0..=max_row`, top to bottom).
+    /// Strictly increasing 0-based vertical rank within `col`.
     pub row: usize,
+    /// Continuous vertical slot position (`>= 0.0`, separated by `>= 1.0` within `col`).
+    pub y_slot: f64,
     /// Whether `asn` is an origin of the prefix.
     pub is_origin: bool,
     /// Whether `asn` is a global Tier-1 backbone (`★`).
@@ -43,20 +64,26 @@ pub struct GraphBox {
 }
 
 /// One directed link from `from` (closer to origin, left) to `to` (closer to Tier-1, right).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct GraphEdge {
     /// Downstream ASN (closer to origin).
     pub from_asn: u32,
     /// Column of `from_asn`.
     pub from_col: usize,
-    /// Row of `from_asn`.
+    /// Vertical rank of `from_asn` within `from_col`.
     pub from_row: usize,
+    /// Continuous vertical slot of `from_asn`.
+    pub from_slot: f64,
     /// Upstream ASN (closer to Tier-1).
     pub to_asn: u32,
     /// Column of `to_asn` (`> from_col`).
     pub to_col: usize,
-    /// Row of `to_asn`.
+    /// Vertical rank of `to_asn` within `to_col`.
     pub to_row: usize,
+    /// Continuous vertical slot of `to_asn`.
+    pub to_slot: f64,
+    /// Unobstructed intermediate `(col, y_slot)` waypoints when `to_col > from_col + 1`.
+    pub waypoints: Vec<(usize, f64)>,
     /// Aggregated RIS peer count across paths traversing this edge.
     pub weight: u32,
     /// Dominant `AS_PATH` prepend multiplicity on `from_asn` (`1` = normal, `>= 2` = `×N` prepend).
@@ -66,12 +93,14 @@ pub struct GraphEdge {
 }
 
 /// Positioned layered graph shared by the SVG and Mermaid renderers.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct PositionedGraph {
     /// Rightmost column index (`0` when only the origin box exists).
     pub max_col: usize,
-    /// Bottommost row index.
+    /// Highest 0-based intra-column rank across all columns.
     pub max_row: usize,
+    /// Maximum vertical `y_slot` across all positioned boxes and wire waypoints.
+    pub max_slot: f64,
     /// Positioned boxes ordered by `(col, row, asn)`.
     pub boxes: Vec<GraphBox>,
     /// Positioned edges ordered with non-main edges first and main-path edges last (top layer).
@@ -105,39 +134,55 @@ struct CollapsedGroup {
     hop_repeats: Vec<BTreeMap<usize, u32>>,
 }
 
-type CellNeighborMap = BTreeMap<(u32, usize), Vec<((u32, usize), u32)>>;
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum LayerNode {
+    Box { asn: u32, col: usize },
+    Dummy { edge_idx: usize, col: usize },
+}
 
-/// Computes the crossing-reduced clean-hop layout for `family`, or `None` when `family` is not
-/// announced or has no paths.
+impl LayerNode {
+    const fn is_box(self) -> bool {
+        matches!(self, Self::Box { .. })
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct NeighborLink {
+    node: LayerNode,
+    weight: u32,
+    is_main: bool,
+}
+
+type LayerAdjMap = BTreeMap<LayerNode, Vec<NeighborLink>>;
+
+/// Computes the Sugiyama BGP path layout for `family`, or `None` when `family` is not announced or
+/// has no paths.
 #[must_use]
 pub fn layout(family: &FamilyBgp, max_paths: Option<usize>) -> Option<PositionedGraph> {
     if !family.announced || family.paths.is_empty() {
         return None;
     }
 
-    // Prefer Tier-1-anchored paths (matching peer.as); fall back to all paths when none transits
-    // a Tier-1 backbone (such as IXP-only regional routes or local smoke fixtures).
-    let tier1_paths: Vec<&BgpPath> = family
-        .paths
-        .iter()
-        .filter(|p| !p.asns.is_empty() && p.asns.iter().any(|a| asns::is_tier1(*a)))
-        .collect();
-    let use_tier1 = !tier1_paths.is_empty();
-    let candidates: Vec<&BgpPath> = if use_tier1 {
-        tier1_paths
-    } else {
-        family.paths.iter().filter(|p| !p.asns.is_empty()).collect()
-    };
+    let mut origin_set = BTreeSet::new();
+    for o in &family.origins {
+        origin_set.insert(o.asn);
+    }
+    if origin_set.is_empty()
+        && let Some(origin) = family.origin_asn
+    {
+        origin_set.insert(origin);
+    }
+
+    let candidates = select_candidate_paths(family, &origin_set);
     if candidates.is_empty() {
         return None;
     }
 
-    // Deduplicate and sum peer counts by collapsed clean-hop sequence BEFORE applying `max_paths`
-    // so collector-side duplicates (e.g. 200 RIS peers behind AS6939) do not crowd out multi-layer
-    // backup upstreams.
+    // Deduplicate and sum peer counts by collapsed truncated ASN sequence before applying
+    // `max_paths` so collector-side duplicates behind a single backbone never crowd out backups.
     let mut grouped: BTreeMap<Vec<u32>, CollapsedGroup> = BTreeMap::new();
     for path in candidates {
-        let seq = collapse_prepends(path, use_tier1);
+        let seq = collapse_truncated_hops(path);
         if seq.is_empty() {
             continue;
         }
@@ -153,8 +198,9 @@ pub fn layout(family: &FamilyBgp, max_paths: Option<usize>) -> Option<Positioned
             });
         entry.peers = entry.peers.saturating_add(w);
         entry.has_best |= path.is_best;
-        for (idx, hop) in seq.iter().enumerate() {
-            let rw = entry.hop_repeats[idx].entry(hop.repeat).or_insert(0);
+        let hop_pairs = seq.iter().copied().zip(entry.hop_repeats.iter_mut());
+        for (hop, rep_map) in hop_pairs {
+            let rw = rep_map.entry(hop.repeat).or_insert(0);
             *rw = rw.saturating_add(w);
         }
     }
@@ -173,58 +219,55 @@ pub fn layout(family: &FamilyBgp, max_paths: Option<usize>) -> Option<Positioned
     if groups.is_empty() {
         return None;
     }
-
-    let mut origin_set = BTreeSet::new();
-    if !family.origins.is_empty() {
-        for o in &family.origins {
-            origin_set.insert(o.asn);
-        }
-    } else if let Some(origin) = family.origin_asn {
-        origin_set.insert(origin);
-    } else {
+    if origin_set.is_empty() {
         origin_set.insert(groups[0].asns[0]);
     }
 
     let mut cell_cols: BTreeMap<u32, BTreeSet<usize>> = BTreeMap::new();
     let mut edge_stats: BTreeMap<EdgeKey, EdgeStats> = BTreeMap::new();
+    let mut main_edges: BTreeMap<EdgeKey, usize> = BTreeMap::new();
 
-    for grp in &groups {
-        for (col, &asn) in grp.asns.iter().enumerate() {
+    let indexed_groups = groups.iter().enumerate();
+    for (grp_idx, grp) in indexed_groups {
+        let mut cols = Vec::with_capacity(grp.asns.len());
+        let mut preps = Vec::with_capacity(grp.asns.len().saturating_sub(1));
+        let mut cur_col = 0_usize;
+        cols.push(cur_col);
+        let hop_slice = &grp.hop_repeats[..grp.asns.len().saturating_sub(1)];
+        for rep_weights in hop_slice {
+            let rep = dominant_prepend(rep_weights);
+            preps.push(rep);
+            cur_col = cur_col.saturating_add(rep.clamp(1, MAX_PREPEND_SPAN));
+            cols.push(cur_col);
+        }
+        let asn_cols = grp.asns.iter().copied().zip(cols.iter().copied());
+        for (asn, col) in asn_cols {
             cell_cols.entry(asn).or_default().insert(col);
         }
-        for col in 0..grp.asns.len().saturating_sub(1) {
+        let edge_steps = grp
+            .asns
+            .windows(2)
+            .zip(cols.windows(2))
+            .zip(preps.iter().copied());
+        for ((asn_pair, col_pair), rep) in edge_steps {
             let key = EdgeKey {
-                from_asn: grp.asns[col],
-                from_col: col,
-                to_asn: grp.asns[col + 1],
-                to_col: col + 1,
+                from_asn: asn_pair[0],
+                from_col: col_pair[0],
+                to_asn: asn_pair[1],
+                to_col: col_pair[1],
             };
             let stats = edge_stats.entry(key).or_default();
             stats.weight = stats.weight.saturating_add(grp.peers);
-            for (&rep, &rw) in &grp.hop_repeats[col] {
-                let pw = stats.prepend_weights.entry(rep).or_insert(0);
-                *pw = pw.saturating_add(rw);
+            let pw = stats.prepend_weights.entry(rep).or_insert(0);
+            *pw = pw.saturating_add(grp.peers);
+            if grp_idx == 0 {
+                main_edges.insert(key, rep);
             }
         }
     }
 
     if cell_cols.is_empty() {
         return None;
-    }
-
-    // Elect the main path: `groups[0]` has the highest aggregated RIS peer count.
-    let mut main_edges: BTreeMap<EdgeKey, usize> = BTreeMap::new();
-    let best_grp = &groups[0];
-    for col in 0..best_grp.asns.len().saturating_sub(1) {
-        main_edges.insert(
-            EdgeKey {
-                from_asn: best_grp.asns[col],
-                from_col: col,
-                to_asn: best_grp.asns[col + 1],
-                to_col: col + 1,
-            },
-            dominant_prepend(&best_grp.hop_repeats[col]),
-        );
     }
 
     let all_asns: Vec<u32> = cell_cols.keys().copied().collect();
@@ -235,25 +278,36 @@ pub fn layout(family: &FamilyBgp, max_paths: Option<usize>) -> Option<Positioned
         }
     }
 
-    // Pass 1: Upstream subtree leaf-count sizing and centered-trunk DFS from origin(s).
+    // Pass 1: Peer-weighted subtree sizing and centered-trunk DFS from origin(s).
     let mut children_of: BTreeMap<u32, BTreeSet<u32>> = BTreeMap::new();
-    for key in edge_stats.keys() {
+    let mut pair_weight: BTreeMap<(u32, u32), u64> = BTreeMap::new();
+    for (key, stats) in &edge_stats {
         children_of
             .entry(key.from_asn)
             .or_default()
             .insert(key.to_asn);
+        let pw = pair_weight.entry((key.from_asn, key.to_asn)).or_insert(0);
+        *pw = pw.saturating_add(u64::from(stats.weight));
     }
 
-    let mut subtree_size: BTreeMap<u32, usize> = BTreeMap::new();
+    let mut subtree_leaves: BTreeMap<u32, usize> = BTreeMap::new();
+    let mut subtree_weight: BTreeMap<u32, u64> = BTreeMap::new();
     for &asn in &all_asns {
-        compute_size(asn, &children_of, &mut subtree_size);
+        compute_tree_metrics(
+            asn,
+            &children_of,
+            &pair_weight,
+            &mut subtree_leaves,
+            &mut subtree_weight,
+        );
     }
 
-    let mut roots: Vec<u32> = all_asns
-        .iter()
-        .copied()
-        .filter(|asn| origin_set.contains(asn))
-        .collect();
+    let mut roots: Vec<u32> = Vec::new();
+    for &asn in &all_asns {
+        if origin_set.contains(&asn) {
+            roots.push(asn);
+        }
+    }
     if roots.is_empty()
         && let Some(&fallback_root) = all_asns
             .iter()
@@ -269,7 +323,9 @@ pub fn layout(family: &FamilyBgp, max_paths: Option<usize>) -> Option<Positioned
         dfs_order(
             root,
             &children_of,
-            &subtree_size,
+            &pair_weight,
+            &subtree_leaves,
+            &subtree_weight,
             &mut seen,
             &mut ord,
             &mut leaf_counter,
@@ -277,137 +333,264 @@ pub fn layout(family: &FamilyBgp, max_paths: Option<usize>) -> Option<Positioned
     }
     for &asn in &all_asns {
         if let Entry::Vacant(vacant) = ord.entry(asn) {
-            vacant.insert(leaf_counter as f64);
+            vacant.insert(usize_to_f64(leaf_counter));
             leaf_counter += 1;
         }
     }
 
-    // Pass 2: Barycenter crossing reduction per `(asn, col)` layer, followed by densest-column
-    // anchored monotonic integer row assignment.
-    let mut col_members: BTreeMap<usize, Vec<u32>> = BTreeMap::new();
+    // Pass 2: Sugiyama layer graph with virtual dummy waypoints on multi-column edges so long
+    // prepend curves route through clear horizontal channels instead of crossing behind boxes.
+    let edge_keys: Vec<EdgeKey> = edge_stats.keys().copied().collect();
+    let mut col_items: BTreeMap<usize, Vec<LayerNode>> = BTreeMap::new();
+    let mut item_ord: BTreeMap<LayerNode, (f64, u8, usize)> = BTreeMap::new();
+
     for &asn in &all_asns {
         for &col in &cell_cols[&asn] {
-            col_members.entry(col).or_default().push(asn);
+            let node = LayerNode::Box { asn, col };
+            col_items.entry(col).or_default().push(node);
+            item_ord.insert(node, (ord[&asn], 0, asn as usize));
         }
     }
-    for members in col_members.values_mut() {
-        members.sort_by(|a, b| ord[a].total_cmp(&ord[b]).then_with(|| a.cmp(b)));
-    }
-    let max_count = col_members.values().map(Vec::len).max().unwrap_or(1).max(1);
 
-    let mut in_adj: CellNeighborMap = BTreeMap::new();
-    let mut out_adj: CellNeighborMap = BTreeMap::new();
-    for (key, stats) in &edge_stats {
-        in_adj
-            .entry((key.to_asn, key.to_col))
-            .or_default()
-            .push(((key.from_asn, key.from_col), stats.weight));
-        out_adj
-            .entry((key.from_asn, key.from_col))
-            .or_default()
-            .push(((key.to_asn, key.to_col), stats.weight));
-    }
+    let mut in_adj: LayerAdjMap = BTreeMap::new();
+    let mut out_adj: LayerAdjMap = BTreeMap::new();
+    let mut edge_chains: Vec<Vec<LayerNode>> = Vec::with_capacity(edge_keys.len());
 
-    let mut cell_pos: BTreeMap<(u32, usize), f64> = BTreeMap::new();
-    for (&col, members) in &col_members {
-        let offset = (max_count.saturating_sub(members.len())) as f64 / 2.0;
-        for (idx, &asn) in members.iter().enumerate() {
-            cell_pos.insert((asn, col), offset + idx as f64);
+    let indexed_edges = edge_keys.iter().copied().enumerate();
+    for (edge_idx, key) in indexed_edges {
+        let weight = edge_stats[&key].weight;
+        let is_main = main_edges.contains_key(&key);
+        let u_node = LayerNode::Box {
+            asn: key.from_asn,
+            col: key.from_col,
+        };
+        let v_node = LayerNode::Box {
+            asn: key.to_asn,
+            col: key.to_col,
+        };
+        let mut chain = Vec::with_capacity(key.to_col.saturating_sub(key.from_col) + 1);
+        chain.push(u_node);
+        let dummy_ord = (ord[&key.to_asn], 1, edge_idx);
+        for mid_col in (key.from_col + 1)..key.to_col {
+            let dm = LayerNode::Dummy {
+                edge_idx,
+                col: mid_col,
+            };
+            col_items.entry(mid_col).or_default().push(dm);
+            item_ord.insert(dm, dummy_ord);
+            chain.push(dm);
         }
+        chain.push(v_node);
+        let chain_pairs = chain.windows(2);
+        for pair in chain_pairs {
+            let src = pair[0];
+            let dst = pair[1];
+            out_adj.entry(src).or_default().push(NeighborLink {
+                node: dst,
+                weight,
+                is_main,
+            });
+            in_adj.entry(dst).or_default().push(NeighborLink {
+                node: src,
+                weight,
+                is_main,
+            });
+        }
+        edge_chains.push(chain);
+    }
+
+    for items in col_items.values_mut() {
+        items.sort_by(|a, b| cmp_item_ord(item_ord[a], item_ord[b]));
+    }
+
+    let mut max_span = 0.0_f64;
+    for items in col_items.values() {
+        max_span = max_span.max(column_span(items));
+    }
+
+    let mut item_pos: BTreeMap<LayerNode, f64> = BTreeMap::new();
+    for items in col_items.values() {
+        seed_column_positions(items, max_span, &mut item_pos);
     }
 
     for sweep in 0..BARYCENTER_SWEEPS {
         if sweep % 2 == 0 {
-            for col in 1..=max_col {
+            let mut col = max_col;
+            while col > 0 {
+                col -= 1;
                 refine_column_order(
                     col,
+                    false,
                     &in_adj,
-                    &ord,
-                    max_count,
-                    &mut col_members,
-                    &mut cell_pos,
+                    &out_adj,
+                    &item_ord,
+                    max_span,
+                    &mut col_items,
+                    &mut item_pos,
                 );
             }
         } else {
-            let cols = (0..max_col).rev();
-            for col in cols {
+            for col in 1..=max_col {
                 refine_column_order(
                     col,
+                    true,
+                    &in_adj,
                     &out_adj,
-                    &ord,
-                    max_count,
-                    &mut col_members,
-                    &mut cell_pos,
+                    &item_ord,
+                    max_span,
+                    &mut col_items,
+                    &mut item_pos,
                 );
             }
         }
     }
 
+    // Pass 3: Anchor the tallest column and assign continuous vertical slots via variable-gap
+    // Pool-Adjacent-Violators isotonic regression, followed by two smoothing passes.
     let anchor_col = (0..=max_col)
-        .max_by_key(|&c| (col_members.get(&c).map_or(0, Vec::len), usize::MAX - c))
+        .max_by(|&a, &b| {
+            let span_a = col_items.get(&a).map_or(0.0, |v| column_span(v));
+            let span_b = col_items.get(&b).map_or(0.0, |v| column_span(v));
+            span_a
+                .total_cmp(&span_b)
+                .then_with(|| {
+                    let len_a = col_items.get(&a).map_or(0, Vec::len);
+                    let len_b = col_items.get(&b).map_or(0, Vec::len);
+                    len_a.cmp(&len_b)
+                })
+                .then_with(|| b.cmp(&a))
+        })
         .unwrap_or(0);
 
-    let mut cell_row: BTreeMap<(u32, usize), usize> = BTreeMap::new();
-    assign_column_rows(
+    let mut item_slot: BTreeMap<LayerNode, f64> = BTreeMap::new();
+    assign_column_slots(
         anchor_col,
-        max_count,
-        &col_members,
+        max_span,
+        &col_items,
         &in_adj,
         &out_adj,
-        &mut cell_row,
+        &mut item_slot,
     );
-    let left_cols = (0..anchor_col).rev();
-    for col in left_cols {
-        assign_column_rows(
-            col,
-            max_count,
-            &col_members,
+    let mut left_col = anchor_col;
+    while left_col > 0 {
+        left_col -= 1;
+        assign_column_slots(
+            left_col,
+            max_span,
+            &col_items,
             &in_adj,
             &out_adj,
-            &mut cell_row,
+            &mut item_slot,
         );
     }
-    for col in (anchor_col + 1)..=max_col {
-        assign_column_rows(
-            col,
-            max_count,
-            &col_members,
+    for right_col in (anchor_col + 1)..=max_col {
+        assign_column_slots(
+            right_col,
+            max_span,
+            &col_items,
             &in_adj,
             &out_adj,
-            &mut cell_row,
+            &mut item_slot,
         );
+    }
+    for pass in 0..2 {
+        if pass == 0 {
+            let mut col = max_col + 1;
+            while col > 0 {
+                col -= 1;
+                if col != anchor_col {
+                    assign_column_slots(
+                        col,
+                        max_span,
+                        &col_items,
+                        &in_adj,
+                        &out_adj,
+                        &mut item_slot,
+                    );
+                }
+            }
+        } else {
+            for col in 0..=max_col {
+                if col != anchor_col {
+                    assign_column_slots(
+                        col,
+                        max_span,
+                        &col_items,
+                        &in_adj,
+                        &out_adj,
+                        &mut item_slot,
+                    );
+                }
+            }
+        }
     }
 
-    let max_row = cell_row.values().copied().max().unwrap_or(0);
-    let mut boxes = Vec::with_capacity(cell_row.len());
-    for (&(asn, col), &row) in &cell_row {
-        let is_origin = origin_set.contains(&asn);
-        let is_tier1 = asns::is_tier1(asn);
-        let name = family
-            .asn_names
-            .get(&asn)
-            .cloned()
-            .or_else(|| asns::known_name(asn).map(str::to_owned))
-            .unwrap_or_default();
-        boxes.push(GraphBox {
-            asn,
-            col,
-            row,
-            is_origin,
-            is_tier1,
-            name,
-        });
+    let min_slot = item_slot.values().copied().fold(f64::INFINITY, f64::min);
+    if min_slot.is_finite() && min_slot > 0.0 {
+        for slot in item_slot.values_mut() {
+            *slot = (*slot - min_slot).max(0.0);
+        }
+    }
+    let max_slot = item_slot.values().copied().fold(0.0_f64, f64::max);
+
+    let mut box_rank: BTreeMap<(u32, usize), usize> = BTreeMap::new();
+    let mut max_row = 0_usize;
+    let mut boxes = Vec::new();
+
+    for (&col, items) in &col_items {
+        let mut row_idx = 0_usize;
+        for &node in items {
+            let LayerNode::Box { asn, .. } = node else {
+                continue;
+            };
+            let y_slot = item_slot.get(&node).copied().unwrap_or(0.0);
+            let is_origin = origin_set.contains(&asn);
+            let is_tier1 = asns::is_tier1(asn);
+            let name = family
+                .asn_names
+                .get(&asn)
+                .cloned()
+                .or_else(|| asns::known_name(asn).map(str::to_owned))
+                .unwrap_or_default();
+            box_rank.insert((asn, col), row_idx);
+            max_row = max_row.max(row_idx);
+            boxes.push(GraphBox {
+                asn,
+                col,
+                row: row_idx,
+                y_slot,
+                is_origin,
+                is_tier1,
+                name,
+            });
+            row_idx += 1;
+        }
     }
     boxes.sort_by_key(|b| (b.col, b.row, b.asn));
 
-    let mut edges = Vec::with_capacity(edge_stats.len());
-    for (key, stats) in edge_stats {
+    let mut edges = Vec::with_capacity(edge_keys.len());
+    let edge_with_chains = edge_keys.iter().copied().zip(edge_chains.iter());
+    for (key, chain) in edge_with_chains {
+        let stats = &edge_stats[&key];
         let (Some(&from_row), Some(&to_row)) = (
-            cell_row.get(&(key.from_asn, key.from_col)),
-            cell_row.get(&(key.to_asn, key.to_col)),
+            box_rank.get(&(key.from_asn, key.from_col)),
+            box_rank.get(&(key.to_asn, key.to_col)),
         ) else {
             continue;
         };
+        let from_slot = item_slot.get(&chain[0]).copied().unwrap_or(0.0);
+        let to_slot = item_slot
+            .get(&chain[chain.len() - 1])
+            .copied()
+            .unwrap_or(0.0);
+        let mut waypoints = Vec::with_capacity(chain.len().saturating_sub(2));
+        for &mid_node in &chain[1..chain.len().saturating_sub(1)] {
+            if let LayerNode::Dummy { col, .. } = mid_node
+                && let Some(&slot) = item_slot.get(&mid_node)
+            {
+                waypoints.push((col, slot));
+            }
+        }
         let is_main = main_edges.contains_key(&key);
         let span = main_edges
             .get(&key)
@@ -417,23 +600,130 @@ pub fn layout(family: &FamilyBgp, max_paths: Option<usize>) -> Option<Positioned
             from_asn: key.from_asn,
             from_col: key.from_col,
             from_row,
+            from_slot,
             to_asn: key.to_asn,
             to_col: key.to_col,
             to_row,
+            to_slot,
+            waypoints,
             weight: stats.weight,
             span,
             is_main,
         });
     }
     // Draw main-path edges last so they sit above secondary edges without occlusion.
-    edges.sort_by_key(|e| (e.is_main, e.from_col, e.from_row, e.to_row));
+    edges.sort_by(|a, b| {
+        a.is_main
+            .cmp(&b.is_main)
+            .then_with(|| a.from_col.cmp(&b.from_col))
+            .then_with(|| a.from_slot.total_cmp(&b.from_slot))
+            .then_with(|| a.to_slot.total_cmp(&b.to_slot))
+    });
 
     Some(PositionedGraph {
         max_col,
         max_row,
+        max_slot,
         boxes,
         edges,
     })
+}
+
+fn select_candidate_paths<'a>(
+    family: &'a FamilyBgp,
+    origin_set: &BTreeSet<u32>,
+) -> Vec<&'a BgpPath> {
+    let mut tier1_paths: Vec<&BgpPath> = Vec::new();
+    let mut covered_upstreams: BTreeSet<u32> = BTreeSet::new();
+
+    for path in &family.paths {
+        if path.asns.is_empty() {
+            continue;
+        }
+        let non_origin = &path.asns[..path.asns.len().saturating_sub(1)];
+        let has_upstream_tier1 = non_origin.iter().any(|&a| asns::is_tier1(a));
+        if has_upstream_tier1 {
+            if path.asns.len() >= 2 {
+                covered_upstreams.insert(path.asns[path.asns.len() - 2]);
+            }
+            tier1_paths.push(path);
+        }
+    }
+
+    if tier1_paths.is_empty() {
+        let mut fallback = Vec::new();
+        for path in &family.paths {
+            if !path.asns.is_empty() {
+                fallback.push(path);
+            }
+        }
+        return fallback;
+    }
+
+    // Supplement a representative path for any non-Tier-1 direct upstream carrying a meaningful
+    // share (`>= 5%` of RIS peers, or `>= 2` peers on compact <=4-upstream prefixes) that has zero
+    // Tier-1-transiting paths, keeping the diagram consistent with the upstream summary table.
+    let total = u64::from(family.total_peers.max(1));
+    let compact_upstreams = family.upstreams.len() <= 4;
+    for up in &family.upstreams {
+        if covered_upstreams.contains(&up.asn) || origin_set.contains(&up.asn) {
+            continue;
+        }
+        let significant =
+            u64::from(up.peers).saturating_mul(20) >= total || (compact_upstreams && up.peers >= 2);
+        if !significant {
+            continue;
+        }
+        if let Some(rep_path) = family
+            .paths
+            .iter()
+            .filter(|p| p.asns.len() >= 2 && p.asns[p.asns.len() - 2] == up.asn)
+            .max_by(|a, b| {
+                a.peers
+                    .cmp(&b.peers)
+                    .then_with(|| a.is_best.cmp(&b.is_best))
+                    .then_with(|| b.asns.len().cmp(&a.asns.len()))
+            })
+        {
+            tier1_paths.push(rep_path);
+            covered_upstreams.insert(up.asn);
+        }
+    }
+
+    tier1_paths
+}
+
+fn collapse_truncated_hops(path: &BgpPath) -> Vec<HopCell> {
+    let source = if path.asns_raw.is_empty() {
+        &path.asns
+    } else {
+        &path.asns_raw
+    };
+    let truncated = asns::trunc_to_tier1(source);
+    if truncated.is_empty() {
+        return Vec::new();
+    }
+    let has_upstream_tier1 = truncated[..truncated.len().saturating_sub(1)]
+        .iter()
+        .any(|&a| asns::is_tier1(a));
+
+    let mut rev_runs: Vec<HopCell> = Vec::with_capacity(truncated.len());
+    let mut idx = truncated.len();
+    while idx > 0 {
+        idx -= 1;
+        let asn = truncated[idx];
+        if let Some(last) = rev_runs.last_mut()
+            && last.asn == asn
+        {
+            last.repeat += 1;
+            continue;
+        }
+        rev_runs.push(HopCell { asn, repeat: 1 });
+    }
+    if !has_upstream_tier1 && rev_runs.len() > FALLBACK_MAX_HOPS {
+        rev_runs.truncate(FALLBACK_MAX_HOPS);
+    }
+    rev_runs
 }
 
 fn dominant_prepend(weights: &BTreeMap<usize, u32>) -> usize {
@@ -443,221 +733,297 @@ fn dominant_prepend(weights: &BTreeMap<usize, u32>) -> usize {
         .map_or(1, |(&mult, _)| mult.max(1))
 }
 
-fn refine_column_order(
-    col: usize,
-    adj: &CellNeighborMap,
-    ord: &BTreeMap<u32, f64>,
-    max_count: usize,
-    col_members: &mut BTreeMap<usize, Vec<u32>>,
-    cell_pos: &mut BTreeMap<(u32, usize), f64>,
-) {
-    let Some(members) = col_members.get(&col).cloned() else {
-        return;
-    };
-    let mut scored: Vec<(u32, f64)> = Vec::with_capacity(members.len());
-    for asn in members {
-        let cur = cell_pos.get(&(asn, col)).copied().unwrap_or(0.0);
-        let next = if let Some(neighbors) = adj.get(&(asn, col))
-            && !neighbors.is_empty()
-        {
-            let mut weighted_sum = 0.0;
-            let mut total_w = 0.0;
-            for &(nb_cell, w) in neighbors {
-                if let Some(&nb_p) = cell_pos.get(&nb_cell) {
-                    let wf = f64::from(w.max(1));
-                    weighted_sum += wf * nb_p;
-                    total_w += wf;
-                }
-            }
-            if total_w > 0.0 {
-                0.75 * (weighted_sum / total_w) + 0.25 * cur
-            } else {
-                cur
-            }
-        } else {
-            cur
-        };
-        scored.push((asn, next));
+fn pair_gap(prev: LayerNode, next: LayerNode) -> f64 {
+    match (prev.is_box(), next.is_box()) {
+        (true, true) => GAP_BOX_BOX,
+        (false, false) => GAP_DUMMY_DUMMY,
+        (true, false) | (false, true) => GAP_BOX_DUMMY,
     }
-    scored.sort_by(|(a, sa), (b, sb)| {
-        sa.total_cmp(sb)
-            .then_with(|| ord[a].total_cmp(&ord[b]))
-            .then_with(|| a.cmp(b))
-    });
-    let offset = (max_count.saturating_sub(scored.len())) as f64 / 2.0;
-    let sorted_asns: Vec<u32> = scored.into_iter().map(|(asn, _)| asn).collect();
-    for (idx, &asn) in sorted_asns.iter().enumerate() {
-        cell_pos.insert((asn, col), offset + idx as f64);
-    }
-    col_members.insert(col, sorted_asns);
 }
 
-fn assign_column_rows(
-    col: usize,
-    max_count: usize,
-    col_members: &BTreeMap<usize, Vec<u32>>,
-    in_adj: &CellNeighborMap,
-    out_adj: &CellNeighborMap,
-    cell_row: &mut BTreeMap<(u32, usize), usize>,
+fn column_span(items: &[LayerNode]) -> f64 {
+    if items.len() <= 1 {
+        return 0.0;
+    }
+    let mut total = 0.0;
+    let item_pairs = items.windows(2);
+    for pair in item_pairs {
+        total += pair_gap(pair[0], pair[1]);
+    }
+    total
+}
+
+fn seed_column_positions(
+    items: &[LayerNode],
+    max_span: f64,
+    item_pos: &mut BTreeMap<LayerNode, f64>,
 ) {
-    let Some(members) = col_members.get(&col) else {
+    let span = column_span(items);
+    let mut cur = (max_span - span).max(0.0) / 2.0;
+    let mut prev: Option<LayerNode> = None;
+    for &node in items {
+        if let Some(prev_node) = prev {
+            cur += pair_gap(prev_node, node);
+        }
+        item_pos.insert(node, cur);
+        prev = Some(node);
+    }
+}
+
+fn cmp_item_ord(a: (f64, u8, usize), b: (f64, u8, usize)) -> std::cmp::Ordering {
+    a.0.total_cmp(&b.0)
+        .then_with(|| a.1.cmp(&b.1))
+        .then_with(|| a.2.cmp(&b.2))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn refine_column_order(
+    col: usize,
+    forward: bool,
+    in_adj: &LayerAdjMap,
+    out_adj: &LayerAdjMap,
+    item_ord: &BTreeMap<LayerNode, (f64, u8, usize)>,
+    max_span: f64,
+    col_items: &mut BTreeMap<usize, Vec<LayerNode>>,
+    item_pos: &mut BTreeMap<LayerNode, f64>,
+) {
+    let Some(items) = col_items.get(&col).cloned() else {
         return;
     };
-    if members.is_empty() {
+    if items.is_empty() {
         return;
     }
-    let k = members.len();
-    let default_start = max_count.saturating_sub(k) / 2;
-    let mut ideals = Vec::with_capacity(k);
+    let mut scored: Vec<(LayerNode, f64)> = Vec::with_capacity(items.len());
+    for node in items {
+        let cur = item_pos.get(&node).copied().unwrap_or(0.0);
+        let next = if node.is_box() {
+            let primary = if forward { in_adj } else { out_adj };
+            match neighbor_barycenter(node, primary, item_pos) {
+                Some(avg) => 0.8 * avg + 0.2 * cur,
+                None => cur,
+            }
+        } else {
+            // Pass-through dummy wires stay anchored primarily toward their destination column so
+            // long backup chains do not drift across dense intermediate fan-out hubs.
+            let in_b = neighbor_barycenter(node, in_adj, item_pos);
+            let out_b = neighbor_barycenter(node, out_adj, item_pos);
+            match (in_b, out_b) {
+                (Some(ib), Some(ob)) => 0.25 * ib + 0.75 * ob,
+                (None, Some(ob)) => ob,
+                (Some(ib), None) => ib,
+                (None, None) => cur,
+            }
+        };
+        scored.push((node, next));
+    }
+    scored.sort_by(|(na, sa), (nb, sb)| {
+        sa.total_cmp(sb)
+            .then_with(|| cmp_item_ord(item_ord[na], item_ord[nb]))
+    });
+    let sorted_nodes: Vec<LayerNode> = scored.into_iter().map(|(n, _)| n).collect();
+    seed_column_positions(&sorted_nodes, max_span, item_pos);
+    col_items.insert(col, sorted_nodes);
+}
 
-    for (idx, &asn) in members.iter().enumerate() {
-        let mut weighted_sum = 0.0;
-        let mut total_w = 0.0;
-        let mut nb_weights: BTreeMap<usize, u32> = BTreeMap::new();
+fn neighbor_barycenter(
+    node: LayerNode,
+    adj: &LayerAdjMap,
+    pos_map: &BTreeMap<LayerNode, f64>,
+) -> Option<f64> {
+    let links = adj.get(&node)?;
+    let mut ws = 0.0;
+    let mut tw = 0.0;
+    for link in links {
+        if let Some(&p) = pos_map.get(&link.node) {
+            let w = f64::from(link.weight.max(1));
+            ws += w * p;
+            tw += w;
+        }
+    }
+    (tw > 0.0).then(|| ws / tw)
+}
+
+fn assign_column_slots(
+    col: usize,
+    max_span: f64,
+    col_items: &BTreeMap<usize, Vec<LayerNode>>,
+    in_adj: &LayerAdjMap,
+    out_adj: &LayerAdjMap,
+    item_slot: &mut BTreeMap<LayerNode, f64>,
+) {
+    let Some(items) = col_items.get(&col) else {
+        return;
+    };
+    if items.is_empty() {
+        return;
+    }
+    let span = column_span(items);
+    let mut cur_default = (max_span - span).max(0.0) / 2.0;
+    let mut ideals = Vec::with_capacity(items.len());
+
+    let mut prev: Option<LayerNode> = None;
+    for &node in items {
+        if let Some(prev_node) = prev {
+            cur_default += pair_gap(prev_node, node);
+        }
+        prev = Some(node);
+        let mut ws = 0.0;
+        let mut tw = 0.0;
+        let mut main_nb: Option<f64> = None;
         for adj in [in_adj, out_adj] {
-            if let Some(neighbors) = adj.get(&(asn, col)) {
-                for &(nb_cell, w) in neighbors {
-                    if let Some(&nb_row) = cell_row.get(&nb_cell) {
-                        let w1 = w.max(1);
-                        weighted_sum += f64::from(w1) * (nb_row as f64);
-                        total_w += f64::from(w1);
-                        let entry = nb_weights.entry(nb_row).or_insert(0);
-                        *entry = entry.saturating_add(w1);
+            if let Some(links) = adj.get(&node) {
+                for link in links {
+                    if let Some(&nb_s) = item_slot.get(&link.node) {
+                        let w = f64::from(link.weight.max(1));
+                        ws += w * nb_s;
+                        tw += w;
+                        if link.is_main {
+                            main_nb = Some(nb_s);
+                        }
                     }
                 }
             }
         }
-        let ideal = if total_w > 0.0 {
-            let avg = f64_to_usize_sat((weighted_sum / total_w).round());
-            if nb_weights.contains_key(&avg) {
-                avg
+        let ideal = if tw > 0.0 {
+            let avg = ws / tw;
+            if let Some(m_slot) = main_nb
+                && (avg - m_slot).abs() <= 0.28
+            {
+                m_slot
             } else {
-                // Snap to the closest actual neighbor row (tie-breaking on higher weight) so boxes
-                // align directly with a connected peer instead of pointing into an empty row gap.
-                nb_weights
-                    .iter()
-                    .max_by(|(r_a, w_a), (r_b, w_b)| {
-                        r_b.abs_diff(avg)
-                            .cmp(&r_a.abs_diff(avg))
-                            .then_with(|| w_a.cmp(w_b))
-                            .then_with(|| r_b.cmp(r_a))
-                    })
-                    .map_or(avg, |(&r, _)| r)
+                avg
             }
         } else {
-            default_start + idx
+            cur_default
         };
         ideals.push(ideal);
     }
 
-    // Project `ideals` onto strictly increasing rows within `0..max_count`.
-    let mut rows = Vec::with_capacity(k);
-    for (idx, &ideal) in ideals.iter().enumerate() {
-        let min_allowed = if idx == 0 { 0 } else { rows[idx - 1] + 1 };
-        rows.push(ideal.max(min_allowed));
-    }
-    let max_target = max_count.saturating_sub(1);
-    if k <= max_count && rows[k - 1] > max_target {
-        rows[k - 1] = max_target;
-        let back_indices = (0..(k - 1)).rev();
-        for idx in back_indices {
-            rows[idx] = rows[idx].min(rows[idx + 1].saturating_sub(1));
-        }
-    }
-
-    let assigned = members.iter().zip(rows);
-    for (&asn, row) in assigned {
-        cell_row.insert((asn, col), row);
+    let slots = pav_variable_gaps(&ideals, items, max_span);
+    let assigned = items.iter().copied().zip(slots);
+    for (node, slot) in assigned {
+        item_slot.insert(node, slot);
     }
 }
 
-fn collapse_prepends(path: &BgpPath, use_tier1: bool) -> Vec<HopCell> {
-    let source = if path.asns_raw.is_empty() {
-        &path.asns
-    } else {
-        &path.asns_raw
-    };
-    let mut clean_fwd: Vec<HopCell> = Vec::with_capacity(source.len());
-    for &asn in source {
-        if let Some(last) = clean_fwd.last_mut()
-            && last.asn == asn
-        {
-            last.repeat += 1;
-            continue;
+/// Solves `min sum_i (y_i - ideal_i)^2` subject to `0 <= y_0`, `y_i - y_{i-1} >= gap_i`, and
+/// `y_{k-1} <= max_span` in `O(k)` time via Pool-Adjacent-Violators isotonic regression.
+fn pav_variable_gaps(ideals: &[f64], items: &[LayerNode], max_span: f64) -> Vec<f64> {
+    let k = ideals.len();
+    if k == 0 {
+        return Vec::new();
+    }
+    let mut prefix = Vec::with_capacity(k);
+    let mut acc = 0.0_f64;
+    prefix.push(acc);
+    let item_pairs = items.windows(2);
+    for pair in item_pairs {
+        acc += pair_gap(pair[0], pair[1]);
+        prefix.push(acc);
+    }
+    let upper = (max_span - acc).max(0.0);
+    let mut blocks: Vec<(f64, usize)> = Vec::with_capacity(k);
+
+    let ideal_pairs = ideals.iter().copied().zip(prefix.iter().copied());
+    for (ideal, pref) in ideal_pairs {
+        let z = (ideal - pref).clamp(0.0, upper);
+        blocks.push((z, 1));
+        while blocks.len() >= 2 {
+            let n = blocks.len();
+            let (s1, c1) = blocks[n - 2];
+            let (s2, c2) = blocks[n - 1];
+            if s1 / usize_to_f64(c1) > s2 / usize_to_f64(c2) {
+                blocks.pop();
+                blocks[n - 2] = (s1 + s2, c1 + c2);
+            } else {
+                break;
+            }
         }
-        clean_fwd.push(HopCell { asn, repeat: 1 });
     }
-    if use_tier1 {
-        let clean_asns: Vec<u32> = clean_fwd.iter().map(|h| h.asn).collect();
-        let keep = asns::trunc_to_tier1(&clean_asns).len();
-        let start = clean_fwd.len().saturating_sub(keep);
-        clean_fwd[start..].iter().rev().copied().collect()
-    } else {
-        let without_collector = if clean_fwd.len() > 1 {
-            &clean_fwd[1..]
-        } else {
-            &clean_fwd[..]
-        };
-        without_collector
-            .iter()
-            .rev()
-            .take(FALLBACK_MAX_HOPS)
-            .copied()
-            .collect()
+
+    let mut out = Vec::with_capacity(k);
+    let mut pos_idx = 0_usize;
+    for (sum_z, count) in blocks {
+        let mean_z = (sum_z / usize_to_f64(count)).clamp(0.0, upper);
+        for _ in 0..count {
+            out.push(mean_z + prefix[pos_idx]);
+            pos_idx += 1;
+        }
     }
+    out
 }
 
-fn compute_size(
+fn compute_tree_metrics(
     asn: u32,
     children_of: &BTreeMap<u32, BTreeSet<u32>>,
-    memo: &mut BTreeMap<u32, usize>,
-) -> usize {
-    if let Some(&cached) = memo.get(&asn) {
-        return cached;
+    pair_weight: &BTreeMap<(u32, u32), u64>,
+    leaves_memo: &mut BTreeMap<u32, usize>,
+    weight_memo: &mut BTreeMap<u32, u64>,
+) {
+    if leaves_memo.contains_key(&asn) {
+        return;
     }
-    enum SizeFrame {
+    enum Frame {
         Enter(u32),
         Exit(u32),
     }
-    let mut stack = vec![SizeFrame::Enter(asn)];
+    let mut on_path: BTreeSet<u32> = BTreeSet::new();
+    let mut stack = vec![Frame::Enter(asn)];
     while let Some(frame) = stack.pop() {
         match frame {
-            SizeFrame::Enter(node) => {
-                if memo.contains_key(&node) {
+            Frame::Enter(node) => {
+                if leaves_memo.contains_key(&node) {
                     continue;
                 }
-                memo.insert(node, 1);
                 let Some(children) = children_of.get(&node) else {
+                    leaves_memo.insert(node, 1);
+                    weight_memo.insert(node, 0);
                     continue;
                 };
                 if children.is_empty() {
+                    leaves_memo.insert(node, 1);
+                    weight_memo.insert(node, 0);
                     continue;
                 }
-                stack.push(SizeFrame::Exit(node));
-                let rev_children = children.iter().rev();
-                for &child in rev_children {
-                    if !memo.contains_key(&child) {
-                        stack.push(SizeFrame::Enter(child));
+                on_path.insert(node);
+                stack.push(Frame::Exit(node));
+                let child_vec: Vec<u32> = children.iter().copied().collect();
+                let mut idx = child_vec.len();
+                while idx > 0 {
+                    idx -= 1;
+                    let child = child_vec[idx];
+                    if !leaves_memo.contains_key(&child) && !on_path.contains(&child) {
+                        stack.push(Frame::Enter(child));
                     }
                 }
             }
-            SizeFrame::Exit(node) => {
-                let sum = children_of.get(&node).map_or(0, |children| {
-                    children.iter().fold(0_usize, |acc, child| {
-                        acc.saturating_add(memo.get(child).copied().unwrap_or(1))
-                    })
-                });
-                memo.insert(node, sum.max(1));
+            Frame::Exit(node) => {
+                on_path.remove(&node);
+                let mut sum_leaves = 0_usize;
+                let mut sum_weight = 0_u64;
+                if let Some(children) = children_of.get(&node) {
+                    for &child in children {
+                        sum_leaves = sum_leaves
+                            .saturating_add(leaves_memo.get(&child).copied().unwrap_or(1));
+                        let edge_w = pair_weight.get(&(node, child)).copied().unwrap_or(0);
+                        let sub_w = weight_memo.get(&child).copied().unwrap_or(0);
+                        sum_weight = sum_weight.saturating_add(edge_w).saturating_add(sub_w);
+                    }
+                }
+                leaves_memo.insert(node, sum_leaves.max(1));
+                weight_memo.insert(node, sum_weight);
             }
         }
     }
-    memo.get(&asn).copied().unwrap_or(1)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn dfs_order(
     asn: u32,
     children_of: &BTreeMap<u32, BTreeSet<u32>>,
-    subtree_size: &BTreeMap<u32, usize>,
+    pair_weight: &BTreeMap<(u32, u32), u64>,
+    subtree_leaves: &BTreeMap<u32, usize>,
+    subtree_weight: &BTreeMap<u32, u64>,
     seen: &mut BTreeSet<u32>,
     ord: &mut BTreeMap<u32, f64>,
     leaf_counter: &mut usize,
@@ -686,19 +1052,37 @@ fn dfs_order(
                     .map(|set| set.iter().copied().collect())
                     .unwrap_or_default();
                 if all.is_empty() {
-                    let val = *leaf_counter as f64;
+                    let val = usize_to_f64(*leaf_counter);
                     *leaf_counter += 1;
                     ord.insert(node, val);
                     continue;
                 }
-                // Sort unvisited children largest-subtree-first and alternate front/back so the
-                // dominant trunk sits in the vertical center while smaller leaves fan out.
-                let mut unvisited: Vec<u32> =
-                    all.iter().copied().filter(|k| !seen.contains(k)).collect();
-                unvisited
-                    .sort_by(|a, b| subtree_size[b].cmp(&subtree_size[a]).then_with(|| a.cmp(b)));
+                // Sort unvisited children by total branch peer weight descending so the dominant
+                // trunk sits in the vertical center while minor backup branches fan out.
+                let mut unvisited: Vec<u32> = Vec::new();
+                for &k in &all {
+                    if !seen.contains(&k) {
+                        unvisited.push(k);
+                    }
+                }
+                unvisited.sort_by(|a, b| {
+                    let wa = pair_weight
+                        .get(&(node, *a))
+                        .copied()
+                        .unwrap_or(0)
+                        .saturating_add(subtree_weight.get(a).copied().unwrap_or(0));
+                    let wb = pair_weight
+                        .get(&(node, *b))
+                        .copied()
+                        .unwrap_or(0)
+                        .saturating_add(subtree_weight.get(b).copied().unwrap_or(0));
+                    wb.cmp(&wa)
+                        .then_with(|| subtree_leaves[b].cmp(&subtree_leaves[a]))
+                        .then_with(|| a.cmp(b))
+                });
                 let mut centered_dq: VecDeque<u32> = VecDeque::with_capacity(unvisited.len());
-                for (idx, child) in unvisited.into_iter().enumerate() {
+                let indexed_unvisited = unvisited.iter().copied().enumerate();
+                for (idx, child) in indexed_unvisited {
                     if idx % 2 == 1 {
                         centered_dq.push_back(child);
                     } else {
@@ -711,9 +1095,10 @@ fn dfs_order(
                     all,
                     centered: centered.clone(),
                 });
-                let rev_centered = centered.iter().rev();
-                for &child in rev_centered {
-                    stack.push(DfsFrame::Enter(child));
+                let mut idx = centered.len();
+                while idx > 0 {
+                    idx -= 1;
+                    stack.push(DfsFrame::Enter(centered[idx]));
                 }
             }
             DfsFrame::Exit {
@@ -733,12 +1118,12 @@ fn dfs_order(
                     }
                 }
                 let mean = if values.is_empty() {
-                    let v = *leaf_counter as f64;
+                    let v = usize_to_f64(*leaf_counter);
                     *leaf_counter += 1;
                     v
                 } else {
                     let sum: f64 = values.iter().sum();
-                    sum / (values.len() as f64)
+                    sum / usize_to_f64(values.len())
                 };
                 ord.insert(node, mean);
             }
@@ -757,6 +1142,11 @@ const SVG_COLG: f64 = 56.0;
 const SVG_ROWG: f64 = 14.0;
 const SVG_HEAD: f64 = 26.0;
 
+#[allow(clippy::cast_precision_loss)]
+const fn usize_to_f64(value: usize) -> f64 {
+    value as f64
+}
+
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 fn f64_to_u32_sat(value: f64) -> u32 {
     if !value.is_finite() || value <= 0.0 {
@@ -768,29 +1158,17 @@ fn f64_to_u32_sat(value: f64) -> u32 {
     }
 }
 
-#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-fn f64_to_usize_sat(value: f64) -> usize {
-    const UPPER_EXCLUSIVE: f64 = 18_446_744_073_709_551_616.0;
-    if !value.is_finite() || value <= 0.0 {
-        0
-    } else if value >= UPPER_EXCLUSIVE {
-        usize::MAX
-    } else {
-        usize::try_from(value as u64).unwrap_or(usize::MAX)
-    }
-}
-
 /// Renders `graph` as a standalone UTF-8 SVG document with baked inline styles, matching the
 /// visual geometry of `peer.as`.
 #[must_use]
 pub fn render_svg(graph: &PositionedGraph) -> String {
     let col_p = SVG_NW + SVG_COLG;
     let row_p = SVG_NH + SVG_ROWG;
-    let cx = |col: usize| SVG_COLG + (col as f64) * col_p + SVG_NW / 2.0;
-    let cy = |row: usize| SVG_HEAD + SVG_ROWG / 2.0 + (row as f64) * row_p + SVG_NH / 2.0;
+    let cx = |col: usize| SVG_COLG + usize_to_f64(col) * col_p + SVG_NW / 2.0;
+    let cy = |slot: f64| SVG_HEAD + SVG_ROWG / 2.0 + slot * row_p + SVG_NH / 2.0;
 
-    let width = ((graph.max_col + 1) as f64) * col_p + SVG_COLG;
-    let height = SVG_HEAD + SVG_ROWG + ((graph.max_row + 1) as f64) * row_p;
+    let width = usize_to_f64(graph.max_col + 1) * col_p + SVG_COLG;
+    let height = SVG_HEAD + SVG_ROWG + (graph.max_slot + 1.0) * row_p;
     let w_int = f64_to_u32_sat(width.round());
     let h_int = f64_to_u32_sat(height.round());
 
@@ -826,14 +1204,28 @@ pub fn render_svg(graph: &PositionedGraph) -> String {
         );
     }
 
-    // Cubic Bezier edges.
+    // Cubic Bezier edges (threading through unobstructed waypoints for multi-column spans).
+    let mut badges: Vec<(f64, f64, usize, bool)> = Vec::new();
     for edge in &graph.edges {
-        let x1 = cx(edge.from_col) + SVG_NW / 2.0;
-        let y1 = cy(edge.from_row);
-        let x2 = cx(edge.to_col) - SVG_NW / 2.0;
-        let y2 = cy(edge.to_row);
-        let mx = (x1 + x2) / 2.0;
-        let my = (y1 + y2) / 2.0;
+        let mut pts: Vec<(f64, f64)> = Vec::with_capacity(edge.waypoints.len() + 2);
+        pts.push((cx(edge.from_col) + SVG_NW / 2.0, cy(edge.from_slot)));
+        for &(wp_col, wp_slot) in &edge.waypoints {
+            pts.push((cx(wp_col), cy(wp_slot)));
+        }
+        pts.push((cx(edge.to_col) - SVG_NW / 2.0, cy(edge.to_slot)));
+
+        let mut path_d = format!("M{:.1},{:.1}", pts[0].0, pts[0].1);
+        let pt_pairs = pts.windows(2);
+        for pair in pt_pairs {
+            let (px1, py1) = pair[0];
+            let (px2, py2) = pair[1];
+            let mx = (px1 + px2) / 2.0;
+            let _ = write!(
+                path_d,
+                " C{mx:.1},{py1:.1} {mx:.1},{py2:.1} {px2:.1},{py2:.1}"
+            );
+        }
+
         let sw = (1.0 + (f64::from(edge.weight) + 1.0).log2() / 2.0).min(4.5);
         let (stroke, opacity) = if edge.is_main {
             ("#38bdf8", "0.9")
@@ -847,26 +1239,47 @@ pub fn render_svg(graph: &PositionedGraph) -> String {
         };
         let _ = writeln!(
             out,
-            "  <path d=\"M{x1:.1},{y1:.1} C{mx:.1},{y1:.1} {mx:.1},{y2:.1} {x2:.1},{y2:.1}\" \
-             fill=\"none\" stroke=\"{stroke}\" stroke-width=\"{sw:.2}\" \
+            "  <path d=\"{path_d}\" fill=\"none\" stroke=\"{stroke}\" stroke-width=\"{sw:.2}\" \
              opacity=\"{opacity}\"{dash}/>"
         );
         if edge.span >= 2 {
-            let ly = my - 5.0;
-            let _ = writeln!(
-                out,
-                "  <text x=\"{mx:.1}\" y=\"{ly:.1}\" fill=\"#94a3b8\" \
-                 font-family=\"ui-monospace,monospace\" font-size=\"10\" font-weight=\"700\" \
-                 text-anchor=\"middle\">&#xD7;{}</text>",
-                edge.span
-            );
+            let mid = pts.len() / 2;
+            let (bx, by) = if pts.len() % 2 == 1 {
+                pts[mid]
+            } else {
+                let (px1, py1) = pts[mid - 1];
+                let (px2, py2) = pts[mid];
+                ((px1 + px2) / 2.0, (py1 + py2) / 2.0)
+            };
+            badges.push((bx, by, edge.span, edge.is_main));
         }
+    }
+
+    // Pill badges for `×N` prepends rendered above edge strokes so lines never strike through text.
+    for (bx, by, span, is_main) in badges {
+        let digits = span.to_string().len();
+        let pill_w = 18.0 + 6.0 * usize_to_f64(digits);
+        let pill_x = bx - pill_w / 2.0;
+        let pill_y = by - 8.0;
+        let b_stroke = if is_main { "#38bdf8" } else { "#475569" };
+        let _ = writeln!(
+            out,
+            "  <rect x=\"{pill_x:.1}\" y=\"{pill_y:.1}\" width=\"{pill_w:.1}\" height=\"16\" \
+             rx=\"4\" fill=\"#0b1220\" stroke=\"{b_stroke}\" stroke-width=\"1\"/>"
+        );
+        let text_y = by + 0.5;
+        let _ = writeln!(
+            out,
+            "  <text x=\"{bx:.1}\" y=\"{text_y:.1}\" fill=\"#cbd5e1\" \
+             font-family=\"ui-monospace,monospace\" font-size=\"10\" font-weight=\"700\" \
+             text-anchor=\"middle\" dominant-baseline=\"middle\">&#xD7;{span}</text>"
+        );
     }
 
     // ASN boxes.
     for b in &graph.boxes {
         let x = cx(b.col);
-        let y = cy(b.row);
+        let y = cy(b.y_slot);
         let rx = x - SVG_NW / 2.0;
         let ry = y - SVG_NH / 2.0;
         let (fill, stroke, sw, asn_fill) = if b.is_origin {
@@ -878,7 +1291,7 @@ pub fn render_svg(graph: &PositionedGraph) -> String {
         };
         let star = if b.is_tier1 { " &#x2605;" } else { "" };
         let clean_name = strip_disallowed_xml_chars(&b.name);
-        let short_name = truncate_chars(clean_name.trim(), 15);
+        let short_name = truncate_display_width(clean_name.trim(), BOX_SUBTITLE_WIDTH);
         let _ = writeln!(out, "  <g>");
         let _ = writeln!(
             out,
@@ -951,7 +1364,7 @@ pub fn render_mermaid(graph: &PositionedGraph) -> String {
         let id = format!("n_{}_{}", b.asn, b.col);
         let star = if b.is_tier1 { " ★" } else { "" };
         let clean_name = strip_disallowed_xml_chars(&b.name);
-        let short = truncate_chars(clean_name.trim(), 16);
+        let short = truncate_display_width(clean_name.trim(), BOX_SUBTITLE_WIDTH);
         let label = if short.is_empty() {
             format!("AS{}{star}", b.asn)
         } else {
@@ -980,6 +1393,21 @@ pub fn render_mermaid(graph: &PositionedGraph) -> String {
             let _ = writeln!(out, "  {src} ==> {dst}");
         } else {
             let _ = writeln!(out, "  {src} --> {dst}");
+        }
+    }
+
+    let indexed_links = graph.edges.iter().enumerate();
+    for (link_idx, edge) in indexed_links {
+        if edge.is_main {
+            let _ = writeln!(
+                out,
+                "  linkStyle {link_idx} stroke:#38bdf8,stroke-width:2.8px"
+            );
+        } else {
+            let _ = writeln!(
+                out,
+                "  linkStyle {link_idx} stroke:#64748b,stroke-width:1.5px,opacity:0.65"
+            );
         }
     }
 
@@ -1070,8 +1498,31 @@ fn is_disallowed_xml_char(c: char) -> bool {
         )
 }
 
-fn truncate_chars(text: &str, max_chars: usize) -> String {
-    text.chars().take(max_chars).collect()
+const fn char_display_width(ch: char) -> usize {
+    if ch > '\u{2e7f}' { 2 } else { 1 }
+}
+
+fn truncate_display_width(text: &str, max_width: usize) -> String {
+    let mut total = 0_usize;
+    for ch in text.chars() {
+        total += char_display_width(ch);
+    }
+    if total <= max_width {
+        return text.to_owned();
+    }
+    let limit = max_width.saturating_sub(1);
+    let mut out = String::new();
+    let mut used = 0_usize;
+    for ch in text.chars() {
+        let w = char_display_width(ch);
+        if used + w > limit {
+            break;
+        }
+        out.push(ch);
+        used += w;
+    }
+    let trimmed = out.trim_end_matches([' ', '-', '·', '.', ',']);
+    format!("{trimmed}…")
 }
 
 #[cfg(test)]
@@ -1194,11 +1645,14 @@ mod tests {
         };
         let graph = layout(&rep, None).expect("layout succeeds");
         assert!(
-            graph
-                .edges
-                .iter()
-                .any(|e| e.from_asn == 6939 && e.to_asn == 1299 && e.span == 2),
-            "Tier-1 origin self-prepend must preserve upstream edge and ×2 badge"
+            graph.edges.iter().any(|e| {
+                e.from_asn == 6939
+                    && e.from_col == 0
+                    && e.to_asn == 1299
+                    && e.to_col == 2
+                    && e.span == 2
+            }),
+            "Tier-1 origin self-prepend must place upstream at col 2 with ×2 badge"
         );
         let svg = render_svg(&graph);
         assert!(svg.contains("HurricaneEvil"));
