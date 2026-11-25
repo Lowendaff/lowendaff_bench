@@ -571,10 +571,12 @@ pub trait MediaWords {
     fn media_group(&self, code: &str) -> &'static str;
     /// Headers of a regional table (`Service`, `IPv4`, `IPv6`).
     fn media_headers(&self) -> [&'static str; 3];
-    /// Cell text for an unlocked service, optionally in `region`.
-    fn media_yes(&self, region: Option<&str>) -> String;
-    /// Cell text when only originals are available, optionally in `region`.
-    fn media_originals(&self, region: Option<&str>) -> String;
+    /// Cell text for an unlocked service, optionally in `region` and with `unlock` (`"native"` or
+    /// `"dns"`).
+    fn media_yes(&self, region: Option<&str>, unlock: Option<&str>) -> String;
+    /// Cell text when only originals are available, optionally in `region` and with `unlock`
+    /// (`"native"` or `"dns"`).
+    fn media_originals(&self, region: Option<&str>, unlock: Option<&str>) -> String;
     /// Cell text for a non-unlocked outcome.
     fn media_cell(&self, cell: MediaCell, ipv6: bool) -> &'static str;
     /// Note below a regional table for an unexpected HTTP or parse error.
@@ -649,8 +651,14 @@ pub enum IpField {
     Registry,
     /// Native vs broadcast origin.
     Origin,
-    /// Network usage classification.
-    UsageType,
+    /// Operational city and region/state.
+    Location,
+    /// Operational IANA timezone.
+    Timezone,
+    /// Autonomous System / network operator usage classification.
+    AsnType,
+    /// IP block owner / company usage classification (with dual-ISP tag when applicable).
+    CompanyType,
     /// Operational GeoIP consensus.
     GeoIp,
 }
@@ -686,6 +694,8 @@ pub trait IpWords {
     fn ip_broadcast(&self, registered: &str, located: &str) -> String;
     /// Usage classification word.
     fn ip_usage(&self, code: &str) -> &'static str;
+    /// Dual-ISP cell (`residential (dual ISP)`).
+    fn ip_dual_isp(&self, usage: &str) -> String;
     /// Qualitative risk level word (`low`, `medium`, `high`, `very high`).
     fn ip_risk_level(&self, code: &str) -> &'static str;
     /// Numeric score cell (`12/100 (low)`).

@@ -161,13 +161,11 @@ pub fn parse(response: &HttpResponse) -> Result<ProviderData, ProviderFailure> {
     Ok(ProviderData {
         asn,
         org,
-        hostname: None,
-        rir: None,
-        registered_country: None,
         geo_country,
-        usage,
+        asn_usage: usage,
         score,
         flags,
+        ..ProviderData::default()
     })
 }
 

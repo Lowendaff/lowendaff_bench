@@ -28,6 +28,8 @@ use super::result::Origin;
 use super::result::Output;
 use super::result::RiskFactor;
 use super::result::Settings;
+use super::result::UsageSource;
+use super::result::UsageType;
 
 /// Validated runtime endpoints passed into [`measure`].
 #[derive(Debug, Clone, Default)]
@@ -234,11 +236,50 @@ pub fn aggregate(
     let registered_country = ["ripestat", "ipapi"]
         .iter()
         .find_map(|id| find_ok(id).and_then(|d| d.registered_country.clone()));
-    let usage = ["ipapi", "proxycheck", "shodan"]
+    let asn_usage = ["ipapi", "proxycheck", "shodan"]
         .iter()
-        .find_map(|id| find_ok(id).and_then(|d| d.usage));
+        .find_map(|id| find_ok(id).and_then(|d| d.asn_usage));
+    let company_usage = find_ok("ipapi").and_then(|d| d.company_usage);
+    let usage = company_usage.or(asn_usage);
+    let dual_isp = match (asn_usage, company_usage) {
+        (Some(asn_t), Some(comp_t)) => {
+            Some(asn_t == UsageType::Residential && comp_t == UsageType::Residential)
+        }
+        _ => None,
+    };
+    let mut usage_sources = Vec::new();
+    for id in ["ipapi", "proxycheck", "shodan"] {
+        if let Some((spec, Ok(data))) = intel.iter().find(|(s, _)| s.id == id)
+            && (data.asn_usage.is_some() || data.company_usage.is_some())
+        {
+            usage_sources.push(UsageSource {
+                source: spec.name,
+                asn_usage: data.asn_usage,
+                company_usage: data.company_usage,
+            });
+        }
+    }
 
     let (geo_country, geo_votes, geo_total) = tally_geo(intel);
+    let matches_consensus = |data: &ProviderData| -> bool {
+        match (&geo_country, &data.geo_country) {
+            (Some(want), Some(got)) => want == got,
+            (None, _) => true,
+            (Some(_), None) => false,
+        }
+    };
+    let (city, region) = ["ipinfo", "ipapi", "ipwhois", "dbip"]
+        .iter()
+        .filter_map(|id| find_ok(id))
+        .filter(|d| matches_consensus(d) && (d.city.is_some() || d.region.is_some()))
+        .map(|d| (d.city.clone(), d.region.clone()))
+        .next()
+        .unwrap_or((None, None));
+    let timezone = ["ipinfo", "ipapi", "ipwhois"]
+        .iter()
+        .filter_map(|id| find_ok(id))
+        .filter(|d| matches_consensus(d))
+        .find_map(|d| d.timezone.clone());
     let origin = match (&registered_country, &geo_country) {
         (Some(reg), Some(geo)) if reg == geo => Origin::Native {
             country: geo.clone(),
@@ -318,7 +359,14 @@ pub fn aggregate(
         geo_votes,
         geo_total,
         origin,
+        city,
+        region,
+        timezone,
         usage,
+        asn_usage,
+        company_usage,
+        dual_isp,
+        usage_sources,
         scores,
         factors,
         dnsbl,

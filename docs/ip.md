@@ -19,10 +19,10 @@
 
 1. **9 源网络身份聚合与“原生 vs 广播 IP”判定**：
    - 并发查询 9 个免 API Key 权威数据源：`Scamalytics`、`ProxyCheck`、`ipapi.is`、`GreyNoise`、`Shodan`（InternetDB）、`RIPEstat`、`IPinfo`、`DB-IP` 与 `IPWHOIS`。
-   - **RIR 注册地 vs GeoIP 共识地**：从官方 RIR WHOIS 数据源（`RIPEstat` 与 `ipapi.is`）提取 IP 段注册国家码，同时统计 5 个 GeoIP 库返回的实际运营国家投票分布（如 `US (5/5)` 或 `HK (4/5), US (1/5)`）：
+   - **RIR 注册地 vs GeoIP 共识地与细粒度地理画像**：从官方 RIR WHOIS 数据源（`RIPEstat` 与 `ipapi.is`）提取 IP 段注册国家码，同时统计 5 个 GeoIP 库返回的实际运营国家投票分布（如 `US (5/5)` 或 `HK (4/5), US (1/5)`），并从与共识国家一致的数据源提取**所在城市/州省（`Location`）与 IANA 时区（`Timezone`）**：
      - 若 RIR 注册国与 GeoIP 多数派共识国一致，判定为 **原生 IP（`native`）**；
      - 若二者不一致（例如 ARIN 美籍注册段在香港机房宣告广播使用），判定为 **广播 IP（`broadcast`）** 并同时列出注册国与落地国。
-   - **使用类型分类**：综合多源分类归一为住宅宽带（`residential`）、机房托管（`hosting`）、企业专线（`business`）、移动蜂窝（`mobile`）、教育科研（`education`）、政府机构（`government`）或 CDN（`cdn`）。
+   - **双 ISP 识别（`ASN type` vs `Company type`）与多源类型对照**：分别解析自治系统运营商类型（`ASN type`）与 IP 段持有机构类型（`Company type`），归一为家庭宽带（`residential`）、机房托管（`hosting`）、企业专线（`business`）、蜂窝移动网络（`mobile`）、教育科研网（`education`）、政府机构（`government`）或 CDN（`cdn`）。当 `ASN type` 与 `Company type` 同为家庭宽带时，自动标注 **`dual ISP`（双 ISP）**，若不同数据源对 `ASN type` 存在分歧亦一并列出。
 
 2. **多源欺诈评分、威胁情报与 7 类风险因子投票**：
    - **欺诈与安全评分表**：并列展示 IPv4 / IPv6 在 `Scamalytics`（`0-100` 欺诈分）、`ProxyCheck`（`0-100` 风险分）、`ipapi.is`（滥用比率与风险等级）、`GreyNoise`（近 90 天公网扫描行为噪音分类与 RIOT 良性服务标记）以及 `Shodan`（历史暴露开放端口数、关联 CVE 漏洞数与威胁标签）的结果。
@@ -58,9 +58,9 @@ sudo ./lowendaff-bench --only ip.quality --no-mail
 1. **五大区域分组、68 个平台双栈直连检测**：
    - 平台名录按地理区域划分为五组：`global`（12）、`asia`（24）、`europe`（14）、`americas`（10）与 `oceania`（8），共 68 项；各组名录与平台 ID 定义见 [`plugins/ip/src/media/platforms/mod.rs`](../plugins/ip/src/media/platforms/mod.rs)。
    - 每个区域内部以最多 **10 个平台并发** 推进，每完成一个大洲分组立即向编排器发布阶段性结果；每个平台均分别绑定 IPv4 客户端与 IPv6 客户端独立探测（默认携带 `Accept-Encoding: gzip` 并在内存上限内透明解压），针对 SPA 平台优先调用官方匿名设备令牌、GraphQL 地区会话、Cloudflare `cdn-cgi/trace` 或免登直播/VOD 授权接口，互不串栈。
-2. **精细化解锁状态分类**：
-   - `yes (XX)` / `yes`：完整解锁非自制版权内容，并在平台给出时附带两位地区代码（如 `yes (JP)`、`yes (US)`）。
-   - `originals only (XX)`：如 Netflix 仅可观看自制剧集（非自制剧测试片源受限）。
+2. **精细化解锁状态与“原生直连 vs DNS 解锁”取证**：
+   - `yes (XX, native)` / `yes (XX, DNS)`：完整解锁非自制版权内容，附带两位地区代码（如 `JP`、`US`）及解锁方式——通过对比本机 `/etc/hosts`、不存在子域名通配解析（`SmartDNS` / `dnsmasq` 规则）、公共基线递归 DNS 的 `CNAME` 别名链剥离特征及跨平台 SNI 代理网段汇聚特征，自动识别该平台是由本机出口 IP **原生直连解锁（`native`）** 还是经由商家内建 **DNS 劫持代理（`DNS`）** 解锁。
+   - `originals only (XX, native)` / `originals only (XX, DNS)`：如 Netflix 仅可观看自制剧集（非自制剧测试片源受限）。
    - `no` / `no (CN)` / `no (coming soon)` / `no (proxy detected)`：平台明确不可用（含 Akamai EdgeScape 标准 `403 Access Denied` 地域封锁）、中国大陆限制、即将上线或被平台识别为代理/机房节点。
    - `blocked (WAF)`：平台返回 Cloudflare Turnstile、DataDome、Akamai Bot Manager（`sec-cpt-if`）等人机验证或 WAF 质询，探针不尝试绕过。
    - `rate limited`：触发 `HTTP 429` 频率限制。

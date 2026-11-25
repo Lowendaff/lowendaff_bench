@@ -6,12 +6,12 @@ expression: shown
   HTTPS probes, direct (no proxy); groups global, asia
   Note                no streaming service in the catalog for mystery-tv
   Global
-    Service          IPv4           IPv6
-    Netflix          yes (US)       originals only (US)
-    YouTube Premium  yes (US)       no (CN)
-    Disney+          blocked (WAF)  rate limited
+    Service          IPv4              IPv6
+    Netflix          yes (US, native)  originals only (US, DNS)
+    YouTube Premium  yes (US)          no (CN)
+    Disney+          blocked (WAF)     rate limited
   Asia
-    Service   IPv4         IPv6
-    Bilibili  yes (HK/MO)  no IPv6 address
-    Abema     timed out    error
+    Service   IPv4              IPv6
+    Bilibili  yes (HK/MO, DNS)  no IPv6 address
+    Abema     timed out         error
     Note                Abema over IPv6: HTTP 503

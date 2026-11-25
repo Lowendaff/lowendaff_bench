@@ -31,8 +31,16 @@ pub struct ProviderData {
     pub registered_country: Option<String>,
     /// Operational GeoIP country code.
     pub geo_country: Option<String>,
-    /// Network usage classification.
-    pub usage: Option<UsageType>,
+    /// Operational GeoIP city name.
+    pub city: Option<String>,
+    /// Operational GeoIP region, state, or province name.
+    pub region: Option<String>,
+    /// Operational IANA timezone identifier (such as `Asia/Tokyo`).
+    pub timezone: Option<String>,
+    /// Autonomous System / network operator usage classification.
+    pub asn_usage: Option<UsageType>,
+    /// Address-block owner / company usage classification.
+    pub company_usage: Option<UsageType>,
     /// Provider's risk score or telemetry verdict, when the provider supplies one.
     pub score: Option<ScoreVerdict>,
     /// Explicit boolean risk-factor observations reported by this provider.
@@ -321,4 +329,42 @@ pub fn extract_between<'a>(haystack: &'a str, prefix: &str, suffix: &str) -> Opt
 pub fn clean_text(raw: &str) -> Option<String> {
     let trimmed = raw.trim();
     (!trimmed.is_empty()).then(|| trimmed.to_owned())
+}
+
+/// Cleans a city or region/subdivision name, rejecting placeholder tokens (`null`, `none`, `n/a`,
+/// `unknown`, `-`).
+#[must_use]
+pub fn clean_place(raw: &str) -> Option<String> {
+    let cleaned = clean_text(raw)?;
+    if cleaned.chars().any(char::is_control) {
+        return None;
+    }
+    let lower = cleaned.to_ascii_lowercase();
+    if matches!(
+        lower.as_str(),
+        "null" | "none" | "n/a" | "na" | "unknown" | "-" | "?"
+    ) {
+        return None;
+    }
+    Some(cleaned)
+}
+
+/// Cleans an IANA timezone identifier (`UTC` or `Area/Location`), rejecting placeholders and
+/// whitespace.
+#[must_use]
+pub fn clean_timezone(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty()
+        || trimmed.len() > 64
+        || !trimmed
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'/' | b'_' | b'-' | b'+'))
+    {
+        return None;
+    }
+    if trimmed.eq_ignore_ascii_case("utc") || trimmed.eq_ignore_ascii_case("gmt") {
+        return Some(trimmed.to_ascii_uppercase());
+    }
+    let (area, loc) = trimmed.split_once('/')?;
+    (!area.is_empty() && !loc.is_empty()).then(|| trimmed.to_owned())
 }

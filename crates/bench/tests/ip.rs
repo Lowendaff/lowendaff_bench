@@ -30,6 +30,7 @@ use plugin_ip::quality::RiskFactor;
 use plugin_ip::quality::RiskLevel;
 use plugin_ip::quality::ScoreVerdict;
 use plugin_ip::quality::Settings;
+use plugin_ip::quality::UsageSource;
 use plugin_ip::quality::UsageType;
 
 fn run(status: Status, output: Option<Output>, stop: Option<Stop<Failure>>) -> Run<Measured> {
@@ -116,7 +117,18 @@ fn sample_output() -> Output {
         origin: Origin::Native {
             country: "SG".to_owned(),
         },
-        usage: Some(UsageType::Hosting),
+        city: Some("Singapore".to_owned()),
+        region: Some("Singapore".to_owned()),
+        timezone: Some("Asia/Singapore".to_owned()),
+        usage: Some(UsageType::Residential),
+        asn_usage: Some(UsageType::Residential),
+        company_usage: Some(UsageType::Residential),
+        dual_isp: Some(true),
+        usage_sources: vec![UsageSource {
+            source: "ipapi.is",
+            asn_usage: Some(UsageType::Residential),
+            company_usage: Some(UsageType::Residential),
+        }],
         scores: vec![
             (
                 "Scamalytics",
@@ -202,7 +214,25 @@ fn sample_output() -> Output {
             registered: "US".to_owned(),
             located: "SG".to_owned(),
         },
+        city: Some("Singapore".to_owned()),
+        region: Some("Central".to_owned()),
+        timezone: Some("Asia/Singapore".to_owned()),
         usage: Some(UsageType::Hosting),
+        asn_usage: Some(UsageType::Residential),
+        company_usage: Some(UsageType::Hosting),
+        dual_isp: Some(false),
+        usage_sources: vec![
+            UsageSource {
+                source: "ipapi.is",
+                asn_usage: Some(UsageType::Residential),
+                company_usage: Some(UsageType::Hosting),
+            },
+            UsageSource {
+                source: "ProxyCheck",
+                asn_usage: Some(UsageType::Hosting),
+                company_usage: None,
+            },
+        ],
         scores: vec![
             ("Scamalytics", ScoreVerdict::BlockedWaf),
             (
@@ -370,6 +400,8 @@ fn ip_quality_and_ip_media_share_one_ip_section() {
                     group: Group::Global,
                     ipv4: Some(Verdict::yes_in("SG")),
                     ipv6: Some(Verdict::yes_in("SG")),
+                    ipv4_unlock: None,
+                    ipv6_unlock: None,
                 }],
             }),
             stop: None,

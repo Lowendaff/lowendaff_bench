@@ -1135,17 +1135,31 @@ impl MediaWords for English {
         ["Service", "IPv4", "IPv6"]
     }
 
-    fn media_yes(&self, region: Option<&str>) -> String {
-        match region {
-            Some(region) => format!("yes ({region})"),
-            None => "yes".to_owned(),
+    fn media_yes(&self, region: Option<&str>, unlock: Option<&str>) -> String {
+        let mode = match unlock {
+            Some("native") => Some("native"),
+            Some("dns") => Some("DNS"),
+            _ => None,
+        };
+        match (region, mode) {
+            (Some(reg), Some(how)) => format!("yes ({reg}, {how})"),
+            (Some(reg), None) => format!("yes ({reg})"),
+            (None, Some(how)) => format!("yes ({how})"),
+            (None, None) => "yes".to_owned(),
         }
     }
 
-    fn media_originals(&self, region: Option<&str>) -> String {
-        match region {
-            Some(region) => format!("originals only ({region})"),
-            None => "originals only".to_owned(),
+    fn media_originals(&self, region: Option<&str>, unlock: Option<&str>) -> String {
+        let mode = match unlock {
+            Some("native") => Some("native"),
+            Some("dns") => Some("DNS"),
+            _ => None,
+        };
+        match (region, mode) {
+            (Some(reg), Some(how)) => format!("originals only ({reg}, {how})"),
+            (Some(reg), None) => format!("originals only ({reg})"),
+            (None, Some(how)) => format!("originals only ({how})"),
+            (None, None) => "originals only".to_owned(),
         }
     }
 
@@ -1252,7 +1266,10 @@ impl IpWords for English {
             IpField::Organization => "Organization",
             IpField::Registry => "Registry",
             IpField::Origin => "Origin",
-            IpField::UsageType => "Usage type",
+            IpField::Location => "Location",
+            IpField::Timezone => "Timezone",
+            IpField::AsnType => "ASN type",
+            IpField::CompanyType => "Company type",
             IpField::GeoIp => "GeoIP",
         }
     }
@@ -1276,6 +1293,10 @@ impl IpWords for English {
             "cdn" => "CDN",
             _ => "unknown",
         }
+    }
+
+    fn ip_dual_isp(&self, usage: &str) -> String {
+        format!("{usage} (dual ISP)")
     }
 
     fn ip_risk_level(&self, code: &str) -> &'static str {

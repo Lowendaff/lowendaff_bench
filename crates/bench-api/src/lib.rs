@@ -716,6 +716,18 @@ pub enum DnsAnswer {
     Addresses(Vec<Ipv4Addr>),
 }
 
+/// Answer of a DNS `A` (`IpFamily::Ipv4`) or `AAAA` (`IpFamily::Ipv6`) lookup, including `CNAME`
+/// alias presence and `/etc/hosts` static-override attribution.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct DnsRecords {
+    /// Resolved `A` or `AAAA` addresses in wire order (empty on `NXDOMAIN` or `NODATA`).
+    pub addresses: Vec<IpAddr>,
+    /// Whether the DNS response Answer section carried at least one `CNAME` record (`TYPE=5`).
+    pub has_cname: bool,
+    /// Whether the answer came from a local `/etc/hosts` entry rather than DNS.
+    pub from_hosts: bool,
+}
+
 /// Initial greeting reply returned by an SMTP server on port 25.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct SmtpBanner {
@@ -932,6 +944,22 @@ pub trait NetClient: Send + Sync {
         server: Option<SocketAddr>,
         timeout: Duration,
     ) -> NetFuture<'a, DnsAnswer>;
+
+    /// Queries `A` (`IpFamily::Ipv4`) or `AAAA` (`IpFamily::Ipv6`) records for `qname`, using
+    /// `server` when set or the host's configured resolvers (including `/etc/hosts`).
+    fn dns_lookup<'a>(
+        &'a self,
+        _family: IpFamily,
+        _qname: &'a str,
+        _server: Option<SocketAddr>,
+        _timeout: Duration,
+    ) -> NetFuture<'a, DnsRecords> {
+        Box::pin(async {
+            Err(NetError::Transport(
+                "no network client configured".to_owned(),
+            ))
+        })
+    }
 
     /// Connects over `family` to `host:port`, reads the initial SMTP reply code, sends `QUIT`
     /// and closes the connection without sending mail.
@@ -1325,6 +1353,25 @@ impl<O: Measurement> Context<O> {
         self
     }
 
+    /// Clones this [`Context`] while wrapping its [`HttpClient`] (for example to record probed
+    /// hostnames within a single task without mutating shared state).
+    #[must_use]
+    pub fn map_http(&self, wrap: impl FnOnce(Arc<dyn HttpClient>) -> Arc<dyn HttpClient>) -> Self {
+        Self {
+            host: Arc::clone(&self.host),
+            tools: Arc::clone(&self.tools),
+            failed_tools: Arc::clone(&self.failed_tools),
+            files: Arc::clone(&self.files),
+            http: wrap(Arc::clone(&self.http)),
+            net: Arc::clone(&self.net),
+            cancel: self.cancel.clone(),
+            deadline: self.deadline,
+            work_dir: self.work_dir.clone(),
+            progress: self.progress.clone(),
+            published: self.published.clone(),
+        }
+    }
+
     /// Attaches the DNS and SMTP socket client used by [`Self::dns_a`] and [`Self::smtp_banner`].
     #[must_use]
     pub fn with_net(mut self, net: Arc<dyn NetClient>) -> Self {
@@ -1358,6 +1405,25 @@ impl<O: Measurement> Context<O> {
             biased;
             () = self.cancel.cancelled() => Err(NetError::Cancelled),
             outcome = self.net.dns_a(qname, server, timeout) => outcome,
+        }
+    }
+
+    /// Queries `A` (`IpFamily::Ipv4`) or `AAAA` (`IpFamily::Ipv6`) records for `qname`, stopping
+    /// early when [`Self::cancel_token`] fires.
+    pub async fn dns_lookup(
+        &self,
+        family: IpFamily,
+        qname: &str,
+        server: Option<SocketAddr>,
+        timeout: Duration,
+    ) -> Result<DnsRecords, NetError> {
+        if self.cancel.is_cancelled() {
+            return Err(NetError::Cancelled);
+        }
+        tokio::select! {
+            biased;
+            () = self.cancel.cancelled() => Err(NetError::Cancelled),
+            outcome = self.net.dns_lookup(family, qname, server, timeout) => outcome,
         }
     }
 

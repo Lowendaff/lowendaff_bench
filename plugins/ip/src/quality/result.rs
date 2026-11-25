@@ -193,6 +193,17 @@ pub struct GeoVote {
     pub count: usize,
 }
 
+/// Network and/or company usage classification reported by one intelligence provider.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct UsageSource {
+    /// Display name of the intelligence provider, such as `ipapi.is` or `ProxyCheck`.
+    pub source: &'static str,
+    /// Network or ASN operator classification reported by this provider.
+    pub asn_usage: Option<UsageType>,
+    /// IP block owner or company classification reported by this provider.
+    pub company_usage: Option<UsageType>,
+}
+
 /// Aggregated DNSBL blacklist scan result for one IP address.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct DnsblSummary {
@@ -253,8 +264,22 @@ pub struct FamilyReport {
     pub geo_total: usize,
     /// Native vs broadcast classification.
     pub origin: Origin,
-    /// Primary network usage classification.
+    /// City reported by a GeoIP source matching the consensus country.
+    pub city: Option<String>,
+    /// Region, state or province reported by a GeoIP source matching the consensus country.
+    pub region: Option<String>,
+    /// IANA timezone identifier (such as `Asia/Tokyo`) matching the consensus country.
+    pub timezone: Option<String>,
+    /// Primary network usage classification (`company_usage` falling back to `asn_usage`).
     pub usage: Option<UsageType>,
+    /// Autonomous System / network operator usage classification.
+    pub asn_usage: Option<UsageType>,
+    /// Address-block owner / company usage classification.
+    pub company_usage: Option<UsageType>,
+    /// Whether both `asn_usage` and `company_usage` are known residential ISPs (`Some(true)`).
+    pub dual_isp: Option<bool>,
+    /// Per-provider usage classifications in roster order.
+    pub usage_sources: Vec<UsageSource>,
     /// Per-source risk scores and telemetry verdicts.
     pub scores: Vec<(&'static str, ScoreVerdict)>,
     /// Aggregated risk factors in [`RiskFactor::ALL`] order.

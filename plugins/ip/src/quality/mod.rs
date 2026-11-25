@@ -35,6 +35,7 @@ pub use result::RiskFactor;
 pub use result::RiskLevel;
 pub use result::ScoreVerdict;
 pub use result::Settings;
+pub use result::UsageSource;
 pub use result::UsageType;
 
 /// IP reputation plugin, configured from `[plugins."ip.quality"]`.

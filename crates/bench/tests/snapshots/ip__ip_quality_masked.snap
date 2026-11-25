@@ -5,14 +5,17 @@ expression: masked
 [IP]
   Direct checks (no proxy): 9 intelligence sources, DNSBLs, port-25 mail
   Summary
-    Field         IPv4              IPv6
-    Address       198.51.*.*        2001:db8:*
-    ASN           AS13335           AS13335
-    Organization  Cloudflare, Inc.  Cloudflare, Inc.
-    Registry      APNIC (SG)        ARIN (US)
-    Origin        native (SG)       broadcast (US -> SG)
-    Usage type    hosting           hosting
-    GeoIP         SG (5/5)          SG (4/5), US (1/5)
+    Field         IPv4                    IPv6
+    Address       198.51.*.*              2001:db8:*
+    ASN           AS13335                 AS13335
+    Organization  Cloudflare, Inc.        Cloudflare, Inc.
+    Registry      APNIC (SG)              ARIN (US)
+    Origin        native (SG)             broadcast (US -> SG)
+    Location      Singapore               Singapore, Central
+    Timezone      Asia/Singapore          Asia/Singapore
+    ASN type      residential             residential (ProxyCheck: hosting)
+    Company type  residential (dual ISP)  hosting
+    GeoIP         SG (5/5)                SG (4/5), US (1/5)
   Risk scores
     Source       IPv4                       IPv6
     Scamalytics  12/100 (low)               blocked (WAF)

@@ -105,24 +105,35 @@ pub fn parse(response: &HttpResponse) -> Result<ProviderData, ProviderFailure> {
         .pointer("/location/country_code")
         .and_then(Value::as_str)
         .and_then(parse::country_code);
+    let city = val
+        .pointer("/location/city")
+        .and_then(Value::as_str)
+        .and_then(parse::clean_place);
+    let region = val
+        .pointer("/location/state")
+        .and_then(Value::as_str)
+        .and_then(parse::clean_place);
+    let timezone = val
+        .pointer("/location/timezone")
+        .and_then(Value::as_str)
+        .and_then(parse::clean_timezone);
 
-    let mut usage = company_obj
+    let company_usage = company_obj
         .and_then(|obj| obj.get("type"))
         .and_then(Value::as_str)
-        .and_then(parse::usage_from_str)
-        .or_else(|| {
-            asn_obj
-                .and_then(|obj| obj.get("type"))
-                .and_then(Value::as_str)
-                .and_then(parse::usage_from_str)
-        });
-    if usage.is_none() {
+        .and_then(parse::usage_from_str);
+    let mut asn_usage = asn_obj
+        .and_then(|obj| obj.get("type"))
+        .and_then(Value::as_str)
+        .and_then(parse::usage_from_str);
+    if asn_usage.is_none() && company_usage.is_none() {
         if val.get("is_mobile").and_then(Value::as_bool) == Some(true) {
-            usage = Some(UsageType::Mobile);
+            asn_usage = Some(UsageType::Mobile);
         } else if val.get("is_datacenter").and_then(Value::as_bool) == Some(true) {
-            usage = Some(UsageType::Hosting);
+            asn_usage = Some(UsageType::Hosting);
         }
     }
+    let effective_usage = company_usage.or(asn_usage);
 
     let score = company_obj
         .and_then(|obj| obj.get("abuser_score"))
@@ -149,7 +160,8 @@ pub fn parse(response: &HttpResponse) -> Result<ProviderData, ProviderFailure> {
             flags.push((factor, flag));
         }
     }
-    if !flags.iter().any(|(f, _)| *f == RiskFactor::Datacenter) && usage == Some(UsageType::Hosting)
+    if !flags.iter().any(|(f, _)| *f == RiskFactor::Datacenter)
+        && effective_usage == Some(UsageType::Hosting)
     {
         flags.push((RiskFactor::Datacenter, true));
     }
@@ -161,7 +173,11 @@ pub fn parse(response: &HttpResponse) -> Result<ProviderData, ProviderFailure> {
         rir,
         registered_country,
         geo_country,
-        usage,
+        city,
+        region,
+        timezone,
+        asn_usage,
+        company_usage,
         score,
         flags,
     })

@@ -663,7 +663,14 @@ fn json_format_is_structured_and_respects_show_ip_across_host_trace_and_ip_quali
         origin: Origin::Native {
             country: "AU".to_owned(),
         },
+        city: Some("Sydney".to_owned()),
+        region: Some("New South Wales".to_owned()),
+        timezone: Some("Australia/Sydney".to_owned()),
         usage: None,
+        asn_usage: None,
+        company_usage: None,
+        dual_isp: None,
+        usage_sources: Vec::new(),
         scores: vec![(
             "Scamalytics",
             plugin_ip::quality::ScoreVerdict::Unexpected(
@@ -1560,7 +1567,14 @@ fn ip_quality_notes_redact_own_and_prefix_overlapping_ips_across_all_formats() {
         origin: Origin::Native {
             country: "AU".to_owned(),
         },
+        city: Some("Sydney".to_owned()),
+        region: Some("New South Wales".to_owned()),
+        timezone: Some("Australia/Sydney".to_owned()),
         usage: None,
+        asn_usage: None,
+        company_usage: None,
+        dual_isp: None,
+        usage_sources: Vec::new(),
         scores: vec![(
             "Scamalytics",
             plugin_ip::quality::ScoreVerdict::Unexpected(leak_detail.to_owned()),
