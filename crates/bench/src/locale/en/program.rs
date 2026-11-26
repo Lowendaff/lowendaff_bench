@@ -141,6 +141,20 @@ impl ProgramWords for English {
         format!("invalid --inetspeed-endpoint `{raw}`: expected an IPv4 or IPv6 address")
     }
 
+    fn help_tcping_groups(&self) -> String {
+        "Target groups for network.tcping: comma-separated china, china-premium, global, or all"
+            .to_owned()
+    }
+
+    fn help_tcping_all(&self) -> String {
+        "Expand network.tcping to all 31 mainland China provinces and secondary global hubs"
+            .to_owned()
+    }
+
+    fn help_tcping_count(&self) -> String {
+        "TCP handshake probes per target in network.tcping (5 to 50, default 10)".to_owned()
+    }
+
     fn help_trace_groups(&self) -> String {
         "Target groups for network.trace: comma-separated services, china, international, or all"
             .to_owned()

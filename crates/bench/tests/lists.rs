@@ -16,6 +16,7 @@ use bench::provision::Part;
 use bench::tui;
 use plugin_network::iperf3;
 use plugin_network::taier;
+use plugin_network::tcping;
 use plugin_network::trace;
 
 const LIVE_SAMPLE: &[u8] = br#"{
@@ -156,4 +157,18 @@ async fn live_bench_data_lists_parse_and_render() {
     let ix_raw = download_list(&fetcher, &git_ref, "netflix-ix.json").await;
     let exchanges = trace::exchanges::parse(&ix_raw).expect("netflix-ix.json parses");
     assert!(!exchanges.is_empty(), "netflix-ix.json has ports");
+
+    let tcping_url = format!(
+        "https://raw.githubusercontent.com/Lowendaff/bench_data/{git_ref}/servers/tcping.json"
+    );
+    if fetcher.open(&tcping_url, None).await.is_ok() {
+        let tcping_raw = download_list(&fetcher, &git_ref, "tcping.json").await;
+        let tcping_targets =
+            tcping::targets::parse_for_source(&tcping_raw, false).expect("tcping.json parses");
+        assert!(!tcping_targets.is_empty(), "tcping.json has targets");
+        assert!(
+            !tcping::targets::choose(&tcping_targets, &[], false).is_empty(),
+            "tcping.json provides default targets"
+        );
+    }
 }

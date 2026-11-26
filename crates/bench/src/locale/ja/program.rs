@@ -136,6 +136,20 @@ impl ProgramWords for Japanese {
         )
     }
 
+    fn help_tcping_groups(&self) -> String {
+        "network.tcping の対象グループ：カンマ区切りの china, china-premium, \
+         global、または all"
+            .to_owned()
+    }
+
+    fn help_tcping_all(&self) -> String {
+        "network.tcping で中国全 31 省キャリアと全てのグローバル拠点を測定する".to_owned()
+    }
+
+    fn help_tcping_count(&self) -> String {
+        "network.tcping の各拠点あたり TCP ハンドシェイク回数（5 〜 50、既定 10）".to_owned()
+    }
+
     fn help_trace_groups(&self) -> String {
         "network.trace の宛先グループ：カンマ区切りの services, china, \
          international、または all"

@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "targets": [
+    {
+      "id": "cn-gd-cm",
+      "group": "china",
+      "region": "Guangdong",
+      "city": "Guangzhou",
+      "name": "Guangzhou Mobile",
+      "operator": "mobile",
+      "asn": 9808,
+      "ipv6": [
+        {
+          "host": "2001:db8::1",
+          "port": 65499
+        }
+      ]
+    }
+  ]
+}

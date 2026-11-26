@@ -131,6 +131,18 @@ impl ProgramWords for TraditionalChinese {
         format!("無效的 --inetspeed-endpoint `{raw}`：應為公網 IPv4 或 IPv6 位址")
     }
 
+    fn help_tcping_groups(&self) -> String {
+        "network.tcping 探測分組：英文逗號分隔的 china, china-premium, global 或 all".to_owned()
+    }
+
+    fn help_tcping_all(&self) -> String {
+        "在 network.tcping 中展開測試全部 31 個中國大陸省份三網與次級全球樞紐".to_owned()
+    }
+
+    fn help_tcping_count(&self) -> String {
+        "network.tcping 單目標 TCP 握手探測次數（5 至 50，預設 10）".to_owned()
+    }
+
     fn help_trace_groups(&self) -> String {
         "network.trace 路由目標分組：英文逗號分隔的 services, china, \
          international 或 all"

@@ -244,6 +244,18 @@ impl TuiWords for TraditionalChinese {
         "固定節點 IP"
     }
 
+    fn tui_field_tcping_group(&self, group: &str) -> String {
+        format!("探測分組：{group}")
+    }
+
+    fn tui_field_tcping_all(&self) -> &'static str {
+        "展開全部 31 省與全球節點"
+    }
+
+    fn tui_field_tcping_count(&self) -> &'static str {
+        "單節點握手探測次數"
+    }
+
     fn tui_field_trace_group(&self, group: &str) -> String {
         format!("路由分組：{group}")
     }
@@ -362,6 +374,10 @@ impl TuiWords for TraditionalChinese {
 
     fn tui_default_inetspeed_note(&self) -> &'static str {
         "透過雙 DoH 優選最佳 mensura.cdn-apple.com 節點並執行單執行緒與多執行緒測速。"
+    }
+
+    fn tui_default_tcping_note(&self) -> &'static str {
+        "預設探測精選三網省會、CN2/9929/CMIN2 精品網與全球核心樞紐（可展開 31 省全量節點）。"
     }
 
     fn tui_default_trace_note(&self) -> &'static str {

@@ -26,6 +26,10 @@ use plugin_network::taier;
 use plugin_network::taier::NodeOutcome;
 use plugin_network::taier::Operator;
 use plugin_network::taier::TestedNode;
+use plugin_network::tcping;
+use plugin_network::tcping::Group as TcpingGroup;
+use plugin_network::tcping::TargetOutcome as TcpingOutcome;
+use plugin_network::tcping::TestedTarget as TcpingTestedTarget;
 use plugin_network::trace;
 use plugin_network::trace::Choice;
 use plugin_network::trace::exchanges;
@@ -58,6 +62,8 @@ use crate::locale::TaierCell;
 use crate::locale::TaierChoice;
 use crate::locale::TaierListProblem;
 use crate::locale::TaierRule;
+use crate::locale::TcpingChoice;
+use crate::locale::TcpingListProblem;
 use crate::locale::TraceChoice;
 use crate::locale::TraceList;
 use crate::locale::TraceListProblem;
@@ -1232,5 +1238,120 @@ pub(super) fn inetspeed_failure(failure: &inetspeed::Failure) -> String {
         inetspeed::Failure::NoFamily => words.no_family(),
         inetspeed::Failure::NoResult => words.inetspeed_no_result(),
         inetspeed::Failure::Cancelled => words.interrupted(),
+    }
+}
+
+/// TCP handshake latency (`network.tcping`): method line, per-`(family, group)` distribution
+/// tables, and notes for unreachable targets.
+pub(super) fn tcping(
+    out: &mut Out,
+    report: &Report<tcping::Output, tcping::Failure>,
+    indent: &str,
+) {
+    let words = locale::words();
+    let Some(output) = &report.output else {
+        return;
+    };
+    let groups: Vec<&'static str> = output.settings.groups.iter().map(|g| g.as_str()).collect();
+    let choice = TcpingChoice {
+        groups,
+        all_targets: output.settings.all_targets,
+        count: output.settings.count,
+    };
+    out.line(&format!("{indent}{}", words.tcping_method(&choice)));
+
+    let headers = words.tcping_headers().map(str::to_owned);
+    for ipv6 in [false, true] {
+        for group in [
+            TcpingGroup::China,
+            TcpingGroup::ChinaPremium,
+            TcpingGroup::Global,
+        ] {
+            let mut rows = Vec::new();
+            for target in &output.targets {
+                if target.ipv6 != ipv6 || target.group != group {
+                    continue;
+                }
+                if let Some(row) = tcping_row(target) {
+                    rows.push(row);
+                }
+            }
+            if rows.is_empty() {
+                continue;
+            }
+            out.heading(indent, &words.tcping_group_heading(group.as_code(), ipv6));
+            out.table_left(&format!("{indent}  "), &headers, &rows);
+        }
+    }
+
+    for target in &output.targets {
+        if let TcpingOutcome::Failed { reason } = &target.outcome {
+            out.field(
+                indent,
+                &words.note(),
+                &words.tcping_target_failed(&target.name, target.ipv6, reason),
+            );
+        }
+    }
+}
+
+fn tcping_row(target: &TcpingTestedTarget) -> Option<Vec<String>> {
+    let words = locale::words();
+    let carrier = words.tcping_carrier_cell(target.operator.as_code(), target.asn);
+    match &target.outcome {
+        TcpingOutcome::Measured(m) => {
+            let avg = m.avg_ms.map_or_else(|| MISSING.to_owned(), digits);
+            let min = m.min_ms.map_or_else(|| MISSING.to_owned(), digits);
+            let p95 = m.p95_ms.map_or_else(|| MISSING.to_owned(), digits);
+            let jit = m.jitter_ms.map_or_else(|| MISSING.to_owned(), format_ms);
+            Some(vec![
+                target.name.clone(),
+                carrier,
+                words.tcping_rtt_cell(&avg, &min, &p95, m.used_backup),
+                jit,
+                words.tcping_loss_cell(m.loss_pct, m.received, m.sent),
+            ])
+        }
+        TcpingOutcome::Loss(m) => Some(vec![
+            target.name.clone(),
+            carrier,
+            words.way_cell(WayCell::TimedOut).to_owned(),
+            MISSING.to_owned(),
+            words.tcping_loss_cell(m.loss_pct, m.received, m.sent),
+        ]),
+        TcpingOutcome::Failed { .. } => None,
+    }
+}
+
+/// Why `network.tcping` stopped short.
+pub(super) fn tcping_failure(failure: &tcping::Failure) -> String {
+    let words = locale::words();
+    match failure {
+        tcping::Failure::MissingList => words.tcping_list_problem(TcpingListProblem::Missing),
+        tcping::Failure::Unreadable(why) => {
+            words.tcping_list_problem(TcpingListProblem::Unreadable(why))
+        }
+        tcping::Failure::TooLarge => {
+            words.tcping_list_problem(TcpingListProblem::TooLarge(tcping::targets::LIMIT))
+        }
+        tcping::Failure::InvalidJson(why) => {
+            words.tcping_list_problem(TcpingListProblem::Format(why))
+        }
+        tcping::Failure::UnsupportedVersion(ver) => {
+            words.tcping_list_problem(TcpingListProblem::Version(*ver))
+        }
+        tcping::Failure::TargetCount(count) => words.tcping_list_problem(TcpingListProblem::Count(
+            *count,
+            tcping::targets::MOST_TARGETS,
+        )),
+        tcping::Failure::InvalidEntry { entry, field } => {
+            words.tcping_list_problem(TcpingListProblem::Rule(*entry, field))
+        }
+        tcping::Failure::DuplicateId(id) => {
+            words.tcping_list_problem(TcpingListProblem::Duplicate(id))
+        }
+        tcping::Failure::NoTargets => words.tcping_no_targets(),
+        tcping::Failure::AllUnreachable => words.tcping_all_unreachable(),
+        tcping::Failure::Interrupted => words.interrupted(),
     }
 }

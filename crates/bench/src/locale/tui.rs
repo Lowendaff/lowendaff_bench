@@ -108,6 +108,12 @@ pub trait TuiWords {
     fn tui_field_inetspeed_latency_count(&self) -> &'static str;
     /// `network.inetspeed` field: pinned endpoint IP override.
     fn tui_field_inetspeed_endpoint(&self) -> &'static str;
+    /// `network.tcping` field: target group toggle.
+    fn tui_field_tcping_group(&self, group: &str) -> String;
+    /// `network.tcping` field: expand to all 31 provinces and secondary global hubs.
+    fn tui_field_tcping_all(&self) -> &'static str;
+    /// `network.tcping` field: TCP handshake probe count (`5..=50`).
+    fn tui_field_tcping_count(&self) -> &'static str;
     /// `network.trace` field: target group toggle.
     fn tui_field_trace_group(&self, group: &str) -> String;
     /// `network.trace` field: specific target IDs.
@@ -168,6 +174,8 @@ pub trait TuiWords {
     fn tui_default_cloudflare_note(&self) -> &'static str;
     /// Note explaining `network.inetspeed` Dual DoH discovery and 1T/NT rounds.
     fn tui_default_inetspeed_note(&self) -> &'static str;
+    /// Note explaining `network.tcping` default targets and `--tcping-all`.
+    fn tui_default_tcping_note(&self) -> &'static str;
     /// Placeholder value when trace groups use default cache + carrier list.
     fn tui_default_trace_note(&self) -> &'static str;
     /// Note explaining `network.bgp` topology SVG upload in `text` mode.

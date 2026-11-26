@@ -150,7 +150,7 @@ fn release_events_and_stray_pastes_are_ignored_while_editor_supports_cursor_and_
 
     // Bracketed paste outside an open editor must not trigger shortcuts like 'j', 'a', or 'q'.
     session.handle_paste("jaq");
-    assert_eq!(session.config.enabled_count(), 15);
+    assert_eq!(session.config.enabled_count(), 16);
     assert_eq!(session.nav_index, 0);
 
     // Open Global -> work_dir editor and exercise cursor movement, Delete, Backspace, and Paste.
@@ -188,8 +188,8 @@ fn defaults_match_standard_cli_and_every_customized_plugin_builds_cleanly() {
     let all = registry::all();
     let mut cfg = TuiConfig::new(&all);
 
-    assert_eq!(cfg.items.len(), 15);
-    assert_eq!(cfg.enabled_count(), 15);
+    assert_eq!(cfg.items.len(), 16);
+    assert_eq!(cfg.enabled_count(), 16);
     assert_eq!(cfg.customized_count(), 0);
     assert!(
         cfg.plugin_settings().is_empty(),
@@ -407,7 +407,7 @@ fn defaults_match_standard_cli_and_every_customized_plugin_builds_cleanly() {
     let planned = cfg
         .build_plan(&all)
         .expect("customized settings must build");
-    assert_eq!(planned.len(), 15);
+    assert_eq!(planned.len(), 16);
     cfg.items[taier_idx].enabled = false;
     cfg.items[taier_idx].reset();
     assert!(cfg.items[taier_idx].enabled);
@@ -535,7 +535,7 @@ fn keyboard_navigation_drives_item_switches_groups_params_and_global_options() {
 
     let _ = session.handle_key(press(KeyCode::Home));
     let _ = session.handle_key(press(KeyCode::Char('d')));
-    assert_eq!(session.config.enabled_count(), 15);
+    assert_eq!(session.config.enabled_count(), 16);
     assert_eq!(
         session.config.global.download_connections,
         app::DOWNLOAD_CONNECTIONS
@@ -570,7 +570,7 @@ fn keyboard_navigation_drives_item_switches_groups_params_and_global_options() {
 
     let planned = session.config.build_plan(&all).unwrap();
     let ids: Vec<&str> = planned.iter().map(Planned::id).collect();
-    assert_eq!(ids.len(), 15);
+    assert_eq!(ids.len(), 16);
 }
 
 #[test]

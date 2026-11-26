@@ -63,6 +63,9 @@ pub use items::TaierListProblem;
 pub use items::TaierRule;
 pub use items::TaierSelectorProblem;
 pub use items::TaierWords;
+pub use items::TcpingChoice;
+pub use items::TcpingListProblem;
+pub use items::TcpingWords;
 pub use items::TraceChoice;
 pub use items::TraceList;
 pub use items::TraceListProblem;
@@ -160,6 +163,7 @@ pub trait Words:
     + TaierWords
     + CloudflareWords
     + InetspeedWords
+    + TcpingWords
     + TraceWords
     + BgpWords
     + IpWords
@@ -182,6 +186,7 @@ impl<T> Words for T where
         + TaierWords
         + CloudflareWords
         + InetspeedWords
+        + TcpingWords
         + TraceWords
         + BgpWords
         + IpWords

@@ -37,6 +37,9 @@ use crate::locale::TaierListProblem;
 use crate::locale::TaierRule;
 use crate::locale::TaierSelectorProblem;
 use crate::locale::TaierWords;
+use crate::locale::TcpingChoice;
+use crate::locale::TcpingListProblem;
+use crate::locale::TcpingWords;
 use crate::locale::TraceChoice;
 use crate::locale::TraceList;
 use crate::locale::TraceListProblem;
@@ -2019,6 +2022,106 @@ impl InetspeedWords for English {
 
     fn inetspeed_no_result(&self) -> String {
         "Apple CDN speed test completed no transfer round".to_owned()
+    }
+}
+
+impl TcpingWords for English {
+    fn tcping_method(&self, choice: &TcpingChoice) -> String {
+        let mut method = format!(
+            "Unprivileged TCP handshake RTT ({} probes/target, 800 ms primary->backup failover)",
+            choice.count
+        );
+        if !choice.groups.is_empty() {
+            method.push_str(&format!("; groups: {}", choice.groups.join(", ")));
+        }
+        if choice.all_targets {
+            method.push_str("; all 31 provinces & hubs");
+        }
+        method
+    }
+
+    fn tcping_group_heading(&self, group: &str, ipv6: bool) -> String {
+        let fam = if ipv6 { "IPv6" } else { "IPv4" };
+        let title = match group {
+            "china" => "Mainland China",
+            "china_premium" => "China Premium (CN2 / 9929 / CMIN2)",
+            "global" => "Global Hubs",
+            other => other,
+        };
+        format!("{title} ({fam})")
+    }
+
+    fn tcping_headers(&self) -> [&'static str; 5] {
+        [
+            "Target",
+            "Carrier / ASN",
+            "Avg / Min / P95",
+            "Jitter",
+            "Loss",
+        ]
+    }
+
+    fn tcping_carrier_cell(&self, operator: &str, asn: u32) -> String {
+        match operator {
+            "telecom" => format!("Telecom AS{asn}"),
+            "unicom" => format!("Unicom AS{asn}"),
+            "mobile" => format!("Mobile AS{asn}"),
+            "cernet" => format!("CERNET AS{asn}"),
+            "cbn" => format!("Broadnet AS{asn}"),
+            _ => format!("AS{asn}"),
+        }
+    }
+
+    fn tcping_rtt_cell(&self, avg: &str, min: &str, p95: &str, used_backup: bool) -> String {
+        if used_backup {
+            format!("{avg} / {min} / {p95} ms [backup]")
+        } else {
+            format!("{avg} / {min} / {p95} ms")
+        }
+    }
+
+    fn tcping_loss_cell(&self, loss_pct: f64, received: u8, sent: u8) -> String {
+        format!("{loss_pct:.1}% ({received}/{sent})")
+    }
+
+    fn tcping_target_failed(&self, name: &str, ipv6: bool, reason: &str) -> String {
+        let fam = if ipv6 { "IPv6" } else { "IPv4" };
+        format!("{name} ({fam}): {reason}")
+    }
+
+    fn tcping_list_problem(&self, problem: TcpingListProblem<'_>) -> String {
+        match problem {
+            TcpingListProblem::Missing => "the TCP latency target list is missing".to_owned(),
+            TcpingListProblem::Unreadable(reason) => {
+                format!("cannot read the TCP latency target list: {reason}")
+            }
+            TcpingListProblem::TooLarge(limit) => {
+                format!("the TCP latency target list exceeds {limit} bytes")
+            }
+            TcpingListProblem::Format(reason) => {
+                format!("the TCP latency target list is invalid JSON: {reason}")
+            }
+            TcpingListProblem::Version(ver) => {
+                format!("unsupported TCP latency target list version {ver}")
+            }
+            TcpingListProblem::Count(count, most) => {
+                format!("the TCP latency target list has {count} targets (expected 1..={most})")
+            }
+            TcpingListProblem::Rule(entry, field) => {
+                format!("target {entry} of the TCP latency target list has an invalid {field}")
+            }
+            TcpingListProblem::Duplicate(id) => {
+                format!("duplicate target id `{id}` in the TCP latency target list")
+            }
+        }
+    }
+
+    fn tcping_no_targets(&self) -> String {
+        "no TCP latency target matches the selected groups and reachable IP families".to_owned()
+    }
+
+    fn tcping_all_unreachable(&self) -> String {
+        "every TCP latency target timed out or was unreachable".to_owned()
     }
 }
 

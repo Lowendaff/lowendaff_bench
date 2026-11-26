@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "targets": [
+    {
+      "id": "cn-bj-ct",
+      "group": "china",
+      "region": "Beijing",
+      "city": "Beijing",
+      "name": "Beijing Telecom",
+      "operator": "telecom",
+      "asn": 4134,
+      "default": true,
+      "ipv4": []
+    }
+  ]
+}

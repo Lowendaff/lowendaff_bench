@@ -106,6 +106,19 @@ impl LogWords for English {
                 (dir, 1) => format!("{dir} (single-thread)"),
                 (dir, n) => format!("{dir} ({n} threads)"),
             },
+            Step::Tcping {
+                group,
+                targets,
+                ipv6,
+            } => {
+                let label = match *group {
+                    "china" => "Mainland China",
+                    "china_premium" => "China Premium",
+                    "global" => "Global Hubs",
+                    other => other,
+                };
+                format!("probing {label} ({targets} targets) over {}", family(*ipv6))
+            }
         };
         format!("{id} {step}")
     }

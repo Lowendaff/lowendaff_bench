@@ -14,6 +14,7 @@ use plugin_network::cloudflare;
 use plugin_network::inetspeed;
 use plugin_network::iperf3;
 use plugin_network::taier;
+use plugin_network::tcping;
 use plugin_network::trace;
 
 /// A plugin's result, complete or as far as it got, and its own reason when it stopped short.
@@ -51,6 +52,8 @@ pub enum Measured {
     NetworkCloudflare(Report<cloudflare::Output, cloudflare::Failure>),
     /// Apple CDN speed (`network.inetspeed`).
     NetworkInetspeed(Report<inetspeed::Output, inetspeed::Failure>),
+    /// TCP handshake latency (`network.tcping`).
+    NetworkTcping(Report<tcping::Output, tcping::Failure>),
     /// Route tracing (`network.trace`).
     NetworkTrace(Report<trace::Output, trace::Failure>),
     /// BGP paths (`network.bgp`).

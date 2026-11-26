@@ -1,9 +1,9 @@
-# 网络吞吐、中国三网、Cloudflare / Apple CDN 测速、路由追踪与 BGP 拓扑
-# （`network.iperf3`、`network.taier`、`network.cloudflare`、`network.inetspeed`、`network.trace`、`network.bgp`）
+# 网络吞吐、中国三网、Cloudflare / Apple CDN 测速、TCP 握手延迟、路由追踪与 BGP 拓扑
+# （`network.iperf3`、`network.taier`、`network.cloudflare`、`network.inetspeed`、`network.tcping`、`network.trace`、`network.bgp`）
 
 [返回文档目录](README.md) | [简体中文首页](../README.zh-CN.md)
 
-网络章节包含六项测试：**`network.iperf3`** 测量本机与全球公网节点之间的双向多线程 TCP 吞吐带宽及往返延迟；**`network.taier`** 基于中国信通院“全球网测（泰尔测速）”协议，使用纯 Rust 原生套接字测量中国大陆三网及教育网/广电节点的双向多线程上下行吞吐带宽；**`network.cloudflare`** 使用纯 Rust 原生客户端双栈测量 `speed.cloudflare.com` 稳态上下行吞吐、空载/负载延迟、Waveform Bufferbloat 与 CV 稳定性评级以及 RFC 5389 STUN UDP 丢包与 MOS 语音质量；**`network.inetspeed`** 使用纯 Rust 原生实现双 DoH 边缘节点优选绑定与 Apple CDN（`mensura.cdn-apple.com`）单线程/多线程上下行吞吐测试；**`network.trace`** 执行逐跳 ICMP 路由追踪，识别去程骨干网线路、运营商 AS、流媒体边缘缓存服务器与互联网交换中心（IX）；**`network.bgp`** 通过全球全表采集点查询本机公网前缀的控制面 BGP `AS_PATH` 传播路径、直连上游占比与 RPKI 路由签名状态，并直接绘制自治域拓扑图。
+网络章节包含七项测试：**`network.iperf3`** 测量本机与全球公网节点之间的双向多线程 TCP 吞吐带宽及往返延迟；**`network.taier`** 基于中国信通院“全球网测（泰尔测速）”协议，使用纯 Rust 原生套接字测量中国大陆三网及教育网/广电节点的双向多线程上下行吞吐带宽；**`network.cloudflare`** 使用纯 Rust 原生客户端双栈测量 `speed.cloudflare.com` 稳态上下行吞吐、空载/负载延迟、Waveform Bufferbloat 与 CV 稳定性评级以及 RFC 5389 STUN UDP 丢包与 MOS 语音质量；**`network.inetspeed`** 使用纯 Rust 原生实现双 DoH 边缘节点优选绑定与 Apple CDN（`mensura.cdn-apple.com`）单线程/多线程上下行吞吐测试；**`network.tcping`** 使用纯 Rust 原生无特权 `TcpSocket` 并发探测中国大陆 31 省三网、CN2/9929/CMIN2 精品网与全球 17 大枢纽的双栈 TCP 握手延迟、抖动、P95 与丢包率；**`network.trace`** 执行逐跳 ICMP 与大陆目标 TCP SYN 大包路由追踪，识别去程骨干网线路、运营商 AS、流媒体边缘缓存服务器与互联网交换中心（IX）；**`network.bgp`** 通过全球全表采集点查询本机公网前缀的控制面 BGP `AS_PATH` 传播路径、直连上游占比与 RPKI 路由签名状态，并直接绘制自治域拓扑图。
 
 ---
 
@@ -130,7 +130,40 @@ sudo ./lowendaff-bench --only network.taier --taier-cities Jiangsu,guangdong-she
 
 ---
 
-## 5. 去程路由追踪：`network.trace`
+## 5. 双栈 TCP 握手延迟与丢包探测：`network.tcping`
+
+| 属性 | 说明 |
+|---|---|
+| 插件 ID | `network.tcping`（所属分组：`network`） |
+| 适用平台 | 全平台（需具备 IPv4 或 IPv6 公网连接，无需 `CAP_NET_RAW` 原始套接字权限） |
+| 依赖工具 | **零外部二进制依赖**（100% 纯 Rust 原生无特权 `TcpSocket::connect` 实现，直连绕过一切代理） |
+| 超时上限 | `10 分钟` |
+| 快捷参数 | `--tcping-groups <china\|china-premium\|global\|all>`、`--tcping-all`、`--tcping-count <5..=50>` |
+
+### 测试逻辑
+1. **三层合规双栈目标库与每 4 小时自动巡检（`Lowendaff/bench_data`）**：
+   - 运行时拉取 [`Lowendaff/bench_data`](https://github.com/Lowendaff/bench_data) 的 `servers/tcping.json`（`<= 128 KiB`），按三大分组组织：
+     - **`china`（中国大陆 31 省三网）**：覆盖全部 31 个省级行政区的电信（`AS4134`）、联通（`AS4837`）、移动（`AS9808`）双栈节点（默认精选北上广蓉汉核心省会，传入 `--tcping-all` 展开全部 31 省 93 个槽位）；
+     - **`china-premium`（中国大陆精品国际骨干网）**：覆盖北京、上海、广州的电信 CN2（`AS4809`）、联通 CUII（`AS9929`）与移动 CMIN2（`AS58807`）回程对比节点；
+     - **`global`（全球单地域核心枢纽）**：覆盖香港、台北、东京、大阪、首尔、新加坡、孟买、悉尼、洛杉矶、圣何塞、西雅图、纽约、弗吉尼亚、法兰克福、阿姆斯特丹、伦敦、圣保罗共 17 个非 Anycast 单地域锚点。
+   - `bench_data` 每 4 小时并发执行 TCP 握手、ICMP 连通性与 RIPEstat `bgp-state` 国际入口骨干网 ASN 校验，以 EMA 可用率与连续 3 次失败降级迟滞机制为每个 `(目标, 协议栈)` 槽位发布最优 **`primary + backup` 双候选端点**（避免泛播 CDN 伪低延迟与单点宕机）。
+2. **800 ms 首包主备容灾切换与零载荷高精度计时**：
+   - 对每个目标独立打开绑定 `0.0.0.0:0` / `[::]:0` 的无特权 `TcpSocket`，精确记录内核完成 `SYN -> SYN-ACK`（或对端主机真实返回 `RST`）的微秒级往返时间并立即关闭连接，**不发送任何应用层字节**，亦无需 `CAP_NET_RAW`，在裁剪了原始套接字能力的 LXC / Docker 容器中同样可用；对非回环地址过滤 `< 100 us` 的本机防火墙伪造 `RST` 与 `ENETUNREACH` / `EHOSTUNREACH` 路由不可达错误。
+   - 若首选端点（`primary`）首包在 **`800 ms`** 内超时或解析失败且存在备用端点（`backup`），立即无缝切换至 `backup` 执行探测并在报告中标注 `[备]` / `[backup]`，无需空耗完整超时周期。
+3. **12 路有界并发与分布统计**：
+   - 按可达协议栈（IPv4 -> IPv6）与分组并发探测（有界并发度 `12`，单节点默认连续探测 `10` 次、间隔 `150 ms`、单次超时 `1000 ms`），输出每个目标的 **`avg`（均值）、`min`（最小）、`median`（中位数）、`p95`、`max`（最大）、`jitter`（相邻样本平均绝对偏差抖动）与 `loss_pct`（丢包率）**。
+
+```sh
+# 默认精选三网省会 + CN2/9929/CMIN2 精品网 + 全球核心枢纽双栈延迟探测
+sudo ./lowendaff-bench --only network.tcping
+
+# 展开测试中国大陆全部 31 省三网与精品网，每节点采样 20 次
+sudo ./lowendaff-bench --only network.tcping --tcping-groups china,china-premium --tcping-all --tcping-count 20
+```
+
+---
+
+## 6. 去程路由追踪：`network.trace`
 
 | 属性 | 说明 |
 |---|---|
@@ -170,7 +203,7 @@ sudo ./lowendaff-bench --only network.trace --no-trace-tcp
 
 ---
 
-## 6. BGP 自治域路径拓扑：`network.bgp`
+## 7. BGP 自治域路径拓扑：`network.bgp`
 
 | 属性 | 说明 |
 |---|---|

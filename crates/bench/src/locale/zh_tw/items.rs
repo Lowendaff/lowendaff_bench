@@ -37,6 +37,9 @@ use crate::locale::TaierListProblem;
 use crate::locale::TaierRule;
 use crate::locale::TaierSelectorProblem;
 use crate::locale::TaierWords;
+use crate::locale::TcpingChoice;
+use crate::locale::TcpingListProblem;
+use crate::locale::TcpingWords;
 use crate::locale::TraceChoice;
 use crate::locale::TraceList;
 use crate::locale::TraceListProblem;
@@ -1938,6 +1941,106 @@ impl InetspeedWords for TraditionalChinese {
 
     fn inetspeed_no_result(&self) -> String {
         "Apple CDN 測速未能完成任何傳輸輪次".to_owned()
+    }
+}
+
+impl TcpingWords for TraditionalChinese {
+    fn tcping_method(&self, choice: &TcpingChoice) -> String {
+        let mut method = format!(
+            "無特權 TCP 握手延遲探測（每節點 {} 次，800 ms 主備自動切換）",
+            choice.count
+        );
+        if !choice.groups.is_empty() {
+            method.push_str(&format!("；分組：{}", choice.groups.join(", ")));
+        }
+        if choice.all_targets {
+            method.push_str("；全量 31 省與全球節點");
+        }
+        method
+    }
+
+    fn tcping_group_heading(&self, group: &str, ipv6: bool) -> String {
+        let fam = if ipv6 { "IPv6" } else { "IPv4" };
+        let title = match group {
+            "china" => "中國大陸各省三網",
+            "china_premium" => "中國大陸精品網（CN2 / 9929 / CMIN2）",
+            "global" => "全球核心樞紐",
+            other => other,
+        };
+        format!("{title}（{fam}）")
+    }
+
+    fn tcping_headers(&self) -> [&'static str; 5] {
+        [
+            "目標節點",
+            "電信商 / ASN",
+            "均值 / 最小 / P95",
+            "抖動",
+            "遺失率",
+        ]
+    }
+
+    fn tcping_carrier_cell(&self, operator: &str, asn: u32) -> String {
+        match operator {
+            "telecom" => format!("電信 AS{asn}"),
+            "unicom" => format!("聯通 AS{asn}"),
+            "mobile" => format!("移動 AS{asn}"),
+            "cernet" => format!("教育網 AS{asn}"),
+            "cbn" => format!("廣電 AS{asn}"),
+            _ => format!("AS{asn}"),
+        }
+    }
+
+    fn tcping_rtt_cell(&self, avg: &str, min: &str, p95: &str, used_backup: bool) -> String {
+        if used_backup {
+            format!("{avg} / {min} / {p95} ms [備]")
+        } else {
+            format!("{avg} / {min} / {p95} ms")
+        }
+    }
+
+    fn tcping_loss_cell(&self, loss_pct: f64, received: u8, sent: u8) -> String {
+        format!("{loss_pct:.1}% ({received}/{sent})")
+    }
+
+    fn tcping_target_failed(&self, name: &str, ipv6: bool, reason: &str) -> String {
+        let fam = if ipv6 { "IPv6" } else { "IPv4" };
+        format!("{name}（{fam}）：{reason}")
+    }
+
+    fn tcping_list_problem(&self, problem: TcpingListProblem<'_>) -> String {
+        match problem {
+            TcpingListProblem::Missing => "缺少 TCP 握手延遲節點清單".to_owned(),
+            TcpingListProblem::Unreadable(reason) => {
+                format!("無法讀取 TCP 握手延遲節點清單：{reason}")
+            }
+            TcpingListProblem::TooLarge(limit) => {
+                format!("TCP 握手延遲節點清單超過 {limit} 位元組上限")
+            }
+            TcpingListProblem::Format(reason) => {
+                format!("TCP 握手延遲節點清單 JSON 格式無效：{reason}")
+            }
+            TcpingListProblem::Version(ver) => {
+                format!("不支援的 TCP 握手延遲節點清單版本：{ver}")
+            }
+            TcpingListProblem::Count(count, most) => {
+                format!("TCP 握手延遲節點數量無效：{count}（允許 1..={most}）")
+            }
+            TcpingListProblem::Rule(entry, field) => {
+                format!("TCP 握手延遲節點清單第 {entry} 項欄位 `{field}` 無效")
+            }
+            TcpingListProblem::Duplicate(id) => {
+                format!("TCP 握手延遲節點清單存在重複 ID `{id}`")
+            }
+        }
+    }
+
+    fn tcping_no_targets(&self) -> String {
+        "所選分組與目前可用 IP 協定棧下沒有可探測的目標節點".to_owned()
+    }
+
+    fn tcping_all_unreachable(&self) -> String {
+        "所有 TCP 握手延遲目標節點均逾時或無法連線".to_owned()
     }
 }
 

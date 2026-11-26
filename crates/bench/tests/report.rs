@@ -5,6 +5,8 @@
 use std::collections::BTreeMap;
 use std::time::Duration;
 
+use bench::locale;
+use bench::locale::Language;
 use bench::orchestrator;
 use bench::orchestrator::Fault;
 use bench::orchestrator::Run;
@@ -1724,6 +1726,129 @@ fn multilingual_text_and_markdown_localize_while_json_stays_strictly_english() {
                 json, en_json,
                 "{lang:?} JSON output must stay byte-for-byte identical to English"
             );
+        });
+    }
+}
+
+#[test]
+fn tcping_renders_text_markdown_and_json_across_all_languages() {
+    use plugin_network::tcping;
+
+    let run = Run {
+        id: "network.tcping",
+        group: "network",
+        title: Some("TCP latency"),
+        status: Status::Completed,
+        started: Some(Duration::from_secs(0)),
+        elapsed: Some(Duration::from_secs(2)),
+        result: Some(Measured::NetworkTcping(Report {
+            output: Some(tcping::Output {
+                settings: tcping::Settings {
+                    groups: vec![
+                        tcping::GroupChoice::China,
+                        tcping::GroupChoice::ChinaPremium,
+                    ],
+                    all_targets: false,
+                    count: 10,
+                },
+                targets: vec![
+                    tcping::TestedTarget {
+                        id: "cn-sh-ct".to_owned(),
+                        group: tcping::Group::China,
+                        region: "Shanghai".to_owned(),
+                        city: "Shanghai".to_owned(),
+                        name: "Shanghai Telecom".to_owned(),
+                        operator: tcping::Operator::Telecom,
+                        asn: 4134,
+                        ipv6: false,
+                        outcome: tcping::TargetOutcome::Measured(tcping::LatencyMeasured {
+                            endpoint: "124.74.52.254".to_owned(),
+                            port: 65499,
+                            resolved_ip: "124.74.52.254".to_owned(),
+                            used_backup: true,
+                            sent: 10,
+                            received: 10,
+                            loss_pct: 0.0,
+                            min_ms: Some(32.1),
+                            avg_ms: Some(34.5),
+                            median_ms: Some(34.0),
+                            p95_ms: Some(38.2),
+                            max_ms: Some(39.0),
+                            jitter_ms: Some(1.4),
+                        }),
+                    },
+                    tcping::TestedTarget {
+                        id: "cn-sh-cn2-4809".to_owned(),
+                        group: tcping::Group::ChinaPremium,
+                        region: "Shanghai".to_owned(),
+                        city: "Shanghai".to_owned(),
+                        name: "Shanghai Telecom CN2".to_owned(),
+                        operator: tcping::Operator::Telecom,
+                        asn: 4809,
+                        ipv6: false,
+                        outcome: tcping::TargetOutcome::Loss(tcping::LatencyMeasured {
+                            endpoint: "58.32.4.1".to_owned(),
+                            port: 443,
+                            resolved_ip: "58.32.4.1".to_owned(),
+                            used_backup: false,
+                            sent: 10,
+                            received: 0,
+                            loss_pct: 100.0,
+                            min_ms: None,
+                            avg_ms: None,
+                            median_ms: None,
+                            p95_ms: None,
+                            max_ms: None,
+                            jitter_ms: None,
+                        }),
+                    },
+                ],
+            }),
+            stop: None,
+        })),
+    };
+
+    let host = host();
+    let runs = [run];
+    let page = Page {
+        version: "0.1.4",
+        host: &host,
+        runs: &runs,
+        not_applicable: &[],
+        total: Duration::from_secs(2),
+        show_ip: false,
+    };
+
+    let text = report::render(&page, Format::Text, None);
+    assert!(
+        text.contains("Shanghai Telecom") && text.contains("[backup]"),
+        "{text}"
+    );
+    assert!(
+        text.contains("China Premium (CN2 / 9929 / CMIN2) (IPv4)"),
+        "{text}"
+    );
+
+    let md = report::render(&page, Format::Markdown, None);
+    assert!(
+        md.contains("## TCP latency") && md.contains("Shanghai Telecom"),
+        "{md}"
+    );
+
+    let json_raw = report::render(&page, Format::Json, None);
+    let parsed: serde_json::Value = serde_json::from_str(&json_raw).expect("valid JSON");
+    assert_eq!(parsed["runs"][0]["id"], "network.tcping");
+    assert_eq!(
+        parsed["runs"][0]["output"]["targets"][0]["used_backup"],
+        true
+    );
+    assert_eq!(parsed["runs"][0]["output"]["targets"][1]["status"], "loss");
+
+    for lang in [Language::ZhCn, Language::ZhTw, Language::Ja] {
+        locale::with_language(lang, || {
+            let localized = report::render(&page, Format::Text, None);
+            assert_ne!(localized, text);
+            assert_eq!(report::render(&page, Format::Json, None), json_raw);
         });
     }
 }

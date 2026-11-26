@@ -131,6 +131,18 @@ impl ProgramWords for SimplifiedChinese {
         format!("无效的 --inetspeed-endpoint `{raw}`：应为公网 IPv4 或 IPv6 地址")
     }
 
+    fn help_tcping_groups(&self) -> String {
+        "network.tcping 探测分组：英文逗号分隔的 china, china-premium, global 或 all".to_owned()
+    }
+
+    fn help_tcping_all(&self) -> String {
+        "在 network.tcping 中展开测试全部 31 个中国大陆省份三网与次级全球枢纽".to_owned()
+    }
+
+    fn help_tcping_count(&self) -> String {
+        "network.tcping 单目标 TCP 握手探测次数（5 至 50，默认 10）".to_owned()
+    }
+
     fn help_trace_groups(&self) -> String {
         "network.trace 路由目标分组：英文逗号分隔的 services, china, \
          international 或 all"

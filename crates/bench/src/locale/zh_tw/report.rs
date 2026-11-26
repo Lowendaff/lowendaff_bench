@@ -51,6 +51,7 @@ impl ReportWords for TraditionalChinese {
             "network.taier" => Some("中國三網測速"),
             "network.cloudflare" => Some("Cloudflare 測速"),
             "network.inetspeed" => Some("Apple CDN 測速"),
+            "network.tcping" => Some("TCP 握手延遲"),
             "network.trace" => Some("去程路由追蹤"),
             "network.bgp" => Some("BGP 路由拓撲"),
             "ip.quality" => Some("IP 品質檢測"),

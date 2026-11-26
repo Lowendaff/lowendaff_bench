@@ -103,7 +103,7 @@ sudo ./lowendaff-bench-x86_64 --all  # 非対話 CLI モードで全項目を実
 以下はバイナリ名を `lowendaff-bench` にした場合の実用例です。
 
 ```sh
-# 1. 利用できる全 15 項目のテスト一覧を確認する（root 権限不要）
+# 1. 利用できる全 16 項目のテスト一覧を確認する（root 権限不要）
 ./lowendaff-bench --list
 
 # 2. 対話型 TUI モードを起動する（既定は英語表示；画面内で L または F2 で言語切替、または --lang ja で日本語起動）
@@ -138,6 +138,7 @@ sudo ./lowendaff-bench --only disk.fio --work-dir /mnt/data
 sudo ./lowendaff-bench --only network.iperf3 --countries JP,US
 sudo ./lowendaff-bench --only network.taier --taier beijing:cu,guangdong/shenzhen:ct+cm,jiangsu:ct
 sudo ./lowendaff-bench --only network.cloudflare,network.inetspeed --inetspeed-threads 8
+sudo ./lowendaff-bench --only network.tcping --tcping-groups china,china-premium --tcping-all
 sudo ./lowendaff-bench --only network.trace --trace-groups china
 sudo ./lowendaff-bench --only ip.media --media-groups global,asia
 
@@ -155,7 +156,7 @@ sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-
 | オプション | 書き方 | 既定の動作 | わかりやすい説明 |
 |---|---|---|---|
 | *（引数なし）* | — | 対話型 TUI | オプションを付けずに `sudo ./lowendaff-bench` を実行すると対話型ターミナル画面を起動します（親スイッチとサブ項目の双方向連動、パラメータ変更、進捗表示、レポート閲覧） |
-| `-a, --all` | 値なし | オフ | 非対話 CLI モードで全 15 項目を実行します（`--only all` と同等） |
+| `-a, --all` | 値なし | オフ | 非対話 CLI モードで全 16 項目を実行します（`--only all` と同等） |
 | `--only` | `<項目名,...>` | 全項目を実行 | CLI モードで指定したカテゴリ・個別 ID・`all` だけを実行します（カンマ区切り） |
 | `--skip` | `<項目名,...>` | スキップなし | 指定したカテゴリ・個別 ID・`all` を除外します（`--all` や `--only` と併用可能） |
 | `-o, --output` | `<ファイル>` | 画面 + `/tmp` 保存 | 最終レポートを指定ファイルのみに出力します（未指定時は画面/ビューア表示に加え `/tmp/lowendaff-bench-<タイムスタンプ>.<ext>` に自動保存） |
@@ -171,6 +172,9 @@ sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-
 | `--no-cloudflare-udp` | 値なし | オフ | `network.cloudflare` 内の RFC 5389 STUN UDP パケットロス測定を省略します |
 | `--inetspeed-threads` | `<1..=64>` | `4` | `network.inetspeed` のマルチスレッド測定で使用する並列スレッド数 |
 | `--inetspeed-endpoint` | `<IP>` | 自動（Dual DoH） | `network.inetspeed` で特定の Apple CDN エッジ IP を固定します |
+| `--tcping-groups` | `<グループ,...>` | 既定の主要拠点 | `network.tcping` の測定対象グループを選びます（`china`、`china-premium`、`global`、または `all`） |
+| `--tcping-all` | 値なし | オフ | `network.tcping` で中国全 31 省キャリアと全てのグローバル拠点を測定します |
+| `--tcping-count` | `<5..=50>` | `10` | `network.tcping` で各拠点に送信する TCP ハンドシェイク回数 |
 | `--trace-groups` | `<グループ,...>` | キャッシュ + 既定拠点 | `network.trace` で追跡する宛先グループを選びます |
 | `--no-trace-tcp` | 値なし | オフ | `network.trace` 内の中国本土拠点向け TCP SYN 大容量パケット経路追跡を省略します |
 | `--trace-packet-size` | `<64..=1500>` | `1024` | `network.trace` の中国本土拠点向け TCP 調査パケット長（バイト、IP + TCP ヘッダ込み） |
@@ -194,9 +198,9 @@ sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-
 | `--only` / `--skip` *（カテゴリ）* | `cpu` | 統合 CPU ベンチマークスイート：`cpu.bench` |
 | | `memory` | メモリテスト 4 項目：`memory.sysbench`、`memory.stream`、`memory.latency`、`memory.numa` |
 | | `disk` | ディスクテスト 2 項目：`disk.health`、`disk.fio` |
-| | `network` | ネットワークテスト 6 項目：`network.iperf3`、`network.taier`、`network.cloudflare`、`network.inetspeed`、`network.trace`、`network.bgp` |
+| | `network` | ネットワークテスト 7 項目：`network.iperf3`、`network.taier`、`network.cloudflare`、`network.inetspeed`、`network.tcping`、`network.trace`、`network.bgp` |
 | | `ip` | IP テスト 2 項目：`ip.quality`、`ip.media` |
-| `--only` / `--skip` *（個別 ID）* | `disk.health`, `memory.sysbench`, `memory.stream`, `memory.latency`, `memory.numa`, `disk.fio`, `network.iperf3`, `network.taier`, `network.cloudflare`, `network.inetspeed`, `network.trace`, `network.bgp`, `ip.quality`, `ip.media`, `cpu.bench` | 個別のテスト項目をピンポイントで選択・除外します |
+| `--only` / `--skip` *（個別 ID）* | `disk.health`, `memory.sysbench`, `memory.stream`, `memory.latency`, `memory.numa`, `disk.fio`, `network.iperf3`, `network.taier`, `network.cloudflare`, `network.inetspeed`, `network.tcping`, `network.trace`, `network.bgp`, `ip.quality`, `ip.media`, `cpu.bench` | 個別のテスト項目をピンポイントで選択・除外します |
 | `-f, --format` | `text` | ターミナルで読みやすい整形済みテキスト表 |
 | | `markdown` *（または `md`）* | `lowendaff.com` 互換の GitHub 形式 Markdown（2 列属性表・引用ブロック・文脈に応じたエスケープ、および BGP トポロジーと VM `%si`/`%st` の Mermaid 図） |
 | | `json` | スクリプトでの自動集計や保存に便利な JSON 形式（常に英語で出力） |
@@ -210,6 +214,10 @@ sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-
 | | `prime95` | Prime95 (`mprime`) 65 秒間 Small-FFT 安定性ストレステスト *（任意有効化・`x86_64` 専用）* |
 | | `geekbench` | 公式 Geekbench 7.1.0 シングル / マルチコアスコアと結果 URL *（既定・`glibc >= 2.35` + IPv4）* |
 | | `all` | 上記 8 種の CPU サブスイートすべて（非対応環境の項目は自動スキップ） |
+| `--tcping-groups` | `china` | 中国本土の各省キャリア回線（電信・聯通・移動） |
+| | `china-premium` | 中国プレミアム国際バックボーン（CN2 `AS4809`、CUII `AS9929`、CMIN2 `AS58807`） |
+| | `global` | アジア太平洋・米州・欧州の単一リージョン主要拠点 |
+| | `all` | 上記すべての TCP レイテンシ測定グループ |
 | `--trace-groups` | `services` | 最寄りの YouTube / Netflix キャッシュサーバーへの経路のみ |
 | | `china` | 中国本土の大手通信キャリア回線（163 / CN2 / 169 / 9929 / CMNET / CMIN2） |
 | | `international` | 国際 Tier-1 バックボーン、Telegram DC、AWS、Google Cloud 拠点 |
@@ -234,7 +242,7 @@ sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-
 
 測定開始前に、サーバー構成である **システム概要（`[System]`）** を読み取り専用で自動収集します。物理サーバー・VM・コンテナの判別、CPU 型番とキャッシュ容量、メモリと Swap、OS・カーネル・稼働時間・TCP 輻輳制御（BBR など）、ディスク構成、NIC リンク速度（PCIe 帯域低下の警告付き）、IPv4/IPv6 の疎通状況を確認でき、物理サーバーではメモリスロット情報、ECC エラー数、IPMI/BMC、ハードウェア RAID カードも一覧表示します。また仮想マシン環境では、テスト開始から終了まで 5 秒ごとに `/proc/stat` の `%si`（ソフト割り込み）と `%st`（CPU スティール）を記録し、`text` では集計表と時系列一覧、`markdown` では集計表と Mermaid `xychart-beta` 折れ線グラフ、`json` では `vm_cpu_telemetry` を出力します（詳細：[`docs/system.md`](docs/system.md)）。
 
-続いて、以下の最大 15 項目を登録順に測定します。
+続いて、以下の最大 16 項目を登録順に測定します。
 
 | カテゴリ | 項目 ID・名前 | 対象環境 | このテストでわかること | 詳細解説 |
 |---|---|---|---|---|
@@ -248,6 +256,7 @@ sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-
 | `network` | `network.taier`<br>中国キャリア回線速度 | IPv4 通信可能な環境 | 純 Rust 実装による中国 CAICT GlobalSpeed（泰爾測速）拠点とのマルチストリーム HTTP/1.1 上り・下り速度測定を行います（既定：北京・上海・広州 × 電信・聯通・移動） | [`docs/network.md`](docs/network.md) |
 | `network` | `network.cloudflare`<br>Cloudflare 回線速度 | 通信可能な環境 | 純 Rust 実装による `speed.cloudflare.com` デュアルスタック上り・下り速度、無負荷・高負荷時遅延、Bufferbloat / 安定性評価、および STUN UDP パケットロス・MOS 測定を行います | [`docs/network.md`](docs/network.md) |
 | `network` | `network.inetspeed`<br>Apple CDN 回線速度 | 通信可能な環境 | 純 Rust 実装による `mensura.cdn-apple.com` 速度測定。Dual DoH で最小 RTT エッジ IP を自動選択・固定し、シングルスレッドとマルチスレッドの上り・下り速度を測定します | [`docs/network.md`](docs/network.md) |
+| `network` | `network.tcping`<br>TCP レイテンシ | 通信可能な環境 | 純 Rust 非特権 TCP ハンドシェイク RTT・ジッタ・P95・ロス率測定。中国全 31 省キャリア・CN2/9929/CMIN2・世界 17 拠点に対応し、800 ms 予備ノード自動切替を備えます | [`docs/network.md`](docs/network.md) |
 | `network` | `network.trace`<br>ネットワーク経路追跡 | Raw ソケット対応環境 | YouTube / Netflix キャッシュや中国主要キャリア、海外バックボーンまでの経路を一跳びずつ追跡し、`ASN` とキャリア名を分けた 6 列表示（IX 注記付き）で直通か迂回ルートかを可視化します | [`docs/network.md`](docs/network.md) |
 | `network` | `network.bgp`<br>BGP 経路トポロジー | グローバル IP 保有機 | 世界の BGP 収集拠点から広告プレフィックス・RPKI 状態・直接の上流キャリアを取得し、`text` 形式では限定公開の `imageupload.app` SVG トポロジー URL、Markdown では Mermaid 図、JSON ではスタンドアロン SVG コードを出力します | [`docs/network.md`](docs/network.md) |
 | `ip` | `ip.quality`<br>IP 品質・リスク診断 | グローバル IP 保有機 | 9 つの評価データベースを照合し、**ネイティブ IP / ブロードキャスト IP** の判別、データセンター / 家庭用回線の区分、不正リスク、公開ポート、25 種のブラックリスト、25 番メールポートの疎通を診断します | [`docs/ip.md`](docs/ip.md) |

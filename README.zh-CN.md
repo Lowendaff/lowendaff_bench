@@ -103,7 +103,7 @@ sudo ./lowendaff-bench-x86_64 --all  # 非交互命令行直接运行全套检�
 以下示例假设已将二进制重命名为 `lowendaff-bench`：
 
 ```sh
-# 1. 查看支持的所有 15 个测试项目列表（无需 root 权限）
+# 1. 查看支持的所有 16 个测试项目列表（无需 root 权限）
 ./lowendaff-bench --list
 
 # 2. 启动全交互式终端界面（不带参数默认进入英文 TUI，可按 L 或 F2 实时切换简中/繁中/日文/英文，或直接传入 --lang）
@@ -138,6 +138,7 @@ sudo ./lowendaff-bench --only disk.fio --work-dir /mnt/data
 sudo ./lowendaff-bench --only network.iperf3 --countries JP,US
 sudo ./lowendaff-bench --only network.taier --taier beijing:cu,guangdong/shenzhen:ct+cm,jiangsu:ct
 sudo ./lowendaff-bench --only network.cloudflare,network.inetspeed --inetspeed-threads 8
+sudo ./lowendaff-bench --only network.tcping --tcping-groups china,china-premium --tcping-all
 sudo ./lowendaff-bench --only network.trace --trace-groups china
 sudo ./lowendaff-bench --only ip.media --media-groups global,asia
 
@@ -155,7 +156,7 @@ sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-
 | 参数 | 写法 | 默认行为 | 通俗说明 |
 |---|---|---|---|
 | *（无参数）* | — | 默认进入 TUI | 不带任何参数运行 `sudo ./lowendaff-bench` 时默认进入交互式终端界面（支持总开关与子项双向联动、参数编辑、实时进度面板与多格式报告浏览） |
-| `-a, --all` | 无需带值 | 关闭 | 在命令行非交互模式下运行全部 15 个测试项（等效于 `--only all`） |
+| `-a, --all` | 无需带值 | 关闭 | 在命令行非交互模式下运行全部 16 个测试项（等效于 `--only all`） |
 | `--only` | `<名称,...>` | 测试全部项目 | 命令行模式下只运行指定的分类、单项 ID 或 `all`（多个名称用英文逗号隔开） |
 | `--skip` | `<名称,...>` | 不跳过任何项 | 跳过指定的分类、单项 ID 或 `all`（可与 `--all` 或 `--only` 搭配做减法） |
 | `-o, --output` | `<文件路径>` | 屏幕 + `/tmp` 归档 | 将最终报告仅写入指定文件（未指定 `-o` 时，输出到终端/预览器并自动归档保存至 `/tmp/lowendaff-bench-<时间戳>.<ext>`） |
@@ -171,6 +172,9 @@ sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-
 | `--no-cloudflare-udp` | 无需带值 | 关闭 | 在 `network.cloudflare` 中跳过 RFC 5389 STUN UDP 丢包与抖动探测 |
 | `--inetspeed-threads` | `<1..=64>` | `4` | 设置 `network.inetspeed` 多线程轮次的并发工作线程数 |
 | `--inetspeed-endpoint` | `<节点 IP>` | 双 DoH 自动优选 | 在 `network.inetspeed` 中强制指定固定 Apple CDN 节点 IP（跳过 DoH 发现） |
+| `--tcping-groups` | `<分组,...>` | 默认精选节点 | 选择 `network.tcping` 要探测的目标分组（`china`、`china-premium`、`global` 或 `all`） |
+| `--tcping-all` | 无需带值 | 关闭 | 在 `network.tcping` 中展开测试中国大陆全部 31 省三网与次级全球枢纽 |
+| `--tcping-count` | `<5..=50>` | `10` | 设置 `network.tcping` 单目标 TCP 握手探测次数 |
 | `--trace-groups` | `<分组,...>` | 缓存节点 + 默认线路 | 选择 `network.trace` 要追踪哪些方向的路由目标 |
 | `--no-trace-tcp` | 无需带值 | 关闭 | 在 `network.trace` 中跳过中国大陆目标的 TCP SYN 大包去程追踪 |
 | `--trace-packet-size` | `<64..=1500>` | `1024` | 设置 `network.trace` 中国大陆目标 TCP 大包探测整包字节数（含 IP + TCP 头） |
@@ -194,9 +198,9 @@ sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-
 | `--only` / `--skip` *（按大类）* | `cpu` | 统一 CPU 综合基准套件：`cpu.bench` |
 | | `memory` | 包含全部 4 项内存测试：`memory.sysbench`、`memory.stream`、`memory.latency`、`memory.numa` |
 | | `disk` | 包含全部 2 项硬盘测试：`disk.health`、`disk.fio` |
-| | `network` | 包含全部 6 项网络测试：`network.iperf3`、`network.taier`、`network.cloudflare`、`network.inetspeed`、`network.trace`、`network.bgp` |
+| | `network` | 包含全部 7 项网络测试：`network.iperf3`、`network.taier`、`network.cloudflare`、`network.inetspeed`、`network.tcping`、`network.trace`、`network.bgp` |
 | | `ip` | 包含全部 2 项 IP 测试：`ip.quality`、`ip.media` |
-| `--only` / `--skip` *（按单项）* | `disk.health`、`memory.sysbench`、`memory.stream`、`memory.latency`、`memory.numa`、`disk.fio`、`network.iperf3`、`network.taier`、`network.cloudflare`、`network.inetspeed`、`network.trace`、`network.bgp`、`ip.quality`、`ip.media`、`cpu.bench` | 精确指定某一个测试项目（无论怎么填，都会按固定的合理顺序依次执行） |
+| `--only` / `--skip` *（按单项）* | `disk.health`、`memory.sysbench`、`memory.stream`、`memory.latency`、`memory.numa`、`disk.fio`、`network.iperf3`、`network.taier`、`network.cloudflare`、`network.inetspeed`、`network.tcping`、`network.trace`、`network.bgp`、`ip.quality`、`ip.media`、`cpu.bench` | 精确指定某一个测试项目（无论怎么填，都会按固定的合理顺序依次执行） |
 | `-f, --format` | `text` | 适合直接在 SSH 终端阅读的对齐纯文本表格 |
 | | `markdown` *（或 `md`）* | 对齐 `lowendaff.com` 测评规范的 GitHub 风格 Markdown（双列属性表、引用块、上下文感知转义，以及 BGP 拓扑与虚拟机 `%si`/`%st` 的 Mermaid 图表） |
 | | `json` | 结构化 JSON 数据，适合自动化汇总、监控脚本或二次开发读取（始终固定英文输出） |
@@ -210,6 +214,10 @@ sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-
 | | `prime95` | Prime95 (`mprime`) 65 秒 Small-FFT 重负载稳定性烤机检测 *（按需开启；仅 `x86_64`）* |
 | | `geekbench` | 官方 Geekbench 7.1.0 单核/多核综合跑分与在线报告链接 *（默认启用；需 `glibc >= 2.35` 且有 IPv4）* |
 | | `all` | 一次启用上述全部 8 个 CPU 子套件（不满足当前主机架构或环境要求的子项会自动平滑跳过） |
+| `--tcping-groups` | `china` | 中国大陆各省三网普通线路（电信、联通、移动） |
+| | `china-premium` | 中国大陆精品国际骨干网（电信 CN2 `AS4809`、联通 9929 `AS9929`、移动 CMIN2 `AS58807`） |
+| | `global` | 亚太、北美、南美与欧洲核心单地域枢纽 |
+| | `all` | 以上全部 TCP 握手延迟分组 |
 | `--trace-groups` | `services` | 只测离当前机器最近的 YouTube 和 Netflix 视频缓存节点路由 |
 | | `china` | 中国大陆三网线路（北上广电信 163 / CN2、联通 169 / 9929、移动 CMNET / CMIN2） |
 | | `international` | 海外主流国际骨干网、Telegram 数据中心以及 AWS / GCP 云节点 |
@@ -234,7 +242,7 @@ sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-
 
 在正式跑分前，程序会先只读采集 **系统概览（`[System]`）**：识别独立物理机、虚拟机或容器环境，读取 CPU 型号与各级缓存、内存与 Swap、系统内核与 TCP 拥塞算法（如 BBR）、磁盘分区、网卡协商速率（含 PCIe 降速提示）及双栈连通性；在独立物理服务器上还会列出内存插槽、ECC 报错计数、IPMI/BMC 与硬件 RAID 卡信息，而在虚拟机环境下则会在整个测试期间每 5 秒采样一次 `/proc/stat` 的 `%si`（软中断）与 `%st`（宿主机争抢），并在末尾输出统计汇总及时间线（`text` 模式为逐 5 秒明细表，`markdown` 模式为 Mermaid `xychart-beta` 双折线趋势图，`json` 模式为 `vm_cpu_telemetry`；详见 [`docs/system.md`](docs/system.md)）。
 
-随后按固定注册顺序执行以下 15 个检测项目：
+随后按固定注册顺序执行以下 16 个检测项目：
 
 | 分类 | 项目名称 (`ID`) | 适用环境 | 这项测试能帮你看出什么？ | 原理详解 |
 |---|---|---|---|---|
@@ -248,6 +256,7 @@ sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-
 | `network` | `network.taier`<br>中国三网测速（泰尔） | 有 IPv4 公网连接的机器 | 纯 Rust 原生实现的中国信通院“全球网测（泰尔测速）”多线程 HTTP/1.1 上下行带宽测速（默认测北京、上海、广州 × 电信、联通、移动，繁忙节点自动降级候选） | [`docs/network.md`](docs/network.md) |
 | `network` | `network.cloudflare`<br>Cloudflare 测速 | 所有联网机器 | 纯 Rust 原生实现的双栈 `speed.cloudflare.com` 稳态上下行吞吐、空载与负载延迟、Waveform 缓冲膨胀（Bufferbloat）/ 稳定性评级及 STUN UDP 丢包与语音 MOS 评估 | [`docs/network.md`](docs/network.md) |
 | `network` | `network.inetspeed`<br>Apple CDN 测速 | 所有联网机器 | 纯 Rust 原生实现的 `mensura.cdn-apple.com` 测速，支持双 DoH（Cloudflare + 阿里 DNS）最低 RTT 边缘节点优选绑定、空载延迟与单线程/多线程上下行吞吐测试 | [`docs/network.md`](docs/network.md) |
+| `network` | `network.tcping`<br>TCP 握手延迟 | 所有联网机器 | 纯 Rust 无特权双栈 TCP 握手 RTT、抖动、P95 与丢包率探测，覆盖全国 31 省三网、CN2/9929/CMIN2 精品网与 17 个全球核心枢纽，支持 800 ms 主备节点自动切换 | [`docs/network.md`](docs/network.md) |
 | `network` | `network.trace`<br>去程路由追踪 | 支持原始套接字的机器 | 追踪本机到 YouTube/Netflix 节点、国内三网（163/CN2/9929/CMIN2）及国际骨干网的每一跳路径（独立 `ASN` 与运营商名称六列展示并标注 IX 交换中心），看清线路是直连还是绕路 | [`docs/network.md`](docs/network.md) |
 | `network` | `network.bgp`<br>BGP 上游拓扑图 | 有公网 IP 的机器 | 查询本机 IP 所在网段的 BGP 宣告前缀、RPKI 签名状态与直连上游占比，在终端模式生成 `imageupload.app` 高清 SVG 拓扑图链接（不含本机 IP；Markdown 模式生成 Mermaid 矢量图，JSON 模式内置独立 SVG 源码） | [`docs/network.md`](docs/network.md) |
 | `ip` | `ip.quality`<br>IP 质量与纯净度 | 有公网 IP 的机器 | 汇总 9 家风控数据库结果，判断 IP 是**原生 IP** 还是**广播 IP**、属于机房还是家宽、欺诈风险高低、历史暴露端口、是否在 25 个黑名单里，以及 25 邮件端口是否开放 | [`docs/ip.md`](docs/ip.md) |

@@ -159,7 +159,7 @@ emit a report containing all items completed so far.
 Assuming the binary is named `lowendaff-bench`:
 
 ```sh
-# 1. See all 15 available test items and what they require (no root needed)
+# 1. See all 16 available test items and what they require (no root needed)
 ./lowendaff-bench --list
 
 # 2. Launch the interactive TUI (default when run with no options; press L or F2 to switch language)
@@ -194,6 +194,7 @@ sudo ./lowendaff-bench --only disk.fio --work-dir /mnt/data
 sudo ./lowendaff-bench --only network.iperf3 --countries JP,US
 sudo ./lowendaff-bench --only network.taier --taier beijing:cu,guangdong/shenzhen:ct+cm,jiangsu:ct
 sudo ./lowendaff-bench --only network.cloudflare,network.inetspeed --inetspeed-threads 8
+sudo ./lowendaff-bench --only network.tcping --tcping-groups china,china-premium --tcping-all
 sudo ./lowendaff-bench --only network.trace --trace-groups china
 sudo ./lowendaff-bench --only ip.media --media-groups global,asia
 
@@ -227,6 +228,9 @@ sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-
 | `--no-cloudflare-udp` | *(flag)* | Off | Skip the RFC 5389 STUN UDP packet-loss probe inside `network.cloudflare` |
 | `--inetspeed-threads` | `<1..=64>` | `4` | Concurrent worker threads for multi-thread rounds inside `network.inetspeed` |
 | `--inetspeed-endpoint` | `<IP>` | Auto (Dual DoH) | Pin a specific Apple CDN IPv4 or IPv6 address inside `network.inetspeed`, skipping DoH discovery |
+| `--tcping-groups` | `<GROUP,...>` | Curated defaults | Choose which target groups `network.tcping` probes (`china`, `china-premium`, `global`, or `all`) |
+| `--tcping-all` | *(flag)* | Off | Expand `network.tcping` to all 31 mainland China provinces and secondary global hubs |
+| `--tcping-count` | `<5..=50>` | `10` | TCP handshake probes sent per target inside `network.tcping` |
 | `--trace-groups` | `<GROUP,...>` | Caches + defaults | Choose which target groups `network.trace` traces routes to |
 | `--no-trace-tcp` | *(flag)* | Off | Skip TCP SYN large-packet route traces to mainland China targets in `network.trace` |
 | `--trace-packet-size` | `<64..=1500>` | `1024` | Total TCP probe packet size in bytes (IP + TCP headers included) for mainland China targets in `network.trace` |
@@ -250,9 +254,9 @@ sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-
 | `--only` / `--skip` *(categories)* | `cpu` | Unified CPU benchmark suite: `cpu.bench` |
 | | `memory` | All 4 memory tests: `memory.sysbench`, `memory.stream`, `memory.latency`, `memory.numa` |
 | | `disk` | Both disk tests: `disk.health`, `disk.fio` |
-| | `network` | All 6 network tests: `network.iperf3`, `network.taier`, `network.cloudflare`, `network.inetspeed`, `network.trace`, `network.bgp` |
+| | `network` | All 7 network tests: `network.iperf3`, `network.taier`, `network.cloudflare`, `network.inetspeed`, `network.tcping`, `network.trace`, `network.bgp` |
 | | `ip` | Both IP tests: `ip.quality`, `ip.media` |
-| `--only` / `--skip` *(single items)* | `disk.health`, `memory.sysbench`, `memory.stream`, `memory.latency`, `memory.numa`, `disk.fio`, `network.iperf3`, `network.taier`, `network.cloudflare`, `network.inetspeed`, `network.trace`, `network.bgp`, `ip.quality`, `ip.media`, `cpu.bench` | Include or exclude any individual test item |
+| `--only` / `--skip` *(single items)* | `disk.health`, `memory.sysbench`, `memory.stream`, `memory.latency`, `memory.numa`, `disk.fio`, `network.iperf3`, `network.taier`, `network.cloudflare`, `network.inetspeed`, `network.tcping`, `network.trace`, `network.bgp`, `ip.quality`, `ip.media`, `cpu.bench` | Include or exclude any individual test item |
 | `-f, --format` | `text` | Aligned plain-text tables formatted for terminal viewing |
 | | `markdown` *(or `md`)* | `lowendaff.com`-compatible GitHub-Flavored Markdown (`Item \| Value` tables, blockquotes, context-aware escaping, and Mermaid BGP / VM CPU diagrams) |
 | | `json` | Structured JSON output for scripts, dashboards, or automated archiving |
@@ -266,6 +270,10 @@ sudo ./lowendaff-bench --all --socks5-proxy socks5h://127.0.0.1:1080 --download-
 | | `prime95` | Prime95 (`mprime`) 65-second Small-FFT torture stability test *(opt-in; `x86_64` only)* |
 | | `geekbench` | Official Geekbench 7.1.0 single-core & multi-core scores + URL *(default; `glibc >= 2.35` + IPv4)* |
 | | `all` | All 8 CPU sub-suites above (auto-skipping unsupported ones on the current host) |
+| `--tcping-groups` | `china` | Mainland China provincial standard carrier routes (Telecom, Unicom, Mobile) |
+| | `china-premium` | Mainland China premium backbones (`AS4809` CN2, `AS9929` CUII, `AS58807` CMIN2) |
+| | `global` | Single-region global Internet hubs across Asia-Pacific, Americas, and Europe |
+| | `all` | Every TCP handshake latency group above |
 | `--trace-groups` | `services` | Nearest YouTube and Netflix video cache servers only |
 | | `china` | Mainland China carrier routes (Telecom 163/CN2, Unicom 169/9929, Mobile CMNET/CMIN2) |
 | | `international` | Global Tier-1 backbones, Telegram data centers, AWS, and Google Cloud nodes |
@@ -298,7 +306,7 @@ slots, ECC memory error counts, IPMI/BMC controllers, and hardware RAID cards (s
 reporting average, P95, and peak `%si` / `%st` alongside a 5-second sample table in `text` mode, a
 Mermaid `xychart-beta` timeline in `markdown` mode, and `vm_cpu_telemetry` in `json` mode.
 
-Then it executes up to 15 test items in deterministic registry order:
+Then it executes up to 16 test items in deterministic registry order:
 
 | Category | Item ID & Name | Where it runs | What it tells you | Deep dive |
 |---|---|---|---|---|
@@ -312,6 +320,7 @@ Then it executes up to 15 test items in deterministic registry order:
 | `network` | `network.taier`<br>China carrier speed | Servers with IPv4 | Pure-Rust multi-stream HTTP/1.1 download and upload speed test against CAICT GlobalSpeed carrier nodes (default: Beijing, Shanghai, Guangzhou across Telecom, Unicom, Mobile) | [`docs/network.md`](docs/network.md) |
 | `network` | `network.cloudflare`<br>Cloudflare speed | Servers with internet | Pure-Rust dual-stack `speed.cloudflare.com` HTTPS download/upload throughput, idle & loaded latency, Waveform bufferbloat & CV stability grades, and STUN UDP packet-loss / MOS probing | [`docs/network.md`](docs/network.md) |
 | `network` | `network.inetspeed`<br>Apple CDN speed | Servers with internet | Pure-Rust Apple CDN (`mensura.cdn-apple.com`) speed test with Dual DoH (`cloudflare-dns.com` + `dns.alidns.com`) optimal IP pinning, idle latency, and 1-thread & multi-thread download/upload rounds | [`docs/network.md`](docs/network.md) |
+| `network` | `network.tcping`<br>TCP latency | Servers with internet | Unprivileged dual-stack TCP handshake RTT, jitter, P95, and packet-loss probing across mainland China's 31 provinces, CN2/9929/CMIN2 premium backbones, and 17 global hubs with 800 ms primary-to-backup failover | [`docs/network.md`](docs/network.md) |
 | `network` | `network.trace`<br>Route tracing | Servers with raw sockets | Traces hop-by-hop ICMP routes (`Hop`, `Address`, `ASN`, `Network`, `Place`, `Latency`) to nearest YouTube/Netflix caches, Chinese carriers, and global backbones with IX tagging | [`docs/network.md`](docs/network.md) |
 | `network` | `network.bgp`<br>BGP paths | Servers with a public IP | Queries global RIS route collectors for your announced prefix, RPKI status, and upstream carriers, providing an unlisted `imageupload.app` SVG topology link in `text` mode, a Mermaid flowchart in Markdown, and standalone SVG markup in JSON | [`docs/network.md`](docs/network.md) |
 | `ip` | `ip.quality`<br>IP reputation | Servers with a public IP | Cross-checks 9 IP databases to show whether your IP is **native** or **broadcast**, datacenter vs residential, fraud/risk indicators, open ports, 25 spam blacklists, and port-25 mail reachability | [`docs/ip.md`](docs/ip.md) |

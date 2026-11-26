@@ -1605,6 +1605,7 @@ fn the_list_keeps_each_group_together_in_the_reports_order() {
             "network.taier",
             "network.cloudflare",
             "network.inetspeed",
+            "network.tcping",
             "network.trace",
             "network.bgp",
             "ip.quality",
@@ -1660,6 +1661,7 @@ fn the_list_keeps_each_group_together_in_the_reports_order() {
             "  network.taier  China carrier speed",
             "  network.cloudflare  Cloudflare speed",
             "  network.inetspeed  Apple CDN speed",
+            "  network.tcping  TCP latency",
             "  network.trace  Route tracing (tools: nexttrace 1.7.6)",
             "  network.bgp  BGP paths"
         ]
@@ -1734,7 +1736,7 @@ fn the_items_that_do_not_apply_here_are_named_as_the_report_names_them() {
     let (applicable, names) = orchestrator::for_host(planned, &vm);
 
     assert_eq!(names, ["Disk health", "Memory NUMA"]);
-    assert_eq!(applicable.len(), 13, "the others run");
+    assert_eq!(applicable.len(), 14, "the others run");
 }
 
 #[test]
@@ -1753,14 +1755,14 @@ fn zero_args_selects_tui_flag_is_gone_and_all_runs_full_cli_suite() {
     assert!(via_flag.all);
     let all = registry::all();
     let planned_flag = app::prepare(&via_flag, &all).unwrap();
-    assert_eq!(planned_flag.len(), 15);
+    assert_eq!(planned_flag.len(), 16);
 
     let planned_short = app::prepare(&cli(&["-a", "--skip", "network.trace"]), &all).unwrap();
-    assert_eq!(planned_short.len(), 14);
+    assert_eq!(planned_short.len(), 15);
 
     let planned_only_all =
         app::prepare(&cli(&["--only", "all", "--skip", "ip.media"]), &all).unwrap();
-    assert_eq!(planned_only_all.len(), 14);
+    assert_eq!(planned_only_all.len(), 15);
 
     let planned_skip_all = app::prepare(&cli(&["--skip", "all"]), &all).unwrap();
     assert!(planned_skip_all.is_empty());
@@ -2181,8 +2183,30 @@ fn cli_lang_flag_preparses_aliases_routes_tui_and_localizes_list_output() {
     let tw_list = render_list(Language::ZhTw);
     let ja_list = render_list(Language::Ja);
 
-    assert!(en_list.contains("15 test items") && en_list.contains("Disk health"));
-    assert!(cn_list.contains("15") && cn_list.contains("\u{786c}\u{76d8}\u{5065}\u{5eb7}"));
-    assert!(tw_list.contains("15") && tw_list.contains("\u{786c}\u{789f}\u{5065}\u{5eb7}"));
-    assert!(ja_list.contains("15") && ja_list.contains("\u{30c7}\u{30a3}\u{30b9}\u{30af}"));
+    assert!(en_list.contains("16 test items") && en_list.contains("Disk health"));
+    assert!(cn_list.contains("16") && cn_list.contains("\u{786c}\u{76d8}\u{5065}\u{5eb7}"));
+    assert!(tw_list.contains("16") && tw_list.contains("\u{786c}\u{789f}\u{5065}\u{5eb7}"));
+    assert!(ja_list.contains("16") && ja_list.contains("\u{30c7}\u{30a3}\u{30b9}\u{30af}"));
+}
+
+#[test]
+fn tcping_cli_flags_build_plugin_plan_and_validate_count_bounds() {
+    use clap::Parser;
+
+    let all = registry::all();
+    let parsed = cli(&[
+        "--only",
+        "network.tcping",
+        "--tcping-groups",
+        "china,china-premium",
+        "--tcping-all",
+        "--tcping-count",
+        "20",
+    ]);
+    let planned = app::prepare(&parsed, &all).expect("tcping CLI flags build");
+    assert_eq!(planned.len(), 1);
+    assert_eq!(planned[0].id(), "network.tcping");
+
+    assert!(Cli::try_parse_from(["lowendaff-bench", "--tcping-count", "4"]).is_err());
+    assert!(Cli::try_parse_from(["lowendaff-bench", "--tcping-count", "51"]).is_err());
 }

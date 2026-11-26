@@ -112,6 +112,19 @@ impl LogWords for TraditionalChinese {
                 (dir, 1) => format!("{dir}（單執行緒）"),
                 (dir, n) => format!("{dir}（{n} 執行緒）"),
             },
+            Step::Tcping {
+                group,
+                targets,
+                ipv6,
+            } => {
+                let label = match *group {
+                    "china" => "中國大陸各省三網",
+                    "china_premium" => "中國大陸精品網",
+                    "global" => "全球核心樞紐",
+                    other => other,
+                };
+                format!("正在探測 {label}（{targets} 個節點，{}）", family(*ipv6))
+            }
         };
         format!("{id} {step}")
     }

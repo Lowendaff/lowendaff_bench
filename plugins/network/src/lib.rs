@@ -5,10 +5,11 @@
 //! download/upload throughput, idle/loaded latency, bufferbloat/stability grading, and RFC 5389
 //! STUN UDP packet-loss probing against `speed.cloudflare.com`; Apple CDN speed
 //! (`network.inetspeed`), Dual DoH endpoint discovery, IP-pinned RTT, and single/multi-thread
-//! `mensura.cdn-apple.com` throughput; route tracing (`network.trace`), every hop to targets in
-//! China and elsewhere and to the nearest YouTube and Netflix cache servers; and BGP paths
-//! (`network.bgp`), the globally observed `AS_PATH` topology, direct upstreams and RPKI state of
-//! the host's public prefixes.
+//! `mensura.cdn-apple.com` throughput; TCP latency (`network.tcping`), unprivileged dual-stack TCP
+//! handshake RTT, jitter, P95, and packet-loss probing across China, China premium backbones, and
+//! global hubs; route tracing (`network.trace`), every hop to targets in China and elsewhere and to
+//! the nearest YouTube and Netflix cache servers; and BGP paths (`network.bgp`), the globally
+//! observed `AS_PATH` topology, direct upstreams and RPKI state of the host's public prefixes.
 
 #![warn(missing_docs)]
 
@@ -17,4 +18,5 @@ pub mod cloudflare;
 pub mod inetspeed;
 pub mod iperf3;
 pub mod taier;
+pub mod tcping;
 pub mod trace;

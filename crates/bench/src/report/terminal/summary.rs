@@ -78,6 +78,10 @@ pub(in crate::report) fn stop_reason(run: &Run<Measured>) -> Option<String> {
             .stop
             .as_ref()
             .map(|stop| network::inetspeed_failure(failure(stop))),
+        Some(Measured::NetworkTcping(report)) => report
+            .stop
+            .as_ref()
+            .map(|stop| network::tcping_failure(failure(stop))),
         Some(Measured::NetworkTrace(report)) => report
             .stop
             .as_ref()

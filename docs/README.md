@@ -3,11 +3,11 @@
 [![standard-readme compliant](https://img.shields.io/badge/standard--readme-OK-green.svg?style=flat-square)](https://github.com/RichardLitt/standard-readme)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)](../LICENSE)
 
-> lowendaff-bench 主机画像采集与全部 15 个检测插件的测量原理、参数推导及异常处理技术文档。
+> lowendaff-bench 主机画像采集与全部 16 个检测插件的测量原理、参数推导及异常处理技术文档。
 
 返回仓库首页：[English](../README.md) | [简体中文](../README.zh-CN.md) | [日本語](../README.ja.md)
 
-本目录（`docs/`）存放 `lowendaff-bench`（仓库 `lowendaff_bench`）的模块级中文技术说明，涵盖执行前的主机环境只读采集机制，以及全部 5 大分组、15 个检测插件的测试方法、参数选择依据、异常处理逻辑与可配置项。软件安装与命令行参数速查请参阅仓库根目录 [`README.zh-CN.md`](../README.zh-CN.md)。
+本目录（`docs/`）存放 `lowendaff-bench`（仓库 `lowendaff_bench`）的模块级中文技术说明，涵盖执行前的主机环境只读采集机制，以及全部 5 大分组、16 个检测插件的测试方法、参数选择依据、异常处理逻辑与可配置项。软件安装与命令行参数速查请参阅仓库根目录 [`README.zh-CN.md`](../README.zh-CN.md)。
 
 ## 内容列表
 
@@ -30,7 +30,7 @@
 | [CPU 性能检测](cpu.md) | `[CPU performance]` | `cpu.bench`（统一调度 `sysbench`、`7zip`、`unixbench`、`hpl`、`passmark`、`ycruncher`、`prime95`、`geekbench` 共 8 项可选子基准） |
 | [内存与缓存性能检测](memory.md) | `[Memory performance]` | 共享工作集规划器、`memory.sysbench`（顺序读写）、`memory.stream`（STREAM 四核函数）、`memory.latency`（各级缓存与主存延迟）、`memory.numa`（跨节点带宽与延迟矩阵） |
 | [磁盘健康与性能检测](disk.md) | `[Disks]` | `disk.health`（物理盘只读 SMART 与硬件 RAID 穿透）、`disk.fio`（对齐 YABS 的四块大小混合随机读写） |
-| [网络吞吐、中国三网、Cloudflare/Apple CDN 测速、路由与 BGP](network.md) | `[Network]` | `network.iperf3`（全球公网测速）、`network.taier`（纯 Rust 中国三网泰尔测速）、`network.cloudflare`（纯 Rust Cloudflare 双栈测速与 Bufferbloat/STUN 评估）、`network.inetspeed`（纯 Rust 双 DoH Apple CDN 单/多线程测速）、`network.trace`（ICMP 路由追踪与 IX 识别）、`network.bgp`（全球 RIS 采集点 BGP 拓扑图） |
+| [网络吞吐、中国三网、Cloudflare/Apple CDN 测速、TCP 握手延迟、路由与 BGP](network.md) | `[Network]` | `network.iperf3`（全球公网测速）、`network.taier`（纯 Rust 中国三网泰尔测速）、`network.cloudflare`（纯 Rust Cloudflare 双栈测速与 Bufferbloat/STUN 评估）、`network.inetspeed`（纯 Rust 双 DoH Apple CDN 单/多线程测速）、`network.tcping`（纯 Rust 双栈全国 31 省/精品网/全球枢纽 TCP 握手延迟与丢包探测）、`network.trace`（ICMP + TCP 路由追踪与 IX 识别）、`network.bgp`（全球 RIS 采集点 BGP 拓扑图） |
 | [IP 信誉度与流媒体解锁](ip.md) | `[IP]` | `ip.quality`（9 源情报聚合、原生/广播判定、DNSBL 黑名单与 25 端口邮局连通性）、`ip.media`（五大洲 68 平台双栈直连解锁检测） |
 
 ## 统一执行生命周期

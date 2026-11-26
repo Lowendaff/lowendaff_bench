@@ -246,6 +246,18 @@ impl TuiWords for Japanese {
         "固定エッジ IP"
     }
 
+    fn tui_field_tcping_group(&self, group: &str) -> String {
+        format!("対象グループ：{group}")
+    }
+
+    fn tui_field_tcping_all(&self) -> &'static str {
+        "中国全 31 省・全拠点を測定"
+    }
+
+    fn tui_field_tcping_count(&self) -> &'static str {
+        "拠点あたりプローブ数"
+    }
+
     fn tui_field_trace_group(&self, group: &str) -> String {
         format!("グループ：{group}")
     }
@@ -364,6 +376,10 @@ impl TuiWords for Japanese {
 
     fn tui_default_inetspeed_note(&self) -> &'static str {
         "Dual DoH で最適な mensura.cdn-apple.com IP を選び 1T / NT 速度を測定します。"
+    }
+
+    fn tui_default_tcping_note(&self) -> &'static str {
+        "既定で主要キャリア・CN2/9929/CMIN2・主要グローバル拠点を測定します。"
     }
 
     fn tui_default_trace_note(&self) -> &'static str {

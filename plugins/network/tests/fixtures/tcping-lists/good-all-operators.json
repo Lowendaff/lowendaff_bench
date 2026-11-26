@@ -1,0 +1,101 @@
+{
+  "version": 1,
+  "targets": [
+    {
+      "id": "op-telecom",
+      "group": "china",
+      "region": "Beijing",
+      "city": "Beijing",
+      "name": "Beijing Telecom",
+      "operator": "telecom",
+      "asn": 4134,
+      "default": true,
+      "ipv4": [
+        {
+          "host": "192.0.2.1",
+          "port": 443
+        }
+      ]
+    },
+    {
+      "id": "op-unicom",
+      "group": "china",
+      "region": "Beijing",
+      "city": "Beijing",
+      "name": "Beijing Telecom",
+      "operator": "unicom",
+      "asn": 4134,
+      "default": true,
+      "ipv4": [
+        {
+          "host": "192.0.2.1",
+          "port": 443
+        }
+      ]
+    },
+    {
+      "id": "op-mobile",
+      "group": "china",
+      "region": "Beijing",
+      "city": "Beijing",
+      "name": "Beijing Telecom",
+      "operator": "mobile",
+      "asn": 4134,
+      "default": true,
+      "ipv4": [
+        {
+          "host": "192.0.2.1",
+          "port": 443
+        }
+      ]
+    },
+    {
+      "id": "op-cernet",
+      "group": "china",
+      "region": "Beijing",
+      "city": "Beijing",
+      "name": "Beijing Telecom",
+      "operator": "cernet",
+      "asn": 4134,
+      "default": true,
+      "ipv4": [
+        {
+          "host": "192.0.2.1",
+          "port": 443
+        }
+      ]
+    },
+    {
+      "id": "op-cbn",
+      "group": "china",
+      "region": "Beijing",
+      "city": "Beijing",
+      "name": "Beijing Telecom",
+      "operator": "cbn",
+      "asn": 4134,
+      "default": true,
+      "ipv4": [
+        {
+          "host": "192.0.2.1",
+          "port": 443
+        }
+      ]
+    },
+    {
+      "id": "op-other",
+      "group": "china",
+      "region": "Beijing",
+      "city": "Beijing",
+      "name": "Beijing Telecom",
+      "operator": "other",
+      "asn": 4134,
+      "default": true,
+      "ipv4": [
+        {
+          "host": "192.0.2.1",
+          "port": 443
+        }
+      ]
+    }
+  ]
+}
