@@ -33,7 +33,7 @@ body:
     attributes:
       label: "Version / 程序版本"
       description: "Output of `lowendaff-bench --version` or release tag / 请填写版本号或提交哈希"
-      placeholder: "lowendaff-bench 0.1.3 (x86_64-unknown-linux-musl)"
+      placeholder: "lowendaff-bench 0.1.4 (x86_64-unknown-linux-musl)"
     validations:
       required: true
 
