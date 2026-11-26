@@ -37,6 +37,9 @@ use crate::locale::TaierListProblem;
 use crate::locale::TaierRule;
 use crate::locale::TaierSelectorProblem;
 use crate::locale::TaierWords;
+use crate::locale::TcpingChoice;
+use crate::locale::TcpingListProblem;
+use crate::locale::TcpingWords;
 use crate::locale::TraceChoice;
 use crate::locale::TraceList;
 use crate::locale::TraceListProblem;
@@ -1958,6 +1961,106 @@ impl InetspeedWords for Japanese {
 
     fn inetspeed_no_result(&self) -> String {
         "Apple CDN 速度測定で完了したラウンドがありません".to_owned()
+    }
+}
+
+impl TcpingWords for Japanese {
+    fn tcping_method(&self, choice: &TcpingChoice) -> String {
+        let mut method = format!(
+            "非特権 TCP ハンドシェイク RTT（拠点あたり {} 回、800 ms 代替切替）",
+            choice.count
+        );
+        if !choice.groups.is_empty() {
+            method.push_str(&format!("；グループ：{}", choice.groups.join(", ")));
+        }
+        if choice.all_targets {
+            method.push_str("；中国全 31 省・全拠点");
+        }
+        method
+    }
+
+    fn tcping_group_heading(&self, group: &str, ipv6: bool) -> String {
+        let fam = if ipv6 { "IPv6" } else { "IPv4" };
+        let title = match group {
+            "china" => "中国本土キャリア",
+            "china_premium" => "中国プレミアム回線（CN2 / 9929 / CMIN2）",
+            "global" => "グローバル主要拠点",
+            other => other,
+        };
+        format!("{title}（{fam}）")
+    }
+
+    fn tcping_headers(&self) -> [&'static str; 5] {
+        [
+            "拠点",
+            "キャリア / ASN",
+            "平均 / 最小 / P95",
+            "ジッタ",
+            "ロス率",
+        ]
+    }
+
+    fn tcping_carrier_cell(&self, operator: &str, asn: u32) -> String {
+        match operator {
+            "telecom" => format!("電信 AS{asn}"),
+            "unicom" => format!("聯通 AS{asn}"),
+            "mobile" => format!("移動 AS{asn}"),
+            "cernet" => format!("CERNET AS{asn}"),
+            "cbn" => format!("広電 AS{asn}"),
+            _ => format!("AS{asn}"),
+        }
+    }
+
+    fn tcping_rtt_cell(&self, avg: &str, min: &str, p95: &str, used_backup: bool) -> String {
+        if used_backup {
+            format!("{avg} / {min} / {p95} ms [予備]")
+        } else {
+            format!("{avg} / {min} / {p95} ms")
+        }
+    }
+
+    fn tcping_loss_cell(&self, loss_pct: f64, received: u8, sent: u8) -> String {
+        format!("{loss_pct:.1}% ({received}/{sent})")
+    }
+
+    fn tcping_target_failed(&self, name: &str, ipv6: bool, reason: &str) -> String {
+        let fam = if ipv6 { "IPv6" } else { "IPv4" };
+        format!("{name}（{fam}）：{reason}")
+    }
+
+    fn tcping_list_problem(&self, problem: TcpingListProblem<'_>) -> String {
+        match problem {
+            TcpingListProblem::Missing => "TCP レイテンシ対象リストがありません".to_owned(),
+            TcpingListProblem::Unreadable(reason) => {
+                format!("TCP レイテンシ対象リストを読み取れません：{reason}")
+            }
+            TcpingListProblem::TooLarge(limit) => {
+                format!("TCP レイテンシ対象リストが {limit} バイトを超えています")
+            }
+            TcpingListProblem::Format(reason) => {
+                format!("TCP レイテンシ対象リストの JSON 形式が不正です：{reason}")
+            }
+            TcpingListProblem::Version(ver) => {
+                format!("未対応の TCP レイテンシ対象リスト形式バージョン：{ver}")
+            }
+            TcpingListProblem::Count(count, most) => {
+                format!("TCP レイテンシ対象数が不正です：{count}（許容 1..={most}）")
+            }
+            TcpingListProblem::Rule(entry, field) => {
+                format!("TCP レイテンシ対象リスト {entry} 件目の `{field}` が不正です")
+            }
+            TcpingListProblem::Duplicate(id) => {
+                format!("TCP レイテンシ対象リストに重複 ID `{id}` があります")
+            }
+        }
+    }
+
+    fn tcping_no_targets(&self) -> String {
+        "選択グループと利用可能な IP ファミリに一致する拠点がありません".to_owned()
+    }
+
+    fn tcping_all_unreachable(&self) -> String {
+        "全ての TCP レイテンシ測定拠点がタイムアウトまたは到達不能でした".to_owned()
     }
 }
 

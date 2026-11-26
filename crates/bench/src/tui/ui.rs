@@ -297,6 +297,7 @@ fn draw_config_right(frame: &mut Frame<'_>, session: &Session, area: Rect) {
                 ItemParams::Taier { .. } => Some(words.tui_default_taier_note()),
                 ItemParams::Cloudflare { .. } => Some(words.tui_default_cloudflare_note()),
                 ItemParams::Inetspeed { .. } => Some(words.tui_default_inetspeed_note()),
+                ItemParams::Tcping { .. } => Some(words.tui_default_tcping_note()),
                 ItemParams::Trace { .. } => Some(words.tui_default_trace_note()),
                 ItemParams::Bgp { .. } => Some(words.tui_default_bgp_note()),
                 ItemParams::IpMedia { .. } => Some(words.tui_default_media_note()),

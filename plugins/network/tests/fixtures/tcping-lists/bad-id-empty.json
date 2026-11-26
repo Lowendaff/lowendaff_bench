@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "targets": [
+    {
+      "id": "",
+      "group": "china",
+      "region": "Beijing",
+      "city": "Beijing",
+      "name": "Beijing Telecom",
+      "operator": "telecom",
+      "asn": 4134,
+      "default": true,
+      "ipv4": [
+        {
+          "host": "192.0.2.1",
+          "port": 443
+        }
+      ]
+    }
+  ]
+}

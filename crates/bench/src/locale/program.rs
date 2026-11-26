@@ -57,6 +57,12 @@ pub trait ProgramWords {
     fn help_inetspeed_endpoint(&self) -> String;
     /// An invalid `--inetspeed-endpoint` IP literal.
     fn invalid_inetspeed_endpoint(&self, raw: &str) -> String;
+    /// The help of `--tcping-groups`.
+    fn help_tcping_groups(&self) -> String;
+    /// The help of `--tcping-all`.
+    fn help_tcping_all(&self) -> String;
+    /// The help of `--tcping-count`.
+    fn help_tcping_count(&self) -> String;
     /// The help of `--trace-groups`.
     fn help_trace_groups(&self) -> String;
     /// The help of `--no-trace-tcp`.

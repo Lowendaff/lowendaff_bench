@@ -1,0 +1,72 @@
+{
+  "version": 1,
+  "targets": [
+    {
+      "id": "cn-bj-ct",
+      "group": "china",
+      "region": "Beijing",
+      "city": "Beijing",
+      "name": "Beijing Telecom",
+      "operator": "telecom",
+      "asn": 4134,
+      "default": true,
+      "ipv4": [
+        {
+          "host": "192.0.2.1",
+          "port": 443
+        }
+      ]
+    },
+    {
+      "id": "cn-sh-cuii-9929",
+      "group": "china_premium",
+      "region": "Shanghai",
+      "city": "Shanghai",
+      "name": "Shanghai Unicom 9929",
+      "operator": "unicom",
+      "asn": 9929,
+      "default": false,
+      "ipv4": [
+        {
+          "host": "198.51.100.10",
+          "port": 443
+        },
+        {
+          "host": "198.51.100.11",
+          "port": 8080
+        }
+      ],
+      "ipv6": [
+        {
+          "host": "2001:db8::10",
+          "port": 443
+        },
+        {
+          "host": "2001:db8::11",
+          "port": 8443
+        }
+      ]
+    },
+    {
+      "id": "global-jp-tyo",
+      "group": "global",
+      "region": "Asia-Pacific",
+      "city": "Tokyo",
+      "name": "Tokyo, JP",
+      "operator": "other",
+      "asn": 20473,
+      "ipv4": [
+        {
+          "host": "s3.ap-northeast-1.amazonaws.com",
+          "port": 443
+        }
+      ],
+      "ipv6": [
+        {
+          "host": "s3.dualstack.ap-northeast-1.amazonaws.com",
+          "port": 443
+        }
+      ]
+    }
+  ]
+}

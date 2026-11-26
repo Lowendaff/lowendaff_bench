@@ -2,6 +2,7 @@
 //! Kept in `bench` so plugins never open sockets of their own.
 
 use std::collections::hash_map::RandomState;
+use std::io::ErrorKind;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::net::Ipv6Addr;
@@ -9,6 +10,7 @@ use std::net::SocketAddr;
 use std::sync::atomic::AtomicU16;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
+use std::time::Instant;
 
 use bench_api::CancellationToken;
 use bench_api::CloudflareStun;
@@ -29,6 +31,7 @@ use bench_api::SmtpBanner;
 use bench_api::TaierAdmission;
 use bench_api::TaierStreamSpec;
 use bench_api::TaierTransfer;
+use bench_api::TcpPingOutcome;
 use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpSocket;
@@ -315,6 +318,28 @@ impl NetClient for NetProbers {
         cancel: &'a CancellationToken,
     ) -> NetFuture<'a, InetspeedTransfer> {
         Box::pin(async move { inetspeed_probe::transfer(spec, cancel).await })
+    }
+
+    fn resolve_endpoint<'a>(
+        &'a self,
+        family: IpFamily,
+        host: &'a str,
+        port: u16,
+        allow_local: bool,
+        timeout: Duration,
+    ) -> NetFuture<'a, SocketAddr> {
+        Box::pin(
+            async move { resolve_tcp_endpoint(family, host, port, allow_local, timeout).await },
+        )
+    }
+
+    fn tcp_ping<'a>(
+        &'a self,
+        addr: SocketAddr,
+        allow_local: bool,
+        timeout: Duration,
+    ) -> NetFuture<'a, TcpPingOutcome> {
+        Box::pin(async move { probe_tcp_ping(addr, allow_local, timeout).await })
     }
 }
 
@@ -756,6 +781,107 @@ fn net_error_summary(err: &NetError) -> String {
     }
 }
 
+/// Minimum non-loopback `ECONNREFUSED` round-trip (`100 us`) accepted as a genuine remote `RST`
+/// rather than an immediate local firewall/TUN synthetic reject.
+const MIN_REMOTE_RST_MICROS: u64 = 100;
+
+fn is_allowed_probe_ip(ip: IpAddr, allow_local: bool) -> bool {
+    (allow_local && ip.is_loopback()) || bench_api::is_routable_endpoint_ip(ip)
+}
+
+async fn resolve_tcp_endpoint(
+    family: IpFamily,
+    host: &str,
+    port: u16,
+    allow_local: bool,
+    timeout: Duration,
+) -> Result<SocketAddr, NetError> {
+    let ipv6 = family == IpFamily::Ipv6;
+    let clean = host.trim_matches(['[', ']']);
+    if let Ok(ip) = clean.parse::<IpAddr>() {
+        if ip.is_ipv6() != ipv6 {
+            return Err(NetError::NoAddress);
+        }
+        if !is_allowed_probe_ip(ip, allow_local) {
+            return Err(NetError::Transport(
+                "non-public TCP probe address refused".to_owned(),
+            ));
+        }
+        return Ok(SocketAddr::new(ip, port));
+    }
+    let resolved = match tokio::time::timeout(timeout, tokio::net::lookup_host((clean, port))).await
+    {
+        Ok(Ok(addrs)) => addrs,
+        Ok(Err(err)) => return Err(NetError::Transport(err.to_string())),
+        Err(_) => return Err(NetError::TimedOut),
+    };
+    let family_addrs: Vec<SocketAddr> = resolved.filter(|addr| addr.is_ipv6() == ipv6).collect();
+    if family_addrs.is_empty() {
+        return Err(NetError::NoAddress);
+    }
+    for addr in family_addrs {
+        if is_allowed_probe_ip(addr.ip(), allow_local) {
+            return Ok(addr);
+        }
+    }
+    Err(NetError::Transport(
+        "TCP probe host resolved to non-public address".to_owned(),
+    ))
+}
+
+async fn probe_tcp_ping(
+    addr: SocketAddr,
+    allow_local: bool,
+    timeout: Duration,
+) -> Result<TcpPingOutcome, NetError> {
+    if port_is_zero(addr.port()) || !is_allowed_probe_ip(addr.ip(), allow_local) {
+        return Err(NetError::Transport(
+            "non-public TCP probe address refused".to_owned(),
+        ));
+    }
+    let socket = if addr.is_ipv6() {
+        let sock = TcpSocket::new_v6().map_err(|err| NetError::Transport(err.to_string()))?;
+        sock.bind(SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 0))
+            .map_err(|err| NetError::Transport(err.to_string()))?;
+        sock
+    } else {
+        let sock = TcpSocket::new_v4().map_err(|err| NetError::Transport(err.to_string()))?;
+        sock.bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0))
+            .map_err(|err| NetError::Transport(err.to_string()))?;
+        sock
+    };
+    let started = Instant::now();
+    match tokio::time::timeout(timeout, socket.connect(addr)).await {
+        Ok(Ok(stream)) => {
+            let micros = u64::try_from(started.elapsed().as_micros())
+                .unwrap_or(u64::MAX)
+                .max(1);
+            let _ = stream.set_nodelay(true);
+            drop(stream);
+            Ok(TcpPingOutcome::Connected { micros, rst: false })
+        }
+        Ok(Err(err)) if err.kind() == ErrorKind::ConnectionRefused => {
+            let raw_micros = u64::try_from(started.elapsed().as_micros()).unwrap_or(u64::MAX);
+            if !addr.ip().is_loopback() && raw_micros < MIN_REMOTE_RST_MICROS {
+                Ok(TcpPingOutcome::Unreachable(
+                    "local connection refused".to_owned(),
+                ))
+            } else {
+                Ok(TcpPingOutcome::Connected {
+                    micros: raw_micros.max(1),
+                    rst: true,
+                })
+            }
+        }
+        Ok(Err(err)) => Ok(TcpPingOutcome::Unreachable(err.to_string())),
+        Err(_) => Ok(TcpPingOutcome::TimedOut),
+    }
+}
+
+const fn port_is_zero(port: u16) -> bool {
+    port == 0
+}
+
 #[cfg(test)]
 mod tests {
     use std::net::Ipv4Addr;
@@ -995,5 +1121,82 @@ mod tests {
                 "SMTP host resolved to non-public address".to_owned()
             ))
         );
+    }
+
+    #[tokio::test]
+    async fn tcp_ping_measures_syn_ack_and_rst_and_rejects_non_public_targets() {
+        use bench_api::NetClient;
+        use bench_api::TcpPingOutcome;
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind open");
+        let open_addr = listener.local_addr().expect("open addr");
+        tokio::spawn(async move {
+            while let Ok((stream, _)) = listener.accept().await {
+                drop(stream);
+            }
+        });
+
+        let closed_listener = TcpListener::bind("127.0.0.1:0").await.expect("bind closed");
+        let closed_addr = closed_listener.local_addr().expect("closed addr");
+        drop(closed_listener);
+
+        let probers = NetProbers::new();
+        let limit = Duration::from_secs(2);
+
+        // Without allow_local, loopback is refused.
+        assert_eq!(
+            probers.tcp_ping(open_addr, false, limit).await,
+            Err(NetError::Transport(
+                "non-public TCP probe address refused".to_owned()
+            ))
+        );
+        assert_eq!(
+            probers
+                .resolve_endpoint(IpFamily::Ipv4, "127.0.0.1", open_addr.port(), false, limit)
+                .await,
+            Err(NetError::Transport(
+                "non-public TCP probe address refused".to_owned()
+            ))
+        );
+
+        // With allow_local, loopback succeeds for both SYN-ACK and closed-port RST, while RFC1918
+        // and link-local remain blocked.
+        let resolved = probers
+            .resolve_endpoint(IpFamily::Ipv4, "127.0.0.1", open_addr.port(), true, limit)
+            .await
+            .expect("loopback allowed in local override mode");
+        assert_eq!(resolved, open_addr);
+        assert_eq!(
+            probers
+                .resolve_endpoint(IpFamily::Ipv4, "10.0.0.1", 443, true, limit)
+                .await,
+            Err(NetError::Transport(
+                "non-public TCP probe address refused".to_owned()
+            ))
+        );
+
+        match probers
+            .tcp_ping(open_addr, true, limit)
+            .await
+            .expect("open tcp_ping")
+        {
+            TcpPingOutcome::Connected { micros, rst } => {
+                assert!(micros >= 1);
+                assert!(!rst);
+            }
+            other => panic!("expected Connected(rst=false), got {other:?}"),
+        }
+
+        match probers
+            .tcp_ping(closed_addr, true, limit)
+            .await
+            .expect("closed tcp_ping")
+        {
+            TcpPingOutcome::Connected { micros, rst } => {
+                assert!(micros >= 1);
+                assert!(rst);
+            }
+            other => panic!("expected Connected(rst=true), got {other:?}"),
+        }
     }
 }

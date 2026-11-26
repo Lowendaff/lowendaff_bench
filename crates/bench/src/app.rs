@@ -33,6 +33,7 @@ use plugin_network::taier::Selector as TaierSelector;
 use plugin_network::taier::SelectorError as TaierSelectorError;
 use plugin_network::taier::Taier;
 use plugin_network::taier::nodes::Location as TaierLocation;
+use plugin_network::tcping::Tcping;
 use plugin_network::trace::Trace;
 use tokio::io::AsyncRead;
 use tokio::time::Instant as TokioInstant;
@@ -149,6 +150,31 @@ impl TaierOperator {
             Self::Cernet => "cernet",
             Self::Cbn => "cbn",
             Self::Other => "other",
+            Self::All => "all",
+        }
+    }
+}
+
+/// Target group selection for `network.tcping` (`--tcping-groups`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum TcpingGroup {
+    /// Mainland China provincial standard carrier routes.
+    China,
+    /// Mainland China premium international backbones (`CN2`, `9929`, `CMIN2`).
+    #[value(name = "china-premium", alias = "china_premium")]
+    ChinaPremium,
+    /// Global single-region Internet hubs.
+    Global,
+    /// Every target group.
+    All,
+}
+
+impl TcpingGroup {
+    const fn code(self) -> &'static str {
+        match self {
+            Self::China => "china",
+            Self::ChinaPremium => "china-premium",
+            Self::Global => "global",
             Self::All => "all",
         }
     }
@@ -333,6 +359,27 @@ pub struct Cli {
     // Optional pinned Apple CDN endpoint IP for network.inetspeed.
     #[arg(long, help = locale::words().help_inetspeed_endpoint())]
     pub inetspeed_endpoint: Option<String>,
+
+    // Target groups for TCP handshake latency (network.tcping).
+    #[arg(
+        long,
+        value_enum,
+        value_delimiter = ',',
+        help = locale::words().help_tcping_groups()
+    )]
+    pub tcping_groups: Vec<TcpingGroup>,
+
+    // Expands network.tcping to all 31 mainland China provinces and secondary global hubs.
+    #[arg(long, help = locale::words().help_tcping_all())]
+    pub tcping_all: bool,
+
+    // TCP handshake probes sent per target in network.tcping (5..=50).
+    #[arg(
+        long,
+        value_parser = clap::value_parser!(u8).range(5..=50),
+        help = locale::words().help_tcping_count()
+    )]
+    pub tcping_count: Option<u8>,
 
     // Target groups for route tracing.
     #[arg(
@@ -621,6 +668,14 @@ pub fn prepare_with_proxy(
             &mut settings,
             cli.inetspeed_threads,
             inet_endpoint.as_deref(),
+        );
+    }
+    if !cli.tcping_groups.is_empty() || cli.tcping_all || cli.tcping_count.is_some() {
+        tcping_settings(
+            &mut settings,
+            &cli.tcping_groups,
+            cli.tcping_all,
+            cli.tcping_count,
         );
     }
     if !cli.trace_groups.is_empty() || cli.no_trace_tcp || cli.trace_packet_size.is_some() {
@@ -1136,6 +1191,31 @@ pub fn inetspeed_settings(
                 "endpoint".to_owned(),
                 serde_json::Value::String(ip.to_owned()),
             );
+        }
+    }
+}
+
+/// Sets `--tcping-groups`, `--tcping-all`, and `--tcping-count` in `network.tcping`'s table.
+pub fn tcping_settings(
+    settings: &mut BTreeMap<String, serde_json::Value>,
+    groups: &[TcpingGroup],
+    all_targets: bool,
+    count: Option<u8>,
+) {
+    let table = plugin_table(settings, Tcping::DESCRIPTOR.id);
+    if let Some(table) = table.as_object_mut() {
+        if !groups.is_empty() {
+            let values = groups
+                .iter()
+                .map(|g| serde_json::Value::String(g.code().to_owned()))
+                .collect();
+            table.insert("groups".to_owned(), serde_json::Value::Array(values));
+        }
+        if all_targets {
+            table.insert("all_targets".to_owned(), serde_json::Value::Bool(true));
+        }
+        if let Some(n) = count {
+            table.insert("count".to_owned(), serde_json::Value::from(n));
         }
     }
 }

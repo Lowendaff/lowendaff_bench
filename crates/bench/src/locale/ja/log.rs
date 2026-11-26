@@ -110,6 +110,19 @@ impl LogWords for Japanese {
                 (dir, 1) => format!("{dir}（シングルスレッド）"),
                 (dir, n) => format!("{dir}（{n} スレッド）"),
             },
+            Step::Tcping {
+                group,
+                targets,
+                ipv6,
+            } => {
+                let label = match *group {
+                    "china" => "中国本土キャリア",
+                    "china_premium" => "中国プレミアム回線",
+                    "global" => "グローバル主要拠点",
+                    other => other,
+                };
+                format!("{label} を測定中（{targets} 拠点、{}）", family(*ipv6))
+            }
         };
         format!("{id} {step}")
     }

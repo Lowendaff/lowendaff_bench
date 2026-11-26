@@ -112,6 +112,19 @@ impl LogWords for SimplifiedChinese {
                 (dir, 1) => format!("{dir}（单线程）"),
                 (dir, n) => format!("{dir}（{n} 线程）"),
             },
+            Step::Tcping {
+                group,
+                targets,
+                ipv6,
+            } => {
+                let label = match *group {
+                    "china" => "中国大陆各省三网",
+                    "china_premium" => "中国大陆精品网",
+                    "global" => "全球核心枢纽",
+                    other => other,
+                };
+                format!("正在探测 {label}（{targets} 个节点，{}）", family(*ipv6))
+            }
         };
         format!("{id} {step}")
     }

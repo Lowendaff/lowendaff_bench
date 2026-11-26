@@ -520,6 +520,15 @@ pub enum Step {
         /// Concurrent stream count (`0` for `discover` and `latency`).
         threads: u8,
     },
+    /// Probing a regional group of TCP handshake latency targets (`network.tcping`).
+    Tcping {
+        /// Group code (`china`, `china_premium`, or `global`).
+        group: &'static str,
+        /// Number of targets probed in this group and IP family.
+        targets: usize,
+        /// Whether the probes run over IPv6, else IPv4.
+        ipv6: bool,
+    },
 }
 
 /// Default byte limit read from an HTTP probe response body (256 KiB).
@@ -917,6 +926,23 @@ pub struct InetspeedTransfer {
     pub loaded_rtts_micros: Vec<u64>,
 }
 
+/// Outcome of a single unprivileged TCP handshake probe (`network.tcping`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub enum TcpPingOutcome {
+    /// Handshake answered (`SYN -> SYN-ACK`, or target `RST` when `rst` is `true`) with
+    /// round-trip duration in microseconds (`>= 1`).
+    Connected {
+        /// Round-trip duration in microseconds (`>= 1`).
+        micros: u64,
+        /// `true` when the peer answered with `RST` (`ECONNREFUSED`) rather than `SYN-ACK`.
+        rst: bool,
+    },
+    /// Exceeded the per-probe deadline without a response.
+    TimedOut,
+    /// Immediate local or routing failure (`ENETUNREACH`, `EHOSTUNREACH`, `EADDRNOTAVAIL`, etc.).
+    Unreachable(String),
+}
+
 /// Why a DNS or SMTP socket probe failed.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub enum NetError {
@@ -1097,6 +1123,37 @@ pub trait NetClient: Send + Sync {
         _spec: &'a InetspeedTransferSpec,
         _cancel: &'a CancellationToken,
     ) -> NetFuture<'a, InetspeedTransfer> {
+        Box::pin(async {
+            Err(NetError::Transport(
+                "no network client configured".to_owned(),
+            ))
+        })
+    }
+
+    /// Resolves `host:port` for `family`, accepting loopback addresses only when `allow_local` is
+    /// `true`.
+    fn resolve_endpoint<'a>(
+        &'a self,
+        _family: IpFamily,
+        _host: &'a str,
+        _port: u16,
+        _allow_local: bool,
+        _timeout: Duration,
+    ) -> NetFuture<'a, SocketAddr> {
+        Box::pin(async {
+            Err(NetError::Transport(
+                "no network client configured".to_owned(),
+            ))
+        })
+    }
+
+    /// Measures one unprivileged TCP handshake (`SYN -> SYN-ACK` or remote `RST`) to `addr`.
+    fn tcp_ping<'a>(
+        &'a self,
+        _addr: SocketAddr,
+        _allow_local: bool,
+        _timeout: Duration,
+    ) -> NetFuture<'a, TcpPingOutcome> {
         Box::pin(async {
             Err(NetError::Transport(
                 "no network client configured".to_owned(),
@@ -1584,6 +1641,44 @@ impl<O: Measurement> Context<O> {
             biased;
             () = self.cancel.cancelled() => Err(NetError::Cancelled),
             outcome = self.net.inetspeed_transfer(spec, &self.cancel) => outcome,
+        }
+    }
+
+    /// Resolves `host:port` for `family`, stopping early when cancelled.
+    pub async fn resolve_endpoint(
+        &self,
+        family: IpFamily,
+        host: &str,
+        port: u16,
+        allow_local: bool,
+        timeout: Duration,
+    ) -> Result<SocketAddr, NetError> {
+        if self.cancel.is_cancelled() {
+            return Err(NetError::Cancelled);
+        }
+        tokio::select! {
+            biased;
+            () = self.cancel.cancelled() => Err(NetError::Cancelled),
+            outcome = self.net.resolve_endpoint(family, host, port, allow_local, timeout) => {
+                outcome
+            }
+        }
+    }
+
+    /// Measures one unprivileged TCP handshake against `addr`, stopping early when cancelled.
+    pub async fn tcp_ping(
+        &self,
+        addr: SocketAddr,
+        allow_local: bool,
+        timeout: Duration,
+    ) -> Result<TcpPingOutcome, NetError> {
+        if self.cancel.is_cancelled() {
+            return Err(NetError::Cancelled);
+        }
+        tokio::select! {
+            biased;
+            () = self.cancel.cancelled() => Err(NetError::Cancelled),
+            outcome = self.net.tcp_ping(addr, allow_local, timeout) => outcome,
         }
     }
 

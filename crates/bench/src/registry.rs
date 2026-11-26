@@ -46,6 +46,9 @@ pub fn all() -> Vec<Entry> {
         // Apple CDN speed: native Dual DoH endpoint discovery, IP-pinned RTT, and 1T/NT transfer
         // rounds against mensura.cdn-apple.com.
         entry::<plugin_network::inetspeed::Inetspeed>(Measured::NetworkInetspeed),
+        // TCP handshake latency: unprivileged dual-stack TCP RTT, jitter, P95, and packet-loss
+        // probing across mainland China, China premium backbones, and global hubs.
+        entry::<plugin_network::tcping::Tcping>(Measured::NetworkTcping),
         // Route tracing: after network speed, so that its probes do not share the link with
         // iperf3's streams.
         entry::<plugin_network::trace::Trace>(Measured::NetworkTrace),
@@ -272,6 +275,7 @@ mod tests {
                 "network.taier",
                 "network.cloudflare",
                 "network.inetspeed",
+                "network.tcping",
                 "network.trace",
                 "network.bgp",
                 "ip.quality",

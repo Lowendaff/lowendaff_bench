@@ -256,6 +256,7 @@ fn serialize_measured(measured: &Measured, own: &[IpAddr], show_ip: bool) -> Opt
             val
         }),
         Measured::NetworkInetspeed(r) => r.output.as_ref().map(to_value),
+        Measured::NetworkTcping(r) => r.output.as_ref().map(to_value),
         Measured::NetworkTrace(r) => r.output.as_ref().map(|out| {
             let mut val = to_value(out);
             if !show_ip && !own.is_empty() {

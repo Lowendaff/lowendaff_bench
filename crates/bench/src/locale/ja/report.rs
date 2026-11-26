@@ -51,6 +51,7 @@ impl ReportWords for Japanese {
             "network.taier" => Some("中国キャリア回線速度"),
             "network.cloudflare" => Some("Cloudflare 回線速度"),
             "network.inetspeed" => Some("Apple CDN 回線速度"),
+            "network.tcping" => Some("TCP レイテンシ"),
             "network.trace" => Some("ネットワーク経路追跡"),
             "network.bgp" => Some("BGP 経路トポロジー"),
             "ip.quality" => Some("IP 品質・リスク診断"),

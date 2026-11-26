@@ -1171,3 +1171,59 @@ pub trait InetspeedWords {
     /// Failure reason when every transfer round failed.
     fn inetspeed_no_result(&self) -> String;
 }
+
+/// Effective parameters shown in `network.tcping`'s method line.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TcpingChoice {
+    /// Selected group codes (empty means default groups).
+    pub groups: Vec<&'static str>,
+    /// Whether `--tcping-all` expanded all 31 mainland China provinces and secondary hubs.
+    pub all_targets: bool,
+    /// Probes sent per reachable endpoint.
+    pub count: u8,
+}
+
+/// Typed `servers/tcping.json` validation or read failure passed to [`TcpingWords`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TcpingListProblem<'a> {
+    /// Target list file handle was not supplied.
+    Missing,
+    /// File could not be read.
+    Unreadable(&'a str),
+    /// File exceeded `limit` bytes.
+    TooLarge(usize),
+    /// File was not valid JSON of the expected shape.
+    Format(&'a str),
+    /// Unsupported `version` number.
+    Version(u64),
+    /// `0` or more than `most` targets.
+    Count(usize, usize),
+    /// Entry `entry` (1-based) broke `field`.
+    Rule(usize, &'a str),
+    /// Two entries shared `id`.
+    Duplicate(&'a str),
+}
+
+/// TCP handshake latency's words (`network.tcping`).
+pub trait TcpingWords {
+    /// Method line at the top of `[TCP latency]`.
+    fn tcping_method(&self, choice: &TcpingChoice) -> String;
+    /// Subheading for one `(group, family)` table (`china`, `china_premium`, or `global`).
+    fn tcping_group_heading(&self, group: &str, ipv6: bool) -> String;
+    /// Table column headers (`["Target", "Carrier / ASN", "Avg / Min / P95", "Jitter", "Loss"]`).
+    fn tcping_headers(&self) -> [&'static str; 5];
+    /// Carrier + ASN cell (`Telecom AS4134`, `AS20473`, etc.).
+    fn tcping_carrier_cell(&self, operator: &str, asn: u32) -> String;
+    /// Latency cell (`24.5 / 22.1 / 28.4 ms` or `24.5 / 22.1 / 28.4 ms [bak]`).
+    fn tcping_rtt_cell(&self, avg: &str, min: &str, p95: &str, used_backup: bool) -> String;
+    /// Loss cell (`0.0% (10/10)`).
+    fn tcping_loss_cell(&self, loss_pct: f64, received: u8, sent: u8) -> String;
+    /// Note for a target that failed DNS resolution or socket routing.
+    fn tcping_target_failed(&self, name: &str, ipv6: bool, reason: &str) -> String;
+    /// Renders a [`TcpingListProblem`] failure reason.
+    fn tcping_list_problem(&self, problem: TcpingListProblem<'_>) -> String;
+    /// Skip reason when no targets matched the group filter and reachable IP families.
+    fn tcping_no_targets(&self) -> String;
+    /// Failure reason when every probed target failed or timed out completely.
+    fn tcping_all_unreachable(&self) -> String;
+}

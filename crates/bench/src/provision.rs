@@ -60,7 +60,7 @@ pub const MIN_RANGE: u64 = 1 << 20;
 const ATTEMPTS: u32 = 4;
 
 /// The largest file that a plugin may ask for: such a file is a list, not a tool.
-pub const FILE_LIMIT: u64 = 64 * 1024;
+pub const FILE_LIMIT: u64 = 128 * 1024;
 
 /// Maximum total uncompressed bytes extracted from a tool archive (`4 GiB`, comfortably above
 /// Geekbench while bounding decompression bombs on disk).

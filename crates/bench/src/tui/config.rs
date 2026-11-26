@@ -13,6 +13,7 @@ use plugin_network::inetspeed::parse as inetspeed_parse;
 use plugin_network::iperf3::result::Settings as IperfSettings;
 use plugin_network::taier::Selector as TaierSelector;
 use plugin_network::taier::Settings as TaierSettings;
+use plugin_network::tcping;
 use plugin_network::trace;
 
 use crate::app;
@@ -29,6 +30,9 @@ use crate::results::Measured;
 
 /// CPU sub-suite codes in UI display and execution order.
 pub const CPU_SUITES: [&str; 8] = SUITE_CODES;
+
+/// TCP handshake latency group codes in UI display order.
+pub const TCPING_GROUPS: [&str; 4] = ["china", "china-premium", "global", "all"];
 
 /// Route tracing group codes in UI display order.
 pub const TRACE_GROUPS: [&str; 4] = ["services", "china", "international", "all"];
@@ -91,6 +95,15 @@ pub enum ItemParams {
         latency_count: u8,
         /// Optional pinned endpoint IP literal; empty uses Dual DoH discovery.
         endpoint: String,
+    },
+    /// `network.tcping` TCP handshake latency parameters.
+    Tcping {
+        /// Selected target groups (`china`, `china-premium`, `global`, `all`).
+        groups: [bool; 4],
+        /// Whether to expand to all 31 mainland China provinces and secondary hubs.
+        all_targets: bool,
+        /// Handshake probes per target (`5..=50`).
+        count: u8,
     },
     /// `network.trace` route tracing parameters.
     Trace {
@@ -158,6 +171,11 @@ impl ItemParams {
                 latency_count: InetspeedSettings::DEFAULT_LATENCY_COUNT,
                 endpoint: String::new(),
             },
+            "network.tcping" => Self::Tcping {
+                groups: [false; 4],
+                all_targets: false,
+                count: tcping::result::DEFAULT_COUNT,
+            },
             "network.trace" => Self::Trace {
                 groups: [false; 4],
                 targets: String::new(),
@@ -206,6 +224,11 @@ impl ItemParams {
                 max: InetspeedSettings::DEFAULT_MAX.to_owned(),
                 latency_count: InetspeedSettings::DEFAULT_LATENCY_COUNT,
                 endpoint: String::new(),
+            },
+            "network.tcping" => Self::Tcping {
+                groups: [false; 4],
+                all_targets: false,
+                count: tcping::result::DEFAULT_COUNT,
             },
             "network.trace" => Self::Trace {
                 groups: [false; 4],
@@ -278,6 +301,15 @@ impl ItemParams {
                         .eq_ignore_ascii_case(InetspeedSettings::DEFAULT_MAX)
                     && *latency_count == InetspeedSettings::DEFAULT_LATENCY_COUNT
                     && endpoint.trim().is_empty()
+            }
+            Self::Tcping {
+                groups,
+                all_targets,
+                count,
+            } => {
+                !groups.iter().any(|on| *on)
+                    && !*all_targets
+                    && *count == tcping::result::DEFAULT_COUNT
             }
             Self::Trace {
                 groups,
@@ -408,6 +440,31 @@ impl ItemParams {
                         "endpoint".to_owned(),
                         serde_json::Value::String(ep_trimmed.to_owned()),
                     );
+                }
+            }
+            Self::Tcping {
+                groups,
+                all_targets,
+                count,
+            } => {
+                let chosen: Vec<String> = if groups[3] {
+                    vec!["all".to_owned()]
+                } else {
+                    TCPING_GROUPS[..3]
+                        .iter()
+                        .zip(groups[..3].iter())
+                        .filter(|(_, on)| **on)
+                        .map(|(code, _)| (*code).to_owned())
+                        .collect()
+                };
+                if !chosen.is_empty() {
+                    map.insert("groups".to_owned(), string_array(&chosen));
+                }
+                if *all_targets {
+                    map.insert("all_targets".to_owned(), serde_json::Value::Bool(true));
+                }
+                if *count != tcping::result::DEFAULT_COUNT {
+                    map.insert("count".to_owned(), serde_json::Value::from(*count));
                 }
             }
             Self::Trace {
@@ -946,6 +1003,33 @@ impl TuiConfig {
                     inactive,
                 ));
             }
+            ItemParams::Tcping {
+                groups,
+                all_targets,
+                count,
+            } => {
+                let group_rows = TCPING_GROUPS.iter().zip(groups.iter());
+                for (code, on) in group_rows {
+                    rows.push(sub_row(
+                        bool_row(&words.tui_field_tcping_group(code), *on, false),
+                        inactive,
+                    ));
+                }
+                rows.push(sub_row(
+                    bool_row(words.tui_field_tcping_all(), *all_targets, false),
+                    inactive,
+                ));
+                rows.push(sub_row(
+                    FieldRow {
+                        label: words.tui_field_tcping_count().to_owned(),
+                        value: count.to_string(),
+                        customized: *count != tcping::result::DEFAULT_COUNT,
+                        dimmed: false,
+                        edit_raw: Some(count.to_string()),
+                    },
+                    inactive,
+                ));
+            }
             ItemParams::Trace {
                 groups,
                 targets,
@@ -1226,6 +1310,18 @@ impl TuiConfig {
                 _ => {}
             }
         }
+        if let ItemParams::Tcping { count, .. } = &mut item.params
+            && field_idx == 6
+        {
+            *count = step_u8(
+                *count,
+                delta,
+                tcping::result::MIN_COUNT,
+                tcping::result::MAX_COUNT,
+            );
+            item.enabled = true;
+            return;
+        }
         if let ItemParams::Trace {
             geo,
             tcp,
@@ -1280,6 +1376,25 @@ impl TuiConfig {
                     item.enabled = suites.iter().any(|on| *on);
                 }
             }
+            ItemParams::Tcping {
+                groups,
+                all_targets,
+                ..
+            } => match field_idx {
+                1..=4 => {
+                    item.enabled = true;
+                    toggle_trace_group(groups, field_idx - 1);
+                }
+                5 => {
+                    if was_disabled {
+                        item.enabled = true;
+                        *all_targets = true;
+                    } else {
+                        *all_targets = !*all_targets;
+                    }
+                }
+                _ => {}
+            },
             ItemParams::Trace {
                 groups,
                 targets,
@@ -1594,6 +1709,21 @@ impl TuiConfig {
                 }
                 _ => {}
             },
+            ItemParams::Tcping { count, .. } => {
+                if field_idx == 6 {
+                    if trimmed.is_empty() {
+                        *count = tcping::result::DEFAULT_COUNT;
+                    } else {
+                        let min = u32::from(tcping::result::MIN_COUNT);
+                        let max = u32::from(tcping::result::MAX_COUNT);
+                        let val = parse_range(trimmed, min, max).ok_or_else(|| {
+                            words.tui_invalid_number(words.tui_field_tcping_count(), min, max)
+                        })?;
+                        *count = u8::try_from(val).unwrap_or(tcping::result::DEFAULT_COUNT);
+                        item.enabled = true;
+                    }
+                }
+            }
             ItemParams::Trace {
                 groups,
                 targets,

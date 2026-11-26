@@ -290,6 +290,12 @@ jobs:
         run: >-
           scripts/smoke-inetspeed.sh "$RUNNER_TEMP/inetspeed"
           "$RUNNER_TEMP/iperf3/overrides.json"
+      # TCP handshake latency probes a local TCP listener on 127.0.0.1.
+      - name: Local TCP latency server
+        if: steps.scope.outputs.run != 'false'
+        run: >-
+          scripts/smoke-tcping.sh "$RUNNER_TEMP/tcping"
+          "$RUNNER_TEMP/iperf3/overrides.json"
       # Geekbench, PassMark, UnixBench, y-cruncher and Prime95 take minutes or publish online;
       # smoke exercises unified cpu.bench with sysbench, 7-Zip and HPL.
       - name: Smoke

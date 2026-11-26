@@ -344,6 +344,7 @@ fn plugin(out: &mut Out, run: &Run<Measured>, indent: &str, page: &Page) {
             network::cloudflare(out, report, indent, page.show_ip);
         }
         Some(Measured::NetworkInetspeed(report)) => network::inetspeed(out, report, indent),
+        Some(Measured::NetworkTcping(report)) => network::tcping(out, report, indent),
         Some(Measured::NetworkTrace(report)) => {
             let own = collect_own_addresses(page.host, page.runs);
             network::trace(out, report, indent, &own, page.show_ip);

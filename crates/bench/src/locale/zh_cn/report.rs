@@ -51,6 +51,7 @@ impl ReportWords for SimplifiedChinese {
             "network.taier" => Some("中国三网测速"),
             "network.cloudflare" => Some("Cloudflare 测速"),
             "network.inetspeed" => Some("Apple CDN 测速"),
+            "network.tcping" => Some("TCP 握手延迟"),
             "network.trace" => Some("去程路由追踪"),
             "network.bgp" => Some("BGP 路由拓扑"),
             "ip.quality" => Some("IP 质量体检"),

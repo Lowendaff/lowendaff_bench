@@ -249,6 +249,18 @@ impl TuiWords for English {
         "Pinned endpoint IP"
     }
 
+    fn tui_field_tcping_group(&self, group: &str) -> String {
+        format!("Group: {group}")
+    }
+
+    fn tui_field_tcping_all(&self) -> &'static str {
+        "All 31 provinces & hubs"
+    }
+
+    fn tui_field_tcping_count(&self) -> &'static str {
+        "Probes per target"
+    }
+
     fn tui_field_trace_group(&self, group: &str) -> String {
         format!("Group: {group}")
     }
@@ -367,6 +379,11 @@ impl TuiWords for English {
 
     fn tui_default_inetspeed_note(&self) -> &'static str {
         "Discovers optimal mensura.cdn-apple.com IP via Dual DoH and runs 1T & NT rounds."
+    }
+
+    fn tui_default_tcping_note(&self) -> &'static str {
+        "Defaults to curated China carriers, CN2/9929/CMIN2 & global hubs \
+         (enable all for 31 provs)."
     }
 
     fn tui_default_trace_note(&self) -> &'static str {

@@ -1352,8 +1352,8 @@ async fn a_file_at_an_address_other_than_https_is_not_downloaded() {
 }
 
 #[tokio::test]
-async fn a_file_of_64_kib_comes_and_a_larger_one_fails_at_once_and_leaves_nothing() {
-    assert_eq!(provision::FILE_LIMIT, 65_536);
+async fn a_file_of_128_kib_comes_and_a_larger_one_fails_at_once_and_leaves_nothing() {
+    assert_eq!(provision::FILE_LIMIT, 131_072);
     let fits = Served::new(contents(provision::FILE_LIMIT));
     let fetched = fetch_from(&[list(LIST_URL)], &fits).await;
     assert!(
@@ -1367,7 +1367,7 @@ async fn a_file_of_64_kib_comes_and_a_larger_one_fails_at_once_and_leaves_nothin
     let fetched = fetch_from(&[list(LIST_URL)], &large).await;
     assert_eq!(
         fetched.provisioned.failed,
-        BTreeMap::from([("servers".to_owned(), "larger than 65536 bytes".to_owned())])
+        BTreeMap::from([("servers".to_owned(), "larger than 131072 bytes".to_owned())])
     );
     assert_eq!(fetched.left, BTreeMap::new(), "the partial file is removed");
     assert_eq!(large.asked(), [None], "a file too large is not tried again");
